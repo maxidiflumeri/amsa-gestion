@@ -19,7 +19,11 @@ export class DeudoresService {
             include: {
                 empresa: true,
                 remesa: true,
-                comentarios: true,
+                comentarios: {
+                    include: {
+                        usuario: true, // 👈 Incluye la relación con Usuario
+                    },
+                },
                 contactos: true,
                 facturas: true,
                 pagos: true,
