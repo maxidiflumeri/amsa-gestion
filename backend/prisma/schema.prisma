@@ -1,0 +1,115 @@
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "mysql"
+  url      = env("DATABASE_URL")
+}
+
+model Empresa {
+  id          Int       @id @default(autoincrement())
+  nombre      String
+  cuit        String?
+  configuracion Json?
+  remesas     Remesa[]
+  deudores    Deudor[]
+  parametros  Parametro[]
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+}
+
+model Remesa {
+  id            Int       @id @default(autoincrement())
+  empresa       Empresa   @relation(fields: [empresaId], references: [id])
+  empresaId     Int
+  nombre        String
+  archivo       String?
+  estadoCarga   String?
+  cantidadDeudores Int?
+  deudores      Deudor[]
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+}
+
+model Deudor {
+  id            Int        @id @default(autoincrement())
+  empresa       Empresa    @relation(fields: [empresaId], references: [id])
+  empresaId     Int
+  remesa        Remesa     @relation(fields: [remesaId], references: [id])
+  remesaId      Int
+  documento     String
+  nombre        String
+  apellido      String
+  montoTotal    Float?
+  fechaVencimiento DateTime?
+  estadoSituacion Parametro? @relation("EstadoSituacion", fields: [estadoSituacionId], references: [id])
+  estadoSituacionId Int?
+  estadoGestion   Parametro? @relation("EstadoGestion", fields: [estadoGestionId], references: [id])
+  estadoGestionId  Int?
+  camposAdicionales Json?
+  comentarios    Comentario[]
+  facturas       Factura[]
+  pagos          Pago[]
+  contactos      Contacto[]
+  createdAt      DateTime   @default(now())
+  updatedAt      DateTime   @updatedAt
+}
+
+model Comentario {
+  id         Int      @id @default(autoincrement())
+  deudor     Deudor   @relation(fields: [deudorId], references: [id])
+  deudorId   Int
+  usuarioId  Int?
+  fecha      DateTime @default(now())
+  texto      String
+  origen     String?
+}
+
+model Factura {
+  id           Int      @id @default(autoincrement())
+  deudor       Deudor   @relation(fields: [deudorId], references: [id])
+  deudorId     Int
+  nroFactura   String
+  importe      Float
+  fechaEmision DateTime
+  vencimiento  DateTime
+}
+
+model Pago {
+  id           Int      @id @default(autoincrement())
+  deudor       Deudor   @relation(fields: [deudorId], references: [id])
+  deudorId     Int
+  fecha        DateTime
+  importe      Float
+  origenArchivo String?
+  observacion   String?
+}
+
+model Contacto {
+  id        Int     @id @default(autoincrement())
+  deudor    Deudor  @relation(fields: [deudorId], references: [id])
+  deudorId  Int
+  tipo      String
+  valor     String
+  prioridad Int?
+  validado  Boolean @default(false)
+}
+
+model CampoExtra {
+  id       Int     @id @default(autoincrement())
+  deudor   Deudor  @relation(fields: [deudorId], references: [id])
+  deudorId Int
+  clave    String
+  valor    String
+}
+
+model Parametro {
+  id        Int      @id @default(autoincrement())
+  empresa   Empresa? @relation(fields: [empresaId], references: [id])
+  empresaId Int?
+  grupo     String
+  clave     String
+  descripcion String
+}
