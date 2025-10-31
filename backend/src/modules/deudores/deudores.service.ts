@@ -57,14 +57,34 @@ export class DeudoresService {
 
 
     async update(id: number, dto: UpdateDeudorDto) {
+        const { estadoSituacionClave, estadoGestionClave } = dto;
+
+        let data: any = {};
+
+        if (estadoSituacionClave) {
+            const estado = await this.prisma.parametro.findUnique({
+                where: { clave: estadoSituacionClave },
+            });
+            if (!estado) throw new NotFoundException('Estado de situación no encontrado');
+            data.estadoSituacionId = estado.id;
+        }
+
+        if (estadoGestionClave) {
+            const gestion = await this.prisma.parametro.findUnique({
+                where: { clave: estadoGestionClave },
+            });
+            if (!gestion) throw new NotFoundException('Estado de gestión no encontrado');
+            data.estadoGestionId = gestion.id;
+        }
+        
         const deudor = await this.prisma.deudor.findUnique({ where: { id } });
         if (!deudor) throw new NotFoundException('Deudor no encontrado');
 
         const updated = await this.prisma.deudor.update({
             where: { id },
             data: {
-                estadoSituacionId: dto.estadoSituacionId ?? deudor.estadoSituacionId,
-                estadoGestionId: dto.estadoGestionId ?? deudor.estadoGestionId,
+                estadoSituacionId: data.estadoSituacionId ?? deudor.estadoSituacionId,
+                estadoGestionId: data.estadoGestionId ?? deudor.estadoGestionId,
             },
             include: {
                 estadoSituacion: true,

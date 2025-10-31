@@ -96,8 +96,12 @@ model Contacto {
   deudorId  Int
   tipo      String
   valor     String
+  subtipo   String?   // MOBILE | FIXED_LINE (opcional)
   prioridad Int?
   validado  Boolean @default(false)
+
+  @@index([deudorId, tipo])
+  @@unique([deudorId, tipo, valor]) // evita duplicados exactos
 }
 
 model CampoExtra {
@@ -113,7 +117,7 @@ model Parametro {
   empresa     Empresa? @relation(fields: [empresaId], references: [id])
   empresaId   Int?
   grupo       String
-  clave       String
+  clave       String   @unique
   descripcion String
 
   // Relación inversa a Deudor

@@ -1,11 +1,9 @@
-import { IsInt, IsOptional } from 'class-validator';
+import { IsOptional } from 'class-validator';
 
 export class UpdateDeudorDto {
-    @IsOptional()
-    @IsInt()
-    estadoSituacionId?: number;
+    @IsOptional()    
+    estadoSituacionClave?: string;
 
-    @IsOptional()
-    @IsInt()
-    estadoGestionId?: number;
+    @IsOptional()    
+    estadoGestionClave?: string;
 }
