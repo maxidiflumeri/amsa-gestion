@@ -34,19 +34,19 @@ model Remesa {
 }
 
 model Deudor {
-  id                Int          @id @default(autoincrement())
-  empresa           Empresa      @relation(fields: [empresaId], references: [id])
+  id                Int           @id @default(autoincrement())
+  empresa           Empresa       @relation(fields: [empresaId], references: [id])
   empresaId         Int
-  remesa            Remesa       @relation(fields: [remesaId], references: [id])
+  remesa            Remesa        @relation(fields: [remesaId], references: [id])
   remesaId          Int
   documento         String
   nombre            String
   apellido          String
   montoTotal        Float?
   fechaVencimiento  DateTime?
-  estadoSituacion   Parametro?   @relation("EstadoSituacion", fields: [estadoSituacionId], references: [id])
+  estadoSituacion   Parametro?    @relation("EstadoSituacion", fields: [estadoSituacionId], references: [id])
   estadoSituacionId Int?
-  estadoGestion     Parametro?   @relation("EstadoGestion", fields: [estadoGestionId], references: [id])
+  estadoGestion     Parametro?    @relation("EstadoGestion", fields: [estadoGestionId], references: [id])
   estadoGestionId   Int?
   camposAdicionales Json?
   comentarios       Comentario[]
@@ -54,8 +54,9 @@ model Deudor {
   pagos             Pago[]
   contactos         Contacto[]
   campoExtras       CampoExtra[]
-  createdAt         DateTime     @default(now())
-  updatedAt         DateTime     @updatedAt
+  transacciones     Transaccion[]
+  createdAt         DateTime      @default(now())
+  updatedAt         DateTime      @updatedAt
 }
 
 model Comentario {
@@ -121,13 +122,48 @@ model Parametro {
 }
 
 model Usuario {
-  id         Int          @id @default(autoincrement())
-  googleId   String       @unique
-  nombre     String
-  email      String       @unique
-  avatarUrl  String?
-  rol        String       @default("usuario") // o admin, gestor, etc.
-  comentarios Comentario[]
-  createdAt  DateTime     @default(now())
-  updatedAt  DateTime     @updatedAt
+  id            Int           @id @default(autoincrement())
+  googleId      String        @unique
+  nombre        String
+  email         String        @unique
+  avatarUrl     String?
+  rol           String        @default("usuario") // o admin, gestor, etc.
+  comentarios   Comentario[]
+  transacciones Transaccion[]
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
+}
+
+// prisma/schema.prisma
+
+model Transaccion {
+  id        Int      @id @default(autoincrement())
+  createdAt DateTime @default(now())
+
+  // Quién realizó la acción
+  usuarioId Int
+  usuario   Usuario @relation(fields: [usuarioId], references: [id])
+
+  // Contexto de cobranzas (opcional si aplica)
+  deudorId Int?
+  deudor   Deudor? @relation(fields: [deudorId], references: [id])
+
+  // Contexto genérico de negocio (sirve para TODO)
+  // Ej.: entidad = "Contacto" | "Comentario" | "Pago" | "Mail" | "Whatsapp" | "Convenio" | "Factura" | "Deudor" | ...
+  entidad   String
+  entidadId String? // Acepta cualquier tipo de ID como string (número, UUID, etc.)
+
+  // Qué pasó
+  tipo    String // Ej.: "CREATE" | "UPDATE" | "DELETE" | "SEND" | "STATUS_CHANGE" | "LOGIN" | ...
+  resumen String? // Humano-legible: "Agregó teléfono +54 911..."
+  data    Json? // Payload estructurado: { before, after } | request | response | etc.
+
+  // Metadata técnica
+  ip        String?
+  userAgent String?
+
+  @@index([deudorId, createdAt])
+  @@index([usuarioId, createdAt])
+  @@index([entidad, entidadId])
+  @@index([tipo, createdAt])
 }

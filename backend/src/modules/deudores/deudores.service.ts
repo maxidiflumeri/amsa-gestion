@@ -1,7 +1,8 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, NotFoundException } from '@nestjs/common';
 import { Deudor, Prisma } from '@prisma/client';
 import { PrismaService } from 'src/prisma/prisma.service';
 import { CreateDeudorDto } from './dtos/create-deudor.dto';
+import { UpdateDeudorDto } from './dtos/update-deudor.dto';
 
 @Injectable()
 export class DeudoresService {
@@ -54,11 +55,24 @@ export class DeudoresService {
         });
     }
 
-    async update(id: number, data: Prisma.DeudorUpdateInput): Promise<Deudor> {
-        return this.prisma.deudor.update({
+
+    async update(id: number, dto: UpdateDeudorDto) {
+        const deudor = await this.prisma.deudor.findUnique({ where: { id } });
+        if (!deudor) throw new NotFoundException('Deudor no encontrado');
+
+        const updated = await this.prisma.deudor.update({
             where: { id },
-            data,
+            data: {
+                estadoSituacionId: dto.estadoSituacionId ?? deudor.estadoSituacionId,
+                estadoGestionId: dto.estadoGestionId ?? deudor.estadoGestionId,
+            },
+            include: {
+                estadoSituacion: true,
+                estadoGestion: true,
+            },
         });
+
+        return { before: deudor, after: updated };
     }
 
     async delete(id: number): Promise<Deudor> {

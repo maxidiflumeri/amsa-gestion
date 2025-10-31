@@ -1,4 +1,11 @@
-import { PartialType } from '@nestjs/mapped-types';
-import { CreateDeudorDto } from './create-deudor.dto';
+import { IsInt, IsOptional } from 'class-validator';
 
-export class UpdateDeudorDto extends PartialType(CreateDeudorDto) { }
+export class UpdateDeudorDto {
+    @IsOptional()
+    @IsInt()
+    estadoSituacionId?: number;
+
+    @IsOptional()
+    @IsInt()
+    estadoGestionId?: number;
+}
