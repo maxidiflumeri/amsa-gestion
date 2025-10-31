@@ -3,13 +3,14 @@ import { Injectable } from '@nestjs/common';
 import { PrismaService } from 'src/prisma/prisma.service';
 import { RegistrarTransaccionDto } from './dtos/registrar-transaccion.dto';
 import { QueryTransaccionesDto } from './dtos/query-transacciones.dto';
+import { LoggerService } from 'src/common/logger/logger.service';
 
 @Injectable()
 export class TransaccionesService {
-    constructor(private prisma: PrismaService) { }
+    constructor(private prisma: PrismaService, private logger: LoggerService) { }
 
     async registrar(dto: RegistrarTransaccionDto) {
-        return this.prisma.transaccion.create({
+        const tx = this.prisma.transaccion.create({
             data: {
                 usuarioId: dto.usuarioId,
                 deudorId: dto.deudorId ?? null,
@@ -22,6 +23,13 @@ export class TransaccionesService {
                 userAgent: dto.userAgent ?? null,
             },
         });
+
+        this.logger.debug(
+            `Transacción registrada [${dto.entidad}:${dto.tipo}] deudor=${dto.deudorId} usuario=${dto.usuarioId}`,
+            'TransaccionesService',
+        );
+
+        return tx;
     }
 
     async findAll(q: QueryTransaccionesDto) {

@@ -48,7 +48,8 @@ export class ContactosController {
         tipo: 'DELETE',
         entidad: 'Contacto',
         entidadIdFromResponse: 'id',
-        resumen: (res, req) => `Eliminó contacto ${req.params.id}`,
+        resumen: (res, req) => `Eliminó contacto ID=${req.params.id} (${res.tipo}: ${res.valor})`,
+        data: (res, req) => res,
     })
     remove(@Param('id') id: string) {
         return this.contactosService.remove(+id);
