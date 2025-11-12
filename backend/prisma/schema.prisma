@@ -7,167 +7,259 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
-model Empresa {
-  id            Int         @id @default(autoincrement())
-  nombre        String
-  cuit          String?
-  configuracion Json?
-  remesas       Remesa[]
-  deudores      Deudor[]
-  parametros    Parametro[]
-  createdAt     DateTime    @default(now())
-  updatedAt     DateTime    @updatedAt
+model campoextra {
+  id       Int    @id @default(autoincrement())
+  deudorId Int
+  clave    String
+  valor    String
+  deudor   deudor @relation(fields: [deudorId], references: [id], map: "CampoExtra_deudorId_fkey")
+
+  @@index([deudorId], map: "CampoExtra_deudorId_fkey")
 }
 
-model Remesa {
-  id               Int      @id @default(autoincrement())
-  numeroRemesa     String   @unique
-  empresa          Empresa  @relation(fields: [empresaId], references: [id])
-  empresaId        Int
-  nombre           String
-  archivo          String?
-  estadoCarga      String?
-  cantidadDeudores Int?
-  deudores         Deudor[]
-  createdAt        DateTime @default(now())
-  updatedAt        DateTime @updatedAt
-}
-
-model Deudor {
-  id                Int           @id @default(autoincrement())
-  empresa           Empresa       @relation(fields: [empresaId], references: [id])
-  empresaId         Int
-  remesa            Remesa        @relation(fields: [remesaId], references: [id])
-  remesaId          Int
-  documento         String
-  nombre            String
-  apellido          String
-  montoTotal        Float?
-  fechaVencimiento  DateTime?
-  estadoSituacion   Parametro?    @relation("EstadoSituacion", fields: [estadoSituacionId], references: [id])
-  estadoSituacionId Int?
-  estadoGestion     Parametro?    @relation("EstadoGestion", fields: [estadoGestionId], references: [id])
-  estadoGestionId   Int?
-  camposAdicionales Json?
-  comentarios       Comentario[]
-  facturas          Factura[]
-  pagos             Pago[]
-  contactos         Contacto[]
-  campoExtras       CampoExtra[]
-  transacciones     Transaccion[]
-  createdAt         DateTime      @default(now())
-  updatedAt         DateTime      @updatedAt
-}
-
-model Comentario {
+model comentario {
   id        Int      @id @default(autoincrement())
-  deudor    Deudor   @relation(fields: [deudorId], references: [id])
   deudorId  Int
-  usuario   Usuario? @relation(fields: [usuarioId], references: [id])
   usuarioId Int?
   fecha     DateTime @default(now())
   texto     String
   origen    String?
+  deudor    deudor   @relation(fields: [deudorId], references: [id], map: "Comentario_deudorId_fkey")
+  usuario   usuario? @relation(fields: [usuarioId], references: [id], map: "Comentario_usuarioId_fkey")
+
+  @@index([deudorId], map: "Comentario_deudorId_fkey")
+  @@index([usuarioId], map: "Comentario_usuarioId_fkey")
 }
 
-model Factura {
+model contacto {
+  id        Int     @id @default(autoincrement())
+  deudorId  Int
+  tipo      String
+  valor     String
+  prioridad Int?
+  validado  Boolean @default(false)
+  subtipo   String?
+  whatsapp  Boolean @default(false)
+  deudor    deudor  @relation(fields: [deudorId], references: [id], map: "Contacto_deudorId_fkey")
+
+  @@unique([deudorId, tipo, valor], map: "Contacto_deudorId_tipo_valor_key")
+  @@index([deudorId, tipo], map: "Contacto_deudorId_tipo_idx")
+}
+
+model deudor {
+  id                                            Int           @id @default(autoincrement())
+  empresaId                                     Int
+  remesaId                                      Int
+  documento                                     String
+  nombre                                        String
+  apellido                                      String
+  montoTotal                                    Float?
+  fechaVencimiento                              DateTime?
+  estadoSituacionId                             Int?
+  estadoGestionId                               Int?
+  camposAdicionales                             Json?
+  createdAt                                     DateTime      @default(now())
+  updatedAt                                     DateTime
+  campoextra                                    campoextra[]
+  comentario                                    comentario[]
+  contacto                                      contacto[]
+  empresa                                       empresa       @relation(fields: [empresaId], references: [id], map: "Deudor_empresaId_fkey")
+  parametro_deudor_estadoGestionIdToparametro   parametro?    @relation("deudor_estadoGestionIdToparametro", fields: [estadoGestionId], references: [id], map: "Deudor_estadoGestionId_fkey")
+  parametro_deudor_estadoSituacionIdToparametro parametro?    @relation("deudor_estadoSituacionIdToparametro", fields: [estadoSituacionId], references: [id], map: "Deudor_estadoSituacionId_fkey")
+  remesa                                        remesa        @relation(fields: [remesaId], references: [id], map: "Deudor_remesaId_fkey")
+  factura                                       factura[]
+  pago                                          pago[]
+  transaccion                                   transaccion[]
+
+  @@unique([empresaId, documento, remesaId], map: "Deudor_empresaId_documento_remesaId_key")
+  @@index([documento], map: "Deudor_documento_idx")
+  @@index([empresaId, remesaId], map: "Deudor_empresaId_remesaId_idx")
+  @@index([estadoGestionId], map: "Deudor_estadoGestionId_fkey")
+  @@index([estadoSituacionId], map: "Deudor_estadoSituacionId_fkey")
+  @@index([remesaId], map: "Deudor_remesaId_fkey")
+}
+
+model empresa {
+  id              Int               @id @default(autoincrement())
+  nombre          String            @unique(map: "Empresa_nombre_key")
+  cuit            String?
+  configuracion   Json?
+  createdAt       DateTime          @default(now())
+  updatedAt       DateTime          @updatedAt
+  deudor          deudor[]
+  parametro       parametro[]
+  plantillaimport plantillaimport[]
+  remesa          remesa[]
+}
+
+model factura {
   id           Int      @id @default(autoincrement())
-  deudor       Deudor   @relation(fields: [deudorId], references: [id])
   deudorId     Int
   nroFactura   String
   importe      Float
   fechaEmision DateTime
   vencimiento  DateTime
+  estado       String?
+  externalId   String?
+  deudor       deudor   @relation(fields: [deudorId], references: [id], map: "Factura_deudorId_fkey")
+
+  @@unique([deudorId, nroFactura], map: "Factura_deudorId_nroFactura_key")
 }
 
-model Pago {
+model importerror {
+  id        Int      @id @default(autoincrement())
+  remesaId  Int
+  rowNumber Int
+  rawRow    Json
+  errorMsg  String
+  createdAt DateTime @default(now())
+  remesa    remesa   @relation(fields: [remesaId], references: [id], map: "ImportError_remesaId_fkey")
+
+  @@index([remesaId, rowNumber], map: "ImportError_remesaId_rowNumber_idx")
+}
+
+model jobimport {
+  id         Int              @id @default(autoincrement())
+  remesaId   Int
+  estado     jobimport_estado @default(PENDIENTE)
+  progreso   Int              @default(0)
+  log        String?
+  createdAt  DateTime         @default(now())
+  finishedAt DateTime?
+  remesa     remesa           @relation(fields: [remesaId], references: [id], map: "JobImport_remesaId_fkey")
+
+  @@index([remesaId], map: "JobImport_remesaId_fkey")
+}
+
+model pago {
   id            Int      @id @default(autoincrement())
-  deudor        Deudor   @relation(fields: [deudorId], references: [id])
   deudorId      Int
   fecha         DateTime
   importe       Float
   origenArchivo String?
   observacion   String?
+  deudor        deudor   @relation(fields: [deudorId], references: [id], map: "Pago_deudorId_fkey")
+
+  @@index([deudorId], map: "Pago_deudorId_fkey")
 }
 
-model Contacto {
-  id        Int     @id @default(autoincrement())
-  deudor    Deudor  @relation(fields: [deudorId], references: [id])
-  deudorId  Int
-  tipo      String
-  valor     String
-  subtipo   String?   // MOBILE | FIXED_LINE (opcional)
-  prioridad Int?
-  validado  Boolean @default(false)
+model parametro {
+  id                                         Int      @id @default(autoincrement())
+  empresaId                                  Int?
+  grupo                                      String
+  clave                                      String   @unique(map: "Parametro_clave_key")
+  descripcion                                String
+  deudor_deudor_estadoGestionIdToparametro   deudor[] @relation("deudor_estadoGestionIdToparametro")
+  deudor_deudor_estadoSituacionIdToparametro deudor[] @relation("deudor_estadoSituacionIdToparametro")
+  empresa                                    empresa? @relation(fields: [empresaId], references: [id], map: "Parametro_empresaId_fkey")
 
-  @@index([deudorId, tipo])
-  @@unique([deudorId, tipo, valor]) // evita duplicados exactos
+  @@index([empresaId], map: "Parametro_empresaId_fkey")
 }
 
-model CampoExtra {
-  id       Int    @id @default(autoincrement())
-  deudor   Deudor @relation(fields: [deudorId], references: [id])
-  deudorId Int
-  clave    String
-  valor    String
+model plantillaimport {
+  id          Int                       @id @default(autoincrement())
+  empresaId   Int
+  nombre      String
+  categoria   plantillaimport_categoria
+  version     Int                       @default(1)
+  activo      Boolean                   @default(true)
+  separador   String                    @default("|")
+  tieneHeader Boolean                   @default(false)
+  mappingJson Json
+  createdAt   DateTime                  @default(now())
+  updatedAt   DateTime                  @updatedAt
+  empresa     empresa                   @relation(fields: [empresaId], references: [id], map: "PlantillaImport_empresaId_fkey")
+  remesa      remesa[]
+
+  @@unique([empresaId, nombre, version], map: "unique_empresa_nombre_version")
+  @@index([empresaId, categoria], map: "PlantillaImport_empresaId_categoria_idx")
 }
 
-model Parametro {
-  id          Int      @id @default(autoincrement())
-  empresa     Empresa? @relation(fields: [empresaId], references: [id])
-  empresaId   Int?
-  grupo       String
-  clave       String   @unique
-  descripcion String
+model remesa {
+  id               Int                  @id @default(autoincrement())
+  empresaId        Int
+  nombre           String
+  archivo          String?
+  estadoCarga      String?
+  cantidadDeudores Int?
+  createdAt        DateTime             @default(now())
+  updatedAt        DateTime
+  numeroRemesa     String               @unique(map: "Remesa_numeroRemesa_key")
+  archivoHash      String?
+  categoria        remesa_categoria?
+  errFilas         Int                  @default(0)
+  estadoProceso    remesa_estadoProceso @default(PENDIENTE)
+  okFilas          Int                  @default(0)
+  plantillaId      Int?
+  totalFilas       Int                  @default(0)
+  deudor           deudor[]
+  importerror      importerror[]
+  jobimport        jobimport[]
+  empresa          empresa              @relation(fields: [empresaId], references: [id], map: "Remesa_empresaId_fkey")
+  plantillaimport  plantillaimport?     @relation(fields: [plantillaId], references: [id], map: "Remesa_plantillaId_fkey")
 
-  // Relación inversa a Deudor
-  deudoresSituacion Deudor[] @relation("EstadoSituacion")
-  deudoresGestion   Deudor[] @relation("EstadoGestion")
+  @@index([empresaId, categoria], map: "Remesa_empresaId_categoria_idx")
+  @@index([plantillaId], map: "Remesa_plantillaId_fkey")
 }
 
-model Usuario {
-  id            Int           @id @default(autoincrement())
-  googleId      String        @unique
-  nombre        String
-  email         String        @unique
-  avatarUrl     String?
-  rol           String        @default("usuario") // o admin, gestor, etc.
-  comentarios   Comentario[]
-  transacciones Transaccion[]
-  createdAt     DateTime      @default(now())
-  updatedAt     DateTime      @updatedAt
-}
-
-// prisma/schema.prisma
-
-model Transaccion {
+model transaccion {
   id        Int      @id @default(autoincrement())
   createdAt DateTime @default(now())
-
-  // Quién realizó la acción
   usuarioId Int
-  usuario   Usuario @relation(fields: [usuarioId], references: [id])
-
-  // Contexto de cobranzas (opcional si aplica)
-  deudorId Int?
-  deudor   Deudor? @relation(fields: [deudorId], references: [id])
-
-  // Contexto genérico de negocio (sirve para TODO)
-  // Ej.: entidad = "Contacto" | "Comentario" | "Pago" | "Mail" | "Whatsapp" | "Convenio" | "Factura" | "Deudor" | ...
+  deudorId  Int?
   entidad   String
-  entidadId String? // Acepta cualquier tipo de ID como string (número, UUID, etc.)
-
-  // Qué pasó
-  tipo    String // Ej.: "CREATE" | "UPDATE" | "DELETE" | "SEND" | "STATUS_CHANGE" | "LOGIN" | ...
-  resumen String? // Humano-legible: "Agregó teléfono +54 911..."
-  data    Json? // Payload estructurado: { before, after } | request | response | etc.
-
-  // Metadata técnica
+  entidadId String?
+  tipo      String
+  resumen   String?
+  data      Json?
   ip        String?
   userAgent String?
+  deudor    deudor?  @relation(fields: [deudorId], references: [id], map: "Transaccion_deudorId_fkey")
+  usuario   usuario  @relation(fields: [usuarioId], references: [id], map: "Transaccion_usuarioId_fkey")
 
-  @@index([deudorId, createdAt])
-  @@index([usuarioId, createdAt])
-  @@index([entidad, entidadId])
-  @@index([tipo, createdAt])
+  @@index([deudorId, createdAt], map: "Transaccion_deudorId_createdAt_idx")
+  @@index([entidad, entidadId], map: "Transaccion_entidad_entidadId_idx")
+  @@index([tipo, createdAt], map: "Transaccion_tipo_createdAt_idx")
+  @@index([usuarioId, createdAt], map: "Transaccion_usuarioId_createdAt_idx")
+}
+
+model usuario {
+  id          Int           @id @default(autoincrement())
+  googleId    String        @unique(map: "Usuario_googleId_key")
+  nombre      String
+  email       String        @unique(map: "Usuario_email_key")
+  avatarUrl   String?
+  rol         String        @default("usuario")
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime
+  comentario  comentario[]
+  transaccion transaccion[]
+}
+
+enum jobimport_estado {
+  PENDIENTE
+  VALIDANDO
+  PROCESANDO
+  FINALIZADA
+  FALLIDA
+}
+
+enum plantillaimport_categoria {
+  DEUDORES
+  FACTURAS
+  ENRIQUECIMIENTO
+}
+
+enum remesa_categoria {
+  DEUDORES
+  FACTURAS
+  ENRIQUECIMIENTO
+}
+
+enum remesa_estadoProceso {
+  PENDIENTE
+  VALIDANDO
+  PROCESANDO
+  FINALIZADA
+  FALLIDA
 }
