@@ -8,9 +8,10 @@ import { TransaccionesModule } from './modules/transacciones/transacciones.modul
 import { ContactosModule } from './modules/contactos/contactos.module';
 import { ComentariosModule } from './modules/comentarios/comentarios.module';
 import { LoggerModule } from './common/logger/logger.module';
+import { ImportModule } from './modules/imports/imports.module';
 
 @Module({
-  imports: [LoggerModule, PrismaModule, DeudoresModule, ParametrosModule, TransaccionesModule, ContactosModule, ComentariosModule],
+  imports: [LoggerModule, PrismaModule, DeudoresModule, ParametrosModule, TransaccionesModule, ContactosModule, ComentariosModule, ImportModule],
   controllers: [AppController],
   providers: [AppService]
 })

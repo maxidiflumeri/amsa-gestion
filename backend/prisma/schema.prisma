@@ -47,29 +47,29 @@ model contacto {
 }
 
 model deudor {
-  id                                            Int           @id @default(autoincrement())
-  empresaId                                     Int
-  remesaId                                      Int
-  documento                                     String
-  nombre                                        String
-  apellido                                      String
-  montoTotal                                    Float?
-  fechaVencimiento                              DateTime?
-  estadoSituacionId                             Int?
-  estadoGestionId                               Int?
-  camposAdicionales                             Json?
-  createdAt                                     DateTime      @default(now())
-  updatedAt                                     DateTime
-  campoextra                                    campoextra[]
-  comentario                                    comentario[]
-  contacto                                      contacto[]
-  empresa                                       empresa       @relation(fields: [empresaId], references: [id], map: "Deudor_empresaId_fkey")
-  parametro_deudor_estadoGestionIdToparametro   parametro?    @relation("deudor_estadoGestionIdToparametro", fields: [estadoGestionId], references: [id], map: "Deudor_estadoGestionId_fkey")
-  parametro_deudor_estadoSituacionIdToparametro parametro?    @relation("deudor_estadoSituacionIdToparametro", fields: [estadoSituacionId], references: [id], map: "Deudor_estadoSituacionId_fkey")
-  remesa                                        remesa        @relation(fields: [remesaId], references: [id], map: "Deudor_remesaId_fkey")
-  factura                                       factura[]
-  pago                                          pago[]
-  transaccion                                   transaccion[]
+  id                Int           @id @default(autoincrement())
+  empresaId         Int
+  remesaId          Int
+  documento         String
+  nombre            String
+  apellido          String
+  montoTotal        Float?
+  fechaVencimiento  DateTime?
+  estadoSituacionId Int?
+  estadoGestionId   Int?
+  camposAdicionales Json?
+  createdAt         DateTime      @default(now())
+  updatedAt         DateTime      @updatedAt
+  campoExtras       campoextra[]
+  comentarios       comentario[]
+  contactos         contacto[]
+  empresa           empresa       @relation(fields: [empresaId], references: [id], map: "Deudor_empresaId_fkey")
+  estadoSituacion   parametro?    @relation("DeudorEstadoSituacion", fields: [estadoSituacionId], references: [id])
+  estadoGestion     parametro?    @relation("DeudorEstadoGestion", fields: [estadoGestionId], references: [id])
+  remesa            remesa        @relation(fields: [remesaId], references: [id], map: "Deudor_remesaId_fkey")
+  facturas          factura[]
+  pagos             pago[]
+  transacciones     transaccion[]
 
   @@unique([empresaId, documento, remesaId], map: "Deudor_empresaId_documento_remesaId_key")
   @@index([documento], map: "Deudor_documento_idx")
@@ -144,14 +144,14 @@ model pago {
 }
 
 model parametro {
-  id                                         Int      @id @default(autoincrement())
-  empresaId                                  Int?
-  grupo                                      String
-  clave                                      String   @unique(map: "Parametro_clave_key")
-  descripcion                                String
-  deudor_deudor_estadoGestionIdToparametro   deudor[] @relation("deudor_estadoGestionIdToparametro")
-  deudor_deudor_estadoSituacionIdToparametro deudor[] @relation("deudor_estadoSituacionIdToparametro")
-  empresa                                    empresa? @relation(fields: [empresaId], references: [id], map: "Parametro_empresaId_fkey")
+  id                       Int      @id @default(autoincrement())
+  empresaId                Int?
+  grupo                    String
+  clave                    String   @unique(map: "Parametro_clave_key")
+  descripcion              String
+  deudoresConEstaGestion   deudor[] @relation("DeudorEstadoGestion")
+  deudoresConEstaSituacion deudor[] @relation("DeudorEstadoSituacion")
+  empresa                  empresa? @relation(fields: [empresaId], references: [id], map: "Parametro_empresaId_fkey")
 
   @@index([empresaId], map: "Parametro_empresaId_fkey")
 }
@@ -183,7 +183,7 @@ model remesa {
   estadoCarga      String?
   cantidadDeudores Int?
   createdAt        DateTime             @default(now())
-  updatedAt        DateTime
+  updatedAt        DateTime             @updatedAt
   numeroRemesa     String               @unique(map: "Remesa_numeroRemesa_key")
   archivoHash      String?
   categoria        remesa_categoria?
@@ -196,7 +196,7 @@ model remesa {
   importerror      importerror[]
   jobimport        jobimport[]
   empresa          empresa              @relation(fields: [empresaId], references: [id], map: "Remesa_empresaId_fkey")
-  plantillaimport  plantillaimport?     @relation(fields: [plantillaId], references: [id], map: "Remesa_plantillaId_fkey")
+  plantilla        plantillaimport?     @relation(fields: [plantillaId], references: [id], map: "Remesa_plantillaId_fkey")
 
   @@index([empresaId, categoria], map: "Remesa_empresaId_categoria_idx")
   @@index([plantillaId], map: "Remesa_plantillaId_fkey")

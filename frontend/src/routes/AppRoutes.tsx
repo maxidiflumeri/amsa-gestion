@@ -4,6 +4,7 @@ import PrivateLayout from '../components/layout/PrivateLayout'
 import DeudoresPage from '../pages/DeudoresPage'
 import Login from '../pages/Login'
 import Inicio from '../pages/Inicio'
+import ImportWizard from '../pages/ImportWizard'
 
 const AppRoutes = () => {
     return (
@@ -13,6 +14,7 @@ const AppRoutes = () => {
             <Route path="/" element={<PrivateRoute><PrivateLayout /></PrivateRoute>}>
                 <Route index element={<Inicio />} />
                 <Route path="gestion" element={<DeudoresPage />} />
+                <Route path="carga" element={<ImportWizard />} />
                 {/* futuras rutas privadas */}
             </Route>
         </Routes>

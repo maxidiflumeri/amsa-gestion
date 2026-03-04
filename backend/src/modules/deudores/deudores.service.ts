@@ -1,5 +1,5 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
-import { Deudor, Prisma } from '@prisma/client';
+import { deudor, Prisma } from '@prisma/client';
 import { PrismaService } from 'src/prisma/prisma.service';
 import { CreateDeudorDto } from './dtos/create-deudor.dto';
 import { UpdateDeudorDto } from './dtos/update-deudor.dto';
@@ -8,13 +8,13 @@ import { UpdateDeudorDto } from './dtos/update-deudor.dto';
 export class DeudoresService {
     constructor(private prisma: PrismaService) { }
 
-    async findAll(): Promise<Deudor[]> {
+    async findAll(): Promise<deudor[]> {
         return this.prisma.deudor.findMany({
             include: { empresa: true, remesa: true },
         });
     }
 
-    async findOne(id: number): Promise<Deudor | null> {
+    async findOne(id: number): Promise<deudor | null> {
         return this.prisma.deudor.findUnique({
             where: { id },
             include: {
@@ -35,7 +35,7 @@ export class DeudoresService {
         });
     }
 
-    async create(dto: CreateDeudorDto): Promise<Deudor> {
+    async create(dto: CreateDeudorDto): Promise<deudor> {
         const {
             empresaId,
             remesaId,
@@ -95,7 +95,7 @@ export class DeudoresService {
         return { before: deudor, after: updated };
     }
 
-    async delete(id: number): Promise<Deudor> {
+    async delete(id: number): Promise<deudor> {
         return this.prisma.deudor.delete({
             where: { id },
         });
