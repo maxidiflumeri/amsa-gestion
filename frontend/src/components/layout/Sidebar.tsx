@@ -39,6 +39,12 @@ const Sidebar: React.FC<Props> = ({ drawerOpen }) => {
                         <ListItemText primary="Carga" />
                     </ListItemButton>
                 </ListItem>
+                <ListItem disablePadding>
+                    <ListItemButton onClick={() => navigate('/plantillas')}>
+                        <ListItemIcon><AssignmentIcon /></ListItemIcon>
+                        <ListItemText primary="Plantillas" />
+                    </ListItemButton>
+                </ListItem>
             </List>
         </Drawer>
     )

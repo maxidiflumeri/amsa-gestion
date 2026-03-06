@@ -7,6 +7,8 @@ import * as fastcsv from 'fast-csv';
 import { PrismaService } from 'src/prisma/prisma.service';
 import { CreatePlantillaDto, CreateRemesaDto } from './dtos/import.dto';
 import { MappingJson } from './mapping-types';
+import { getProcessor, getSupportedCategories } from './processors/processor-registry';
+import { ProcessContext, MappedRow } from './processors/processor.interface';
 
 @Injectable()
 export class ImportService {
@@ -37,6 +39,78 @@ export class ImportService {
         });
     }
 
+    async getPlantilla(id: number) {
+        const p = await this.prisma.plantillaimport.findUnique({ where: { id } });
+        if (!p) throw new NotFoundException('Plantilla no encontrada');
+        return p;
+    }
+
+    async updatePlantilla(id: number, data: Partial<CreatePlantillaDto>) {
+        const existing = await this.prisma.plantillaimport.findUnique({ where: { id } });
+        if (!existing) throw new NotFoundException('Plantilla no encontrada');
+
+        return this.prisma.plantillaimport.update({
+            where: { id },
+            data: {
+                ...(data.nombre !== undefined ? { nombre: data.nombre } : {}),
+                ...(data.categoria !== undefined ? { categoria: data.categoria as any } : {}),
+                ...(data.version !== undefined ? { version: data.version } : {}),
+                ...(data.separador !== undefined ? { separador: data.separador } : {}),
+                ...(data.tieneHeader !== undefined ? { tieneHeader: data.tieneHeader } : {}),
+                ...(data.mappingJson !== undefined ? { mappingJson: data.mappingJson } : {}),
+            },
+        });
+    }
+
+    async deletePlantilla(id: number) {
+        const existing = await this.prisma.plantillaimport.findUnique({ where: { id } });
+        if (!existing) throw new NotFoundException('Plantilla no encontrada');
+
+        // Check if any remesa uses this plantilla
+        const remesaCount = await this.prisma.remesa.count({ where: { plantillaId: id } });
+        if (remesaCount > 0) {
+            throw new BadRequestException(
+                `No se puede eliminar: ${remesaCount} remesa(s) usan esta plantilla`
+            );
+        }
+
+        return this.prisma.plantillaimport.delete({ where: { id } });
+    }
+
+    async previewFile(file: any, separador: string, tieneHeader: boolean, maxRows = 5) {
+        const rows: any[] = [];
+
+        const stream = require('stream');
+        const bufferStream = new stream.PassThrough();
+        bufferStream.end(file.buffer);
+
+        const parser = fastcsv.parse({
+            headers: false,
+            delimiter: separador,
+            trim: false,
+            maxRows,
+        });
+
+        await new Promise<void>((resolve, reject) => {
+            parser
+                .on('error', reject)
+                .on('data', (row: any) => rows.push(row))
+                .on('end', () => resolve());
+
+            bufferStream.pipe(parser);
+        });
+
+        return {
+            totalColumns: rows.length > 0 ? rows[0].length : 0,
+            rows,
+        };
+    }
+
+    // --- CATEGORÍAS SOPORTADAS ---
+    getCategories() {
+        return getSupportedCategories();
+    }
+
     // --- REMESA / ARCHIVO ---
     async createRemesa(dto: CreateRemesaDto, file: any) {
 
@@ -59,8 +133,46 @@ export class ImportService {
         return { remesaId: remesa.id };
     }
 
-    // parsea N filas para preview/validación
-    async validateRemesa(remesaId: number, sampleRows = 200) {
+    // --- PARSEAR FILAS (shared entre validate y execute) ---
+    private mapRow(row: any, mapping: MappingJson): MappedRow {
+        const obj: MappedRow = {};
+
+        // Si fast-csv devuelve un objeto (tieneHeader=true), convertir a array
+        const rowArr = Array.isArray(row) ? row : Object.values(row);
+
+        // Mapeo principal por índice
+        for (const [dest, cfg] of Object.entries(mapping.columns)) {
+            const raw = rowArr[cfg.fromIndex];
+            obj[dest] = applyTransforms(raw, cfg.transforms);
+        }
+
+        // Mapeo de extras → camposAdicionales (JSON)
+        if (mapping.extras) {
+            const extrasObj: Record<string, any> = {};
+            for (const [name, cfg] of Object.entries(mapping.extras)) {
+                const raw = rowArr[cfg.fromIndex];
+                extrasObj[name] = applyTransforms(raw, cfg.transforms);
+            }
+            obj.camposAdicionales = extrasObj;
+        }
+
+        // Defaults
+        Object.assign(obj, mapping.defaults ?? {});
+
+        return obj;
+    }
+
+    private validateMappedRow(obj: MappedRow, mapping: MappingJson): void {
+        for (const v of (mapping.validations ?? [])) {
+            if (v.rule === 'required' &&
+                (obj[v.field] == null || obj[v.field] === '')) {
+                throw new Error(`Campo requerido faltante: ${v.field}`);
+            }
+        }
+    }
+
+    // --- VALIDAR (preview) ---
+    async validateRemesa(remesaId: number, sampleRows = 50) {
         const remesa = await this.prisma.remesa.findUnique({
             where: { id: remesaId },
             include: { plantilla: true }
@@ -70,13 +182,14 @@ export class ImportService {
             throw new NotFoundException('Remesa/archivo/plantilla no existe');
         }
 
-        const mapping = remesa.plantilla.mappingJson as any;
+        const mapping = remesa.plantilla.mappingJson as unknown as MappingJson;
         const sep = remesa.plantilla.separador ?? '|';
         const hasHeader = !!remesa.plantilla.tieneHeader;
 
-        const rows: any[] = [];
+        let totalRows = 0;
         let ok = 0;
         let err = 0;
+        const preview: any[] = [];
 
         const stream = fs.createReadStream(remesa.archivo);
         const parser = fastcsv.parse({
@@ -85,90 +198,54 @@ export class ImportService {
             trim: false
         });
 
-        // --- PROCESAR STREAM (OPTIMIZADO CON CHUNKS) ---
+        // Leer TODAS las filas: contar total, mapear solo las primeras sampleRows
         await new Promise<void>((resolve, reject) => {
-
-            let count = 0;
-
             parser
-                .on('error', (err) => {
-                    console.error("CSV ERROR:", err);
-                    reject(err);
+                .on('error', (parseErr) => {
+                    console.error("CSV ERROR:", parseErr);
+                    reject(parseErr);
                 })
-
                 .on('data', (row: any) => {
-                    rows.push(row);
-                    count++;
+                    const idx = totalRows++;
 
-                    // CORTAR LUEGO DE sampleRows FILAS
-                    if (count >= sampleRows) {
-                        stream.unpipe(parser);
-                        parser.end(); // dispara "end" y "close"
+                    // Solo mapeamos/validamos las primeras sampleRows para el preview
+                    if (idx < sampleRows) {
+                        try {
+                            const obj = this.mapRow(row, mapping);
+                            this.validateMappedRow(obj, mapping);
+                            preview.push({ row: idx, data: obj, error: null });
+                            ok++;
+                        } catch (e: any) {
+                            preview.push({ row: idx, data: null, error: e.message });
+                            err++;
+                        }
                     }
                 })
-
-                .on('end', () => resolve())
-                .on('close', () => resolve());
+                .on('end', () => resolve());
 
             stream.pipe(parser);
         });
-
-        // --- PROCESAR MAPEOS Y VALIDACIÓN ---
-        const preview: any[] = [];
-
-        for (let idx = 0; idx < rows.length; idx++) {
-            const row = rows[idx];
-
-            try {
-                const obj: any = {};
-
-                // mapping por índice
-                for (const [dest, cfg] of Object.entries(mapping.columns)) {
-                    const index = (cfg as any).fromIndex;
-                    const raw = Array.isArray(row) ? row[index] : row[index];
-                    obj[dest] = applyTransforms(raw, (cfg as any).transforms);
-                }
-
-                Object.assign(obj, mapping.defaults ?? {});
-
-                // Validaciones
-                for (const v of (mapping.validations ?? [])) {
-                    if (v.rule === 'required' &&
-                        (obj[v.field] === null || obj[v.field] === undefined || obj[v.field] === '')) {
-                        throw new Error(`Campo requerido faltante: ${v.field}`);
-                    }
-                }
-
-                preview.push({ row: idx, data: obj, error: null });
-                ok++;
-
-            } catch (e: any) {
-                preview.push({ row: idx, data: null, error: e.message });
-                err++;
-            }
-        }
 
         await this.prisma.remesa.update({
             where: { id: remesaId },
             data: {
                 estadoProceso: 'VALIDANDO',
-                totalFilas: preview.length,
+                totalFilas: totalRows,
                 okFilas: ok,
                 errFilas: err
             }
         });
 
         return {
-            total: preview.length,
+            total: totalRows,
             ok,
             err,
-            sample: preview.slice(0, 50)
+            sample: preview
         };
     }
 
-    // MVP: procesa todo en el hilo (luego lo pasamos a BullMQ)
-    // --- REMESA / EJECUTAR ---
-    async executeRemesa(remesaId: number) {
+    // --- EJECUTAR ---
+    async executeRemesa(remesaId: number, remesaOrigenId?: number) {
 
         const remesa = await this.prisma.remesa.findUnique({
             where: { id: remesaId },
@@ -179,7 +256,14 @@ export class ImportService {
             throw new NotFoundException('Remesa/archivo/plantilla no existe');
         }
 
-        // obtener ID de estado por defecto
+        if (!remesa.categoria) {
+            throw new BadRequestException('La remesa no tiene categoría definida');
+        }
+
+        // Obtener procesador para la categoría
+        const processor = getProcessor(remesa.categoria);
+
+        // Obtener estados por defecto
         const estadoSituacionDefault = await this.prisma.parametro.findFirst({
             where: { grupo: 'estadoSituacion', clave: 'ACTIVO', empresaId: remesa.empresaId },
             select: { id: true },
@@ -194,6 +278,16 @@ export class ImportService {
             throw new Error("No se encontraron códigos por defecto para estado_situacion o estado_gestion");
         }
 
+        const ctx: ProcessContext = {
+            prisma: this.prisma,
+            remesaId: remesa.id,
+            empresaId: remesa.empresaId,
+            remesaOrigenId,
+            defaults: {
+                estadoSituacionId: estadoSituacionDefault.id,
+                estadoGestionId: estadoGestionDefault.id,
+            },
+        };
 
         const mapping = remesa.plantilla.mappingJson as unknown as MappingJson;
         const sep = remesa.plantilla.separador ?? '|';
@@ -208,6 +302,11 @@ export class ImportService {
             data: { estadoProceso: 'PROCESANDO' }
         });
 
+        // Limpiar errores previos de esta remesa
+        await this.prisma.importerror.deleteMany({
+            where: { remesaId }
+        });
+
         const stream = fs.createReadStream(remesa.archivo);
 
         await new Promise<void>((resolve, reject) => {
@@ -217,9 +316,55 @@ export class ImportService {
                 trim: false
             });
 
+            const processBatch = async () => {
+                const group = batch.splice(0, batch.length);
+                const errorBatch: Array<{ remesaId: number; rowNumber: number; rawRow: any; errorMsg: string }> = [];
+
+                for (const { row, idx } of group) {
+                    try {
+                        const obj = this.mapRow(row, mapping);
+                        this.validateMappedRow(obj, mapping);
+
+                        // Validación específica del procesador
+                        if (processor.validateRow) {
+                            const result = processor.validateRow(obj, ctx);
+                            if (!result.valid) {
+                                throw new Error(result.error ?? 'Validación de fila fallida');
+                            }
+                        }
+
+                        // Procesar la fila
+                        await processor.processRow(obj, ctx);
+                        ok++;
+
+                    } catch (e: any) {
+                        err++;
+                        // Registrar error para esta fila
+                        errorBatch.push({
+                            remesaId,
+                            rowNumber: idx,
+                            rawRow: Array.isArray(row) ? row : Object.values(row),
+                            errorMsg: e.message ?? 'Error desconocido',
+                        });
+                    }
+                }
+
+                // Guardar errores en batch
+                if (errorBatch.length > 0) {
+                    await this.prisma.importerror.createMany({
+                        data: errorBatch,
+                    });
+                }
+
+                // Actualizar progreso
+                await this.prisma.remesa.update({
+                    where: { id: remesaId },
+                    data: { totalFilas: total, okFilas: ok, errFilas: err }
+                });
+            };
+
             parser
                 .on("error", reject)
-
                 .on("data", (row: any) => {
                     const idx = total++;
                     batch.push({ row, idx });
@@ -231,7 +376,6 @@ export class ImportService {
                             .catch(reject);
                     }
                 })
-
                 .on("end", async () => {
                     if (batch.length > 0) await processBatch();
 
@@ -249,162 +393,48 @@ export class ImportService {
                 });
 
             stream.pipe(parser);
-
-            // -------------------------
-            // PROCESS BATCH (WITH EXTRAS)
-            // -------------------------
-            const processBatch = async () => {
-                const group = batch.splice(0, batch.length);
-
-                for (const { row } of group) {
-                    try {
-                        const obj: any = {};                     // campos principales
-                        const extrasObj: any = {};               // extras -> camposAdicionales
-
-                        // ---------------------------
-                        // MAPEO PRINCIPAL
-                        // ---------------------------
-                        for (const [dest, cfg] of Object.entries(mapping.columns)) {
-                            const raw = Array.isArray(row)
-                                ? row[cfg.fromIndex]
-                                : row[cfg.fromIndex];
-
-                            obj[dest] = applyTransforms(raw, cfg.transforms);
-                        }
-
-                        // ---------------------------
-                        // MAPEO DE EXTRAS (JSON)
-                        // ---------------------------
-                        if (mapping.extras) {
-                            for (const [name, cfg] of Object.entries(mapping.extras)) {
-                                const raw = Array.isArray(row)
-                                    ? row[cfg.fromIndex]
-                                    : row[cfg.fromIndex];
-
-                                extrasObj[name] = applyTransforms(raw, cfg.transforms);
-                            }
-                            obj.camposAdicionales = extrasObj;
-                        }
-
-                        // DEFAULTS
-                        Object.assign(obj, mapping.defaults ?? {});
-
-                        // VALIDACIONES
-                        for (const v of (mapping.validations ?? [])) {
-                            if (
-                                v.rule === "required" &&
-                                (obj[v.field] == null || obj[v.field] === "")
-                            ) throw new Error(`Campo requerido faltante: ${v.field}`);
-                        }
-
-                        // ---------------------------
-                        // PROCESO POR CATEGORÍA
-                        // ---------------------------
-                        if (remesa.categoria === 'DEUDORES') {
-
-                            await this.prisma.deudor.upsert({
-                                where: {
-                                    empresaId_documento_remesaId: {
-                                        empresaId: remesa.empresaId,
-                                        documento: String(obj.documento),
-                                        remesaId: remesa.id
-                                    }
-                                },
-                                create: {
-                                    empresaId: remesa.empresaId,
-                                    remesaId: remesa.id,
-                                    documento: String(obj.documento),
-                                    nombre: obj.nombre ?? '',
-                                    apellido: obj.apellido ?? '',
-                                    montoTotal: obj.montoTotal ?? null,
-                                    fechaVencimiento: obj.fechaVencimiento ?? null,
-                                    camposAdicionales: obj.camposAdicionales ?? null,
-                                    // valores por defecto
-                                    estadoSituacionId: estadoSituacionDefault.id,
-                                    estadoGestionId: estadoGestionDefault.id,
-                                },
-                                update: {
-                                    nombre: obj.nombre ?? undefined,
-                                    apellido: obj.apellido ?? undefined,
-                                    montoTotal: obj.montoTotal ?? undefined,
-                                    fechaVencimiento: obj.fechaVencimiento ?? undefined,
-                                    camposAdicionales: obj.camposAdicionales ?? undefined,
-
-                                    // NO cambiamos los estados por defecto al actualizar.
-                                    // Esto mantiene histórico correcto.
-                                }
-                            });
-                        }
-
-                        else if (remesa.categoria === 'FACTURAS') {
-
-                            const nroCliente = String(obj.nro_cliente ?? "").trim();
-                            if (!nroCliente) throw new Error("nro_cliente no encontrado en factura");
-
-                            const rows = await this.prisma.$queryRawUnsafe<{ id: number }[]>(`
-                                SELECT id 
-                                FROM deudor
-                                WHERE empresaId = ${remesa.empresaId}
-                                  AND remesaId = ${remesa.id}
-                                  AND JSON_UNQUOTE(JSON_EXTRACT(camposAdicionales, '$.nro_cliente')) = '${nroCliente}'
-                                LIMIT 1
-                            `);
-
-                            if (!rows.length) {
-                                throw new Error(`Deudor no encontrado (nro_cliente=${nroCliente})`);
-                            }
-
-                            const deudor = rows[0]
-                            
-                            if (!deudor) {                                
-                                throw new Error(`Deudor no encontrado (nro_cliente=${obj.nro_cliente})`);
-                            }
-
-                            console.log(deudor)
-
-                            await this.prisma.factura.upsert({
-                                where: {
-                                    deudorId_nroFactura: {
-                                        deudorId: deudor.id,
-                                        nroFactura: String(obj.nroFactura)
-                                    }
-                                },
-                                create: {
-                                    deudorId: deudor.id,
-                                    nroFactura: String(obj.nroFactura),
-                                    importe: obj.importe ?? 0,
-                                    fechaEmision: obj.fechaEmision ?? new Date(),
-                                    vencimiento: obj.vencimiento ?? new Date()
-                                },
-                                update: {
-                                    importe: obj.importe ?? undefined,
-                                    fechaEmision: obj.fechaEmision ?? undefined,
-                                    vencimiento: obj.vencimiento ?? undefined
-                                }
-                            });
-                        }
-
-                        ok++;
-
-                    } catch (e) {       
-                        console.log("ERROR PROCESSING ROW:", e);                 
-                        err++;
-                    }
-                }
-
-                await this.prisma.remesa.update({
-                    where: { id: remesaId },
-                    data: { totalFilas: total, okFilas: ok, errFilas: err }
-                });
-            };
         });
 
         return { total, ok, err };
     }
 
+    // --- ESTADO ---
     async status(remesaId: number) {
         const r = await this.prisma.remesa.findUnique({ where: { id: remesaId } });
         if (!r) throw new NotFoundException();
         return r;
+    }
+
+    // --- ERRORES POR REMESA ---
+    async getErrors(remesaId: number, page = 1, pageSize = 50) {
+        const [errors, count] = await Promise.all([
+            this.prisma.importerror.findMany({
+                where: { remesaId },
+                orderBy: { rowNumber: 'asc' },
+                skip: (page - 1) * pageSize,
+                take: pageSize,
+            }),
+            this.prisma.importerror.count({ where: { remesaId } }),
+        ]);
+
+        return {
+            data: errors,
+            total: count,
+            page,
+            pageSize,
+            totalPages: Math.ceil(count / pageSize),
+        };
+    }
+
+    // --- LISTAR REMESAS ---
+    async listRemesas(empresaId: number, categoria?: string) {
+        return this.prisma.remesa.findMany({
+            where: {
+                empresaId,
+                ...(categoria ? { categoria: categoria as any } : {}),
+            },
+            orderBy: { createdAt: 'desc' },
+            include: { plantilla: { select: { nombre: true } } },
+        });
     }
 }

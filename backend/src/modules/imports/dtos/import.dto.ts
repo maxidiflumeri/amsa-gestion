@@ -33,4 +33,7 @@ export class CreateRemesaDto {
     @IsInt()
     @Type(() => Number)
     plantillaId!: number;
+
+    @Type(() => Number)
+    remesaOrigenId?: number;
 }

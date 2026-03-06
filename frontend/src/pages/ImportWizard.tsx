@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useCallback, useEffect, useState } from "react";
 import {
     Box,
     Button,
@@ -8,307 +8,449 @@ import {
     Typography,
     MenuItem,
     Select,
+    FormControl,
+    InputLabel,
     LinearProgress,
-    Card,
-    CardContent,
+    Alert,
+    Paper,
+    IconButton,
+    Tooltip,
 } from "@mui/material";
+import ArrowBackIcon from "@mui/icons-material/ArrowBack";
+import ArrowForwardIcon from "@mui/icons-material/ArrowForward";
 import api from "../api/axios";
 
-const steps = ["Seleccionar Plantilla", "Subir Archivo", "Validar", "Ejecutar", "Finalizado"];
+import CategorySelector from "../components/import/CategorySelector";
+import FileDropZone from "../components/import/FileDropZone";
+import PreviewTable from "../components/import/PreviewTable";
+import ImportProgress from "../components/import/ImportProgress";
+import ImportSummary from "../components/import/ImportSummary";
+
+const steps = [
+    "Categoría",
+    "Plantilla y archivo",
+    "Vista previa",
+    "Importando",
+    "Resultado",
+];
 
 export default function ImportWizard() {
     const empresaId = 1; // luego se reemplaza con auth real
 
     const [activeStep, setActiveStep] = useState(0);
     const [loading, setLoading] = useState(false);
+    const [error, setError] = useState<string | null>(null);
 
-    // data
-    const [plantillas, setPlantillas] = useState<any[]>([]);
+    // Paso 0 – categoría
     const [categoria, setCategoria] = useState("");
-    const [selectedPlantilla, setSelectedPlantilla] = useState<number | null>(null);
-    const [csvFile, setCsvFile] = useState<File | null>(null);
 
-    // backend estado
-    const [estadoBackend, setEstadoBackend] = useState<{
-        estado?: string;
-        total?: number;
-        ok?: number;
-        err?: number;
-        preview?: any[];
-    }>({});
+    // Paso 1 – plantilla + archivo
+    const [plantillas, setPlantillas] = useState<any[]>([]);
+    const [selectedPlantilla, setSelectedPlantilla] = useState<number | null>(
+        null
+    );
+    const [file, setFile] = useState<File | null>(null);
 
-    // flujo mejorado
+    // Remesa de deudores origen (para FACTURAS, CONTACTOS, PAGOS)
+    const [remesasDeudores, setRemesasDeudores] = useState<any[]>([]);
+    const [remesaOrigenId, setRemesaOrigenId] = useState<number | null>(null);
+    const needsOrigen = categoria !== "" && categoria !== "DEUDORES";
+
+    // Paso 2 – preview
     const [remesaId, setRemesaId] = useState<number | null>(null);
-    const [validationDone, setValidationDone] = useState(false);
+    const [preview, setPreview] = useState<any[]>([]);
+    const [previewStats, setPreviewStats] = useState({
+        total: 0,
+        ok: 0,
+        err: 0,
+    });
 
-    // cargar plantillas al cambiar categoría
+    // Paso 4 – resultado final
+    const [finalResult, setFinalResult] = useState({
+        total: 0,
+        ok: 0,
+        err: 0,
+    });
+
+    // ─── Carga de plantillas ─────────────────────────────────
     useEffect(() => {
         if (!categoria) return;
+        setPlantillas([]);
+        setSelectedPlantilla(null);
+        setRemesaOrigenId(null);
         api.get(`/import/plantillas/${empresaId}/${categoria}`)
-            .then(res => setPlantillas(res.data))
-            .catch(() => alert("Error obteniendo plantillas"));
+            .then((res) => setPlantillas(res.data))
+            .catch(() => setError("Error obteniendo plantillas"));
     }, [categoria]);
 
-    const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
-        if (e.target.files?.length) setCsvFile(e.target.files[0]);
+    // ─── Carga de remesas de deudores (para vincular) ────────
+    useEffect(() => {
+        if (!needsOrigen) {
+            setRemesasDeudores([]);
+            return;
+        }
+        api.get(`/import/remesas/empresa/${empresaId}?categoria=DEUDORES`)
+            .then((res) => setRemesasDeudores(
+                res.data.filter((r: any) => r.estadoProceso === 'FINALIZADA')
+            ))
+            .catch(() => setError("Error obteniendo remesas de deudores"));
+    }, [needsOrigen]);
+
+    // ─── Handlers ────────────────────────────────────────────
+
+    const handleCategorySelect = (cat: string) => {
+        setCategoria(cat);
+        setError(null);
     };
 
-    // ------------------------------------------
-    // 1) CREAR REMESA (solo crea la remesa)
-    // ------------------------------------------
-    const handleCrearRemesa = async () => {
-        if (!csvFile || !selectedPlantilla || !categoria) {
-            alert("Seleccioná categoría, plantilla y archivo.");
+    const handleFileSelect = (f: File) => {
+        setFile(f);
+        setError(null);
+    };
+
+    const handleNext = () => {
+        setError(null);
+        setActiveStep((prev) => prev + 1);
+    };
+
+    const handleBack = () => {
+        setError(null);
+        setActiveStep((prev) => prev - 1);
+    };
+
+    // Paso 1 → 2: Crear remesa + validar
+    const handleCrearYValidar = async () => {
+        if (!file || !selectedPlantilla || !categoria) {
+            setError("Seleccioná categoría, plantilla y archivo.");
             return;
         }
 
         setLoading(true);
+        setError(null);
 
         try {
             const formData = new FormData();
             formData.append("empresaId", String(empresaId));
             formData.append("categoria", categoria);
             formData.append("plantillaId", String(selectedPlantilla));
-            formData.append("nombre", `Remesa ${new Date().toLocaleString()}`);
+            formData.append(
+                "nombre",
+                `Remesa ${new Date().toLocaleString()}`
+            );
             formData.append("numeroRemesa", String(Date.now()));
-            formData.append("file", csvFile);
+            formData.append("file", file);
 
-            const res = await api.post("/import/remesas", formData, {
+            // 1) Crear remesa
+            const resRemesa = await api.post("/import/remesas", formData, {
                 headers: { "Content-Type": "multipart/form-data" },
             });
 
-            setRemesaId(res.data.remesaId);
-            setActiveStep(2); // paso a VALIDAR
-        } catch (err: any) {
-            console.error(err);
-            alert("Error creando remesa: " + (err.response?.data?.message || err.message));
-        }
+            const newRemesaId = resRemesa.data.remesaId;
+            setRemesaId(newRemesaId);
 
-        setLoading(false);
-    };
+            // 2) Validar
+            const resValidar = await api.post(
+                `/import/validar/${newRemesaId}`
+            );
 
-    // ------------------------------------------
-    // 2) VALIDAR (y mostrar preview)
-    // ------------------------------------------
-    const handleValidar = async () => {
-        if (!remesaId) return;
-
-        setLoading(true);
-
-        try {
-            const res = await api.post(`/import/validar/${remesaId}`);
-            setEstadoBackend({
-                estado: "VALIDANDO",
-                total: res.data.total,
-                ok: res.data.ok,
-                err: res.data.err,
-                preview: res.data.sample || [],
+            setPreview(resValidar.data.sample ?? []);
+            setPreviewStats({
+                total: resValidar.data.total ?? 0,
+                ok: resValidar.data.ok ?? 0,
+                err: resValidar.data.err ?? 0,
             });
 
-            setValidationDone(true);
-            // NO pasamos al paso 3 hasta que el usuario confirme
+            setActiveStep(2); // ir a preview
         } catch (err: any) {
             console.error(err);
-            alert("Error validando: " + (err.response?.data?.message || err.message));
+            setError(
+                err.response?.data?.message ||
+                    err.message ||
+                    "Error creando remesa"
+            );
         }
 
         setLoading(false);
     };
 
-    // ------------------------------------------
-    // 3) EJECUTAR (solo si usuario confirma)
-    // ------------------------------------------
+    // Paso 2 → 3: Confirmar y ejecutar
     const handleEjecutar = async () => {
         if (!remesaId) return;
 
-        setActiveStep(3); // muestro pantalla “Ejecutando”
-        setLoading(true);
+        setActiveStep(3); // ir al paso de progreso
+        setError(null);
 
         try {
-            const res = await api.post(`/import/ejecutar/${remesaId}`);
-
-            setEstadoBackend({
-                estado: "FINALIZADA",
-                total: res.data.total,
-                ok: res.data.ok,
-                err: res.data.err,
+            await api.post(`/import/ejecutar/${remesaId}`, {
+                remesaOrigenId: remesaOrigenId ?? undefined,
             });
-
-            setActiveStep(4);
+            // El componente ImportProgress se encarga del poleo
         } catch (err: any) {
             console.error(err);
-            alert("Error ejecutando: " + (err.response?.data?.message || err.message));
+            setError(
+                err.response?.data?.message ||
+                    err.message ||
+                    "Error ejecutando importación"
+            );
+            setActiveStep(2); // volver al preview
         }
-
-        setLoading(false);
     };
 
-    const getProgress = () => {
-        if (!estadoBackend.total) return 0;
-        const procesadas = (estadoBackend.ok ?? 0) + (estadoBackend.err ?? 0);
-        return Math.round((procesadas / estadoBackend.total) * 100);
+    const handleImportComplete = useCallback(
+        (result: { total: number; ok: number; err: number }) => {
+            setFinalResult(result);
+            setActiveStep(4);
+        },
+        []
+    );
+
+    const handleNewImport = () => {
+        setActiveStep(0);
+        setCategoria("");
+        setPlantillas([]);
+        setSelectedPlantilla(null);
+        setFile(null);
+        setRemesaId(null);
+        setRemesaOrigenId(null);
+        setRemesasDeudores([]);
+        setPreview([]);
+        setPreviewStats({ total: 0, ok: 0, err: 0 });
+        setFinalResult({ total: 0, ok: 0, err: 0 });
+        setError(null);
     };
 
-    // ------------------------------------------
-    // UI
-    // ------------------------------------------
+    // ─── Render ──────────────────────────────────────────────
+
+    const canGoNext = () => {
+        switch (activeStep) {
+            case 0:
+                return !!categoria;
+            case 1:
+                return !!file && !!selectedPlantilla && (!needsOrigen || !!remesaOrigenId);
+            default:
+                return false;
+        }
+    };
+
     return (
-        <Box sx={{ maxWidth: 800, mx: "auto", mt: 4 }}>
-            <Typography variant="h5" sx={{ mb: 3 }}>
-                Importación de Remesas
+        <Box sx={{ maxWidth: 900, mx: "auto", mt: 4, px: 2, pb: 6 }}>
+            {/* Header */}
+            <Typography variant="h4" sx={{ mb: 1, fontWeight: 700 }}>
+                Importación de datos
+            </Typography>
+            <Typography
+                variant="body1"
+                color="text.secondary"
+                sx={{ mb: 4 }}
+            >
+                Cargá archivos de deudores, facturas, pagos, contactos y más
             </Typography>
 
-            <Stepper activeStep={activeStep} alternativeLabel>
-                {steps.map(label => (
+            {/* Stepper */}
+            <Stepper
+                activeStep={activeStep}
+                alternativeLabel
+                sx={{ mb: 4 }}
+            >
+                {steps.map((label) => (
                     <Step key={label}>
                         <StepLabel>{label}</StepLabel>
                     </Step>
                 ))}
             </Stepper>
 
-            <Box sx={{ mt: 4 }}>
+            {/* Error global */}
+            {error && (
+                <Alert
+                    severity="error"
+                    onClose={() => setError(null)}
+                    sx={{ mb: 3 }}
+                >
+                    {error}
+                </Alert>
+            )}
 
-                {/* PASO 0 - categoría + plantilla */}
+            {/* Contenido por paso */}
+            <Paper
+                variant="outlined"
+                sx={{ p: { xs: 2, sm: 4 }, borderRadius: 2, minHeight: 300 }}
+            >
+                {/* PASO 0 — Categoría */}
                 {activeStep === 0 && (
-                    <Box>
-                        <Typography sx={{ mb: 2 }}>Seleccioná categoría:</Typography>
-                        <Select
-                            fullWidth
-                            value={categoria}
-                            onChange={(e) => setCategoria(e.target.value)}
-                        >
-                            <MenuItem value="DEUDORES">Deudores</MenuItem>
-                            <MenuItem value="FACTURAS">Facturas</MenuItem>
-                        </Select>
+                    <CategorySelector
+                        selected={categoria}
+                        onSelect={handleCategorySelect}
+                    />
+                )}
 
-                        {categoria && (
-                            <>
-                                <Typography sx={{ mt: 3 }}>Seleccioná plantilla:</Typography>
+                {/* PASO 1 — Plantilla + Archivo */}
+                {activeStep === 1 && (
+                    <Box
+                        sx={{
+                            display: "flex",
+                            flexDirection: "column",
+                            gap: 3,
+                        }}
+                    >
+                        <Typography variant="h6" sx={{ fontWeight: 600 }}>
+                            Configurar importación
+                        </Typography>
+
+                        {/* Selector de plantilla */}
+                        <FormControl fullWidth>
+                            <InputLabel id="plantilla-label">
+                                Plantilla de mapeo
+                            </InputLabel>
+                            <Select
+                                labelId="plantilla-label"
+                                label="Plantilla de mapeo"
+                                value={selectedPlantilla ?? ""}
+                                onChange={(e) =>
+                                    setSelectedPlantilla(
+                                        Number(e.target.value)
+                                    )
+                                }
+                            >
+                                {plantillas.length === 0 && (
+                                    <MenuItem disabled value="">
+                                        Sin plantillas para esta categoría
+                                    </MenuItem>
+                                )}
+                                {plantillas.map((p) => (
+                                    <MenuItem key={p.id} value={p.id}>
+                                        {p.nombre} (v{p.version})
+                                    </MenuItem>
+                                ))}
+                            </Select>
+                        </FormControl>
+
+                        {/* Selector de remesa de deudores origen */}
+                        {needsOrigen && (
+                            <FormControl fullWidth>
+                                <InputLabel id="remesa-origen-label">
+                                    Vincular a remesa de deudores
+                                </InputLabel>
                                 <Select
-                                    fullWidth
-                                    value={selectedPlantilla ?? ""}
-                                    onChange={(e) => setSelectedPlantilla(Number(e.target.value))}
+                                    labelId="remesa-origen-label"
+                                    label="Vincular a remesa de deudores"
+                                    value={remesaOrigenId ?? ""}
+                                    onChange={(e) =>
+                                        setRemesaOrigenId(
+                                            Number(e.target.value)
+                                        )
+                                    }
                                 >
-                                    {plantillas.map((p) => (
-                                        <MenuItem key={p.id} value={p.id}>
-                                            {p.nombre} (v{p.version})
+                                    {remesasDeudores.length === 0 && (
+                                        <MenuItem disabled value="">
+                                            No hay remesas de deudores finalizadas
+                                        </MenuItem>
+                                    )}
+                                    {remesasDeudores.map((r: any) => (
+                                        <MenuItem key={r.id} value={r.id}>
+                                            {r.nombre} — {r.totalFilas ?? 0} deudores —{" "}
+                                            {new Date(r.createdAt).toLocaleDateString()}
                                         </MenuItem>
                                     ))}
                                 </Select>
-                            </>
+                            </FormControl>
                         )}
 
+                        {/* Drop zone */}
+                        <FileDropZone
+                            file={file}
+                            onFileSelect={handleFileSelect}
+                        />
+                    </Box>
+                )}
+
+                {/* PASO 2 — Preview */}
+                {activeStep === 2 && (
+                    <PreviewTable
+                        preview={preview}
+                        total={previewStats.total}
+                        ok={previewStats.ok}
+                        err={previewStats.err}
+                    />
+                )}
+
+                {/* PASO 3 — Progreso */}
+                {activeStep === 3 && remesaId && (
+                    <ImportProgress
+                        remesaId={remesaId}
+                        onComplete={handleImportComplete}
+                    />
+                )}
+
+                {/* PASO 4 — Resumen */}
+                {activeStep === 4 && remesaId && (
+                    <ImportSummary
+                        total={finalResult.total}
+                        ok={finalResult.ok}
+                        err={finalResult.err}
+                        remesaId={remesaId}
+                        onNewImport={handleNewImport}
+                        onViewRemesas={() =>
+                            (window.location.href = "/remesas")
+                        }
+                    />
+                )}
+            </Paper>
+
+            {/* Barra de navegación inferior */}
+            {activeStep < 3 && (
+                <Box
+                    sx={{
+                        display: "flex",
+                        justifyContent: "space-between",
+                        mt: 3,
+                    }}
+                >
+                    <Button
+                        startIcon={<ArrowBackIcon />}
+                        disabled={activeStep === 0}
+                        onClick={handleBack}
+                    >
+                        Atrás
+                    </Button>
+
+                    {activeStep === 0 && (
                         <Button
                             variant="contained"
-                            sx={{ mt: 3 }}
-                            disabled={!categoria || !selectedPlantilla}
-                            onClick={() => setActiveStep(1)}
+                            endIcon={<ArrowForwardIcon />}
+                            disabled={!canGoNext()}
+                            onClick={handleNext}
                         >
                             Siguiente
                         </Button>
-                    </Box>
-                )}
+                    )}
 
-                {/* PASO 1 - archivo */}
-                {activeStep === 1 && (
-                    <Box>
-                        <Typography>Seleccioná archivo:</Typography>
-                        <input type="file" onChange={handleFileSelect} />
-
+                    {activeStep === 1 && (
                         <Button
                             variant="contained"
-                            sx={{ mt: 3 }}
-                            disabled={!csvFile}
-                            onClick={handleCrearRemesa}
+                            endIcon={<ArrowForwardIcon />}
+                            disabled={!canGoNext() || loading}
+                            onClick={handleCrearYValidar}
                         >
-                            Crear Remesa
+                            {loading
+                                ? "Procesando..."
+                                : "Crear remesa y validar"}
                         </Button>
-                    </Box>
-                )}
+                    )}
 
-                {/* PASO 2 - validar */}
-                {activeStep === 2 && (
-                    <Box>
-                        <Typography variant="h6" sx={{ mb: 2 }}>Validar Remesa</Typography>
-
-                        {!validationDone && (
-                            <>
-                                <Button
-                                    variant="contained"
-                                    onClick={handleValidar}
-                                    disabled={loading}
-                                >
-                                    {loading ? "Validando..." : "Validar"}
-                                </Button>
-
-                                {loading && <LinearProgress sx={{ mt: 2 }} />}
-                            </>
-                        )}
-
-                        {validationDone && (
-                            <Box sx={{ mt: 3 }}>
-                                <Typography>Resultado de la validación:</Typography>
-
-                                <Typography sx={{ mt: 2 }}>
-                                    Total filas: {estadoBackend.total} <br />
-                                    OK: {estadoBackend.ok} <br />
-                                    Errores: {estadoBackend.err}
-                                </Typography>
-
-                                <Card sx={{ mt: 3 }}>
-                                    <CardContent>
-                                        <Typography variant="h6">Preview (50 filas)</Typography>
-                                        <pre style={{ fontSize: 12, maxHeight: 300, overflowY: "auto" }}>
-                                            {JSON.stringify(estadoBackend.preview, null, 2)}
-                                        </pre>
-                                    </CardContent>
-                                </Card>
-
-                                <Button
-                                    variant="contained"
-                                    color="primary"
-                                    sx={{ mt: 3 }}
-                                    onClick={handleEjecutar}
-                                >
-                                    Confirmar e Importar
-                                </Button>
-                            </Box>
-                        )}
-                    </Box>
-                )}
-
-                {/* PASO 3 - ejecutando */}
-                {activeStep === 3 && (
-                    <Box>
-                        <Typography variant="h6">Ejecutando importación...</Typography>
-                        <Typography sx={{ mt: 1 }}>Progreso: {getProgress()}%</Typography>
-                        <LinearProgress variant="determinate" value={getProgress()} sx={{ mt: 1 }} />
-                    </Box>
-                )}
-
-                {/* PASO 4 - finalizado */}
-                {activeStep === 4 && (
-                    <Box>
-                        <Typography variant="h6">¡Importación finalizada!</Typography>
-
-                        <Typography sx={{ mt: 2 }}>
-                            Total: {estadoBackend.total} <br />
-                            OK: {estadoBackend.ok} <br />
-                            Errores: {estadoBackend.err}
-                        </Typography>
-
+                    {activeStep === 2 && (
                         <Button
                             variant="contained"
-                            sx={{ mt: 3 }}
-                            onClick={() => window.location.href = "/remesas"}
+                            color="success"
+                            onClick={handleEjecutar}
                         >
-                            Ver Remesas
+                            Confirmar e importar
                         </Button>
-                    </Box>
-                )}
-            </Box>
+                    )}
+                </Box>
+            )}
 
-            {loading && activeStep < 2 && <LinearProgress sx={{ mt: 3 }} />}
+            {/* Loading inferior */}
+            {loading && <LinearProgress sx={{ mt: 2, borderRadius: 1 }} />}
         </Box>
     );
 }

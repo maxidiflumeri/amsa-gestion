@@ -5,6 +5,7 @@ import DeudoresPage from '../pages/DeudoresPage'
 import Login from '../pages/Login'
 import Inicio from '../pages/Inicio'
 import ImportWizard from '../pages/ImportWizard'
+import PlantillaManager from '../pages/PlantillaManager'
 
 const AppRoutes = () => {
     return (
@@ -15,6 +16,7 @@ const AppRoutes = () => {
                 <Route index element={<Inicio />} />
                 <Route path="gestion" element={<DeudoresPage />} />
                 <Route path="carga" element={<ImportWizard />} />
+                <Route path="plantillas" element={<PlantillaManager />} />
                 {/* futuras rutas privadas */}
             </Route>
         </Routes>

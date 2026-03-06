@@ -248,12 +248,16 @@ enum plantillaimport_categoria {
   DEUDORES
   FACTURAS
   ENRIQUECIMIENTO
+  PAGOS
+  CONTACTOS
 }
 
 enum remesa_categoria {
   DEUDORES
   FACTURAS
   ENRIQUECIMIENTO
+  PAGOS
+  CONTACTOS
 }
 
 enum remesa_estadoProceso {
