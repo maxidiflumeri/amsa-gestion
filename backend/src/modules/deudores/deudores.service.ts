@@ -3,14 +3,122 @@ import { deudor, Prisma } from '@prisma/client';
 import { PrismaService } from 'src/prisma/prisma.service';
 import { CreateDeudorDto } from './dtos/create-deudor.dto';
 import { UpdateDeudorDto } from './dtos/update-deudor.dto';
+import { AdvancedSearchDto } from './dtos/advanced-search.dto';
 
 @Injectable()
 export class DeudoresService {
     constructor(private prisma: PrismaService) { }
 
-    async findAll(): Promise<deudor[]> {
+    async findAll(page?: number, limit?: number, search?: string) {
+        let where: Prisma.deudorWhereInput = {};
+
+        if (search) {
+            where = {
+                OR: [
+                    { nombre: { contains: search } },
+                    { apellido: { contains: search } },
+                    { documento: { contains: search } },
+                ],
+            };
+
+            const searchAsId = Number(search);
+            if (!isNaN(searchAsId) && searchAsId > 0) {
+                // Si el término de búsqueda puede ser un ID válido numérico, lo agregamos al OR.
+                (where.OR as any[]).push({ id: searchAsId });
+            }
+        }
+
+        if (page && limit) {
+            const skip = (page - 1) * limit;
+            const take = limit;
+
+            const [data, total] = await Promise.all([
+                this.prisma.deudor.findMany({
+                    skip,
+                    take,
+                    where,
+                    include: { empresa: true, remesa: true },
+                }),
+                this.prisma.deudor.count({ where }),
+            ]);
+
+            return {
+                data,
+                meta: {
+                    total,
+                    page,
+                    limit,
+                    totalPages: Math.ceil(total / limit),
+                },
+            };
+        } else {
+            const data = await this.prisma.deudor.findMany({
+                where,
+                include: { empresa: true, remesa: true },
+            });
+            return {
+                data,
+                meta: {
+                    total: data.length,
+                    page: 1,
+                    limit: data.length,
+                    totalPages: 1,
+                },
+            };
+        }
+    }
+
+    async searchAdvanced(dto: AdvancedSearchDto) {
+        const andConditions: Prisma.deudorWhereInput[] = [];
+
+        if (dto.id) {
+            andConditions.push({ id: dto.id });
+        }
+        if (dto.nombre) {
+            andConditions.push({ nombre: { contains: dto.nombre } });
+        }
+        if (dto.apellido) {
+            andConditions.push({ apellido: { contains: dto.apellido } });
+        }
+        if (dto.documento) {
+            andConditions.push({ documento: { contains: dto.documento } });
+        }
+        if (dto.empresa) {
+            andConditions.push({ empresa: { nombre: { contains: dto.empresa } } });
+        }
+        if (dto.nroCliente) {
+            // Buscamos coincidencia en la tabla relacional de campoExtras
+            andConditions.push({
+                OR: [
+                    { campoExtras: { some: { valor: { contains: dto.nroCliente } } } },
+                    { camposAdicionales: { string_contains: dto.nroCliente } }
+                ]
+            });
+        }
+        if (dto.email) {
+            andConditions.push({ contactos: { some: { tipo: 'email', valor: { contains: dto.email } } } });
+        }
+        if (dto.telefono) {
+            andConditions.push({ contactos: { some: { tipo: 'telefono', valor: { contains: dto.telefono } } } });
+        }
+
+        // Si no mandaron filtros, podemos devolver vacío o todo con limit, pero elegimos los primeros 50
+        const where: Prisma.deudorWhereInput = andConditions.length > 0 ? { AND: andConditions } : {};
+
         return this.prisma.deudor.findMany({
-            include: { empresa: true, remesa: true },
+            where,
+            take: 50,
+            include: { empresa: true, remesa: true, contactos: true },
+        });
+    }
+
+    async getEmpresas() {
+        return this.prisma.empresa.findMany({
+            select: {
+                id: true,
+                nombre: true,
+            },
+            orderBy: { nombre: 'asc' },
         });
     }
 

@@ -1,7 +1,8 @@
-import { Controller, Get, Param, Post, Body, Put, Delete, Req } from '@nestjs/common';
+import { Controller, Get, Param, Post, Body, Put, Delete, Req, Query, HttpCode, HttpStatus } from '@nestjs/common';
 import { DeudoresService } from './deudores.service';
 import { CreateDeudorDto } from './dtos/create-deudor.dto';
 import { UpdateDeudorDto } from './dtos/update-deudor.dto';
+import { AdvancedSearchDto } from './dtos/advanced-search.dto';
 import { Prisma } from '@prisma/client';
 import { Audit } from '../transacciones/audit.decorator';
 
@@ -9,9 +10,28 @@ import { Audit } from '../transacciones/audit.decorator';
 export class DeudoresController {
     constructor(private readonly deudoresService: DeudoresService) { }
 
+    @Post('advanced-search')
+    @HttpCode(HttpStatus.OK)
+    searchAdvanced(@Body() dto: AdvancedSearchDto) {
+        return this.deudoresService.searchAdvanced(dto);
+    }
+
+    @Get('empresas')
+    getEmpresas() {
+        return this.deudoresService.getEmpresas();
+    }
+
     @Get()
-    findAll() {
-        return this.deudoresService.findAll();
+    findAll(
+        @Query('page') page?: string,
+        @Query('limit') limit?: string,
+        @Query('search') search?: string,
+    ) {
+        return this.deudoresService.findAll(
+            page ? parseInt(page, 10) : undefined,
+            limit ? parseInt(limit, 10) : undefined,
+            search,
+        );
     }
 
     @Get(':id')

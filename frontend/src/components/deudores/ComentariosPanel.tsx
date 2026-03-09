@@ -46,11 +46,6 @@ const ComentariosPanel: React.FC<ComentariosProps> = ({
         localStorage.setItem(`comentario_draft_${deudorId}`, nuevoComentario);
     }, [nuevoComentario, deudorId]);
 
-    // Scroll automático al final
-    useEffect(() => {
-        bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
-    }, [comentarios]);
-
     const handleSend = async () => {
         if (!nuevoComentario.trim()) return;
         try {
