@@ -13,7 +13,7 @@ interface Props {
 
 const Navbar: React.FC<Props> = ({ drawerOpen, setDrawerOpen, user }) => {
     return (
-        <AppBar position="fixed" sx={{ zIndex: (theme) => theme.zIndex.drawer + 1 }}>
+        <AppBar position="fixed" sx={{ zIndex: (theme) => theme.zIndex.drawer + 1, bgcolor: '#1976d2', color: '#ffffff' }}>
             <Toolbar sx={{ justifyContent: 'space-between' }}>
                 <Box display="flex" alignItems="center">
                     <IconButton color="inherit" onClick={() => setDrawerOpen(!drawerOpen)} edge="start" sx={{ mr: 2 }}>

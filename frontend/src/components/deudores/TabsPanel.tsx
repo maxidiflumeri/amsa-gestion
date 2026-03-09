@@ -84,14 +84,11 @@ const TabsPanel: React.FC<Props> = ({
                     <FichaDeudor deudorId={selectedDeudorId} />
                 )}
 
-                {selectedTab === 0 && !selectedDeudorId && (
-                    <Typography sx={{ p: 2 }}>Seleccioná un deudor desde la pestaña “Lista”.</Typography>
-                )}
-
                 {selectedTab === 1 && (
                     <DeudoresTable
                         selectedDeudorId={selectedDeudorId}
                         setSelectedDeudorId={setSelectedDeudorId}
+                        onDoubleClickRow={() => setSelectedTab(0)}
                     />
                 )}
             </Box>

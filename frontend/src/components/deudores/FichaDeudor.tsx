@@ -46,6 +46,8 @@ import CheckCircleIcon from '@mui/icons-material/CheckCircle';
 import ChatIcon from '@mui/icons-material/Chat';
 import AccountBalanceWalletIcon from '@mui/icons-material/AccountBalanceWallet';
 import InfoIcon from '@mui/icons-material/Info';
+import SearchIcon from '@mui/icons-material/Search';
+import ReportProblemIcon from '@mui/icons-material/ReportProblem';
 
 import api from '../../api/axios';
 import ComentariosPanel from './ComentariosPanel';
@@ -94,6 +96,7 @@ const FichaDeudor: React.FC<Props> = ({ deudorId }) => {
     const [previewTel, setPreviewTel] = useState<PreviewTelefono | null>(null);
     const [previewEmail, setPreviewEmail] = useState<{ valido: boolean; normalizado?: string } | null>(null);
     const [previewDir, setPreviewDir] = useState<DireccionPreview | null>(null);
+    const [validandoDir, setValidandoDir] = useState(false);
     const [nuevaDireccion, setNuevaDireccion] = useState({
         calle: '',
         numero: '',
@@ -129,8 +132,25 @@ const FichaDeudor: React.FC<Props> = ({ deudorId }) => {
     const handleOpenModalAgregar = (tipo: string) => {
         setTipoSeleccionado(tipo);
         setNuevoContacto({ tipo, valor: '' });
+        setNuevaDireccion({ calle: '', numero: '', cp: '', localidad: '', provincia: '' });
         setPreviewTel(null);
+        setPreviewEmail(null);
+        setPreviewDir(null);
+        setValidandoDir(false);
         setOpenModalAgregar(true);
+    };
+
+    const handleChangeDireccion = (field: string, value: string) => {
+        setNuevaDireccion(prev => ({ ...prev, [field]: value }));
+        setPreviewDir(null);
+    };
+
+    const handleValidarDireccion = async () => {
+        setValidandoDir(true);
+        const textoBusqueda = `${nuevaDireccion.calle} ${nuevaDireccion.numero}, ${nuevaDireccion.localidad}, ${nuevaDireccion.provincia}`;
+        const res = await validarDireccionArgentinaFront(textoBusqueda);
+        setPreviewDir(res);
+        setValidandoDir(false);
     };
 
     const handleEstadoChange = (type: 'situacion' | 'gestion', value: string) => {
@@ -240,7 +260,19 @@ const FichaDeudor: React.FC<Props> = ({ deudorId }) => {
                                     variant="outlined"
                                     onDelete={() => handleConfirmarEliminar(c)}
                                     size="small"
-                                    sx={{ mr: 1, mb: 1, fontWeight: 500 }}
+                                    sx={{ 
+                                        mr: 1, 
+                                        mb: 1, 
+                                        fontWeight: 500,
+                                        height: 'auto',
+                                        maxWidth: '100%',
+                                        '& .MuiChip-label': {
+                                            display: 'block',
+                                            whiteSpace: 'normal',
+                                            paddingY: 0.5,
+                                            wordBreak: 'break-word'
+                                        }
+                                    }}
                                 />
                             );
                         })
@@ -256,7 +288,7 @@ const FichaDeudor: React.FC<Props> = ({ deudorId }) => {
     return (
         <Box sx={{ pb: 4 }}>
             {/* CABECERA PRINCIPAL */}
-            <Card elevation={3} sx={{ mb: 3, borderRadius: 3, backgroundImage: 'linear-gradient(to right, #f8f9fa, #ffffff)' }}>
+            <Card elevation={3} sx={{ mb: 3, borderRadius: 3 }}>
                 <CardContent>
                     <Grid container spacing={2} alignItems="center">
                         <Grid item xs={12} md={6}>
@@ -357,7 +389,7 @@ const FichaDeudor: React.FC<Props> = ({ deudorId }) => {
 
                     {/* DASHBOARD PRINCIPAL (TABS) */}
                     <Card elevation={2} sx={{ borderRadius: 3, minHeight: 400 }}>
-                        <Box sx={{ borderBottom: 1, borderColor: 'divider', bgcolor: '#fbfbfb' }}>
+                        <Box sx={{ borderBottom: 1, borderColor: 'divider', bgcolor: 'background.default' }}>
                             <Tabs 
                                 value={tabVal} 
                                 onChange={(e, val) => setTabVal(val)} 
@@ -397,11 +429,11 @@ const FichaDeudor: React.FC<Props> = ({ deudorId }) => {
                                         <Table stickyHeader size="small">
                                             <TableHead>
                                                 <TableRow>
-                                                    <TableCell sx={{ bgcolor: '#f5f5f5' }}>Factura</TableCell>
-                                                    <TableCell sx={{ bgcolor: '#f5f5f5' }}>Emisión</TableCell>
-                                                    <TableCell sx={{ bgcolor: '#f5f5f5' }}>Vencimiento</TableCell>
-                                                    <TableCell align="right" sx={{ bgcolor: '#f5f5f5' }}>Importe</TableCell>
-                                                    <TableCell sx={{ bgcolor: '#f5f5f5' }}>Estado</TableCell>
+                                                    <TableCell sx={{ bgcolor: 'action.hover' }}>Factura</TableCell>
+                                                    <TableCell sx={{ bgcolor: 'action.hover' }}>Emisión</TableCell>
+                                                    <TableCell sx={{ bgcolor: 'action.hover' }}>Vencimiento</TableCell>
+                                                    <TableCell align="right" sx={{ bgcolor: 'action.hover' }}>Importe</TableCell>
+                                                    <TableCell sx={{ bgcolor: 'action.hover' }}>Estado</TableCell>
                                                 </TableRow>
                                             </TableHead>
                                             <TableBody>
@@ -448,10 +480,10 @@ const FichaDeudor: React.FC<Props> = ({ deudorId }) => {
                                         <Table stickyHeader size="small">
                                             <TableHead>
                                                 <TableRow>
-                                                    <TableCell sx={{ bgcolor: '#f5f5f5' }}>Fecha Pago</TableCell>
-                                                    <TableCell sx={{ bgcolor: '#f5f5f5' }}>Origen</TableCell>
-                                                    <TableCell sx={{ bgcolor: '#f5f5f5' }}>Observación</TableCell>
-                                                    <TableCell align="right" sx={{ bgcolor: '#f5f5f5' }}>Importe</TableCell>
+                                                    <TableCell sx={{ bgcolor: 'action.hover' }}>Fecha Pago</TableCell>
+                                                    <TableCell sx={{ bgcolor: 'action.hover' }}>Origen</TableCell>
+                                                    <TableCell sx={{ bgcolor: 'action.hover' }}>Observación</TableCell>
+                                                    <TableCell align="right" sx={{ bgcolor: 'action.hover' }}>Importe</TableCell>
                                                 </TableRow>
                                             </TableHead>
                                             <TableBody>
@@ -545,24 +577,44 @@ const FichaDeudor: React.FC<Props> = ({ deudorId }) => {
                         <>
                             <Grid container spacing={2} sx={{ mt: 1 }}>
                                 <Grid item xs={12} sm={6}>
-                                    <TextField label="Calle" fullWidth value={nuevaDireccion.calle} onChange={(e) => setNuevaDireccion({ ...nuevaDireccion, calle: e.target.value })} />
+                                    <TextField label="Calle" fullWidth value={nuevaDireccion.calle} onChange={(e) => handleChangeDireccion('calle', e.target.value)} />
                                 </Grid>
                                 <Grid item xs={12} sm={3}>
-                                    <TextField label="Número" fullWidth value={nuevaDireccion.numero} onChange={(e) => setNuevaDireccion({ ...nuevaDireccion, numero: e.target.value })} />
+                                    <TextField label="Número" fullWidth value={nuevaDireccion.numero} onChange={(e) => handleChangeDireccion('numero', e.target.value)} />
                                 </Grid>
                                 <Grid item xs={12} sm={3}>
-                                    <TextField label="Código Postal" fullWidth value={nuevaDireccion.cp} onChange={(e) => setNuevaDireccion({ ...nuevaDireccion, cp: e.target.value })} />
+                                    <TextField label="Código Postal" fullWidth value={nuevaDireccion.cp} onChange={(e) => handleChangeDireccion('cp', e.target.value)} />
                                 </Grid>
                                 <Grid item xs={12} sm={6}>
-                                    <TextField label="Localidad" fullWidth value={nuevaDireccion.localidad} onChange={(e) => setNuevaDireccion({ ...nuevaDireccion, localidad: e.target.value })} />
+                                    <TextField label="Localidad" fullWidth value={nuevaDireccion.localidad} onChange={(e) => handleChangeDireccion('localidad', e.target.value)} />
                                 </Grid>
                                 <Grid item xs={12} sm={6}>
-                                    <TextField label="Provincia" fullWidth value={nuevaDireccion.provincia} onChange={(e) => setNuevaDireccion({ ...nuevaDireccion, provincia: e.target.value })} />
+                                    <TextField label="Provincia" fullWidth value={nuevaDireccion.provincia} onChange={(e) => handleChangeDireccion('provincia', e.target.value)} />
                                 </Grid>
                             </Grid>
-                            <Typography variant="body2" color="text.secondary" sx={{ mt: 2 }}>
-                                {previewDir ? getHelperTextDireccion(previewDir) : 'Completá los campos y se validará automáticamente'}
-                            </Typography>
+                            
+                            <Box sx={{ mt: 3, display: 'flex', flexDirection: 'column', gap: 2 }}>
+                                <Button 
+                                    variant="outlined" 
+                                    color="info" 
+                                    startIcon={validandoDir ? <CircularProgress size={20} /> : <SearchIcon />}
+                                    onClick={handleValidarDireccion}
+                                    disabled={validandoDir || !nuevaDireccion.calle || !nuevaDireccion.numero || !nuevaDireccion.localidad || !nuevaDireccion.provincia}
+                                >
+                                    {validandoDir ? 'Validando con Georef...' : 'Validar Dirección'}
+                                </Button>
+
+                                {previewDir && (
+                                    <Alert 
+                                        severity={previewDir.valido ? "success" : "warning"} 
+                                        icon={previewDir.valido ? <CheckCircleIcon /> : <ReportProblemIcon />}
+                                    >
+                                        {previewDir.valido 
+                                            ? `Ubicación encontrada: ${previewDir.normalizada} (${previewDir.localidad}, ${previewDir.provincia})`
+                                            : `No encontrada en Georef. Podés guardarla igual bajo tu confirmación manual.`}
+                                    </Alert>
+                                )}
+                            </Box>
                         </>
                     ) : (
                         <TextField
@@ -601,15 +653,12 @@ const FichaDeudor: React.FC<Props> = ({ deudorId }) => {
                         variant="contained"
                         onClick={async () => {
                             if (tipoSeleccionado === 'direccion') {
-                                const textoCompleto = `${nuevaDireccion.calle} - ${nuevaDireccion.numero} - ${nuevaDireccion.localidad} - ${nuevaDireccion.provincia} - ${nuevaDireccion.cp}`;
-                                const res = await validarDireccionArgentinaFront(textoCompleto);
-                                setPreviewDir(res);
-                                if (!res.valido) {
-                                    setSnackbar({ open: true, message: 'Dirección inválida o no reconocida', severity: 'error' });
-                                    return;
-                                }
-                                await api.post('/contactos', { tipo: 'direccion', valor: textoCompleto, deudorId });
-                                setSnackbar({ open: true, message: 'Dirección agregada correctamente', severity: 'success' });
+                                const dirFormateada = previewDir?.valido 
+                                    ? `${previewDir.normalizada}, ${previewDir.localidad || nuevaDireccion.localidad}, ${previewDir.provincia || nuevaDireccion.provincia} (CP ${nuevaDireccion.cp || '-'})`
+                                    : `${nuevaDireccion.calle} ${nuevaDireccion.numero}, ${nuevaDireccion.localidad}, ${nuevaDireccion.provincia} (CP ${nuevaDireccion.cp || '-'})`;
+                                
+                                await api.post('/contactos', { tipo: 'direccion', valor: dirFormateada, deudorId });
+                                setSnackbar({ open: true, message: previewDir?.valido ? 'Dirección validada y guardada correctamente' : 'Dirección guardada manualmente', severity: 'success' });
                                 await cargarInicial();
                                 setOpenModalAgregar(false);
                             } else {
@@ -618,7 +667,7 @@ const FichaDeudor: React.FC<Props> = ({ deudorId }) => {
                         }}
                         disabled={
                             tipoSeleccionado === 'direccion'
-                                ? !(nuevaDireccion.calle && nuevaDireccion.numero && nuevaDireccion.localidad && nuevaDireccion.provincia)
+                                ? (!previewDir) // Solo habilita si hay un previewDir
                                 : tipoSeleccionado === 'telefono' || tipoSeleccionado === 'whatsapp' ? !previewTel?.valido
                                     : tipoSeleccionado === 'email' ? !previewEmail?.valido : !nuevoContacto.valor?.trim()
                         }

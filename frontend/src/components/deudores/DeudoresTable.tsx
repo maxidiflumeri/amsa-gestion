@@ -31,9 +31,10 @@ interface Deudor {
 interface Props {
     selectedDeudorId: number | null
     setSelectedDeudorId: (id: number | null) => void
+    onDoubleClickRow?: () => void;
 }
 
-const DeudoresTable: React.FC<Props> = ({ selectedDeudorId, setSelectedDeudorId }) => {
+const DeudoresTable: React.FC<Props> = ({ selectedDeudorId, setSelectedDeudorId, onDoubleClickRow }) => {
     const [deudores, setDeudores] = useState<Deudor[]>([])
     const [filtro, setFiltro] = useState('')
     const [debouncedFiltro, setDebouncedFiltro] = useState('')
@@ -117,6 +118,10 @@ const DeudoresTable: React.FC<Props> = ({ selectedDeudorId, setSelectedDeudorId 
                                 hover
                                 selected={selectedDeudorId === d.id}
                                 onClick={() => setSelectedDeudorId(d.id)}
+                                onDoubleClick={() => {
+                                    setSelectedDeudorId(d.id);
+                                    if (onDoubleClickRow) onDoubleClickRow();
+                                }}
                                 sx={{ cursor: 'pointer' }}
                             >
                                 <TableCell>{d.id}</TableCell>
