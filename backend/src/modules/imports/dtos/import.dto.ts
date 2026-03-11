@@ -1,7 +1,7 @@
 // src/import/import.dto.ts
 import { ImportCategoria } from '../mapping-types';
 import { Type } from 'class-transformer';
-import { IsInt, IsNotEmpty, IsString } from 'class-validator';
+import { IsInt, IsNotEmpty, IsOptional, IsString } from 'class-validator';
 
 export class CreatePlantillaDto {
     empresaId!: number;
@@ -36,4 +36,8 @@ export class CreateRemesaDto {
 
     @Type(() => Number)
     remesaOrigenId?: number;
+
+    @IsString()
+    @IsOptional()
+    hoja?: string;
 }

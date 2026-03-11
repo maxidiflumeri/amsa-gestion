@@ -53,9 +53,45 @@ export default function PreviewTable({ preview, total, ok, err }: Props) {
         page * rowsPerPage + rowsPerPage
     );
 
-    const formatValue = (val: any): string => {
-        if (val === null || val === undefined) return "—";
+    const formatValue = (val: any, colName: string): React.ReactNode => {
+        if (colName === '_blocks' && Array.isArray(val)) {
+            return (
+                <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1, minWidth: 200 }}>
+                    {val.map((b, i) => {
+                        // Resumen de la entidad
+                        const data = b.data || {};
+                        let summary = '';
+                        if (b.entity === 'FACTURA' || b.entity === 'DEUDORES_Y_FACTURAS' || b.entity === 'MIXTO') {
+                            const imp = data.importe ? `$${Number(data.importe).toLocaleString('es-AR')}` : '';
+                            const vto = data.vencimiento ? new Date(data.vencimiento).toLocaleDateString() : '';
+                            summary = `Fact. ${data.nroFactura || '-'} | ${imp} ${vto ? `| Vto: ${vto}` : ''}`;
+                        } else if (b.entity === 'CONTACTO') {
+                            summary = `${data.tipo || 'Dato'}: ${data.valor || '-'}`;
+                        } else {
+                            summary = JSON.stringify(data);
+                        }
+
+                        return (
+                            <Box key={i} sx={{ border: '1px solid', borderColor: 'divider', p: 0.5, borderRadius: 1, bgcolor: 'background.paper', fontSize: 12 }}>
+                               <Typography variant="caption" sx={{ fontWeight: 'bold', color: b.entity === 'CONTACTO' ? 'secondary.main' : 'primary.main', display: 'block', mb: 0.5 }}>
+                                  {b.entity === 'DEUDORES_Y_FACTURAS' || b.entity === 'MIXTO' ? 'FACTURA' : b.entity}
+                               </Typography>
+                               <Typography variant="body2" sx={{ fontSize: 12 }}>
+                                  {summary}
+                               </Typography>
+                            </Box>
+                        );
+                    })}
+                </Box>
+            );
+        }
+
+        if (val === null || val === undefined || val === "") return "—";
         if (val instanceof Date) return new Date(val).toLocaleDateString();
+        // Detectar ISO string (fechas serializadas por el backend)
+        if (typeof val === 'string' && /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}.\d{3}Z$/.test(val)) {
+             return new Date(val).toLocaleDateString();
+        }
         if (typeof val === "object") return JSON.stringify(val);
         return String(val);
     };
@@ -166,7 +202,8 @@ export default function PreviewTable({ preview, total, ok, err }: Props) {
                                                 ? item.error
                                                 : ""
                                             : formatValue(
-                                                  item.data?.[col]
+                                                  item.data?.[col],
+                                                  col
                                               )}
                                     </TableCell>
                                 ))}

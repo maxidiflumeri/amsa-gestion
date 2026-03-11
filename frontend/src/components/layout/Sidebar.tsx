@@ -1,8 +1,13 @@
-import React from 'react'
-import { Drawer, Toolbar, List, ListItem, ListItemButton, ListItemIcon, ListItemText, Box, Divider, Switch, Stack, Typography } from '@mui/material'
+import React, { useState } from 'react'
+import { Drawer, Toolbar, List, ListItem, ListItemButton, ListItemIcon, ListItemText, Box, Divider, Switch, Stack, Typography, Collapse } from '@mui/material'
 import AssignmentIcon from '@mui/icons-material/Assignment'
 import LightModeIcon from '@mui/icons-material/LightMode'
 import DarkModeIcon from '@mui/icons-material/DarkMode'
+import ExpandLess from '@mui/icons-material/ExpandLess'
+import ExpandMore from '@mui/icons-material/ExpandMore'
+import UploadFileIcon from '@mui/icons-material/UploadFile'
+import HistoryIcon from '@mui/icons-material/History'
+import DescriptionIcon from '@mui/icons-material/Description'
 import { useNavigate } from 'react-router-dom'
 import { useColorMode } from '../../context/ThemeContext'
 
@@ -13,6 +18,11 @@ interface Props {
 const Sidebar: React.FC<Props> = ({ drawerOpen }) => {
     const navigate = useNavigate()
     const { mode, toggleColorMode } = useColorMode()
+    const [openImport, setOpenImport] = useState(false)
+
+    const handleClickImport = () => {
+        setOpenImport(!openImport)
+    }
 
     return (
         <Drawer
@@ -37,18 +47,31 @@ const Sidebar: React.FC<Props> = ({ drawerOpen }) => {
                             <ListItemText primary="Gestión" />
                         </ListItemButton>
                     </ListItem>
+                    
+                    {/* Sección Grupo de Importaciones */}
                     <ListItem disablePadding>
-                        <ListItemButton onClick={() => navigate('/carga')}>
-                            <ListItemIcon><AssignmentIcon /></ListItemIcon>
-                            <ListItemText primary="Carga" />
+                        <ListItemButton onClick={handleClickImport}>
+                            <ListItemIcon><UploadFileIcon /></ListItemIcon>
+                            <ListItemText primary="Importación de Datos" />
+                            {openImport ? <ExpandLess /> : <ExpandMore />}
                         </ListItemButton>
                     </ListItem>
-                    <ListItem disablePadding>
-                        <ListItemButton onClick={() => navigate('/plantillas')}>
-                            <ListItemIcon><AssignmentIcon /></ListItemIcon>
-                            <ListItemText primary="Plantillas" />
-                        </ListItemButton>
-                    </ListItem>
+                    <Collapse in={openImport} timeout="auto" unmountOnExit>
+                        <List component="div" disablePadding>
+                            <ListItemButton sx={{ pl: 4 }} onClick={() => navigate('/carga')}>
+                                <ListItemIcon><UploadFileIcon fontSize="small" /></ListItemIcon>
+                                <ListItemText primary="Nueva Importación" />
+                            </ListItemButton>
+                            <ListItemButton sx={{ pl: 4 }} onClick={() => navigate('/historial-importaciones')}>
+                                <ListItemIcon><HistoryIcon fontSize="small" /></ListItemIcon>
+                                <ListItemText primary="Historial" />
+                            </ListItemButton>
+                            <ListItemButton sx={{ pl: 4 }} onClick={() => navigate('/plantillas')}>
+                                <ListItemIcon><DescriptionIcon fontSize="small" /></ListItemIcon>
+                                <ListItemText primary="Plantillas" />
+                            </ListItemButton>
+                        </List>
+                    </Collapse>
                 </List>
                 
                 <Divider />

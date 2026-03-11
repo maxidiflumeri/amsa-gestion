@@ -1,4 +1,5 @@
 import { Module } from '@nestjs/common';
+import { BullModule } from '@nestjs/bullmq';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
 import { DeudoresModule } from './modules/deudores/deudores.module';
@@ -11,7 +12,22 @@ import { LoggerModule } from './common/logger/logger.module';
 import { ImportModule } from './modules/imports/imports.module';
 
 @Module({
-  imports: [LoggerModule, PrismaModule, DeudoresModule, ParametrosModule, TransaccionesModule, ContactosModule, ComentariosModule, ImportModule],
+  imports: [
+    LoggerModule,
+    PrismaModule,
+    BullModule.forRoot({
+      connection: {
+        host: process.env.REDIS_HOST || 'localhost',
+        port: parseInt(process.env.REDIS_PORT || '6379', 10),
+      },
+    }),
+    DeudoresModule,
+    ParametrosModule,
+    TransaccionesModule,
+    ContactosModule,
+    ComentariosModule,
+    ImportModule
+  ],
   controllers: [AppController],
   providers: [AppService]
 })

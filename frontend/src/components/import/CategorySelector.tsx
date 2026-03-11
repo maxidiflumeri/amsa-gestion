@@ -57,6 +57,13 @@ const CATEGORIES: CategoryOption[] = [
         icon: <AutoFixHighIcon sx={{ fontSize: 40 }} />,
         color: "#0288d1",
     },
+    {
+        value: "DEUDORES_Y_FACTURAS",
+        label: "Deudores y Facturas",
+        description: "Importar deudores junto con sus recibos/facturas",
+        icon: <ReceiptLongIcon sx={{ fontSize: 40 }} />,
+        color: "#d32f2f",
+    },
 ];
 
 interface Props {

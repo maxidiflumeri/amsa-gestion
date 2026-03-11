@@ -64,9 +64,9 @@ model deudor {
   comentarios       comentario[]
   contactos         contacto[]
   empresa           empresa       @relation(fields: [empresaId], references: [id], map: "Deudor_empresaId_fkey")
-  estadoSituacion   parametro?    @relation("DeudorEstadoSituacion", fields: [estadoSituacionId], references: [id])
-  estadoGestion     parametro?    @relation("DeudorEstadoGestion", fields: [estadoGestionId], references: [id])
   remesa            remesa        @relation(fields: [remesaId], references: [id], map: "Deudor_remesaId_fkey")
+  estadoGestion     parametro?    @relation("DeudorEstadoGestion", fields: [estadoGestionId], references: [id])
+  estadoSituacion   parametro?    @relation("DeudorEstadoSituacion", fields: [estadoSituacionId], references: [id])
   facturas          factura[]
   pagos             pago[]
   transacciones     transaccion[]
@@ -87,7 +87,7 @@ model empresa {
   createdAt       DateTime          @default(now())
   updatedAt       DateTime          @updatedAt
   deudor          deudor[]
-  parametro       parametro[]
+  parametro       empresa_parametro[]
   plantillaimport plantillaimport[]
   remesa          remesa[]
 }
@@ -111,7 +111,7 @@ model importerror {
   remesaId  Int
   rowNumber Int
   rawRow    Json
-  errorMsg  String
+  errorMsg  String   @db.Text
   createdAt DateTime @default(now())
   remesa    remesa   @relation(fields: [remesaId], references: [id], map: "ImportError_remesaId_fkey")
 
@@ -145,15 +145,26 @@ model pago {
 
 model parametro {
   id                       Int      @id @default(autoincrement())
-  empresaId                Int?
   grupo                    String
   clave                    String   @unique(map: "Parametro_clave_key")
   descripcion              String
+  padreId                  Int?
+  parametroPadre           parametro?          @relation("CondicionParametro", fields: [padreId], references: [id])
+  subParametros            parametro[]         @relation("CondicionParametro")
   deudoresConEstaGestion   deudor[] @relation("DeudorEstadoGestion")
   deudoresConEstaSituacion deudor[] @relation("DeudorEstadoSituacion")
-  empresa                  empresa? @relation(fields: [empresaId], references: [id], map: "Parametro_empresaId_fkey")
+  empresas                 empresa_parametro[]
+}
 
-  @@index([empresaId], map: "Parametro_empresaId_fkey")
+model empresa_parametro {
+  empresaId   Int
+  parametroId Int
+  empresa     empresa   @relation(fields: [empresaId], references: [id], onDelete: Cascade)
+  parametro   parametro @relation(fields: [parametroId], references: [id], onDelete: Cascade)
+
+  @@id([empresaId, parametroId])
+  @@index([empresaId])
+  @@index([parametroId])
 }
 
 model plantillaimport {
@@ -192,6 +203,7 @@ model remesa {
   okFilas          Int                  @default(0)
   plantillaId      Int?
   totalFilas       Int                  @default(0)
+  hoja             String?
   deudor           deudor[]
   importerror      importerror[]
   jobimport        jobimport[]
@@ -244,12 +256,21 @@ enum jobimport_estado {
   FALLIDA
 }
 
+enum remesa_estadoProceso {
+  PENDIENTE
+  VALIDANDO
+  PROCESANDO
+  FINALIZADA
+  FALLIDA
+}
+
 enum plantillaimport_categoria {
   DEUDORES
   FACTURAS
   ENRIQUECIMIENTO
   PAGOS
   CONTACTOS
+  DEUDORES_Y_FACTURAS
 }
 
 enum remesa_categoria {
@@ -258,12 +279,5 @@ enum remesa_categoria {
   ENRIQUECIMIENTO
   PAGOS
   CONTACTOS
-}
-
-enum remesa_estadoProceso {
-  PENDIENTE
-  VALIDANDO
-  PROCESANDO
-  FINALIZADA
-  FALLIDA
+  DEUDORES_Y_FACTURAS
 }

@@ -6,11 +6,17 @@ export interface MappingColumn {
     transforms?: string[];      // ej: ["trim","toNumber:es-AR"]
 }
 
+export interface RepetitiveBlock {
+    entity: string;                 // ej: "FACTURA" o "CONTACTO"
+    columns: Record<string, MappingColumn>;
+}
+
 export interface MappingJson {
-    entity: 'DEUDOR' | 'FACTURA' | 'PAGO' | 'CONTACTO' | 'ENRIQ_MIXTO';
+    entity: 'DEUDOR' | 'FACTURA' | 'PAGO' | 'CONTACTO' | 'ENRIQ_MIXTO' | 'MIXTO';
     matchKeys: string[];        // ej: ["empresaId","documento"]
     columns: Record<string, MappingColumn>;  // campos principales
     extras?: Record<string, MappingColumn>;   // <-- campos adicionales (JSON)
+    blocks?: RepetitiveBlock[];               // <-- bloques repetitivos (N-1)
     defaults?: Record<string, any>;
     validations?: Array<{ field: string; rule: string }>;
     dedup?: { strategy: 'keep-last' | 'keep-first'; orderBy?: string[] };

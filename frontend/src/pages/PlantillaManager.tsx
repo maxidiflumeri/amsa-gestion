@@ -33,11 +33,13 @@ import DeleteIcon from "@mui/icons-material/Delete";
 import ArrowBackIcon from "@mui/icons-material/ArrowBack";
 import SaveIcon from "@mui/icons-material/Save";
 import api from "../api/axios";
+import { useEmpresas } from "../hooks/useEmpresas";
 import MappingEditor, {
     MappingField,
+    MappingBlock,
 } from "../components/import/MappingEditor";
 
-const CATEGORIAS = ["DEUDORES", "FACTURAS", "ENRIQUECIMIENTO", "PAGOS", "CONTACTOS"];
+const CATEGORIAS = ["DEUDORES", "FACTURAS", "ENRIQUECIMIENTO", "PAGOS", "CONTACTOS", "DEUDORES_Y_FACTURAS"];
 
 interface Plantilla {
     id: number;
@@ -60,6 +62,7 @@ function mappingJsonToFields(mapping: any): MappingField[] {
             fields.push({
                 destField: dest,
                 fromIndex: cfg.fromIndex ?? 0,
+                staticValue: cfg.staticValue,
                 transforms: cfg.transforms ?? [],
                 isExtra: false,
             });
@@ -71,6 +74,7 @@ function mappingJsonToFields(mapping: any): MappingField[] {
             fields.push({
                 destField: dest,
                 fromIndex: cfg.fromIndex ?? 0,
+                staticValue: cfg.staticValue,
                 transforms: cfg.transforms ?? [],
                 isExtra: true,
             });
@@ -80,9 +84,33 @@ function mappingJsonToFields(mapping: any): MappingField[] {
     return fields;
 }
 
+// Convert MappingJson.blocks -> MappingBlock[] for the editor
+function mappingJsonToBlocks(mapping: any): MappingBlock[] {
+    const blocks: MappingBlock[] = [];
+    if (mapping?.blocks && Array.isArray(mapping.blocks)) {
+        for (const b of mapping.blocks) {
+            const blockFields: MappingField[] = [];
+            if (b.columns) {
+                for (const [dest, cfg] of Object.entries(b.columns) as any) {
+                    blockFields.push({
+                        destField: dest,
+                        fromIndex: cfg.fromIndex ?? 0,
+                        staticValue: cfg.staticValue,
+                        transforms: cfg.transforms ?? [],
+                        isExtra: false,
+                    });
+                }
+            }
+            blocks.push({ entity: b.entity, fields: blockFields });
+        }
+    }
+    return blocks;
+}
+
 // Convert MappingField[] → MappingJson for the backend
 function fieldsToMappingJson(
     fields: MappingField[],
+    blocks: MappingBlock[],
     entity: string,
     matchKeys: string[]
 ): any {
@@ -91,14 +119,40 @@ function fieldsToMappingJson(
 
     for (const f of fields) {
         if (!f.destField) continue;
-        const cfg = {
-            fromIndex: f.fromIndex,
+        const cfg: any = {
             transforms: f.transforms.length > 0 ? f.transforms : undefined,
         };
+        if (f.fromIndex === -1) {
+            cfg.fromIndex = -1;
+            cfg.staticValue = f.staticValue;
+        } else {
+            cfg.fromIndex = f.fromIndex;
+        }
         if (f.isExtra) {
             extras[f.destField] = cfg;
         } else {
             columns[f.destField] = cfg;
+        }
+    }
+
+    const mappedBlocks: any[] = [];
+    for (const b of blocks) {
+        const blkCols: Record<string, any> = {};
+        for (const f of b.fields) {
+            if (!f.destField) continue;
+            const bCfg: any = {
+                transforms: f.transforms.length > 0 ? f.transforms : undefined,
+            };
+            if (f.fromIndex === -1) {
+                bCfg.fromIndex = -1;
+                bCfg.staticValue = f.staticValue;
+            } else {
+                bCfg.fromIndex = f.fromIndex;
+            }
+            blkCols[f.destField] = bCfg;
+        }
+        if (Object.keys(blkCols).length > 0) {
+            mappedBlocks.push({ entity: b.entity, columns: blkCols });
         }
     }
 
@@ -107,6 +161,7 @@ function fieldsToMappingJson(
         matchKeys,
         columns,
         ...(Object.keys(extras).length > 0 ? { extras } : {}),
+        ...(mappedBlocks.length > 0 ? { blocks: mappedBlocks } : {}),
         defaults: {},
     };
 }
@@ -117,10 +172,12 @@ const ENTITY_MAP: Record<string, string> = {
     ENRIQUECIMIENTO: "ENRIQ_MIXTO",
     PAGOS: "PAGO",
     CONTACTOS: "CONTACTO",
+    DEUDORES_Y_FACTURAS: "MIXTO",
 };
 
 export default function PlantillaManager() {
-    const empresaId = 1; // luego auth
+    const { empresas, loading: loadingEmpresas } = useEmpresas();
+    const [empresaId, setEmpresaId] = useState<number | "">(1); // default 1 para amsa actual
 
     const [plantillas, setPlantillas] = useState<Plantilla[]>([]);
     const [loading, setLoading] = useState(false);
@@ -139,12 +196,13 @@ export default function PlantillaManager() {
     const [tieneHeader, setTieneHeader] = useState(false);
     const [matchKeys, setMatchKeys] = useState("empresaId,documento");
     const [fields, setFields] = useState<MappingField[]>([]);
+    const [blocks, setBlocks] = useState<MappingBlock[]>([]);
 
     // Delete dialog
     const [deleteTarget, setDeleteTarget] = useState<Plantilla | null>(null);
 
-    // Load plantillas
     const loadPlantillas = useCallback(async () => {
+        if (!empresaId) return;
         setLoading(true);
         try {
             const res = await api.get(
@@ -171,6 +229,7 @@ export default function PlantillaManager() {
         setTieneHeader(false);
         setMatchKeys("empresaId,documento");
         setFields([]);
+        setBlocks([]);
         setEditing(true);
         setError(null);
         setSuccess(null);
@@ -188,6 +247,7 @@ export default function PlantillaManager() {
             (p.mappingJson?.matchKeys ?? ["empresaId", "documento"]).join(",")
         );
         setFields(mappingJsonToFields(p.mappingJson));
+        setBlocks(mappingJsonToBlocks(p.mappingJson));
         setEditing(true);
         setError(null);
         setSuccess(null);
@@ -212,7 +272,7 @@ export default function PlantillaManager() {
             .split(",")
             .map((k) => k.trim())
             .filter(Boolean);
-        const mappingJson = fieldsToMappingJson(fields, entity, keys);
+        const mappingJson = fieldsToMappingJson(fields, blocks, entity, keys);
 
         try {
             if (editId) {
@@ -226,8 +286,13 @@ export default function PlantillaManager() {
                 });
                 setSuccess("Plantilla actualizada correctamente");
             } else {
+                if (!empresaId) {
+                    setError("Debe seleccionar una empresa");
+                    setLoading(false);
+                    return;
+                }
                 await api.post("/import/plantillas", {
-                    empresaId,
+                    empresaId: Number(empresaId),
                     nombre,
                     categoria,
                     version,
@@ -294,13 +359,31 @@ export default function PlantillaManager() {
                             datos
                         </Typography>
                     </Box>
-                    <Button
-                        variant="contained"
-                        startIcon={<AddIcon />}
-                        onClick={handleNew}
-                    >
-                        Nueva plantilla
-                    </Button>
+                    <Box display="flex" alignItems="center" gap={2}>
+                        <FormControl size="small" sx={{ minWidth: 200 }}>
+                            <InputLabel>Empresa</InputLabel>
+                            <Select
+                                value={empresaId}
+                                label="Empresa"
+                                onChange={(e) => setEmpresaId(e.target.value as number)}
+                                disabled={loadingEmpresas}
+                            >
+                                {empresas.map((emp) => (
+                                    <MenuItem key={emp.id} value={emp.id}>
+                                        {emp.nombre}
+                                    </MenuItem>
+                                ))}
+                            </Select>
+                        </FormControl>
+                        <Button
+                            variant="contained"
+                            startIcon={<AddIcon />}
+                            onClick={handleNew}
+                            disabled={!empresaId}
+                        >
+                            Nueva plantilla
+                        </Button>
+                    </Box>
                 </Box>
 
                 {error && (
@@ -385,7 +468,11 @@ export default function PlantillaManager() {
                                         </TableCell>
                                         <TableCell>v{p.version}</TableCell>
                                         <TableCell>
-                                            <code>{p.separador}</code>
+                                            {p.separador === 'EXCEL' ? (
+                                                <Chip label="Excel" size="small" color="success" variant="outlined" />
+                                            ) : (
+                                                <code>{p.separador === '\t' ? 'TAB' : p.separador}</code>
+                                            )}
                                         </TableCell>
                                         <TableCell>
                                             {colCount}
@@ -521,12 +608,31 @@ export default function PlantillaManager() {
                             ))}
                         </Select>
                     </FormControl>
-                    <TextField
-                        label="Separador"
-                        fullWidth
-                        value={separador}
-                        onChange={(e) => setSeparador(e.target.value)}
-                    />
+                    <FormControl fullWidth>
+                        <InputLabel>Formato / Separador</InputLabel>
+                        <Select
+                            value={['|', ',', ';', '\t', 'EXCEL'].includes(separador) ? separador : 'OTRO'}
+                            label="Formato / Separador"
+                            onChange={(e) => {
+                                if (e.target.value !== 'OTRO') setSeparador(e.target.value);
+                            }}
+                        >
+                            <MenuItem value="EXCEL">Excel (.xls, .xlsx)</MenuItem>
+                            <MenuItem value=",">CSV - Coma (,)</MenuItem>
+                            <MenuItem value=";">CSV - Punto y coma (;)</MenuItem>
+                            <MenuItem value="|">TXT - Pipe (|)</MenuItem>
+                            <MenuItem value="\t">TXT - Tabulador (TAB)</MenuItem>
+                            <MenuItem value="OTRO">Otro personalizado...</MenuItem>
+                        </Select>
+                    </FormControl>
+                    {!['|', ',', ';', '\t', 'EXCEL'].includes(separador) && separador !== 'OTRO' && (
+                        <TextField
+                            label="Separador Personalizado"
+                            fullWidth
+                            value={separador}
+                            onChange={(e) => setSeparador(e.target.value)}
+                        />
+                    )}
                     <TextField
                         label="Versión"
                         type="number"
@@ -569,9 +675,12 @@ export default function PlantillaManager() {
                 <MappingEditor
                     fields={fields}
                     onChange={setFields}
+                    blocks={blocks}
+                    onBlocksChange={setBlocks}
                     separador={separador}
                     tieneHeader={tieneHeader}
                     categoria={categoria}
+                    disabled={!empresaId}
                 />
 
                 <Divider sx={{ my: 3 }} />

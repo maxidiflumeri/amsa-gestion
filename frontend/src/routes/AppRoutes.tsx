@@ -6,6 +6,8 @@ import Login from '../pages/Login'
 import Inicio from '../pages/Inicio'
 import ImportWizard from '../pages/ImportWizard'
 import PlantillaManager from '../pages/PlantillaManager'
+import ImportHistory from '../pages/ImportHistory'
+import ImportDetail from '../pages/ImportDetail'
 
 const AppRoutes = () => {
     return (
@@ -17,6 +19,8 @@ const AppRoutes = () => {
                 <Route path="gestion" element={<DeudoresPage />} />
                 <Route path="carga" element={<ImportWizard />} />
                 <Route path="plantillas" element={<PlantillaManager />} />
+                <Route path="historial-importaciones" element={<ImportHistory />} />
+                <Route path="historial-importaciones/:id" element={<ImportDetail />} />
                 {/* futuras rutas privadas */}
             </Route>
         </Routes>

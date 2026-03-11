@@ -32,6 +32,7 @@ export interface ProcessContext {
 export interface MappedRow {
     [key: string]: any;
     camposAdicionales?: Record<string, any>;
+    _blocks?: Array<{ entity: string; data: Record<string, any> }>;
 }
 
 /**

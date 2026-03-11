@@ -1,13 +1,19 @@
 // src/import/import.module.ts
 import { Module } from '@nestjs/common';
+import { BullModule } from '@nestjs/bullmq';
 import { FileStorageService } from './file-storage.service';
 import { ImportController } from './imports.controller';
 import { ImportService } from './imports.service';
 import { PrismaService } from 'src/prisma/prisma.service';
+import { ImportsProcessor } from './bullmq/imports.processor';
 
 @Module({
+  imports: [
+    BullModule.registerQueue({
+      name: 'import-queue',
+    }),
+  ],
   controllers: [ImportController],
-  providers: [ImportService, PrismaService, FileStorageService],
+  providers: [ImportService, PrismaService, FileStorageService, ImportsProcessor],
 })
-
 export class ImportModule {}

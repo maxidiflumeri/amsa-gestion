@@ -27,7 +27,7 @@ interface ComentariosProps {
 
 const ComentariosPanel: React.FC<ComentariosProps> = ({
     deudorId,
-    comentarios,
+    comentarios = [],
     onComentarioAgregado,
 }) => {
     const [nuevoComentario, setNuevoComentario] = useState('');

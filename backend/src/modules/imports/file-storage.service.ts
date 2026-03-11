@@ -12,9 +12,13 @@ export class FileStorageService {
         const hash = crypto.createHash('sha256').update(file.buffer).digest('hex');
         const dir = path.join(this.baseDir, String(empresaId), categoria);
         await fs.mkdir(dir, { recursive: true });
-        const filename = `${Date.now()}_${hash}.dat`;
+        
+        // Preserve original extension if possible
+        const ext = path.extname(file.originalname || '').toLowerCase() || '.dat';
+        const filename = `${Date.now()}_${hash}${ext}`;
+        
         const full = path.join(dir, filename);
         await fs.writeFile(full, file.buffer);
-        return { path: full, hash, filename };
+        return { path: full, hash, filename, originalname: file.originalname };
     }
 }

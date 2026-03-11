@@ -38,11 +38,12 @@ import HomeIcon from '@mui/icons-material/Home';
 import AddCircleOutlineIcon from '@mui/icons-material/AddCircleOutline';
 import DeleteIcon from '@mui/icons-material/Delete';
 import SaveIcon from '@mui/icons-material/Save';
+import CheckCircleIcon from '@mui/icons-material/CheckCircle';
+import ErrorOutlineIcon from '@mui/icons-material/ErrorOutline';
 import BusinessCenterIcon from '@mui/icons-material/BusinessCenter';
 import AssignmentIcon from '@mui/icons-material/Assignment';
 import AccountCircleIcon from '@mui/icons-material/AccountCircle';
 import ReceiptIcon from '@mui/icons-material/Receipt';
-import CheckCircleIcon from '@mui/icons-material/CheckCircle';
 import ChatIcon from '@mui/icons-material/Chat';
 import AccountBalanceWalletIcon from '@mui/icons-material/AccountBalanceWallet';
 import InfoIcon from '@mui/icons-material/Info';
@@ -251,13 +252,34 @@ const FichaDeudor: React.FC<Props> = ({ deudorId }) => {
                         <Typography variant="body2" color="text.disabled" fontStyle="italic">No hay registros</Typography>
                     ) : (
                         contactosFiltrados.map((c: any) => {
-                            const label = (tipo === 'telefono' || tipo === 'whatsapp') ? formatearTelefonoParaUI(c.valor) : c.valor;
+                            const isPhone = tipo === 'telefono' || tipo === 'whatsapp' || tipo === 'celular';
+                            const label = isPhone ? formatearTelefonoParaUI(c.valor) : c.valor;
+                            
+                            // Visuals for validation
+                            let chipColor = color;
+                            let icon = undefined;
+                            let tooltipTitle = "";
+
+                            if (isPhone) {
+                                if (c.validado) {
+                                    icon = <CheckCircleIcon fontSize="small" />;
+                                    tooltipTitle = "Número verificado";
+                                    // Keep original color (primary/success) but it's verified
+                                } else {
+                                    icon = <ErrorOutlineIcon fontSize="small" />;
+                                    chipColor = "error"; // Force error color for invalid ones
+                                    tooltipTitle = "Formato inválido o dudoso";
+                                }
+                            }
+
                             return (
                                 <Chip
                                     key={c.id}
+                                    icon={icon}
                                     label={label}
-                                    color={color}
-                                    variant="outlined"
+                                    color={chipColor}
+                                    variant={isPhone && !c.validado ? "filled" : "outlined"}
+                                    title={tooltipTitle}
                                     onDelete={() => handleConfirmarEliminar(c)}
                                     size="small"
                                     sx={{ 
@@ -408,7 +430,7 @@ const FichaDeudor: React.FC<Props> = ({ deudorId }) => {
                             <Box sx={{ px: 2, pb: 2 }}>
                                 <ComentariosPanel
                                     deudorId={deudorId}
-                                    comentarios={comentarios}
+                                    comentarios={comentarios || []}
                                     onComentarioAgregado={(status?: 'success' | 'error') => {
                                         if (status === 'success') {
                                             setSnackbar({ open: true, message: 'Comentario agregado', severity: 'success' });

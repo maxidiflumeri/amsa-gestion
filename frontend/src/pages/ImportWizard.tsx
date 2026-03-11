@@ -15,10 +15,12 @@ import {
     Paper,
     IconButton,
     Tooltip,
+    TextField,
 } from "@mui/material";
 import ArrowBackIcon from "@mui/icons-material/ArrowBack";
 import ArrowForwardIcon from "@mui/icons-material/ArrowForward";
 import api from "../api/axios";
+import { useEmpresas } from "../hooks/useEmpresas";
 
 import CategorySelector from "../components/import/CategorySelector";
 import FileDropZone from "../components/import/FileDropZone";
@@ -35,7 +37,8 @@ const steps = [
 ];
 
 export default function ImportWizard() {
-    const empresaId = 1; // luego se reemplaza con auth real
+    const { empresas, loading: loadingEmpresas } = useEmpresas();
+    const [empresaId, setEmpresaId] = useState<number | "">(1); // default 1
 
     const [activeStep, setActiveStep] = useState(0);
     const [loading, setLoading] = useState(false);
@@ -46,15 +49,16 @@ export default function ImportWizard() {
 
     // Paso 1 – plantilla + archivo
     const [plantillas, setPlantillas] = useState<any[]>([]);
-    const [selectedPlantilla, setSelectedPlantilla] = useState<number | null>(
-        null
-    );
+    const [selectedPlantilla, setSelectedPlantilla] = useState<number | null>(null);
     const [file, setFile] = useState<File | null>(null);
+    const [hojaExcel, setHojaExcel] = useState<string>("");
+
+    const isExcelFile = file?.name?.match(/\.(xls|xlsx)$/i);
 
     // Remesa de deudores origen (para FACTURAS, CONTACTOS, PAGOS)
     const [remesasDeudores, setRemesasDeudores] = useState<any[]>([]);
     const [remesaOrigenId, setRemesaOrigenId] = useState<number | null>(null);
-    const needsOrigen = categoria !== "" && categoria !== "DEUDORES";
+    const needsOrigen = categoria !== "" && categoria !== "DEUDORES" && categoria !== "DEUDORES_Y_FACTURAS";
 
     // Paso 2 – preview
     const [remesaId, setRemesaId] = useState<number | null>(null);
@@ -74,18 +78,18 @@ export default function ImportWizard() {
 
     // ─── Carga de plantillas ─────────────────────────────────
     useEffect(() => {
-        if (!categoria) return;
+        if (!categoria || !empresaId) return;
         setPlantillas([]);
         setSelectedPlantilla(null);
         setRemesaOrigenId(null);
         api.get(`/import/plantillas/${empresaId}/${categoria}`)
             .then((res) => setPlantillas(res.data))
             .catch(() => setError("Error obteniendo plantillas"));
-    }, [categoria]);
+    }, [categoria, empresaId]);
 
     // ─── Carga de remesas de deudores (para vincular) ────────
     useEffect(() => {
-        if (!needsOrigen) {
+        if (!needsOrigen || !empresaId) {
             setRemesasDeudores([]);
             return;
         }
@@ -94,7 +98,7 @@ export default function ImportWizard() {
                 res.data.filter((r: any) => r.estadoProceso === 'FINALIZADA')
             ))
             .catch(() => setError("Error obteniendo remesas de deudores"));
-    }, [needsOrigen]);
+    }, [needsOrigen, empresaId]);
 
     // ─── Handlers ────────────────────────────────────────────
 
@@ -105,6 +109,7 @@ export default function ImportWizard() {
 
     const handleFileSelect = (f: File) => {
         setFile(f);
+        setHojaExcel(""); // Resetear la hoja on new file
         setError(null);
     };
 
@@ -139,6 +144,10 @@ export default function ImportWizard() {
             );
             formData.append("numeroRemesa", String(Date.now()));
             formData.append("file", file);
+
+            if (isExcelFile && hojaExcel.trim() !== '') {
+                formData.append("hoja", hojaExcel.trim());
+            }
 
             // 1) Crear remesa
             const resRemesa = await api.post("/import/remesas", formData, {
@@ -235,16 +244,17 @@ export default function ImportWizard() {
     return (
         <Box sx={{ maxWidth: 900, mx: "auto", mt: 4, px: 2, pb: 6 }}>
             {/* Header */}
-            <Typography variant="h4" sx={{ mb: 1, fontWeight: 700 }}>
-                Importación de datos
-            </Typography>
-            <Typography
-                variant="body1"
-                color="text.secondary"
-                sx={{ mb: 4 }}
-            >
-                Cargá archivos de deudores, facturas, pagos, contactos y más
-            </Typography>
+            <Box sx={{ mb: 4 }}>
+                <Typography variant="h4" sx={{ mb: 1, fontWeight: 700 }}>
+                    Importación de datos
+                </Typography>
+                <Typography
+                    variant="body1"
+                    color="text.secondary"
+                >
+                    Subí tus archivos para cargar deudores, facturas o contactos.
+                </Typography>
+            </Box>
 
             {/* Stepper */}
             <Stepper
@@ -295,6 +305,24 @@ export default function ImportWizard() {
                         <Typography variant="h6" sx={{ fontWeight: 600 }}>
                             Configurar importación
                         </Typography>
+
+                        {/* Selector de empresa */}
+                        <FormControl fullWidth>
+                            <InputLabel id="empresa-label">Empresa</InputLabel>
+                            <Select
+                                labelId="empresa-label"
+                                value={empresaId}
+                                label="Empresa"
+                                onChange={(e) => setEmpresaId(e.target.value as number)}
+                                disabled={loadingEmpresas}
+                            >
+                                {empresas.map((emp) => (
+                                    <MenuItem key={emp.id} value={emp.id}>
+                                        {emp.nombre}
+                                    </MenuItem>
+                                ))}
+                            </Select>
+                        </FormControl>
 
                         {/* Selector de plantilla */}
                         <FormControl fullWidth>
@@ -360,6 +388,19 @@ export default function ImportWizard() {
                             file={file}
                             onFileSelect={handleFileSelect}
                         />
+
+                        {/* Excel Sheet Name Input */}
+                        {isExcelFile && (
+                            <TextField
+                                label="Nombre de la hoja (Opcional)"
+                                variant="outlined"
+                                fullWidth
+                                placeholder="Ej: Hoja1"
+                                value={hojaExcel}
+                                onChange={(e: any) => setHojaExcel(e.target.value)}
+                                helperText="Dejar vacío para usar la primera hoja del archivo Excel"
+                            />
+                        )}
                     </Box>
                 )}
 

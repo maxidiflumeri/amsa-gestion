@@ -14,6 +14,11 @@ export class ImportController {
         return this.service.getCategories();
     }
 
+    @Get('empresas')
+    getEmpresas() {
+        return this.service.listEmpresas();
+    }
+
     // --- PLANTILLAS ---
     @Post('plantillas')
     createPlantilla(@Body() dto: CreatePlantillaDto) {
