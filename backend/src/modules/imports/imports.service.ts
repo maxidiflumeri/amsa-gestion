@@ -163,6 +163,7 @@ export class ImportService {
                 archivo: saved.path,
                 archivoHash: saved.hash,
                 hoja: dto.hoja,
+                fechaVencimiento: dto.fechaVencimiento ? new Date(dto.fechaVencimiento) : null,
                 estadoProceso: 'PENDIENTE',
             },
         });
@@ -525,6 +526,15 @@ export class ImportService {
 
                 stream.pipe(parser);
             });
+        }
+
+        // Hook post-batch: lógica que corre después de todas las filas
+        if (processor.afterAll) {
+            try {
+                await processor.afterAll(ctx);
+            } catch (e: any) {
+                this.logger.error(`afterAll error en remesa ${remesaId}: ${e.message}`);
+            }
         }
 
         await this.prisma.remesa.update({

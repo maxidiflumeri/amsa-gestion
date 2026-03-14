@@ -8,7 +8,13 @@ import ExpandMore from '@mui/icons-material/ExpandMore'
 import UploadFileIcon from '@mui/icons-material/UploadFile'
 import HistoryIcon from '@mui/icons-material/History'
 import DescriptionIcon from '@mui/icons-material/Description'
+import SettingsIcon from '@mui/icons-material/Settings'
 import { useNavigate } from 'react-router-dom'
+
+import BusinessIcon from '@mui/icons-material/Business'
+import SettingsInputComponentIcon from '@mui/icons-material/SettingsInputComponent'
+import AssignmentIndIcon from '@mui/icons-material/AssignmentInd'
+
 import { useColorMode } from '../../context/ThemeContext'
 
 interface Props {
@@ -19,9 +25,14 @@ const Sidebar: React.FC<Props> = ({ drawerOpen }) => {
     const navigate = useNavigate()
     const { mode, toggleColorMode } = useColorMode()
     const [openImport, setOpenImport] = useState(false)
+    const [openAjustes, setOpenAjustes] = useState(false)
 
     const handleClickImport = () => {
         setOpenImport(!openImport)
+    }
+
+    const handleClickAjustes = () => {
+        setOpenAjustes(!openAjustes)
     }
 
     return (
@@ -72,7 +83,33 @@ const Sidebar: React.FC<Props> = ({ drawerOpen }) => {
                             </ListItemButton>
                         </List>
                     </Collapse>
+
+                    {/* Sección Ajustes */}
+                    <ListItem disablePadding>
+                        <ListItemButton onClick={handleClickAjustes}>
+                            <ListItemIcon><SettingsIcon /></ListItemIcon>
+                            <ListItemText primary="Ajustes" />
+                            {openAjustes ? <ExpandLess /> : <ExpandMore />}
+                        </ListItemButton>
+                    </ListItem>
+                    <Collapse in={openAjustes} timeout="auto" unmountOnExit>
+                        <List component="div" disablePadding>
+                            <ListItemButton sx={{ pl: 4 }} onClick={() => navigate('/ajustes/empresas')}>
+                                <ListItemIcon><BusinessIcon fontSize="small" /></ListItemIcon>
+                                <ListItemText primary="Empresas" />
+                            </ListItemButton>
+                            <ListItemButton sx={{ pl: 4 }} onClick={() => navigate('/ajustes/parametros')}>
+                                <ListItemIcon><SettingsInputComponentIcon fontSize="small" /></ListItemIcon>
+                                <ListItemText primary="Parámetros" />
+                            </ListItemButton>
+                            <ListItemButton sx={{ pl: 4 }} onClick={() => navigate('/ajustes/asignaciones')}>
+                                <ListItemIcon><AssignmentIndIcon fontSize="small" /></ListItemIcon>
+                                <ListItemText primary="Asignaciones" />
+                            </ListItemButton>
+                        </List>
+                    </Collapse>
                 </List>
+
                 
                 <Divider />
                 <Box sx={{ p: 2 }}>

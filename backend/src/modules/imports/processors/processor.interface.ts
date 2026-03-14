@@ -39,18 +39,16 @@ export interface MappedRow {
  * Interfaz que debe implementar cada procesador de categoría.
  */
 export interface ICategoryProcessor {
-    /**
-     * La categoría que procesa (DEUDORES, FACTURAS, PAGOS, CONTACTOS, etc.)
-     */
     readonly category: string;
 
-    /**
-     * Valida una fila antes de procesarla (opcional, por defecto pasa).
-     */
     validateRow?(row: MappedRow, ctx: ProcessContext): RowValidationResult;
 
-    /**
-     * Procesa (upsert/insert) una fila ya mapeada y validada.
-     */
     processRow(row: MappedRow, ctx: ProcessContext): Promise<void>;
+
+    /**
+     * Hook opcional que se ejecuta UNA SOLA VEZ al finalizar el procesamiento
+     * de todas las filas. Útil para lógica post-batch (ej: marcar deudores
+     * ausentes como pagados).
+     */
+    afterAll?(ctx: ProcessContext): Promise<void>;
 }

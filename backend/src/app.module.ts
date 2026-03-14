@@ -10,6 +10,7 @@ import { ContactosModule } from './modules/contactos/contactos.module';
 import { ComentariosModule } from './modules/comentarios/comentarios.module';
 import { LoggerModule } from './common/logger/logger.module';
 import { ImportModule } from './modules/imports/imports.module';
+import { EmpresasModule } from './modules/empresas/empresas.module';
 
 @Module({
   imports: [
@@ -26,8 +27,10 @@ import { ImportModule } from './modules/imports/imports.module';
     TransaccionesModule,
     ContactosModule,
     ComentariosModule,
-    ImportModule
+    ImportModule,
+    EmpresasModule
   ],
+
   controllers: [AppController],
   providers: [AppService]
 })

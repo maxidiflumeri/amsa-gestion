@@ -73,6 +73,14 @@ const DEST_FIELDS_BY_CATEGORY: Record<string, { value: string; label: string }[]
         { value: "fechaEmision", label: "Fecha emisi\u00f3n (Factura)" },
         { value: "vencimiento", label: "Vencimiento (Factura)" },
     ],
+    ACTUALIZACIONES: [
+        { value: "documento", label: "Documento (match / nuevo Deudor)" },
+        { value: "nro_cliente", label: "Nro. Cliente (match alternativo)" },
+        { value: "nombre", label: "Nombre (para casos nuevos)" },
+        { value: "apellido", label: "Apellido (para casos nuevos)" },
+        { value: "montoTotal", label: "Monto total nuevo" },
+        { value: "fechaVencimiento", label: "Fecha vencimiento (para casos nuevos)" },
+    ],
 };
 
 const AVAILABLE_TRANSFORMS = [

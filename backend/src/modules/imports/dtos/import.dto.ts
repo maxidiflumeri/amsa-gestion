@@ -40,4 +40,8 @@ export class CreateRemesaDto {
     @IsString()
     @IsOptional()
     hoja?: string;
+
+    @IsString()
+    @IsOptional()
+    fechaVencimiento?: string;
 }

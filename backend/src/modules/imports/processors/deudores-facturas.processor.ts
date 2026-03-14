@@ -39,6 +39,21 @@ export class DeudoresYFacturasProcessor implements ICategoryProcessor {
         return isNaN(d.getTime()) ? undefined : d;
     }
 
+    private getRowInvoicesSum(row: MappedRow): number {
+        let sum = 0;
+        if (row.nroFactura && row.importe) {
+            sum += this.parseFloatSafe(row.importe) || 0;
+        }
+        if (row._blocks) {
+            for (const b of row._blocks) {
+                if ((b.entity === 'FACTURA' || b.entity === 'MIXTO' || b.entity === 'DEUDORES_Y_FACTURAS') && b.data.nroFactura) {
+                    sum += this.parseFloatSafe(b.data.importe) || 0;
+                }
+            }
+        }
+        return sum;
+    }
+
     validateRow(row: MappedRow, _ctx: ProcessContext): RowValidationResult {
         if (!row.documento) {
             return { valid: false, error: 'Campo requerido faltante: documento (Deudor)' };
@@ -64,13 +79,10 @@ export class DeudoresYFacturasProcessor implements ICategoryProcessor {
         let deudorId: number;
 
         // 1. Gestionar el Deudor (Aislado por Remesa, Enriquecido Históricamente)
-        if (this.debtorCache.has(documentoStr)) {
-            // Ya lo creamos/actualizamos en esta misma corrida
-            deudorId = this.debtorCache.get(documentoStr)!;
-        } else {
-            let isNewForThisRemesa = true;
-
-            // Buscamos si ya existe EXACTAMENTE en esta remesa y empresa
+        let isNewForThisRemesa = !this.debtorCache.has(documentoStr);
+        
+        // Si no está en cache, verificamos en DB por las dudas (pudo ser guardado por otro proceso o en una corrida previa interrumpida)
+        if (isNewForThisRemesa) {
             const existingInRemesa = await ctx.prisma.deudor.findUnique({
                 where: {
                     empresaId_documento_remesaId: {
@@ -81,48 +93,52 @@ export class DeudoresYFacturasProcessor implements ICategoryProcessor {
                 },
                 select: { id: true }
             });
-
             if (existingInRemesa) {
                 isNewForThisRemesa = false;
             }
-            
-            // Hacemos un UPSERT con esa remesa target (nueva o histórica).
-            const deudor = await ctx.prisma.deudor.upsert({
-                where: {
-                    empresaId_documento_remesaId: {
-                        empresaId: ctx.empresaId,
-                        documento: documentoStr,
-                        remesaId: ctx.remesaId,
-                    },
-                },
-                create: {
+        }
+        
+        const montoTotalParsed = this.parseFloatSafe(row.montoTotal);
+        const rowInvoicesSum = this.getRowInvoicesSum(row);
+        
+        const deudor = await ctx.prisma.deudor.upsert({
+            where: {
+                empresaId_documento_remesaId: {
                     empresaId: ctx.empresaId,
-                    remesaId: ctx.remesaId, // Lo asociamos estrictamente a la remesa nueva/actual
                     documento: documentoStr,
-                    nombre: row.nombre ?? '',
-                    apellido: row.apellido ?? '',
-                    montoTotal: this.parseFloatSafe(row.montoTotal) ?? null,
-                    fechaVencimiento: this.parseDateSafe(row.fechaVencimiento) ?? null,
-                    camposAdicionales: row.camposAdicionales ?? Prisma.JsonNull,
-                    estadoSituacionId: ctx.defaults.estadoSituacionId,
-                    estadoGestionId: ctx.defaults.estadoGestionId,
+                    remesaId: ctx.remesaId,
                 },
-                update: {
-                    nombre: row.nombre ?? undefined,
-                    apellido: row.apellido ?? undefined,
-                    montoTotal: this.parseFloatSafe(row.montoTotal) ?? undefined,
-                    fechaVencimiento: this.parseDateSafe(row.fechaVencimiento) ?? undefined,
-                    camposAdicionales: row.camposAdicionales ?? undefined,
-                },
-            });
+            },
+            create: {
+                empresaId: ctx.empresaId,
+                remesaId: ctx.remesaId,
+                documento: documentoStr,
+                nombre: row.nombre ?? '',
+                apellido: row.apellido ?? '',
+                montoTotal: montoTotalParsed ?? rowInvoicesSum,
+                fechaVencimiento: this.parseDateSafe(row.fechaVencimiento) ?? null,
+                camposAdicionales: row.camposAdicionales ?? Prisma.JsonNull,
+                estadoSituacionId: ctx.defaults.estadoSituacionId,
+                estadoGestionId: ctx.defaults.estadoGestionId,
+            },
+            update: {
+                nombre: row.nombre ?? undefined,
+                apellido: row.apellido ?? undefined,
+                montoTotal: montoTotalParsed !== undefined 
+                    ? montoTotalParsed 
+                    : { increment: rowInvoicesSum },
+                fechaVencimiento: this.parseDateSafe(row.fechaVencimiento) ?? undefined,
+                camposAdicionales: row.camposAdicionales ?? undefined,
+            },
+        });
 
-            deudorId = deudor.id;
+        deudorId = deudor.id;
+
+        // -- ENRIQUECIMIENTO HISTÓRICO GLOBAL --
+        if (isNewForThisRemesa && !this.debtorCache.has(documentoStr)) {
             this.debtorCache.set(documentoStr, deudorId);
-
-            // -- ENRIQUECIMIENTO HISTÓRICO GLOBAL (Cross-Empresa / Cross-Remesa) --
-            // Solo clonamos contactos si es la primera vez que vemos a este deudor en ESTA remesa, 
-            // y si tiene DNI válido.
-            if (isNewForThisRemesa && documentoStr) {
+            
+            if (documentoStr) {
                 // Buscamos TODOS los contactos históricos de cualquier deudor que comparta este DNI
                 const historicContacts = await ctx.prisma.contacto.findMany({
                     where: {

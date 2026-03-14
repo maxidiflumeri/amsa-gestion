@@ -51,6 +51,10 @@ export default function ImportWizard() {
     const [plantillas, setPlantillas] = useState<any[]>([]);
     const [selectedPlantilla, setSelectedPlantilla] = useState<number | null>(null);
     const [file, setFile] = useState<File | null>(null);
+    // Nuevos campos manuales para la remesa
+    const [nombreRemesa, setNombreRemesa] = useState("");
+    const [numeroRemesa, setNumeroRemesa] = useState("");
+    const [fechaVencimiento, setFechaVencimiento] = useState("");
     const [hojaExcel, setHojaExcel] = useState<string>("");
 
     const isExcelFile = file?.name?.match(/\.(xls|xlsx)$/i);
@@ -93,7 +97,9 @@ export default function ImportWizard() {
             setRemesasDeudores([]);
             return;
         }
-        api.get(`/import/remesas/empresa/${empresaId}?categoria=DEUDORES`)
+        // Traemos todas las remesas finalizadas de la empresa (sin filtrar categoría)
+        // así aparecen tanto DEUDORES como DEUDORES_Y_FACTURAS y cualquier otra futura
+        api.get(`/import/remesas/empresa/${empresaId}`)
             .then((res) => setRemesasDeudores(
                 res.data.filter((r: any) => r.estadoProceso === 'FINALIZADA')
             ))
@@ -140,9 +146,12 @@ export default function ImportWizard() {
             formData.append("plantillaId", String(selectedPlantilla));
             formData.append(
                 "nombre",
-                `Remesa ${new Date().toLocaleString()}`
+                nombreRemesa || `Remesa ${new Date().toLocaleString()}`
             );
-            formData.append("numeroRemesa", String(Date.now()));
+            formData.append("numeroRemesa", numeroRemesa || String(Date.now()));
+            if (fechaVencimiento) {
+                formData.append("fechaVencimiento", fechaVencimiento);
+            }
             formData.append("file", file);
 
             if (isExcelFile && hojaExcel.trim() !== '') {
@@ -324,6 +333,39 @@ export default function ImportWizard() {
                             </Select>
                         </FormControl>
 
+                        {/* Campos de Remesa Manual */}
+                        <Box sx={{ display: 'flex', gap: 2 }}>
+                            <TextField
+                                label="Nombre de remesa"
+                                variant="outlined"
+                                fullWidth
+                                placeholder="Ej: Asignación Feb-2024"
+                                value={nombreRemesa}
+                                onChange={(e) => setNombreRemesa(e.target.value)}
+                                helperText="Opcional: se generará uno automático si se deja vacío"
+                            />
+                            <TextField
+                                label="Número de remesa"
+                                variant="outlined"
+                                fullWidth
+                                placeholder="Ej: REM-123"
+                                value={numeroRemesa}
+                                onChange={(e) => setNumeroRemesa(e.target.value)}
+                                helperText="Opcional: se generará uno automático si se deja vacío"
+                            />
+                        </Box>
+
+                        <TextField
+                            label="Fecha de vencimiento (Lote)"
+                            type="date"
+                            variant="outlined"
+                            fullWidth
+                            value={fechaVencimiento}
+                            onChange={(e) => setFechaVencimiento(e.target.value)}
+                            InputLabelProps={{ shrink: true }}
+                            helperText="Opcional: se aplicará esta fecha a todos los deudores sin fecha específica"
+                        />
+
                         {/* Selector de plantilla */}
                         <FormControl fullWidth>
                             <InputLabel id="plantilla-label">
@@ -375,7 +417,7 @@ export default function ImportWizard() {
                                     )}
                                     {remesasDeudores.map((r: any) => (
                                         <MenuItem key={r.id} value={r.id}>
-                                            {r.nombre} — {r.totalFilas ?? 0} deudores —{" "}
+                                            [{r.categoria}] {r.nombre} — {r.totalFilas ?? 0} deudores —{" "}
                                             {new Date(r.createdAt).toLocaleDateString()}
                                         </MenuItem>
                                     ))}

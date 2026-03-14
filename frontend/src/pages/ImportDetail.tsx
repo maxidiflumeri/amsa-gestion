@@ -73,9 +73,19 @@ export default function ImportDetail() {
 
             {remesa && (
                 <Paper variant="outlined" sx={{ p: 4, mb: 4 }}>
-                    <Box display="flex" justifyContent="space-between" mb={2}>
-                        <Typography variant="h6">Estado: <Chip size="small" color={getColorForStatus(remesa.estadoProceso) as any} label={remesa.estadoProceso} /></Typography>
-                        <Typography variant="body1">Categoría: <b>{remesa.categoria}</b></Typography>
+                    <Box display="flex" justifyContent="space-between" mb={2} alignItems="center">
+                        <Box>
+                            <Typography variant="h6">Estado: <Chip size="small" color={getColorForStatus(remesa.estadoProceso) as any} label={remesa.estadoProceso} /></Typography>
+                            <Typography variant="caption" color="primary" fontWeight="bold" display="block">#{remesa.numeroRemesa}</Typography>
+                        </Box>
+                        <Box sx={{ textAlign: 'right' }}>
+                            <Typography variant="body1">Categoría: <b>{remesa.categoria}</b></Typography>
+                            {remesa.fechaVencimiento && (
+                                <Typography variant="caption" color="text.secondary" display="block">
+                                    Vencimiento Lote: {new Date(remesa.fechaVencimiento).toLocaleDateString()}
+                                </Typography>
+                            )}
+                        </Box>
                     </Box>
                     <Divider sx={{ mb: 2 }} />
                     <Box display="flex" gap={4}>

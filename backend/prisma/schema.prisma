@@ -195,7 +195,7 @@ model remesa {
   cantidadDeudores Int?
   createdAt        DateTime             @default(now())
   updatedAt        DateTime             @updatedAt
-  numeroRemesa     String               @unique(map: "Remesa_numeroRemesa_key")
+  numeroRemesa     String
   archivoHash      String?
   categoria        remesa_categoria?
   errFilas         Int                  @default(0)
@@ -204,12 +204,14 @@ model remesa {
   plantillaId      Int?
   totalFilas       Int                  @default(0)
   hoja             String?
+  fechaVencimiento DateTime?
   deudor           deudor[]
   importerror      importerror[]
   jobimport        jobimport[]
   empresa          empresa              @relation(fields: [empresaId], references: [id], map: "Remesa_empresaId_fkey")
   plantilla        plantillaimport?     @relation(fields: [plantillaId], references: [id], map: "Remesa_plantillaId_fkey")
 
+  @@unique([empresaId, numeroRemesa], map: "Remesa_empresaId_numeroRemesa_key")
   @@index([empresaId, categoria], map: "Remesa_empresaId_categoria_idx")
   @@index([plantillaId], map: "Remesa_plantillaId_fkey")
 }
@@ -271,6 +273,7 @@ enum plantillaimport_categoria {
   PAGOS
   CONTACTOS
   DEUDORES_Y_FACTURAS
+  ACTUALIZACIONES
 }
 
 enum remesa_categoria {
@@ -280,4 +283,5 @@ enum remesa_categoria {
   PAGOS
   CONTACTOS
   DEUDORES_Y_FACTURAS
+  ACTUALIZACIONES
 }

@@ -39,7 +39,7 @@ import MappingEditor, {
     MappingBlock,
 } from "../components/import/MappingEditor";
 
-const CATEGORIAS = ["DEUDORES", "FACTURAS", "ENRIQUECIMIENTO", "PAGOS", "CONTACTOS", "DEUDORES_Y_FACTURAS"];
+const CATEGORIAS = ["DEUDORES", "FACTURAS", "ENRIQUECIMIENTO", "PAGOS", "CONTACTOS", "DEUDORES_Y_FACTURAS", "ACTUALIZACIONES"];
 
 interface Plantilla {
     id: number;
@@ -173,6 +173,7 @@ const ENTITY_MAP: Record<string, string> = {
     PAGOS: "PAGO",
     CONTACTOS: "CONTACTO",
     DEUDORES_Y_FACTURAS: "MIXTO",
+    ACTUALIZACIONES: "ACTUALIZACION",
 };
 
 export default function PlantillaManager() {

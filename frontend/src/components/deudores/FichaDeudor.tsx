@@ -115,9 +115,9 @@ const FichaDeudor: React.FC<Props> = ({ deudorId }) => {
             setDeudor(deu.data || []);
             setEstadoSituacion(deu.data.estadoSituacion?.clave || '');
             setEstadoGestion(deu.data.estadoGestion?.clave || '');
-            const es = await api.get('/parametros?grupo=estadoSituacion');
+            const es = await api.get(`/parametros?grupo=estadoSituacion&empresaId=${deu.data.empresaId}`);
             setEstadosSituacion(es.data || []);
-            const eg = await api.get('/parametros?grupo=estadoGestion');
+            const eg = await api.get(`/parametros?grupo=estadoGestion&empresaId=${deu.data.empresaId}`);
             setEstadosGestion(eg.data || []);
         } catch (e) {
             setSnackbar({ open: true, message: 'Error al cargar datos', severity: 'error' });
@@ -342,9 +342,9 @@ const FichaDeudor: React.FC<Props> = ({ deudorId }) => {
                             <Typography variant="h4" fontWeight="bold" color="text.primary">
                                 ${montoTotal?.toLocaleString('es-AR', { minimumFractionDigits: 2 }) || '0.00'}
                             </Typography>
-                            {fechaVencimiento && (
+                            { (remesa?.fechaVencimiento || fechaVencimiento) && (
                                 <Typography variant="caption" color="text.secondary" display="block">
-                                    Vencimiento: {new Date(fechaVencimiento).toLocaleDateString()}
+                                    Vencimiento: {new Date(remesa?.fechaVencimiento || fechaVencimiento).toLocaleDateString()}
                                 </Typography>
                             )}
                         </Grid>

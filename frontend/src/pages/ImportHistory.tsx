@@ -10,6 +10,7 @@ import { useEmpresas } from '../hooks/useEmpresas';
 interface Remesa {
     id: number;
     nombre: string;
+    numeroRemesa: string;
     categoria: string;
     archivoOriginal: string;
     estadoProceso: string;
@@ -110,9 +111,14 @@ export default function ImportHistory() {
                                 <TableCell>{r.id}</TableCell>
                                 <TableCell>
                                     <Typography variant="body2" fontWeight={500}>{r.nombre}</Typography>
-                                    <Typography variant="caption" color="text.secondary">
-                                        {r.archivoOriginal?.split(/(_|\\|\/)/).pop() || 'Archivo desconocido'}
-                                    </Typography>
+                                    <Box display="flex" gap={1} alignItems="center">
+                                        <Typography variant="caption" color="primary" fontWeight="bold">
+                                            #{r.numeroRemesa}
+                                        </Typography>
+                                        <Typography variant="caption" color="text.secondary">
+                                            {r.archivoOriginal?.split(/(_|\\|\/)/).pop() || 'Archivo desconocido'}
+                                        </Typography>
+                                    </Box>
                                 </TableCell>
                                 <TableCell><Chip size="small" label={r.categoria} /></TableCell>
                                 <TableCell>

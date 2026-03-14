@@ -12,6 +12,7 @@ import ReceiptLongIcon from "@mui/icons-material/ReceiptLong";
 import PaymentsIcon from "@mui/icons-material/Payments";
 import ContactPhoneIcon from "@mui/icons-material/ContactPhone";
 import AutoFixHighIcon from "@mui/icons-material/AutoFixHigh";
+import SyncAltIcon from "@mui/icons-material/SyncAlt";
 
 interface CategoryOption {
     value: string;
@@ -63,6 +64,13 @@ const CATEGORIES: CategoryOption[] = [
         description: "Importar deudores junto con sus recibos/facturas",
         icon: <ReceiptLongIcon sx={{ fontSize: 40 }} />,
         color: "#d32f2f",
+    },
+    {
+        value: "ACTUALIZACIONES",
+        label: "Actualizaciones",
+        description: "Reconciliar deuda actual: pagos automáticos, nuevas facturas y recalculo de saldo",
+        icon: <SyncAltIcon sx={{ fontSize: 40 }} />,
+        color: "#00796b",
     },
 ];
 
