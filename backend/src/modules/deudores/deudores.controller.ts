@@ -34,6 +34,14 @@ export class DeudoresController {
         );
     }
 
+    @Get('por-documento/:documento')
+    findByDocumento(
+        @Param('documento') documento: string,
+        @Query('excludeId') excludeId?: string,
+    ) {
+        return this.deudoresService.findByDocumento(documento, excludeId ? +excludeId : undefined);
+    }
+
     @Get(':id')
     findOne(@Param('id') id: string) {
         return this.deudoresService.findOne(+id);

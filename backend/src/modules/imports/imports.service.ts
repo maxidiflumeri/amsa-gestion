@@ -597,4 +597,12 @@ export class ImportService {
             include: { plantilla: { select: { nombre: true } } },
         });
     }
+
+    // --- POLÍTICA ---
+    async updatePolitica(remesaId: number, politicaId: number | null) {
+        return this.prisma.remesa.update({
+            where: { id: remesaId },
+            data: { politicaId: politicaId ?? null },
+        });
+    }
 }

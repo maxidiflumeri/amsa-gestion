@@ -70,6 +70,7 @@ model deudor {
   facturas          factura[]
   pagos             pago[]
   transacciones     transaccion[]
+  convenios         convenio[]
 
   @@unique([empresaId, documento, remesaId], map: "Deudor_empresaId_documento_remesaId_key")
   @@index([documento], map: "Deudor_documento_idx")
@@ -90,6 +91,7 @@ model empresa {
   parametro       empresa_parametro[]
   plantillaimport plantillaimport[]
   remesa          remesa[]
+  politicas       politica[]
 }
 
 model factura {
@@ -205,15 +207,18 @@ model remesa {
   totalFilas       Int                  @default(0)
   hoja             String?
   fechaVencimiento DateTime?
+  politicaId       Int?
   deudor           deudor[]
   importerror      importerror[]
   jobimport        jobimport[]
   empresa          empresa              @relation(fields: [empresaId], references: [id], map: "Remesa_empresaId_fkey")
   plantilla        plantillaimport?     @relation(fields: [plantillaId], references: [id], map: "Remesa_plantillaId_fkey")
+  politica         politica?            @relation(fields: [politicaId], references: [id])
 
   @@unique([empresaId, numeroRemesa], map: "Remesa_empresaId_numeroRemesa_key")
   @@index([empresaId, categoria], map: "Remesa_empresaId_categoria_idx")
   @@index([plantillaId], map: "Remesa_plantillaId_fkey")
+  @@index([politicaId])
 }
 
 model transaccion {
@@ -248,6 +253,7 @@ model usuario {
   updatedAt   DateTime
   comentario  comentario[]
   transaccion transaccion[]
+  convenios   convenio[]
 }
 
 enum jobimport_estado {
@@ -284,4 +290,55 @@ enum remesa_categoria {
   CONTACTOS
   DEUDORES_Y_FACTURAS
   ACTUALIZACIONES
+}
+
+model politica {
+  id          Int      @id @default(autoincrement())
+  empresaId   Int
+  nombre      String
+  descripcion String?  @db.Text
+  formasDePago String? @db.Text
+  tipoAtencion String? @db.Text
+  datosExtra  Json?
+  activa      Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  empresa     empresa  @relation(fields: [empresaId], references: [id])
+  remesas     remesa[]
+
+  @@index([empresaId])
+}
+
+model convenio {
+  id             Int              @id @default(autoincrement())
+  deudorId       Int
+  usuarioId      Int?
+  tipo           String
+  estado         String           @default("ACTIVO")
+  montoTotal     Float
+  cantCuotas     Int
+  montoCuota     Float
+  fechaInicio    DateTime
+  observaciones  String?          @db.Text
+  createdAt      DateTime         @default(now())
+  updatedAt      DateTime         @updatedAt
+  deudor         deudor           @relation(fields: [deudorId], references: [id])
+  usuario        usuario?         @relation(fields: [usuarioId], references: [id])
+  cuotas         cuota_convenio[]
+
+  @@index([deudorId])
+  @@index([usuarioId])
+}
+
+model cuota_convenio {
+  id             Int       @id @default(autoincrement())
+  convenioId     Int
+  nroCuota       Int
+  fechaVencimiento DateTime
+  importe        Float
+  estado         String    @default("PENDIENTE")
+  fechaPago      DateTime?
+  convenio       convenio  @relation(fields: [convenioId], references: [id], onDelete: Cascade)
+
+  @@index([convenioId])
 }

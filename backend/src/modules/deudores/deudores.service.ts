@@ -127,7 +127,7 @@ export class DeudoresService {
             where: { id },
             include: {
                 empresa: true,
-                remesa: true,
+                remesa: { include: { politica: true } },
                 comentarios: {
                     include: {
                         usuario: true, // 👈 Incluye la relación con Usuario
@@ -140,6 +140,22 @@ export class DeudoresService {
                 estadoSituacion: true,
                 estadoGestion: true,
             },
+        });
+    }
+
+    async findByDocumento(documento: string, excludeId?: number) {
+        return this.prisma.deudor.findMany({
+            where: {
+                documento,
+                ...(excludeId ? { id: { not: excludeId } } : {}),
+            },
+            include: {
+                empresa: true,
+                remesa: true,
+                estadoSituacion: true,
+                estadoGestion: true,
+            },
+            orderBy: { createdAt: 'desc' },
         });
     }
 

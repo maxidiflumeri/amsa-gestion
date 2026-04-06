@@ -18,14 +18,22 @@ interface Remesa {
     okFilas: number;
     errFilas: number;
     createdAt: string;
+    politicaId?: number | null;
+}
+
+interface Politica {
+    id: number;
+    nombre: string;
+    activa: boolean;
 }
 
 export default function ImportHistory() {
     const { empresas, loading: loadingEmpresas } = useEmpresas();
-    const [empresaId, setEmpresaId] = useState<number | "">(1); 
+    const [empresaId, setEmpresaId] = useState<number | "">(1);
     const [remesas, setRemesas] = useState<Remesa[]>([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
+    const [politicas, setPoliticas] = useState<Politica[]>([]);
 
     const loadHistory = async () => {
         try {
@@ -40,9 +48,28 @@ export default function ImportHistory() {
         }
     };
 
+    const loadPoliticas = async (eid: number) => {
+        try {
+            const { data } = await api.get(`/politicas?empresaId=${eid}`);
+            setPoliticas((data || []).filter((p: Politica) => p.activa));
+        } catch {
+            setPoliticas([]);
+        }
+    };
+
+    const handleAsociarPolitica = async (remesaId: number, politicaId: number | null) => {
+        try {
+            await api.put(`/import/remesas/${remesaId}/politica`, { politicaId });
+            setRemesas(prev => prev.map(r => r.id === remesaId ? { ...r, politicaId } : r));
+        } catch {
+            // silencioso
+        }
+    };
+
     useEffect(() => {
         if (empresaId) {
             loadHistory();
+            loadPoliticas(Number(empresaId));
         }
     }, [empresaId]);
 
@@ -95,6 +122,7 @@ export default function ImportHistory() {
                             <TableCell>Estado</TableCell>
                             <TableCell align="right">Total / OK / Err</TableCell>
                             <TableCell align="right">Fecha</TableCell>
+                            <TableCell>Política</TableCell>
                             <TableCell align="center">Acciones</TableCell>
                         </TableRow>
                     </TableHead>
@@ -136,6 +164,20 @@ export default function ImportHistory() {
                                 <TableCell align="right">
                                     <Typography variant="body2">{new Date(r.createdAt).toLocaleDateString()}</Typography>
                                     <Typography variant="caption" color="text.secondary">{new Date(r.createdAt).toLocaleTimeString()}</Typography>
+                                </TableCell>
+                                <TableCell sx={{ minWidth: 160 }}>
+                                    <Select
+                                        size="small"
+                                        displayEmpty
+                                        value={r.politicaId ?? ''}
+                                        onChange={e => handleAsociarPolitica(r.id, e.target.value === '' ? null : Number(e.target.value))}
+                                        sx={{ fontSize: '0.75rem', minWidth: 140 }}
+                                    >
+                                        <MenuItem value=""><em>Sin política</em></MenuItem>
+                                        {politicas.map(p => (
+                                            <MenuItem key={p.id} value={p.id}>{p.nombre}</MenuItem>
+                                        ))}
+                                    </Select>
                                 </TableCell>
                                 <TableCell align="center">
                                     <Tooltip title={r.errFilas > 0 ? "Ver Detalles y Errores" : "Ver Progreso/Detalles"}>

@@ -28,7 +28,11 @@ import {
     TableRow,
     Stack,
     Tabs,
-    Tab
+    Tab,
+    Accordion,
+    AccordionSummary,
+    AccordionDetails,
+    Tooltip,
 } from '@mui/material';
 import EmailIcon from '@mui/icons-material/Email';
 import PhoneIcon from '@mui/icons-material/Phone';
@@ -49,6 +53,11 @@ import AccountBalanceWalletIcon from '@mui/icons-material/AccountBalanceWallet';
 import InfoIcon from '@mui/icons-material/Info';
 import SearchIcon from '@mui/icons-material/Search';
 import ReportProblemIcon from '@mui/icons-material/ReportProblem';
+import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
+import HandshakeIcon from '@mui/icons-material/Handshake';
+import PeopleAltIcon from '@mui/icons-material/PeopleAlt';
+import BlockIcon from '@mui/icons-material/Block';
+import PaymentIcon from '@mui/icons-material/Payment';
 
 import api from '../../api/axios';
 import ComentariosPanel from './ComentariosPanel';
@@ -86,6 +95,24 @@ const FichaDeudor: React.FC<Props> = ({ deudorId }) => {
     
     // Estado Pestañas centrales
     const [tabVal, setTabVal] = useState(0);
+
+    // Convenios
+    const [convenios, setConvenios] = useState<any[]>([]);
+    const [loadingConvenios, setLoadingConvenios] = useState(false);
+    const [openModalConvenio, setOpenModalConvenio] = useState(false);
+    const [convenioTipo, setConvenioTipo] = useState<'AUTOMATICO' | 'LIBRE'>('AUTOMATICO');
+    const [convenioForm, setConvenioForm] = useState({ montoTotal: '', cantCuotas: '', fechaInicio: '', observaciones: '' });
+    const [cuotasLibres, setCuotasLibres] = useState<{ nroCuota: number; fechaVencimiento: string; importe: string }[]>([]);
+    const [savingConvenio, setSavingConvenio] = useState(false);
+
+    // Modal pago de cuota
+    const [cuotaAPagar, setCuotaAPagar] = useState<any>(null);
+    const [pagoForm, setPagoForm] = useState({ fecha: new Date().toISOString().split('T')[0], importe: '', observacion: '' });
+    const [savingPago, setSavingPago] = useState(false);
+
+    // Otras cuentas
+    const [otrasCuentas, setOtrasCuentas] = useState<any[]>([]);
+    const [loadingOtrasCuentas, setLoadingOtrasCuentas] = useState(false);
 
     // Modales y feedback
     const [openModalAgregar, setOpenModalAgregar] = useState(false);
@@ -126,9 +153,41 @@ const FichaDeudor: React.FC<Props> = ({ deudorId }) => {
         }
     };
 
+    const cargarConvenios = async () => {
+        setLoadingConvenios(true);
+        try {
+            const res = await api.get(`/convenios?deudorId=${deudorId}`);
+            setConvenios(res.data || []);
+        } catch {
+            // silencioso
+        } finally {
+            setLoadingConvenios(false);
+        }
+    };
+
+    const cargarOtrasCuentas = async (documento: string) => {
+        setLoadingOtrasCuentas(true);
+        try {
+            const res = await api.get(`/deudores/por-documento/${documento}?excludeId=${deudorId}`);
+            setOtrasCuentas(res.data || []);
+        } catch {
+            // silencioso
+        } finally {
+            setLoadingOtrasCuentas(false);
+        }
+    };
+
     useEffect(() => {
         cargarInicial();
+        cargarConvenios();
     }, [deudorId]);
+
+    const handleTabChange = (_: any, val: number) => {
+        setTabVal(val);
+        if (val === 4 && deudor?.documento) {
+            cargarOtrasCuentas(deudor.documento);
+        }
+    };
 
     const handleOpenModalAgregar = (tipo: string) => {
         setTipoSeleccionado(tipo);
@@ -224,6 +283,113 @@ const FichaDeudor: React.FC<Props> = ({ deudorId }) => {
 
     const handleCloseSnackbar = () => setSnackbar({ ...snackbar, open: false });
 
+    // ── Convenios helpers ──────────────────────────────────────────────────────
+    const calcCuotasAutomatico = () => {
+        const monto = parseFloat(convenioForm.montoTotal) || 0;
+        const cant = parseInt(convenioForm.cantCuotas) || 0;
+        if (!monto || !cant || !convenioForm.fechaInicio) return [];
+        const cuotaImporte = monto / cant;
+        return Array.from({ length: cant }, (_, i) => {
+            const fecha = new Date(convenioForm.fechaInicio);
+            fecha.setDate(fecha.getDate() + 30 * i);
+            return { nroCuota: i + 1, fechaVencimiento: fecha.toLocaleDateString('es-AR'), importe: cuotaImporte };
+        });
+    };
+
+    const handleCantCuotasChange = (val: string) => {
+        const cant = parseInt(val) || 0;
+        setConvenioForm(f => ({ ...f, cantCuotas: val }));
+        if (convenioTipo === 'LIBRE' && cant > 0) {
+            setCuotasLibres(Array.from({ length: cant }, (_, i) => ({
+                nroCuota: i + 1,
+                fechaVencimiento: '',
+                importe: '',
+            })));
+        }
+    };
+
+    const handleGuardarConvenio = async () => {
+        setSavingConvenio(true);
+        try {
+            const payload: any = {
+                deudorId,
+                tipo: convenioTipo,
+                montoTotal: parseFloat(convenioForm.montoTotal),
+                cantCuotas: parseInt(convenioForm.cantCuotas),
+                fechaInicio: convenioForm.fechaInicio,
+                observaciones: convenioForm.observaciones || undefined,
+            };
+            if (convenioTipo === 'LIBRE') {
+                payload.cuotas = cuotasLibres.map(c => ({
+                    nroCuota: c.nroCuota,
+                    fechaVencimiento: c.fechaVencimiento,
+                    importe: parseFloat(c.importe),
+                }));
+            }
+            await api.post('/convenios', payload);
+            setSnackbar({ open: true, message: 'Convenio creado correctamente', severity: 'success' });
+            setOpenModalConvenio(false);
+            cargarConvenios();
+        } catch (err: any) {
+            setSnackbar({ open: true, message: err.response?.data?.message || 'Error al crear convenio', severity: 'error' });
+        } finally {
+            setSavingConvenio(false);
+        }
+    };
+
+    const handleAnularConvenio = async (convenioId: number) => {
+        try {
+            await api.put(`/convenios/${convenioId}/anular`);
+            setSnackbar({ open: true, message: 'Convenio anulado', severity: 'success' });
+            cargarConvenios();
+        } catch (err: any) {
+            setSnackbar({ open: true, message: err.response?.data?.message || 'Error al anular convenio', severity: 'error' });
+        }
+    };
+
+    const handleAbrirPagarCuota = (cuota: any) => {
+        setCuotaAPagar(cuota);
+        setPagoForm({
+            fecha: new Date().toISOString().split('T')[0],
+            importe: String(cuota.importe),
+            observacion: '',
+        });
+    };
+
+    const handleConfirmarPagoCuota = async () => {
+        if (!cuotaAPagar) return;
+        setSavingPago(true);
+        try {
+            await api.put(`/convenios/cuotas/${cuotaAPagar.id}/pagar`, {
+                fecha: pagoForm.fecha,
+                importe: parseFloat(pagoForm.importe),
+                observacion: pagoForm.observacion || undefined,
+            });
+            setSnackbar({ open: true, message: 'Cuota pagada y pago registrado', severity: 'success' });
+            setCuotaAPagar(null);
+            cargarConvenios();
+            cargarInicial(); // refresca la tab de pagos también
+        } catch (err: any) {
+            setSnackbar({ open: true, message: err.response?.data?.message || 'Error al registrar pago', severity: 'error' });
+        } finally {
+            setSavingPago(false);
+        }
+    };
+
+    const estadoConvenioColor = (estado: string): 'success' | 'warning' | 'default' | 'error' => {
+        if (estado === 'ACTIVO') return 'success';
+        if (estado === 'INCUMPLIDO') return 'warning';
+        if (estado === 'ANULADO') return 'error';
+        return 'default';
+    };
+
+    const estadoCuotaColor = (estado: string): 'success' | 'warning' | 'default' | 'error' => {
+        if (estado === 'PAGADA') return 'success';
+        if (estado === 'VENCIDA') return 'error';
+        if (estado === 'PENDIENTE') return 'warning';
+        return 'default';
+    };
+
     if (loading || !deudor) return (
         <Box display="flex" justifyContent="center" alignItems="center" height="200px">
             <CircularProgress />
@@ -231,6 +397,15 @@ const FichaDeudor: React.FC<Props> = ({ deudorId }) => {
     );
 
     const { nombre, apellido, documento, remesa, empresa, comentarios, contactos, facturas, pagos, campoExtras, camposAdicionales, montoTotal, fechaVencimiento } = deudor;
+
+    // Deuda actualizada: montoTotal - suma de cuotas PAGADAS en convenios activos/finalizados
+    const totalPagadoConvenios = convenios
+        .filter(c => c.estado === 'ACTIVO' || c.estado === 'FINALIZADO')
+        .flatMap((c: any) => c.cuotas || [])
+        .filter((q: any) => q.estado === 'PAGADA')
+        .reduce((sum: number, q: any) => sum + (q.importe || 0), 0);
+    const deudaActualizada = (montoTotal || 0) - totalPagadoConvenios;
+    const tieneConveniosPagados = totalPagadoConvenios > 0;
 
     // Contactos UI Helper
     const renderContactosList = (tipo: string, icono: React.ReactElement, color: "default" | "primary" | "secondary" | "error" | "info" | "success" | "warning" = "default") => {
@@ -338,11 +513,30 @@ const FichaDeudor: React.FC<Props> = ({ deudorId }) => {
                         </Grid>
                         
                         <Grid item xs={12} md={6} sx={{ textAlign: { xs: 'left', md: 'right' } }}>
-                            <Typography variant="overline" color="text.secondary" fontWeight="bold">DEUDA TOTAL</Typography>
-                            <Typography variant="h4" fontWeight="bold" color="text.primary">
-                                ${montoTotal?.toLocaleString('es-AR', { minimumFractionDigits: 2 }) || '0.00'}
-                            </Typography>
-                            { (remesa?.fechaVencimiento || fechaVencimiento) && (
+                            {tieneConveniosPagados ? (
+                                <>
+                                    <Typography variant="overline" color="text.secondary" fontWeight="bold">DEUDA ACTUALIZADA</Typography>
+                                    <Typography variant="h4" fontWeight="bold" color="success.main">
+                                        ${deudaActualizada.toLocaleString('es-AR', { minimumFractionDigits: 2 })}
+                                    </Typography>
+                                    <Tooltip title="Deuda original informada por el cedente">
+                                        <Typography variant="caption" color="text.disabled" display="block" sx={{ textDecoration: 'line-through', cursor: 'default' }}>
+                                            Original: ${montoTotal?.toLocaleString('es-AR', { minimumFractionDigits: 2 }) || '0.00'}
+                                        </Typography>
+                                    </Tooltip>
+                                    <Typography variant="caption" color="success.main" display="block">
+                                        Pagado por convenios: -${totalPagadoConvenios.toLocaleString('es-AR', { minimumFractionDigits: 2 })}
+                                    </Typography>
+                                </>
+                            ) : (
+                                <>
+                                    <Typography variant="overline" color="text.secondary" fontWeight="bold">DEUDA TOTAL</Typography>
+                                    <Typography variant="h4" fontWeight="bold" color="text.primary">
+                                        ${montoTotal?.toLocaleString('es-AR', { minimumFractionDigits: 2 }) || '0.00'}
+                                    </Typography>
+                                </>
+                            )}
+                            {(remesa?.fechaVencimiento || fechaVencimiento) && (
                                 <Typography variant="caption" color="text.secondary" display="block">
                                     Vencimiento: {new Date(remesa?.fechaVencimiento || fechaVencimiento).toLocaleDateString()}
                                 </Typography>
@@ -409,19 +603,24 @@ const FichaDeudor: React.FC<Props> = ({ deudorId }) => {
                         </CardContent>
                     </Card>
 
+
+
                     {/* DASHBOARD PRINCIPAL (TABS) */}
                     <Card elevation={2} sx={{ borderRadius: 3, minHeight: 400 }}>
                         <Box sx={{ borderBottom: 1, borderColor: 'divider', bgcolor: 'background.default' }}>
-                            <Tabs 
-                                value={tabVal} 
-                                onChange={(e, val) => setTabVal(val)} 
-                                variant="fullWidth"
+                            <Tabs
+                                value={tabVal}
+                                onChange={handleTabChange}
+                                variant="scrollable"
+                                scrollButtons="auto"
                                 textColor="primary"
                                 indicatorColor="primary"
                             >
                                 <Tab icon={<ChatIcon fontSize="small"/>} iconPosition="start" label="Comentarios" />
                                 <Tab icon={<ReceiptIcon fontSize="small"/>} iconPosition="start" label={`Facturas (${facturas?.length || 0})`} />
                                 <Tab icon={<AccountBalanceWalletIcon fontSize="small"/>} iconPosition="start" label={`Pagos (${pagos?.length || 0})`} />
+                                <Tab icon={<HandshakeIcon fontSize="small"/>} iconPosition="start" label={`Convenios (${convenios.length})`} />
+                                <Tab icon={<PeopleAltIcon fontSize="small"/>} iconPosition="start" label="Otras Cuentas" />
                             </Tabs>
                         </Box>
 
@@ -526,6 +725,153 @@ const FichaDeudor: React.FC<Props> = ({ deudorId }) => {
                                     <Typography variant="body2" color="text.secondary" align="center" fontStyle="italic" py={4}>
                                         No hay pagos registrados para este deudor.
                                     </Typography>
+                                )}
+                            </Box>
+                        </TabPanel>
+
+                        {/* TAB 3 - CONVENIOS */}
+                        <TabPanel value={tabVal} index={3}>
+                            <Box sx={{ px: 2, pb: 2 }}>
+                                <Box display="flex" justifyContent="flex-end" mb={2}>
+                                    <Button
+                                        variant="contained"
+                                        size="small"
+                                        startIcon={<HandshakeIcon />}
+                                        onClick={() => {
+                                            setConvenioTipo('AUTOMATICO');
+                                            setConvenioForm({ montoTotal: String(deudor.montoTotal || ''), cantCuotas: '', fechaInicio: '', observaciones: '' });
+                                            setCuotasLibres([]);
+                                            setOpenModalConvenio(true);
+                                        }}
+                                    >
+                                        Nuevo Convenio
+                                    </Button>
+                                </Box>
+                                {loadingConvenios ? (
+                                    <Box display="flex" justifyContent="center" py={4}><CircularProgress size={24} /></Box>
+                                ) : convenios.length === 0 ? (
+                                    <Typography variant="body2" color="text.secondary" align="center" fontStyle="italic" py={4}>
+                                        No hay convenios registrados para este deudor.
+                                    </Typography>
+                                ) : (
+                                    convenios.map((conv: any) => (
+                                        <Accordion key={conv.id} sx={{ mb: 1 }} elevation={1}>
+                                            <AccordionSummary expandIcon={<ExpandMoreIcon />}>
+                                                <Stack direction="row" spacing={2} alignItems="center" width="100%">
+                                                    <Chip label={conv.estado} color={estadoConvenioColor(conv.estado)} size="small" />
+                                                    <Chip label={conv.tipo} variant="outlined" size="small" />
+                                                    <Typography variant="body2" fontWeight="bold">
+                                                        ${conv.montoTotal?.toLocaleString('es-AR', { minimumFractionDigits: 2 })}
+                                                    </Typography>
+                                                    <Typography variant="body2" color="text.secondary">
+                                                        {conv.cantCuotas} cuotas de ${conv.montoCuota?.toLocaleString('es-AR', { minimumFractionDigits: 2 })}
+                                                    </Typography>
+                                                    <Typography variant="caption" color="text.secondary" sx={{ ml: 'auto' }}>
+                                                        {new Date(conv.fechaInicio).toLocaleDateString('es-AR')}
+                                                    </Typography>
+                                                </Stack>
+                                            </AccordionSummary>
+                                            <AccordionDetails>
+                                                {conv.observaciones && (
+                                                    <Typography variant="body2" color="text.secondary" mb={2} fontStyle="italic">
+                                                        {conv.observaciones}
+                                                    </Typography>
+                                                )}
+                                                <TableContainer>
+                                                    <Table size="small">
+                                                        <TableHead>
+                                                            <TableRow>
+                                                                <TableCell sx={{ bgcolor: 'action.hover' }}>#</TableCell>
+                                                                <TableCell sx={{ bgcolor: 'action.hover' }}>Vencimiento</TableCell>
+                                                                <TableCell align="right" sx={{ bgcolor: 'action.hover' }}>Importe</TableCell>
+                                                                <TableCell sx={{ bgcolor: 'action.hover' }}>Estado</TableCell>
+                                                                <TableCell sx={{ bgcolor: 'action.hover' }}>Fecha Pago</TableCell>
+                                                                <TableCell sx={{ bgcolor: 'action.hover' }}></TableCell>
+                                                            </TableRow>
+                                                        </TableHead>
+                                                        <TableBody>
+                                                            {conv.cuotas?.map((cuota: any) => (
+                                                                <TableRow key={cuota.id} hover>
+                                                                    <TableCell>{cuota.nroCuota}</TableCell>
+                                                                    <TableCell>{new Date(cuota.fechaVencimiento).toLocaleDateString('es-AR')}</TableCell>
+                                                                    <TableCell align="right">${cuota.importe?.toLocaleString('es-AR', { minimumFractionDigits: 2 })}</TableCell>
+                                                                    <TableCell>
+                                                                        <Chip label={cuota.estado} color={estadoCuotaColor(cuota.estado)} size="small" variant="outlined" />
+                                                                    </TableCell>
+                                                                    <TableCell>{cuota.fechaPago ? new Date(cuota.fechaPago).toLocaleDateString('es-AR') : '-'}</TableCell>
+                                                                    <TableCell>
+                                                                        {cuota.estado === 'PENDIENTE' && conv.estado === 'ACTIVO' && (
+                                                                            <Tooltip title="Registrar pago">
+                                                                                <IconButton size="small" color="success" onClick={() => handleAbrirPagarCuota(cuota)}>
+                                                                                    <PaymentIcon fontSize="small" />
+                                                                                </IconButton>
+                                                                            </Tooltip>
+                                                                        )}
+                                                                    </TableCell>
+                                                                </TableRow>
+                                                            ))}
+                                                        </TableBody>
+                                                    </Table>
+                                                </TableContainer>
+                                                {conv.estado === 'ACTIVO' && (
+                                                    <Box display="flex" justifyContent="flex-end" mt={1}>
+                                                        <Button
+                                                            size="small"
+                                                            color="error"
+                                                            startIcon={<BlockIcon />}
+                                                            onClick={() => handleAnularConvenio(conv.id)}
+                                                        >
+                                                            Anular convenio
+                                                        </Button>
+                                                    </Box>
+                                                )}
+                                            </AccordionDetails>
+                                        </Accordion>
+                                    ))
+                                )}
+                            </Box>
+                        </TabPanel>
+
+                        {/* TAB 4 - OTRAS CUENTAS */}
+                        <TabPanel value={tabVal} index={4}>
+                            <Box sx={{ px: 2, pb: 2 }}>
+                                {loadingOtrasCuentas ? (
+                                    <Box display="flex" justifyContent="center" py={4}><CircularProgress size={24} /></Box>
+                                ) : otrasCuentas.length === 0 ? (
+                                    <Typography variant="body2" color="text.secondary" align="center" fontStyle="italic" py={4}>
+                                        Este deudor no tiene otras cuentas registradas.
+                                    </Typography>
+                                ) : (
+                                    <TableContainer>
+                                        <Table size="small">
+                                            <TableHead>
+                                                <TableRow>
+                                                    <TableCell sx={{ bgcolor: 'action.hover' }}>Empresa</TableCell>
+                                                    <TableCell sx={{ bgcolor: 'action.hover' }}>Remesa</TableCell>
+                                                    <TableCell align="right" sx={{ bgcolor: 'action.hover' }}>Deuda</TableCell>
+                                                    <TableCell sx={{ bgcolor: 'action.hover' }}>Situación</TableCell>
+                                                    <TableCell sx={{ bgcolor: 'action.hover' }}>Gestión</TableCell>
+                                                </TableRow>
+                                            </TableHead>
+                                            <TableBody>
+                                                {otrasCuentas.map((oc: any) => (
+                                                    <TableRow key={oc.id} hover>
+                                                        <TableCell>{oc.empresa?.nombre || '-'}</TableCell>
+                                                        <TableCell>{oc.remesa?.numeroRemesa || '-'}</TableCell>
+                                                        <TableCell align="right" sx={{ fontWeight: 'bold' }}>
+                                                            ${oc.montoTotal?.toLocaleString('es-AR', { minimumFractionDigits: 2 }) || '0.00'}
+                                                        </TableCell>
+                                                        <TableCell>
+                                                            <Chip label={oc.estadoSituacion?.descripcion || '-'} size="small" variant="outlined" />
+                                                        </TableCell>
+                                                        <TableCell>
+                                                            <Chip label={oc.estadoGestion?.descripcion || '-'} size="small" variant="outlined" />
+                                                        </TableCell>
+                                                    </TableRow>
+                                                ))}
+                                            </TableBody>
+                                        </Table>
+                                    </TableContainer>
                                 )}
                             </Box>
                         </TabPanel>
@@ -695,6 +1041,169 @@ const FichaDeudor: React.FC<Props> = ({ deudorId }) => {
                         }
                     >
                         Guardar
+                    </Button>
+                </DialogActions>
+            </Dialog>
+
+            {/* MODAL NUEVO CONVENIO */}
+            <Dialog open={openModalConvenio} onClose={() => setOpenModalConvenio(false)} fullWidth maxWidth="md">
+                <DialogTitle>Nuevo Convenio</DialogTitle>
+                <DialogContent>
+                    <Grid container spacing={2} sx={{ mt: 0.5 }}>
+                        <Grid item xs={12} sm={6}>
+                            <TextField
+                                select fullWidth label="Tipo de convenio" size="small"
+                                value={convenioTipo}
+                                onChange={e => { setConvenioTipo(e.target.value as any); setCuotasLibres([]); }}
+                            >
+                                <MenuItem value="AUTOMATICO">Automático</MenuItem>
+                                <MenuItem value="LIBRE">Libre</MenuItem>
+                            </TextField>
+                        </Grid>
+                        <Grid item xs={12} sm={6}>
+                            <TextField
+                                fullWidth label="Monto total ($)" size="small" type="number"
+                                value={convenioForm.montoTotal}
+                                onChange={e => setConvenioForm(f => ({ ...f, montoTotal: e.target.value }))}
+                            />
+                        </Grid>
+                        <Grid item xs={12} sm={6}>
+                            <TextField
+                                fullWidth label="Cantidad de cuotas" size="small" type="number"
+                                value={convenioForm.cantCuotas}
+                                onChange={e => handleCantCuotasChange(e.target.value)}
+                            />
+                        </Grid>
+                        <Grid item xs={12} sm={6}>
+                            <TextField
+                                fullWidth label="Fecha primer vencimiento" size="small" type="date"
+                                InputLabelProps={{ shrink: true }}
+                                value={convenioForm.fechaInicio}
+                                onChange={e => setConvenioForm(f => ({ ...f, fechaInicio: e.target.value }))}
+                            />
+                        </Grid>
+                        <Grid item xs={12}>
+                            <TextField
+                                fullWidth label="Observaciones" size="small" multiline rows={2}
+                                value={convenioForm.observaciones}
+                                onChange={e => setConvenioForm(f => ({ ...f, observaciones: e.target.value }))}
+                            />
+                        </Grid>
+                    </Grid>
+
+                    {/* Preview automático */}
+                    {convenioTipo === 'AUTOMATICO' && convenioForm.montoTotal && convenioForm.cantCuotas && convenioForm.fechaInicio && (
+                        <Box mt={2}>
+                            <Typography variant="subtitle2" fontWeight="bold" mb={1}>Preview de cuotas:</Typography>
+                            <TableContainer sx={{ maxHeight: 200 }}>
+                                <Table size="small">
+                                    <TableHead>
+                                        <TableRow>
+                                            <TableCell sx={{ bgcolor: 'action.hover' }}>#</TableCell>
+                                            <TableCell sx={{ bgcolor: 'action.hover' }}>Vencimiento</TableCell>
+                                            <TableCell align="right" sx={{ bgcolor: 'action.hover' }}>Importe</TableCell>
+                                        </TableRow>
+                                    </TableHead>
+                                    <TableBody>
+                                        {calcCuotasAutomatico().map(c => (
+                                            <TableRow key={c.nroCuota}>
+                                                <TableCell>{c.nroCuota}</TableCell>
+                                                <TableCell>{c.fechaVencimiento}</TableCell>
+                                                <TableCell align="right">${c.importe.toLocaleString('es-AR', { minimumFractionDigits: 2 })}</TableCell>
+                                            </TableRow>
+                                        ))}
+                                    </TableBody>
+                                </Table>
+                            </TableContainer>
+                        </Box>
+                    )}
+
+                    {/* Cuotas libres */}
+                    {convenioTipo === 'LIBRE' && cuotasLibres.length > 0 && (
+                        <Box mt={2}>
+                            <Typography variant="subtitle2" fontWeight="bold" mb={1}>Cargá cada cuota:</Typography>
+                            <TableContainer sx={{ maxHeight: 250 }}>
+                                <Table size="small">
+                                    <TableHead>
+                                        <TableRow>
+                                            <TableCell sx={{ bgcolor: 'action.hover' }}>#</TableCell>
+                                            <TableCell sx={{ bgcolor: 'action.hover' }}>Vencimiento</TableCell>
+                                            <TableCell sx={{ bgcolor: 'action.hover' }}>Importe ($)</TableCell>
+                                        </TableRow>
+                                    </TableHead>
+                                    <TableBody>
+                                        {cuotasLibres.map((c, i) => (
+                                            <TableRow key={c.nroCuota}>
+                                                <TableCell>{c.nroCuota}</TableCell>
+                                                <TableCell>
+                                                    <TextField
+                                                        type="date" size="small" value={c.fechaVencimiento}
+                                                        onChange={e => setCuotasLibres(prev => prev.map((x, j) => j === i ? { ...x, fechaVencimiento: e.target.value } : x))}
+                                                        InputLabelProps={{ shrink: true }}
+                                                    />
+                                                </TableCell>
+                                                <TableCell>
+                                                    <TextField
+                                                        type="number" size="small" value={c.importe}
+                                                        onChange={e => setCuotasLibres(prev => prev.map((x, j) => j === i ? { ...x, importe: e.target.value } : x))}
+                                                    />
+                                                </TableCell>
+                                            </TableRow>
+                                        ))}
+                                    </TableBody>
+                                </Table>
+                            </TableContainer>
+                        </Box>
+                    )}
+                </DialogContent>
+                <DialogActions>
+                    <Button onClick={() => setOpenModalConvenio(false)}>Cancelar</Button>
+                    <Button
+                        variant="contained"
+                        onClick={handleGuardarConvenio}
+                        disabled={
+                            savingConvenio ||
+                            !convenioForm.montoTotal || !convenioForm.cantCuotas || !convenioForm.fechaInicio ||
+                            (convenioTipo === 'LIBRE' && (cuotasLibres.length === 0 || cuotasLibres.some(c => !c.fechaVencimiento || !c.importe)))
+                        }
+                    >
+                        {savingConvenio ? 'Guardando...' : 'Guardar Convenio'}
+                    </Button>
+                </DialogActions>
+            </Dialog>
+
+            {/* MODAL PAGO DE CUOTA */}
+            <Dialog open={!!cuotaAPagar} onClose={() => setCuotaAPagar(null)} maxWidth="xs" fullWidth>
+                <DialogTitle>Registrar pago — Cuota {cuotaAPagar?.nroCuota}</DialogTitle>
+                <DialogContent>
+                    <Box display="flex" flexDirection="column" gap={2} mt={1}>
+                        <TextField
+                            label="Fecha de pago" type="date" size="small" fullWidth
+                            InputLabelProps={{ shrink: true }}
+                            value={pagoForm.fecha}
+                            onChange={e => setPagoForm(f => ({ ...f, fecha: e.target.value }))}
+                        />
+                        <TextField
+                            label="Importe pagado ($)" type="number" size="small" fullWidth
+                            value={pagoForm.importe}
+                            onChange={e => setPagoForm(f => ({ ...f, importe: e.target.value }))}
+                        />
+                        <TextField
+                            label="Observación (opcional)" size="small" fullWidth
+                            value={pagoForm.observacion}
+                            onChange={e => setPagoForm(f => ({ ...f, observacion: e.target.value }))}
+                        />
+                    </Box>
+                </DialogContent>
+                <DialogActions>
+                    <Button onClick={() => setCuotaAPagar(null)}>Cancelar</Button>
+                    <Button
+                        variant="contained"
+                        color="success"
+                        onClick={handleConfirmarPagoCuota}
+                        disabled={savingPago || !pagoForm.fecha || !pagoForm.importe}
+                    >
+                        {savingPago ? 'Registrando...' : 'Confirmar Pago'}
                     </Button>
                 </DialogActions>
             </Dialog>

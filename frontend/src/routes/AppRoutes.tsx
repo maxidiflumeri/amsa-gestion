@@ -11,6 +11,7 @@ import ImportDetail from '../pages/ImportDetail'
 import AjustesEmpresas from '../pages/ajustes/AjustesEmpresas'
 import AjustesParametros from '../pages/ajustes/AjustesParametros'
 import AjustesAsignaciones from '../pages/ajustes/AjustesAsignaciones'
+import AjustesPoliticas from '../pages/ajustes/AjustesPoliticas'
 
 const AppRoutes = () => {
 
@@ -28,6 +29,7 @@ const AppRoutes = () => {
                 <Route path="ajustes/empresas" element={<AjustesEmpresas />} />
                 <Route path="ajustes/parametros" element={<AjustesParametros />} />
                 <Route path="ajustes/asignaciones" element={<AjustesAsignaciones />} />
+                <Route path="ajustes/politicas" element={<AjustesPoliticas />} />
                 {/* futuras rutas privadas */}
 
             </Route>

@@ -1,9 +1,11 @@
 import React, { useEffect, useState } from 'react'
 import { Tabs, Tab, Box, Typography, Paper, Button } from '@mui/material'
 import SearchIcon from '@mui/icons-material/Search';
+import PolicyIcon from '@mui/icons-material/Policy';
 import FichaDeudor from './FichaDeudor';
 import DeudoresTable from './DeudoresTable';
 import BuscadorAvanzadoModal from './BuscadorAvanzadoModal';
+import PoliticaTab from './PoliticaTab';
 
 interface Props {
     user: { nombre: string; rol: string }
@@ -66,6 +68,7 @@ const TabsPanel: React.FC<Props> = ({
                     >
                         <Tab label="👤 Datos del deudor" sx={{ fontWeight: 'bold' }} />
                         <Tab label="📋 Lista de deudores" sx={{ fontWeight: 'bold' }} />
+                        <Tab icon={<PolicyIcon fontSize="small" />} iconPosition="start" label="Política" sx={{ fontWeight: 'bold' }} />
                     </Tabs>
                     <Button 
                         variant="outlined" 
@@ -90,6 +93,10 @@ const TabsPanel: React.FC<Props> = ({
                         setSelectedDeudorId={setSelectedDeudorId}
                         onDoubleClickRow={() => setSelectedTab(0)}
                     />
+                )}
+
+                {selectedTab === 2 && (
+                    <PoliticaTab deudorId={selectedDeudorId} />
                 )}
             </Box>
 

@@ -1,5 +1,5 @@
 // src/import/import.controller.ts
-import { Body, Controller, Get, Param, ParseIntPipe, Post, Query, UploadedFile, UseInterceptors } from '@nestjs/common';
+import { Body, Controller, Get, Param, ParseIntPipe, Post, Put, Query, UploadedFile, UseInterceptors } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { ImportService } from './imports.service';
 import { CreatePlantillaDto, CreateRemesaDto } from './dtos/import.dto';
@@ -112,5 +112,14 @@ export class ImportController {
             page ? parseInt(page, 10) : 1,
             pageSize ? parseInt(pageSize, 10) : 50,
         );
+    }
+
+    // --- POLÍTICA ---
+    @Put('remesas/:id/politica')
+    updatePolitica(
+        @Param('id', ParseIntPipe) id: number,
+        @Body('politicaId') politicaId: number | null,
+    ) {
+        return this.service.updatePolitica(id, politicaId);
     }
 }

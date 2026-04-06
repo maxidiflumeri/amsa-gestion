@@ -11,6 +11,8 @@ import { ComentariosModule } from './modules/comentarios/comentarios.module';
 import { LoggerModule } from './common/logger/logger.module';
 import { ImportModule } from './modules/imports/imports.module';
 import { EmpresasModule } from './modules/empresas/empresas.module';
+import { PoliticasModule } from './modules/politicas/politicas.module';
+import { ConveniosModule } from './modules/convenios/convenios.module';
 
 @Module({
   imports: [
@@ -28,7 +30,9 @@ import { EmpresasModule } from './modules/empresas/empresas.module';
     ContactosModule,
     ComentariosModule,
     ImportModule,
-    EmpresasModule
+    EmpresasModule,
+    PoliticasModule,
+    ConveniosModule
   ],
 
   controllers: [AppController],
