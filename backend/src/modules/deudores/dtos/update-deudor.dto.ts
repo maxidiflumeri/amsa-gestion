@@ -1,9 +1,12 @@
 import { IsOptional } from 'class-validator';
 
 export class UpdateDeudorDto {
-    @IsOptional()    
+    @IsOptional()
     estadoSituacionClave?: string;
 
-    @IsOptional()    
+    @IsOptional()
     estadoGestionClave?: string;
+
+    @IsOptional()
+    motivoNoPagoClave?: string;
 }

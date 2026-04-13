@@ -1,33 +1,35 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
-
 import { PrismaService } from 'src/prisma/prisma.service';
 
 @Injectable()
 export class ParametrosService {
-    constructor(private prisma: PrismaService) { }
+    constructor(private prisma: PrismaService) {}
 
-    findAll(filters: { grupo?: string; empresaId?: number } = {}) {
+    findAll(filters: { grupo?: string; empresaId?: number; activo?: boolean } = {}) {
         const where: any = {};
         if (filters.grupo) where.grupo = filters.grupo;
+        if (filters.activo !== undefined) where.activo = filters.activo;
         if (filters.empresaId) {
-            where.empresas = {
-                some: { empresaId: filters.empresaId }
-            };
+            where.empresas = { some: { empresaId: filters.empresaId, activo: true } };
         }
-
         return this.prisma.parametro.findMany({
             where,
-            include: { 
-                parametroPadre: true,
-                empresas: true,
-                subParametros: true
-            },
-            orderBy: [{ grupo: 'asc' }, { id: 'asc' }],
+            include: { parametroPadre: true, empresas: true, subParametros: true },
+            orderBy: [{ grupo: 'asc' }, { clave: 'asc' }],
         });
     }
 
+    async getGrupos() {
+        const grupos = await this.prisma.parametro.groupBy({
+            by: ['grupo'],
+            _count: { id: true },
+            orderBy: { grupo: 'asc' },
+        });
+        return grupos.map(g => ({ grupo: g.grupo, total: g._count.id }));
+    }
+
     findByGrupo(grupo: string) {
-        return this.findAll({ grupo });
+        return this.findAll({ grupo, activo: true });
     }
 
     async findOne(id: number) {
@@ -39,41 +41,33 @@ export class ParametrosService {
         return p;
     }
 
-    create(data: { grupo: string; clave: string; descripcion: string; padreId?: number }) {
-        return this.prisma.parametro.create({
-            data,
-        });
+    create(data: { grupo: string; clave: string; descripcion: string; padreId?: number; categoria?: string; esGlobal?: boolean; activo?: boolean }) {
+        return this.prisma.parametro.create({ data });
     }
 
-    async update(id: number, data: { grupo?: string; clave?: string; descripcion?: string; padreId?: number }) {
+    async update(id: number, data: { grupo?: string; clave?: string; descripcion?: string; padreId?: number; categoria?: string; esGlobal?: boolean; activo?: boolean }) {
         await this.findOne(id);
+        return this.prisma.parametro.update({ where: { id }, data });
+    }
+
+    async toggleActivo(id: number) {
+        const p = await this.findOne(id);
         return this.prisma.parametro.update({
             where: { id },
-            data,
+            data: { activo: !p.activo },
         });
     }
 
     async remove(id: number) {
         await this.findOne(id);
-        return this.prisma.parametro.delete({
-            where: { id },
-        });
+        return this.prisma.parametro.delete({ where: { id } });
     }
 
-    // --- ASIGNACIONES A EMPRESAS ---
     async assignToCompanies(parametroId: number, empresaIds: number[]) {
-        // Primero eliminamos todas las asignaciones existentes para este parámetro
-        await this.prisma.empresa_parametro.deleteMany({
-            where: { parametroId },
-        });
-
-        // Luego creamos las nuevas
+        await this.prisma.empresa_parametro.deleteMany({ where: { parametroId } });
         if (empresaIds.length > 0) {
             return this.prisma.empresa_parametro.createMany({
-                data: empresaIds.map(empresaId => ({
-                    parametroId,
-                    empresaId,
-                })),
+                data: empresaIds.map(empresaId => ({ parametroId, empresaId })),
             });
         }
     }

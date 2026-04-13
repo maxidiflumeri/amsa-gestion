@@ -139,6 +139,7 @@ export class DeudoresService {
                 campoExtras: true,
                 estadoSituacion: true,
                 estadoGestion: true,
+                motivoNoPago: true,
             },
         });
     }
@@ -154,6 +155,7 @@ export class DeudoresService {
                 remesa: true,
                 estadoSituacion: true,
                 estadoGestion: true,
+                motivoNoPago: true,
             },
             orderBy: { createdAt: 'desc' },
         });
@@ -181,7 +183,7 @@ export class DeudoresService {
 
 
     async update(id: number, dto: UpdateDeudorDto) {
-        const { estadoSituacionClave, estadoGestionClave } = dto;
+        const { estadoSituacionClave, estadoGestionClave, motivoNoPagoClave } = dto;
 
         let data: any = {};
 
@@ -200,7 +202,14 @@ export class DeudoresService {
             if (!gestion) throw new NotFoundException('Estado de gestión no encontrado');
             data.estadoGestionId = gestion.id;
         }
-        
+
+        if (motivoNoPagoClave) {
+            const motivo = await this.prisma.parametro.findUnique({
+                where: { clave: motivoNoPagoClave },
+            });
+            if (motivo) data.motivoNoPagoId = motivo.id;
+        }
+
         const deudor = await this.prisma.deudor.findUnique({ where: { id } });
         if (!deudor) throw new NotFoundException('Deudor no encontrado');
 
@@ -209,10 +218,12 @@ export class DeudoresService {
             data: {
                 estadoSituacionId: data.estadoSituacionId ?? deudor.estadoSituacionId,
                 estadoGestionId: data.estadoGestionId ?? deudor.estadoGestionId,
+                motivoNoPagoId: data.motivoNoPagoId ?? deudor.motivoNoPagoId,
             },
             include: {
                 estadoSituacion: true,
                 estadoGestion: true,
+                motivoNoPago: true,
             },
         });
 

@@ -57,6 +57,7 @@ model deudor {
   fechaVencimiento  DateTime?
   estadoSituacionId Int?
   estadoGestionId   Int?
+  motivoNoPagoId    Int?
   camposAdicionales Json?
   createdAt         DateTime      @default(now())
   updatedAt         DateTime      @updatedAt
@@ -67,6 +68,7 @@ model deudor {
   remesa            remesa        @relation(fields: [remesaId], references: [id], map: "Deudor_remesaId_fkey")
   estadoGestion     parametro?    @relation("DeudorEstadoGestion", fields: [estadoGestionId], references: [id])
   estadoSituacion   parametro?    @relation("DeudorEstadoSituacion", fields: [estadoSituacionId], references: [id])
+  motivoNoPago      parametro?    @relation("DeudorMotivoNoPago", fields: [motivoNoPagoId], references: [id])
   facturas          factura[]
   pagos             pago[]
   transacciones     transaccion[]
@@ -77,6 +79,7 @@ model deudor {
   @@index([empresaId, remesaId], map: "Deudor_empresaId_remesaId_idx")
   @@index([estadoGestionId], map: "Deudor_estadoGestionId_fkey")
   @@index([estadoSituacionId], map: "Deudor_estadoSituacionId_fkey")
+  @@index([motivoNoPagoId], map: "Deudor_motivoNoPagoId_fkey")
   @@index([remesaId], map: "Deudor_remesaId_fkey")
 }
 
@@ -146,23 +149,29 @@ model pago {
 }
 
 model parametro {
-  id                       Int      @id @default(autoincrement())
-  grupo                    String
-  clave                    String   @unique(map: "Parametro_clave_key")
-  descripcion              String
-  padreId                  Int?
-  parametroPadre           parametro?          @relation("CondicionParametro", fields: [padreId], references: [id])
-  subParametros            parametro[]         @relation("CondicionParametro")
-  deudoresConEstaGestion   deudor[] @relation("DeudorEstadoGestion")
-  deudoresConEstaSituacion deudor[] @relation("DeudorEstadoSituacion")
-  empresas                 empresa_parametro[]
+  id                              Int                 @id @default(autoincrement())
+  grupo                           String
+  clave                           String              @unique(map: "Parametro_clave_key")
+  descripcion                     String
+  padreId                         Int?
+  categoria                       String?
+  esGlobal                        Boolean             @default(true)
+  activo                          Boolean             @default(true)
+  parametroPadre                  parametro?          @relation("CondicionParametro", fields: [padreId], references: [id])
+  subParametros                   parametro[]         @relation("CondicionParametro")
+  deudoresConEstaGestion          deudor[]            @relation("DeudorEstadoGestion")
+  deudoresConEstaSituacion        deudor[]            @relation("DeudorEstadoSituacion")
+  deudoresConEsteMotivoNoPago     deudor[]            @relation("DeudorMotivoNoPago")
+  empresas                        empresa_parametro[]
 }
 
 model empresa_parametro {
-  empresaId   Int
-  parametroId Int
-  empresa     empresa   @relation(fields: [empresaId], references: [id], onDelete: Cascade)
-  parametro   parametro @relation(fields: [parametroId], references: [id], onDelete: Cascade)
+  empresaId      Int
+  parametroId    Int
+  nombreOverride String?
+  activo         Boolean   @default(true)
+  empresa        empresa   @relation(fields: [empresaId], references: [id], onDelete: Cascade)
+  parametro      parametro @relation(fields: [parametroId], references: [id], onDelete: Cascade)
 
   @@id([empresaId, parametroId])
   @@index([empresaId])

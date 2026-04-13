@@ -20,7 +20,19 @@
       "WebFetch(domain:raw.githubusercontent.com)",
       "WebFetch(domain:github.com)",
       "Bash(curl -s \"https://bitbucket.org/maxidiflumeri/anamaya-front/src/master/\")",
-      "Bash(curl:*)"
+      "Bash(curl:*)",
+      "Bash(where python:*)",
+      "Bash(where python3:*)",
+      "Bash(ls /c/Python*)",
+      "Read(//usr/**)",
+      "Bash(npm list:*)",
+      "Bash(node -e \"const x = require\\('./node_modules/xlsx'\\); console.log\\('xlsx version:', x.version\\);\")",
+      "Bash(node -e ':*)",
+      "Bash(npx ts-node:*)",
+      "Bash(node -e \"require\\('typescript'\\).transpileModule\\(require\\('fs'\\).readFileSync\\('prisma/seed-parametros.ts', 'utf8'\\), {compilerOptions: {module: 'commonjs', target: 'es2020'}}\\); console.log\\('✓ Script compila correctamente'\\)\")",
+      "Bash(npx eslint:*)",
+      "Bash(node -e \"try { require\\('@prisma/client'\\); require\\('xlsx'\\); require\\('path'\\); console.log\\('✓ Todas las dependencias están disponibles'\\); } catch\\(e\\) { console.error\\('✗ Error:', e.message\\); process.exit\\(1\\); }\")",
+      "Bash(node:*)"
     ]
   }
 }

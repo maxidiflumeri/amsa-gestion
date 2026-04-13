@@ -13,7 +13,6 @@ import { useNavigate } from 'react-router-dom'
 
 import BusinessIcon from '@mui/icons-material/Business'
 import SettingsInputComponentIcon from '@mui/icons-material/SettingsInputComponent'
-import AssignmentIndIcon from '@mui/icons-material/AssignmentInd'
 import PolicyIcon from '@mui/icons-material/Policy'
 
 import { useColorMode } from '../../context/ThemeContext'
@@ -102,10 +101,6 @@ const Sidebar: React.FC<Props> = ({ drawerOpen }) => {
                             <ListItemButton sx={{ pl: 4 }} onClick={() => navigate('/ajustes/parametros')}>
                                 <ListItemIcon><SettingsInputComponentIcon fontSize="small" /></ListItemIcon>
                                 <ListItemText primary="Parámetros" />
-                            </ListItemButton>
-                            <ListItemButton sx={{ pl: 4 }} onClick={() => navigate('/ajustes/asignaciones')}>
-                                <ListItemIcon><AssignmentIndIcon fontSize="small" /></ListItemIcon>
-                                <ListItemText primary="Asignaciones" />
                             </ListItemButton>
                             <ListItemButton sx={{ pl: 4 }} onClick={() => navigate('/ajustes/politicas')}>
                                 <ListItemIcon><PolicyIcon fontSize="small" /></ListItemIcon>

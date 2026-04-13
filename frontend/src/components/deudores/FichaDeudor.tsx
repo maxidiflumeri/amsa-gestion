@@ -89,8 +89,10 @@ const FichaDeudor: React.FC<Props> = ({ deudorId }) => {
     const [loading, setLoading] = useState(true);
     const [estadoSituacion, setEstadoSituacion] = useState('');
     const [estadoGestion, setEstadoGestion] = useState('');
+    const [motivoNoPago, setMotivoNoPago] = useState('');
     const [estadosSituacion, setEstadosSituacion] = useState<any>(null);
     const [estadosGestion, setEstadosGestion] = useState<any>(null);
+    const [motivosNoPago, setMotivosNoPago] = useState<any[]>([]);
     const [cambiosPendientes, setCambiosPendientes] = useState(false);
     
     // Estado Pestañas centrales
@@ -142,10 +144,13 @@ const FichaDeudor: React.FC<Props> = ({ deudorId }) => {
             setDeudor(deu.data || []);
             setEstadoSituacion(deu.data.estadoSituacion?.clave || '');
             setEstadoGestion(deu.data.estadoGestion?.clave || '');
-            const es = await api.get(`/parametros?grupo=estadoSituacion&empresaId=${deu.data.empresaId}`);
+            setMotivoNoPago(deu.data.motivoNoPago?.clave || '');
+            const es = await api.get(`/parametros?grupo=situacion&empresaId=${deu.data.empresaId}&activo=true`);
             setEstadosSituacion(es.data || []);
-            const eg = await api.get(`/parametros?grupo=estadoGestion&empresaId=${deu.data.empresaId}`);
+            const eg = await api.get(`/parametros?grupo=gestion&empresaId=${deu.data.empresaId}&activo=true`);
             setEstadosGestion(eg.data || []);
+            const mnp = await api.get(`/parametros?grupo=motivo_no_pago&empresaId=${deu.data.empresaId}&activo=true`);
+            setMotivosNoPago(mnp.data || []);
         } catch (e) {
             setSnackbar({ open: true, message: 'Error al cargar datos', severity: 'error' });
         } finally {
@@ -213,9 +218,10 @@ const FichaDeudor: React.FC<Props> = ({ deudorId }) => {
         setValidandoDir(false);
     };
 
-    const handleEstadoChange = (type: 'situacion' | 'gestion', value: string) => {
+    const handleEstadoChange = (type: 'situacion' | 'gestion' | 'motivoNoPago', value: string) => {
         if (type === 'situacion') setEstadoSituacion(value);
-        else setEstadoGestion(value);
+        else if (type === 'gestion') setEstadoGestion(value);
+        else setMotivoNoPago(value);
         setCambiosPendientes(true);
     };
 
@@ -224,6 +230,7 @@ const FichaDeudor: React.FC<Props> = ({ deudorId }) => {
             await api.put(`/deudores/${deudorId}`, {
                 estadoSituacionClave: estadoSituacion,
                 estadoGestionClave: estadoGestion,
+                motivoNoPagoClave: motivoNoPago || undefined,
             });
             setCambiosPendientes(false);
             setSnackbar({ open: true, message: 'Estados actualizados correctamente', severity: 'success' });
@@ -556,7 +563,7 @@ const FichaDeudor: React.FC<Props> = ({ deudorId }) => {
                         <CardHeader title="Gestión y Estado" titleTypographyProps={{ variant: 'h6', fontWeight: 'bold' }} sx={{ pb: 0 }} />
                         <CardContent>
                             <Grid container spacing={2} alignItems="center">
-                                <Grid item xs={12} sm={5}>
+                                <Grid item xs={12} sm={4}>
                                     <TextField
                                         select
                                         fullWidth
@@ -571,7 +578,7 @@ const FichaDeudor: React.FC<Props> = ({ deudorId }) => {
                                         ))}
                                     </TextField>
                                 </Grid>
-                                <Grid item xs={12} sm={5}>
+                                <Grid item xs={12} sm={4}>
                                     <TextField
                                         select
                                         fullWidth
@@ -586,7 +593,25 @@ const FichaDeudor: React.FC<Props> = ({ deudorId }) => {
                                         ))}
                                     </TextField>
                                 </Grid>
-                                <Grid item xs={12} sm={2}>
+                                <Grid item xs={12} sm={4}>
+                                    <TextField
+                                        select
+                                        fullWidth
+                                        label="Motivo No Pago"
+                                        size="small"
+                                        value={motivoNoPago}
+                                        onChange={(e) => handleEstadoChange('motivoNoPago', e.target.value)}
+                                        variant="outlined"
+                                    >
+                                        <MenuItem value=""><em>Sin motivo</em></MenuItem>
+                                        {motivosNoPago.map((p: any) => (
+                                            <MenuItem key={p.id} value={p.clave}>
+                                                {p.descripcion}
+                                            </MenuItem>
+                                        ))}
+                                    </TextField>
+                                </Grid>
+                                <Grid item xs={12}>
                                     <Button
                                         fullWidth
                                         variant="contained"
