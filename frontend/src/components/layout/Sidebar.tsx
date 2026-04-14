@@ -14,6 +14,8 @@ import { useNavigate } from 'react-router-dom'
 import BusinessIcon from '@mui/icons-material/Business'
 import SettingsInputComponentIcon from '@mui/icons-material/SettingsInputComponent'
 import PolicyIcon from '@mui/icons-material/Policy'
+import TableChartIcon from '@mui/icons-material/TableChart'
+import BarChartIcon from '@mui/icons-material/BarChart'
 
 import { useColorMode } from '../../context/ThemeContext'
 
@@ -25,10 +27,15 @@ const Sidebar: React.FC<Props> = ({ drawerOpen }) => {
     const navigate = useNavigate()
     const { mode, toggleColorMode } = useColorMode()
     const [openImport, setOpenImport] = useState(false)
+    const [openReportes, setOpenReportes] = useState(false)
     const [openAjustes, setOpenAjustes] = useState(false)
 
     const handleClickImport = () => {
         setOpenImport(!openImport)
+    }
+
+    const handleClickReportes = () => {
+        setOpenReportes(!openReportes)
     }
 
     const handleClickAjustes = () => {
@@ -80,6 +87,27 @@ const Sidebar: React.FC<Props> = ({ drawerOpen }) => {
                             <ListItemButton sx={{ pl: 4 }} onClick={() => navigate('/plantillas')}>
                                 <ListItemIcon><DescriptionIcon fontSize="small" /></ListItemIcon>
                                 <ListItemText primary="Plantillas" />
+                            </ListItemButton>
+                        </List>
+                    </Collapse>
+
+                    {/* Sección Reportes */}
+                    <ListItem disablePadding>
+                        <ListItemButton onClick={handleClickReportes}>
+                            <ListItemIcon><TableChartIcon /></ListItemIcon>
+                            <ListItemText primary="Reportes" />
+                            {openReportes ? <ExpandLess /> : <ExpandMore />}
+                        </ListItemButton>
+                    </ListItem>
+                    <Collapse in={openReportes} timeout="auto" unmountOnExit>
+                        <List component="div" disablePadding>
+                            <ListItemButton sx={{ pl: 4 }} onClick={() => navigate('/reportes')}>
+                                <ListItemIcon><TableChartIcon fontSize="small" /></ListItemIcon>
+                                <ListItemText primary="Mis Plantillas" />
+                            </ListItemButton>
+                            <ListItemButton sx={{ pl: 4 }} onClick={() => navigate('/reportes/estadisticas')}>
+                                <ListItemIcon><BarChartIcon fontSize="small" /></ListItemIcon>
+                                <ListItemText primary="Estadísticas" />
                             </ListItemButton>
                         </List>
                     </Collapse>

@@ -13,6 +13,7 @@ import { ImportModule } from './modules/imports/imports.module';
 import { EmpresasModule } from './modules/empresas/empresas.module';
 import { PoliticasModule } from './modules/politicas/politicas.module';
 import { ConveniosModule } from './modules/convenios/convenios.module';
+import { ReportesModule } from './modules/reportes/reportes.module';
 
 @Module({
   imports: [
@@ -32,7 +33,8 @@ import { ConveniosModule } from './modules/convenios/convenios.module';
     ImportModule,
     EmpresasModule,
     PoliticasModule,
-    ConveniosModule
+    ConveniosModule,
+    ReportesModule
   ],
 
   controllers: [AppController],

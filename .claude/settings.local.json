@@ -32,7 +32,9 @@
       "Bash(node -e \"require\\('typescript'\\).transpileModule\\(require\\('fs'\\).readFileSync\\('prisma/seed-parametros.ts', 'utf8'\\), {compilerOptions: {module: 'commonjs', target: 'es2020'}}\\); console.log\\('✓ Script compila correctamente'\\)\")",
       "Bash(npx eslint:*)",
       "Bash(node -e \"try { require\\('@prisma/client'\\); require\\('xlsx'\\); require\\('path'\\); console.log\\('✓ Todas las dependencias están disponibles'\\); } catch\\(e\\) { console.error\\('✗ Error:', e.message\\); process.exit\\(1\\); }\")",
-      "Bash(node:*)"
+      "Bash(node:*)",
+      "Bash(wait)",
+      "Bash(rm verify-data.ts)"
     ]
   }
 }

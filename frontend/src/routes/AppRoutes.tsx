@@ -11,6 +11,10 @@ import ImportDetail from '../pages/ImportDetail'
 import AjustesEmpresas from '../pages/ajustes/AjustesEmpresas'
 import AjustesParametros from '../pages/ajustes/AjustesParametros'
 import AjustesPoliticas from '../pages/ajustes/AjustesPoliticas'
+import ReportesHome from '../pages/reportes/ReportesHome'
+import ReportesWizard from '../pages/reportes/ReportesWizard'
+import ReportesEjecutar from '../pages/reportes/ReportesEjecutar'
+import ReportesEstadisticas from '../pages/reportes/ReportesEstadisticas'
 
 const AppRoutes = () => {
 
@@ -28,6 +32,11 @@ const AppRoutes = () => {
                 <Route path="ajustes/empresas" element={<AjustesEmpresas />} />
                 <Route path="ajustes/parametros" element={<AjustesParametros />} />
                 <Route path="ajustes/politicas" element={<AjustesPoliticas />} />
+                <Route path="reportes" element={<ReportesHome />} />
+                <Route path="reportes/nueva" element={<ReportesWizard />} />
+                <Route path="reportes/:id/editar" element={<ReportesWizard />} />
+                <Route path="reportes/:id/ejecutar" element={<ReportesEjecutar />} />
+                <Route path="reportes/estadisticas" element={<ReportesEstadisticas />} />
                 {/* futuras rutas privadas */}
 
             </Route>

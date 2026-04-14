@@ -84,17 +84,18 @@ model deudor {
 }
 
 model empresa {
-  id              Int               @id @default(autoincrement())
-  nombre          String            @unique(map: "Empresa_nombre_key")
+  id              Int                 @id @default(autoincrement())
+  nombre          String              @unique(map: "Empresa_nombre_key")
   cuit            String?
   configuracion   Json?
-  createdAt       DateTime          @default(now())
-  updatedAt       DateTime          @updatedAt
+  createdAt       DateTime            @default(now())
+  updatedAt       DateTime            @updatedAt
   deudor          deudor[]
   parametro       empresa_parametro[]
   plantillaimport plantillaimport[]
   remesa          remesa[]
   politicas       politica[]
+  plantillas      plantilla_reporte[]
 }
 
 model factura {
@@ -252,17 +253,18 @@ model transaccion {
 }
 
 model usuario {
-  id          Int           @id @default(autoincrement())
-  googleId    String        @unique(map: "Usuario_googleId_key")
+  id          Int                 @id @default(autoincrement())
+  googleId    String              @unique(map: "Usuario_googleId_key")
   nombre      String
-  email       String        @unique(map: "Usuario_email_key")
+  email       String              @unique(map: "Usuario_email_key")
   avatarUrl   String?
-  rol         String        @default("usuario")
-  createdAt   DateTime      @default(now())
+  rol         String              @default("usuario")
+  createdAt   DateTime            @default(now())
   updatedAt   DateTime
   comentario  comentario[]
   transaccion transaccion[]
   convenios   convenio[]
+  ejecuciones ejecucion_reporte[]
 }
 
 enum jobimport_estado {
@@ -350,4 +352,48 @@ model cuota_convenio {
   convenio       convenio  @relation(fields: [convenioId], references: [id], onDelete: Cascade)
 
   @@index([convenioId])
+}
+
+model plantilla_reporte {
+  id            Int                  @id @default(autoincrement())
+  nombre        String
+  descripcion   String?              @db.Text
+  tipo          String
+  fuente        String
+  filtrosFijos  Json
+  filtrosVars   Json
+  columnas      Json
+  formatoSalida String
+  opcionesExcel Json?
+  opcionesPdf   Json?
+  empresaId     Int?
+  activo        Boolean              @default(true)
+  createdAt     DateTime             @default(now())
+  updatedAt     DateTime             @updatedAt
+  empresa       empresa?             @relation(fields: [empresaId], references: [id])
+  ejecuciones   ejecucion_reporte[]
+
+  @@index([empresaId])
+}
+
+model ejecucion_reporte {
+  id            Int               @id @default(autoincrement())
+  plantillaId   Int
+  usuarioId     Int
+  filtrosUsados Json
+  totalFilas    Int?
+  createdAt     DateTime          @default(now())
+  plantilla     plantilla_reporte @relation(fields: [plantillaId], references: [id], onDelete: Cascade)
+  usuario       usuario           @relation(fields: [usuarioId], references: [id])
+
+  @@index([plantillaId])
+  @@index([usuarioId])
+}
+
+model formato_telefono {
+  id          Int     @id @default(autoincrement())
+  nombre      String  @unique
+  descripcion String?
+  patron      String
+  activo      Boolean @default(true)
 }
