@@ -1,0 +1,47 @@
+import React, { useEffect } from 'react';
+import { CssBaseline } from '@mui/material';
+import { SnackbarProvider } from 'notistack';
+import { BrowserRouter } from 'react-router-dom';
+import { ColorModeProvider } from './ColorModeContext';
+import { ConfirmProvider } from './ConfirmContext';
+import { PageMetaProvider } from './PageMetaContext';
+import { setupAxiosInterceptors } from '../api/setupAxiosInterceptors';
+import { useNotify } from '../hooks/useNotify';
+
+/**
+ * Componente interno con acceso a useNotify (ya dentro de SnackbarProvider).
+ * Registra el interceptor global de errores axios.
+ */
+const AxiosInterceptorSetup: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+    const notify = useNotify();
+
+    useEffect(() => {
+        const cleanup = setupAxiosInterceptors((error) => notify.error(error as never));
+        return cleanup;
+    }, []);
+
+    return <>{children}</>;
+};
+
+export const AppProviders: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+    return (
+        <ColorModeProvider>
+            <CssBaseline />
+            <SnackbarProvider
+                maxSnack={4}
+                anchorOrigin={{ vertical: 'bottom', horizontal: 'right' }}
+                autoHideDuration={4000}
+            >
+                <ConfirmProvider>
+                    <PageMetaProvider>
+                        <BrowserRouter>
+                            <AxiosInterceptorSetup>
+                                {children}
+                            </AxiosInterceptorSetup>
+                        </BrowserRouter>
+                    </PageMetaProvider>
+                </ConfirmProvider>
+            </SnackbarProvider>
+        </ColorModeProvider>
+    );
+};
