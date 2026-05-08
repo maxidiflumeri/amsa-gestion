@@ -1,5 +1,17 @@
 import { useState } from 'react'
-import { Box, Button, Typography, CircularProgress, Alert, Snackbar } from '@mui/material'
+import {
+  Box,
+  Button,
+  Typography,
+  CircularProgress,
+  Alert,
+  Snackbar,
+  Dialog,
+  DialogTitle,
+  DialogContent,
+  DialogContentText,
+  DialogActions,
+} from '@mui/material'
 import PlayArrowIcon from '@mui/icons-material/PlayArrow'
 import { FiltroV2 } from '../../../../../types/reportes-v2'
 import VariableInput from './VariableInput'
@@ -11,86 +23,180 @@ type ExecutionFormProps = {
 }
 
 const ExecutionForm = ({ plantillaId, filtrosVariables }: ExecutionFormProps) => {
-  const { executing, error, success, execute, clearSuccess } = useExecution()
+  const {
+    executing,
+    error,
+    success,
+    asyncInfo,
+    execute,
+    estimar,
+    clearSuccess,
+  } = useExecution()
   const [valores, setValores] = useState<Record<string, any>>(() => {
     const initial: Record<string, any> = {}
-    filtrosVariables.forEach(filtro => {
+    filtrosVariables.forEach((filtro) => {
       if (filtro.valorPorDefecto !== undefined) {
         initial[filtro.id] = filtro.valorPorDefecto
       }
     })
     return initial
   })
+  const [confirmAsync, setConfirmAsync] = useState<{
+    open: boolean
+    total: number
+    pendingFiltros: Record<string, any> | null
+  }>({ open: false, total: 0, pendingFiltros: null })
+  const [estimating, setEstimating] = useState(false)
 
   const handleChange = (filtroId: string, value: any) => {
-    setValores(prev => ({ ...prev, [filtroId]: value }))
+    setValores((prev) => ({ ...prev, [filtroId]: value }))
   }
 
-  const handleExecute = async () => {
+  const buildFiltrosVars = (): Record<string, any> | null => {
     const filtrosVars: Record<string, any> = {}
 
     for (const filtro of filtrosVariables) {
       const valor = valores[filtro.id]
-      const requiresValue = filtro.operador !== 'isNull' && filtro.operador !== 'isNotNull'
+      const requiresValue =
+        filtro.operador !== 'isNull' && filtro.operador !== 'isNotNull'
 
       if (requiresValue && filtro.valorPorDefecto === undefined) {
-        if (valor === undefined || valor === '' || (Array.isArray(valor) && valor.length === 0)) {
-          return
+        if (
+          valor === undefined ||
+          valor === '' ||
+          (Array.isArray(valor) && valor.length === 0)
+        ) {
+          return null
         }
       }
 
       filtrosVars[filtro.id] = valor
     }
 
+    return filtrosVars
+  }
+
+  const handleExecute = async () => {
+    const filtrosVars = buildFiltrosVars()
+    if (filtrosVars === null) return
+
+    setEstimating(true)
+    const est = await estimar(plantillaId, filtrosVars)
+    setEstimating(false)
+
+    if (!est) return
+
+    if (est.modoSugerido === 'async') {
+      setConfirmAsync({
+        open: true,
+        total: est.totalEstimado,
+        pendingFiltros: filtrosVars,
+      })
+      return
+    }
+
     await execute(plantillaId, filtrosVars)
   }
 
-  const canExecute = filtrosVariables.every(filtro => {
-    const requiresValue = filtro.operador !== 'isNull' && filtro.operador !== 'isNotNull'
+  const handleConfirmAsync = async () => {
+    const filtros = confirmAsync.pendingFiltros
+    setConfirmAsync({ open: false, total: 0, pendingFiltros: null })
+    if (filtros) {
+      await execute(plantillaId, filtros)
+    }
+  }
+
+  const canExecute = filtrosVariables.every((filtro) => {
+    const requiresValue =
+      filtro.operador !== 'isNull' && filtro.operador !== 'isNotNull'
     if (!requiresValue) return true
     if (filtro.valorPorDefecto !== undefined) return true
 
     const valor = valores[filtro.id]
-    return valor !== undefined && valor !== '' && (!Array.isArray(valor) || valor.length > 0)
+    return (
+      valor !== undefined &&
+      valor !== '' &&
+      (!Array.isArray(valor) || valor.length > 0)
+    )
   })
+
+  const busy = executing || estimating
 
   return (
     <Box sx={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
       {filtrosVariables.length === 0 ? (
         <Alert severity="info">
-          Esta plantilla no requiere parámetros. Hacé click en "Ejecutar" para generar el reporte.
+          Esta plantilla no requiere parámetros. Hacé click en "Ejecutar" para
+          generar el reporte.
         </Alert>
       ) : (
         <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
           <Typography variant="h6" gutterBottom>
             Parámetros del reporte
           </Typography>
-          {filtrosVariables.map(filtro => (
+          {filtrosVariables.map((filtro) => (
             <VariableInput
               key={filtro.id}
               filtro={filtro}
               value={valores[filtro.id]}
-              onChange={val => handleChange(filtro.id, val)}
+              onChange={(val) => handleChange(filtro.id, val)}
             />
           ))}
         </Box>
       )}
 
-      {error && (
-        <Alert severity="error">{error}</Alert>
+      {error && <Alert severity="error">{error}</Alert>}
+
+      {asyncInfo && (
+        <Alert severity="info">
+          Ejecución encolada (#{asyncInfo.ejecucionId}). Te avisaremos cuando
+          esté lista. Redirigiendo a Mis ejecuciones...
+        </Alert>
       )}
 
       <Box sx={{ display: 'flex', justifyContent: 'flex-end' }}>
         <Button
           variant="contained"
           size="large"
-          startIcon={executing ? <CircularProgress size={20} /> : <PlayArrowIcon />}
+          startIcon={busy ? <CircularProgress size={20} /> : <PlayArrowIcon />}
           onClick={handleExecute}
-          disabled={executing || !canExecute}
+          disabled={busy || !canExecute}
         >
-          {executing ? 'Ejecutando...' : 'Ejecutar'}
+          {executing
+            ? 'Ejecutando...'
+            : estimating
+              ? 'Estimando...'
+              : 'Ejecutar'}
         </Button>
       </Box>
+
+      <Dialog
+        open={confirmAsync.open}
+        onClose={() =>
+          setConfirmAsync({ open: false, total: 0, pendingFiltros: null })
+        }
+      >
+        <DialogTitle>Procesamiento en segundo plano</DialogTitle>
+        <DialogContent>
+          <DialogContentText>
+            El reporte tiene aproximadamente <b>{confirmAsync.total}</b> filas y
+            se procesará en segundo plano. Te avisaremos cuando esté listo y
+            podrás descargarlo desde "Mis ejecuciones".
+          </DialogContentText>
+        </DialogContent>
+        <DialogActions>
+          <Button
+            onClick={() =>
+              setConfirmAsync({ open: false, total: 0, pendingFiltros: null })
+            }
+          >
+            Cancelar
+          </Button>
+          <Button variant="contained" onClick={handleConfirmAsync}>
+            Encolar
+          </Button>
+        </DialogActions>
+      </Dialog>
 
       <Snackbar
         open={success}

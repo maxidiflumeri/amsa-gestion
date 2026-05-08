@@ -424,22 +424,31 @@ model plantilla_reporte_v2 {
 }
 
 model ejecucion_reporte_v2 {
-  id            Int                  @id @default(autoincrement())
-  plantillaId   Int
-  usuarioId     Int
-  filtrosUsados Json
-  totalFilas    Int?
-  estado        String               @default("PENDIENTE")
-  modo          String               @default("SYNC")
-  archivoPath   String?
-  errorMsg      String?              @db.Text
-  duracionMs    Int?
-  createdAt     DateTime             @default(now())
-  finishedAt    DateTime?
-  plantilla     plantilla_reporte_v2 @relation(fields: [plantillaId], references: [id], onDelete: Cascade)
-  usuario       usuario              @relation("EjecucionV2Usuario", fields: [usuarioId], references: [id])
+  id              Int                  @id @default(autoincrement())
+  plantillaId     Int
+  usuarioId       Int
+  empresaId       Int?
+  filtrosUsados   Json
+  totalFilas      Int?
+  filasProcesadas Int                  @default(0)
+  progreso        Int                  @default(0)
+  estado          String               @default("PENDIENTE")
+  modo            String               @default("SYNC")
+  formato         String?
+  archivoPath     String?
+  archivoTamano   Int?
+  errorMsg        String?              @db.Text
+  cancelado       Boolean              @default(false)
+  duracionMs      Int?
+  jobId           String?
+  createdAt       DateTime             @default(now())
+  iniciadoEn      DateTime?
+  finishedAt      DateTime?
+  plantilla       plantilla_reporte_v2 @relation(fields: [plantillaId], references: [id], onDelete: Cascade)
+  usuario         usuario              @relation("EjecucionV2Usuario", fields: [usuarioId], references: [id])
 
   @@index([plantillaId])
   @@index([usuarioId, createdAt])
   @@index([estado])
+  @@index([empresaId])
 }

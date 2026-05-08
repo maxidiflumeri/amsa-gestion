@@ -110,6 +110,10 @@ const Sidebar: React.FC<Props> = ({ drawerOpen }) => {
                                 <ListItemIcon><AutoGraphIcon fontSize="small" /></ListItemIcon>
                                 <ListItemText primary="Reportes v2 (Beta)" />
                             </ListItemButton>
+                            <ListItemButton sx={{ pl: 4 }} onClick={() => navigate('/reportes/v2/ejecuciones')}>
+                                <ListItemIcon><HistoryIcon fontSize="small" /></ListItemIcon>
+                                <ListItemText primary="Mis ejecuciones (v2)" />
+                            </ListItemButton>
                             <ListItemButton sx={{ pl: 4 }} onClick={() => navigate('/reportes/estadisticas')}>
                                 <ListItemIcon><BarChartIcon fontSize="small" /></ListItemIcon>
                                 <ListItemText primary="Estadísticas" />
