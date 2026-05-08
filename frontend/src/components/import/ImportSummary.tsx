@@ -9,9 +9,9 @@ import {
 } from "@mui/material";
 import CheckCircleIcon from "@mui/icons-material/CheckCircle";
 import ErrorOutlineIcon from "@mui/icons-material/ErrorOutline";
-import DownloadIcon from "@mui/icons-material/Download";
 import ReplayIcon from "@mui/icons-material/Replay";
 import ListAltIcon from "@mui/icons-material/ListAlt";
+import { useNotify } from "../../hooks/useNotify";
 
 interface Props {
     total: number;
@@ -30,8 +30,20 @@ export default function ImportSummary({
     onNewImport,
     onViewRemesas,
 }: Props) {
+    const notify = useNotify();
     const successRate = total > 0 ? Math.round((ok / total) * 100) : 0;
     const hasErrors = err > 0;
+
+    const handleVerErrores = () => {
+        try {
+            const baseUrl =
+                (import.meta as any).env?.VITE_API_URL ||
+                "http://localhost:3001/api";
+            window.open(`${baseUrl}/import/errores/${remesaId}`, "_blank");
+        } catch {
+            notify.error("No se pudieron obtener los errores");
+        }
+    };
 
     return (
         <Box>
@@ -39,10 +51,8 @@ export default function ImportSummary({
                 Importación finalizada
             </Typography>
 
-            <Paper
-                variant="outlined"
+            <Box
                 sx={{
-                    p: 4,
                     textAlign: "center",
                     display: "flex",
                     flexDirection: "column",
@@ -60,18 +70,27 @@ export default function ImportSummary({
                 <Typography variant="h5" fontWeight={700}>
                     {hasErrors
                         ? "Importación completada con advertencias"
-                        : "¡Importación exitosa!"}
+                        : "Importación exitosa"}
                 </Typography>
 
                 {/* Métricas */}
-                <Box sx={{ display: "flex", gap: 2, my: 2, flexWrap: "wrap", justifyContent: "center" }}>
+                <Box
+                    sx={{
+                        display: "flex",
+                        gap: 2,
+                        my: 2,
+                        flexWrap: "wrap",
+                        justifyContent: "center",
+                    }}
+                >
                     <Paper
                         elevation={0}
                         sx={{
                             p: 2,
-                            bgcolor: "grey.50",
+                            bgcolor: "action.hover",
                             borderRadius: 2,
                             minWidth: 100,
+                            textAlign: "center",
                         }}
                     >
                         <Typography variant="h4" fontWeight={700}>
@@ -87,9 +106,10 @@ export default function ImportSummary({
                         sx={{
                             p: 2,
                             bgcolor: "success.main",
-                            color: "white",
+                            color: "success.contrastText",
                             borderRadius: 2,
                             minWidth: 100,
+                            textAlign: "center",
                         }}
                     >
                         <Typography variant="h4" fontWeight={700}>
@@ -106,9 +126,10 @@ export default function ImportSummary({
                             sx={{
                                 p: 2,
                                 bgcolor: "error.main",
-                                color: "white",
+                                color: "error.contrastText",
                                 borderRadius: 2,
                                 minWidth: 100,
+                                textAlign: "center",
                             }}
                         >
                             <Typography variant="h4" fontWeight={700}>
@@ -146,22 +167,7 @@ export default function ImportSummary({
                             variant="outlined"
                             color="error"
                             startIcon={<ErrorOutlineIcon />}
-                            onClick={async () => {
-                                try {
-                                    const baseUrl =
-                                        (import.meta as any).env
-                                            ?.VITE_API_URL ||
-                                        "http://localhost:3001/api";
-                                    window.open(
-                                        `${baseUrl}/import/errores/${remesaId}`,
-                                        "_blank"
-                                    );
-                                } catch {
-                                    alert(
-                                        "No se pudieron obtener los errores"
-                                    );
-                                }
-                            }}
+                            onClick={handleVerErrores}
                         >
                             Ver errores
                         </Button>
@@ -183,7 +189,7 @@ export default function ImportSummary({
                         Ver remesas
                     </Button>
                 </Box>
-            </Paper>
+            </Box>
         </Box>
     );
 }

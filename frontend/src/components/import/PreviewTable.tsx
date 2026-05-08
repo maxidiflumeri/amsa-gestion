@@ -12,6 +12,7 @@ import {
     Chip,
     TablePagination,
     Alert,
+    Stack,
 } from "@mui/material";
 import CheckCircleOutlineIcon from "@mui/icons-material/CheckCircleOutline";
 import ErrorOutlineIcon from "@mui/icons-material/ErrorOutline";
@@ -33,7 +34,6 @@ export default function PreviewTable({ preview, total, ok, err }: Props) {
     const [page, setPage] = React.useState(0);
     const [rowsPerPage, setRowsPerPage] = React.useState(10);
 
-    // Detectar columnas de datos desde las filas exitosas
     const columns = useMemo(() => {
         const cols = new Set<string>();
         for (const item of preview) {
@@ -54,31 +54,69 @@ export default function PreviewTable({ preview, total, ok, err }: Props) {
     );
 
     const formatValue = (val: any, colName: string): React.ReactNode => {
-        if (colName === '_blocks' && Array.isArray(val)) {
+        if (colName === "_blocks" && Array.isArray(val)) {
             return (
-                <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1, minWidth: 200 }}>
+                <Box
+                    sx={{
+                        display: "flex",
+                        flexDirection: "column",
+                        gap: 1,
+                        minWidth: 200,
+                    }}
+                >
                     {val.map((b, i) => {
-                        // Resumen de la entidad
                         const data = b.data || {};
-                        let summary = '';
-                        if (b.entity === 'FACTURA' || b.entity === 'DEUDORES_Y_FACTURAS' || b.entity === 'MIXTO') {
-                            const imp = data.importe ? `$${Number(data.importe).toLocaleString('es-AR')}` : '';
-                            const vto = data.vencimiento ? new Date(data.vencimiento).toLocaleDateString() : '';
-                            summary = `Fact. ${data.nroFactura || '-'} | ${imp} ${vto ? `| Vto: ${vto}` : ''}`;
-                        } else if (b.entity === 'CONTACTO') {
-                            summary = `${data.tipo || 'Dato'}: ${data.valor || '-'}`;
+                        let summary = "";
+                        if (
+                            b.entity === "FACTURA" ||
+                            b.entity === "DEUDORES_Y_FACTURAS" ||
+                            b.entity === "MIXTO"
+                        ) {
+                            const imp = data.importe
+                                ? `$${Number(data.importe).toLocaleString("es-AR")}`
+                                : "";
+                            const vto = data.vencimiento
+                                ? new Date(data.vencimiento).toLocaleDateString()
+                                : "";
+                            summary = `Fact. ${data.nroFactura || "-"} | ${imp} ${vto ? `| Vto: ${vto}` : ""}`;
+                        } else if (b.entity === "CONTACTO") {
+                            summary = `${data.tipo || "Dato"}: ${data.valor || "-"}`;
                         } else {
                             summary = JSON.stringify(data);
                         }
 
                         return (
-                            <Box key={i} sx={{ border: '1px solid', borderColor: 'divider', p: 0.5, borderRadius: 1, bgcolor: 'background.paper', fontSize: 12 }}>
-                               <Typography variant="caption" sx={{ fontWeight: 'bold', color: b.entity === 'CONTACTO' ? 'secondary.main' : 'primary.main', display: 'block', mb: 0.5 }}>
-                                  {b.entity === 'DEUDORES_Y_FACTURAS' || b.entity === 'MIXTO' ? 'FACTURA' : b.entity}
-                               </Typography>
-                               <Typography variant="body2" sx={{ fontSize: 12 }}>
-                                  {summary}
-                               </Typography>
+                            <Box
+                                key={i}
+                                sx={{
+                                    border: "1px solid",
+                                    borderColor: "divider",
+                                    p: 0.5,
+                                    borderRadius: 1,
+                                    bgcolor: "background.paper",
+                                    fontSize: 12,
+                                }}
+                            >
+                                <Typography
+                                    variant="caption"
+                                    sx={{
+                                        fontWeight: "bold",
+                                        color:
+                                            b.entity === "CONTACTO"
+                                                ? "secondary.main"
+                                                : "primary.main",
+                                        display: "block",
+                                        mb: 0.5,
+                                    }}
+                                >
+                                    {b.entity === "DEUDORES_Y_FACTURAS" ||
+                                    b.entity === "MIXTO"
+                                        ? "FACTURA"
+                                        : b.entity}
+                                </Typography>
+                                <Typography variant="body2" sx={{ fontSize: 12 }}>
+                                    {summary}
+                                </Typography>
                             </Box>
                         );
                     })}
@@ -88,9 +126,11 @@ export default function PreviewTable({ preview, total, ok, err }: Props) {
 
         if (val === null || val === undefined || val === "") return "—";
         if (val instanceof Date) return new Date(val).toLocaleDateString();
-        // Detectar ISO string (fechas serializadas por el backend)
-        if (typeof val === 'string' && /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}.\d{3}Z$/.test(val)) {
-             return new Date(val).toLocaleDateString();
+        if (
+            typeof val === "string" &&
+            /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}.\d{3}Z$/.test(val)
+        ) {
+            return new Date(val).toLocaleDateString();
         }
         if (typeof val === "object") return JSON.stringify(val);
         return String(val);
@@ -102,8 +142,13 @@ export default function PreviewTable({ preview, total, ok, err }: Props) {
                 Vista previa (muestra de {preview.length} filas de {total})
             </Typography>
 
-            {/* Resumen */}
-            <Box sx={{ display: "flex", gap: 2, mb: 2, flexWrap: "wrap" }}>
+            {/* Resumen de chips */}
+            <Stack
+                direction={{ xs: "column", sm: "row" }}
+                spacing={1}
+                sx={{ mb: 2 }}
+                flexWrap="wrap"
+            >
                 <Chip
                     label={`Total: ${total}`}
                     variant="outlined"
@@ -125,93 +170,92 @@ export default function PreviewTable({ preview, total, ok, err }: Props) {
                         sx={{ fontWeight: 500 }}
                     />
                 )}
-            </Box>
+            </Stack>
 
             {err > 0 && (
                 <Alert severity="warning" sx={{ mb: 2 }}>
-                    Se detectaron {err} filas con errores. Podés continuar
-                    con la importación — las filas con error serán omitidas
-                    y quedarán registradas para su revisión.
+                    Se detectaron {err} filas con errores. Podés continuar con
+                    la importación — las filas con error serán omitidas y
+                    quedarán registradas para su revisión.
                 </Alert>
             )}
 
-            {/* Tabla */}
-            <TableContainer
-                component={Paper}
-                variant="outlined"
-                sx={{ maxHeight: 400 }}
-            >
-                <Table size="small" stickyHeader>
-                    <TableHead>
-                        <TableRow>
-                            <TableCell sx={{ fontWeight: 700, minWidth: 60 }}>
-                                #
-                            </TableCell>
-                            <TableCell sx={{ fontWeight: 700, minWidth: 80 }}>
-                                Estado
-                            </TableCell>
-                            {columns.map((col) => (
-                                <TableCell
-                                    key={col}
-                                    sx={{
-                                        fontWeight: 700,
-                                        whiteSpace: "nowrap",
-                                    }}
-                                >
-                                    {col}
+            {/* Tabla con overflow para mobile */}
+            <Box sx={{ overflowX: "auto" }}>
+                <TableContainer
+                    component={Paper}
+                    variant="outlined"
+                    sx={{ maxHeight: 400 }}
+                >
+                    <Table size="small" stickyHeader>
+                        <TableHead>
+                            <TableRow>
+                                <TableCell sx={{ fontWeight: 700, minWidth: 60 }}>
+                                    #
                                 </TableCell>
-                            ))}
-                        </TableRow>
-                    </TableHead>
-                    <TableBody>
-                        {paginatedRows.map((item) => (
-                            <TableRow
-                                key={item.row}
-                                sx={{
-                                    bgcolor: item.error
-                                        ? "error.main"
-                                        : undefined,
-                                    "& td": item.error
-                                        ? { color: "error.contrastText" }
-                                        : undefined,
-                                    opacity: item.error ? 0.9 : 1,
-                                }}
-                            >
-                                <TableCell>{item.row + 1}</TableCell>
-                                <TableCell>
-                                    {item.error ? (
-                                        <Chip
-                                            size="small"
-                                            label="Error"
-                                            color="error"
-                                            sx={{ fontWeight: 500 }}
-                                        />
-                                    ) : (
-                                        <Chip
-                                            size="small"
-                                            label="OK"
-                                            color="success"
-                                            sx={{ fontWeight: 500 }}
-                                        />
-                                    )}
+                                <TableCell sx={{ fontWeight: 700, minWidth: 80 }}>
+                                    Estado
                                 </TableCell>
                                 {columns.map((col) => (
-                                    <TableCell key={col}>
-                                        {item.error
-                                            ? col === columns[0]
-                                                ? item.error
-                                                : ""
-                                            : formatValue(
-                                                  item.data?.[col],
-                                                  col
-                                              )}
+                                    <TableCell
+                                        key={col}
+                                        sx={{
+                                            fontWeight: 700,
+                                            whiteSpace: "nowrap",
+                                        }}
+                                    >
+                                        {col}
                                     </TableCell>
                                 ))}
                             </TableRow>
-                        ))}
-                    </TableBody>
-                </Table>
-            </TableContainer>
+                        </TableHead>
+                        <TableBody>
+                            {paginatedRows.map((item) => (
+                                <TableRow
+                                    key={item.row}
+                                    sx={{
+                                        bgcolor: item.error
+                                            ? "error.main"
+                                            : undefined,
+                                        "& td": item.error
+                                            ? { color: "error.contrastText" }
+                                            : undefined,
+                                        opacity: item.error ? 0.9 : 1,
+                                    }}
+                                >
+                                    <TableCell>{item.row + 1}</TableCell>
+                                    <TableCell>
+                                        {item.error ? (
+                                            <Chip
+                                                size="small"
+                                                label="Error"
+                                                color="error"
+                                                sx={{ fontWeight: 500 }}
+                                            />
+                                        ) : (
+                                            <Chip
+                                                size="small"
+                                                label="OK"
+                                                color="success"
+                                                sx={{ fontWeight: 500 }}
+                                            />
+                                        )}
+                                    </TableCell>
+                                    {columns.map((col) => (
+                                        <TableCell key={col}>
+                                            {item.error
+                                                ? col === columns[0]
+                                                    ? item.error
+                                                    : ""
+                                                : formatValue(item.data?.[col], col)}
+                                        </TableCell>
+                                    ))}
+                                </TableRow>
+                            ))}
+                        </TableBody>
+                    </Table>
+                </TableContainer>
+            </Box>
 
             <TablePagination
                 component="div"

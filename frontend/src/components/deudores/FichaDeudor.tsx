@@ -4,7 +4,6 @@ import {
     Grid,
     Typography,
     Paper,
-    CircularProgress,
     Chip,
     Button,
     TextField,
@@ -13,7 +12,6 @@ import {
     DialogContent,
     DialogActions,
     IconButton,
-    Snackbar,
     Alert,
     MenuItem,
     Card,
@@ -33,6 +31,9 @@ import {
     AccordionSummary,
     AccordionDetails,
     Tooltip,
+    useMediaQuery,
+    useTheme,
+    CircularProgress,
 } from '@mui/material';
 import EmailIcon from '@mui/icons-material/Email';
 import PhoneIcon from '@mui/icons-material/Phone';
@@ -64,6 +65,9 @@ import ComentariosPanel from './ComentariosPanel';
 import { getHelperTextEmail, validarEmailFront } from '../../utils/emails';
 import { formatearTelefonoParaUI, PreviewTelefono, validarTelefonoArgentinoFront } from '../../utils/phone';
 import { DireccionPreview, getHelperTextDireccion, validarDireccionArgentinaFront } from '../../utils/direcciones';
+import { LoadingSkeleton } from '../ui';
+import { useNotify } from '../../hooks/useNotify';
+import { useConfirm } from '../../context/ConfirmContext';
 
 // Helper visual para Tabs
 interface TabPanelProps {
@@ -85,6 +89,11 @@ interface Props {
 }
 
 const FichaDeudor: React.FC<Props> = ({ deudorId }) => {
+    const notify = useNotify();
+    const confirm = useConfirm();
+    const theme = useTheme();
+    const isMobile = useMediaQuery(theme.breakpoints.down('md'));
+
     const [deudor, setDeudor] = useState<any>(null);
     const [loading, setLoading] = useState(true);
     const [estadoSituacion, setEstadoSituacion] = useState('');
@@ -94,7 +103,7 @@ const FichaDeudor: React.FC<Props> = ({ deudorId }) => {
     const [estadosGestion, setEstadosGestion] = useState<any>(null);
     const [motivosNoPago, setMotivosNoPago] = useState<any[]>([]);
     const [cambiosPendientes, setCambiosPendientes] = useState(false);
-    
+
     // Estado Pestañas centrales
     const [tabVal, setTabVal] = useState(0);
 
@@ -116,10 +125,8 @@ const FichaDeudor: React.FC<Props> = ({ deudorId }) => {
     const [otrasCuentas, setOtrasCuentas] = useState<any[]>([]);
     const [loadingOtrasCuentas, setLoadingOtrasCuentas] = useState(false);
 
-    // Modales y feedback
+    // Modales contacto
     const [openModalAgregar, setOpenModalAgregar] = useState(false);
-    const [openModalConfirmar, setOpenModalConfirmar] = useState(false);
-    const [contactoAEliminar, setContactoAEliminar] = useState<any>(null);
 
     const [nuevoContacto, setNuevoContacto] = useState({ tipo: '', valor: '' });
     const [tipoSeleccionado, setTipoSeleccionado] = useState<string>('');
@@ -134,8 +141,6 @@ const FichaDeudor: React.FC<Props> = ({ deudorId }) => {
         localidad: '',
         provincia: '',
     });
-
-    const [snackbar, setSnackbar] = useState({ open: false, message: '', severity: 'success' as 'success' | 'error' });
 
     const cargarInicial = async () => {
         try {
@@ -152,7 +157,7 @@ const FichaDeudor: React.FC<Props> = ({ deudorId }) => {
             const mnp = await api.get(`/parametros?grupo=motivo_no_pago&empresaId=${deu.data.empresaId}&activo=true`);
             setMotivosNoPago(mnp.data || []);
         } catch (e) {
-            setSnackbar({ open: true, message: 'Error al cargar datos', severity: 'error' });
+            notify.error(e as Error);
         } finally {
             setLoading(false);
         }
@@ -233,11 +238,10 @@ const FichaDeudor: React.FC<Props> = ({ deudorId }) => {
                 motivoNoPagoClave: motivoNoPago || undefined,
             });
             setCambiosPendientes(false);
-            setSnackbar({ open: true, message: 'Estados actualizados correctamente', severity: 'success' });
+            notify.success('Estados actualizados correctamente');
             cargarInicial();
         } catch (err) {
-            console.error(err);
-            setSnackbar({ open: true, message: 'Error al actualizar los estados', severity: 'error' });
+            notify.error(err as Error);
         }
     };
 
@@ -250,7 +254,7 @@ const FichaDeudor: React.FC<Props> = ({ deudorId }) => {
             if (nuevoContacto.tipo === 'telefono' || nuevoContacto.tipo === 'whatsapp') {
                 const res = validarTelefonoArgentinoFront(nuevoContacto.valor);
                 if (!res.valido || !res.e164) {
-                    setSnackbar({ open: true, message: 'Número inválido para Argentina', severity: 'error' });
+                    notify.error('Número inválido para Argentina');
                     return;
                 }
                 payload = { ...payload, valor: res.e164 };
@@ -259,36 +263,32 @@ const FichaDeudor: React.FC<Props> = ({ deudorId }) => {
             await api.post('/contactos', payload);
             await cargarInicial();
             setOpenModalAgregar(false);
-            setSnackbar({ open: true, message: `Contacto agregado correctamente`, severity: 'success' });
+            notify.success('Contacto agregado correctamente');
         } catch (err: any) {
             if (err.response?.data?.message) {
-                setSnackbar({ open: true, message: err.response.data.message, severity: 'error' });
+                notify.error(err.response.data.message);
             } else {
-                setSnackbar({ open: true, message: 'Error al agregar contacto', severity: 'error' });
+                notify.error(err as Error);
             }
         }
     };
 
-    const handleConfirmarEliminar = (contacto: any) => {
-        setContactoAEliminar(contacto);
-        setOpenModalConfirmar(true);
-    };
-
-    const handleEliminarContacto = async () => {
-        if (!contactoAEliminar) return;
+    const handleConfirmarEliminar = async (contacto: any) => {
+        const ok = await confirm({
+            title: 'Eliminar contacto',
+            description: `¿Estás seguro que querés eliminar "${contacto.valor}"?`,
+            confirmLabel: 'Eliminar',
+            confirmColor: 'error',
+        });
+        if (!ok) return;
         try {
-            await api.delete(`/contactos/${contactoAEliminar.id}`, { params: { deudorId } });
+            await api.delete(`/contactos/${contacto.id}`, { params: { deudorId } });
             await cargarInicial();
-            setSnackbar({ open: true, message: `Contacto eliminado correctamente`, severity: 'success' });
+            notify.success('Contacto eliminado correctamente');
         } catch (err) {
-            setSnackbar({ open: true, message: 'Error al eliminar contacto', severity: 'error' });
-        } finally {
-            setOpenModalConfirmar(false);
-            setContactoAEliminar(null);
+            notify.error(err as Error);
         }
     };
-
-    const handleCloseSnackbar = () => setSnackbar({ ...snackbar, open: false });
 
     // ── Convenios helpers ──────────────────────────────────────────────────────
     const calcCuotasAutomatico = () => {
@@ -334,11 +334,11 @@ const FichaDeudor: React.FC<Props> = ({ deudorId }) => {
                 }));
             }
             await api.post('/convenios', payload);
-            setSnackbar({ open: true, message: 'Convenio creado correctamente', severity: 'success' });
+            notify.success('Convenio creado correctamente');
             setOpenModalConvenio(false);
             cargarConvenios();
         } catch (err: any) {
-            setSnackbar({ open: true, message: err.response?.data?.message || 'Error al crear convenio', severity: 'error' });
+            notify.error(err);
         } finally {
             setSavingConvenio(false);
         }
@@ -347,10 +347,10 @@ const FichaDeudor: React.FC<Props> = ({ deudorId }) => {
     const handleAnularConvenio = async (convenioId: number) => {
         try {
             await api.put(`/convenios/${convenioId}/anular`);
-            setSnackbar({ open: true, message: 'Convenio anulado', severity: 'success' });
+            notify.success('Convenio anulado');
             cargarConvenios();
         } catch (err: any) {
-            setSnackbar({ open: true, message: err.response?.data?.message || 'Error al anular convenio', severity: 'error' });
+            notify.error(err);
         }
     };
 
@@ -372,12 +372,12 @@ const FichaDeudor: React.FC<Props> = ({ deudorId }) => {
                 importe: parseFloat(pagoForm.importe),
                 observacion: pagoForm.observacion || undefined,
             });
-            setSnackbar({ open: true, message: 'Cuota pagada y pago registrado', severity: 'success' });
+            notify.success('Cuota pagada y pago registrado');
             setCuotaAPagar(null);
             cargarConvenios();
-            cargarInicial(); // refresca la tab de pagos también
+            cargarInicial();
         } catch (err: any) {
-            setSnackbar({ open: true, message: err.response?.data?.message || 'Error al registrar pago', severity: 'error' });
+            notify.error(err);
         } finally {
             setSavingPago(false);
         }
@@ -397,11 +397,13 @@ const FichaDeudor: React.FC<Props> = ({ deudorId }) => {
         return 'default';
     };
 
-    if (loading || !deudor) return (
-        <Box display="flex" justifyContent="center" alignItems="center" height="200px">
-            <CircularProgress />
-        </Box>
-    );
+    if (loading || !deudor) {
+        return (
+            <Box sx={{ p: 3 }}>
+                <LoadingSkeleton variant="detail" />
+            </Box>
+        );
+    }
 
     const { nombre, apellido, documento, remesa, empresa, comentarios, contactos, facturas, pagos, campoExtras, camposAdicionales, montoTotal, fechaVencimiento } = deudor;
 
@@ -417,7 +419,7 @@ const FichaDeudor: React.FC<Props> = ({ deudorId }) => {
     // Contactos UI Helper
     const renderContactosList = (tipo: string, icono: React.ReactElement, color: "default" | "primary" | "secondary" | "error" | "info" | "success" | "warning" = "default") => {
         const contactosFiltrados = contactos?.filter((c: any) => c.tipo === tipo) || [];
-        
+
         return (
             <Box mb={2}>
                 <Stack direction="row" alignItems="center" spacing={1} mb={1}>
@@ -436,8 +438,7 @@ const FichaDeudor: React.FC<Props> = ({ deudorId }) => {
                         contactosFiltrados.map((c: any) => {
                             const isPhone = tipo === 'telefono' || tipo === 'whatsapp' || tipo === 'celular';
                             const label = isPhone ? formatearTelefonoParaUI(c.valor) : c.valor;
-                            
-                            // Visuals for validation
+
                             let chipColor = color;
                             let icon = undefined;
                             let tooltipTitle = "";
@@ -446,10 +447,9 @@ const FichaDeudor: React.FC<Props> = ({ deudorId }) => {
                                 if (c.validado) {
                                     icon = <CheckCircleIcon fontSize="small" />;
                                     tooltipTitle = "Número verificado";
-                                    // Keep original color (primary/success) but it's verified
                                 } else {
                                     icon = <ErrorOutlineIcon fontSize="small" />;
-                                    chipColor = "error"; // Force error color for invalid ones
+                                    chipColor = "error";
                                     tooltipTitle = "Formato inválido o dudoso";
                                 }
                             }
@@ -464,9 +464,9 @@ const FichaDeudor: React.FC<Props> = ({ deudorId }) => {
                                     title={tooltipTitle}
                                     onDelete={() => handleConfirmarEliminar(c)}
                                     size="small"
-                                    sx={{ 
-                                        mr: 1, 
-                                        mb: 1, 
+                                    sx={{
+                                        mr: 1,
+                                        mb: 1,
                                         fontWeight: 500,
                                         height: 'auto',
                                         maxWidth: '100%',
@@ -474,8 +474,8 @@ const FichaDeudor: React.FC<Props> = ({ deudorId }) => {
                                             display: 'block',
                                             whiteSpace: 'normal',
                                             paddingY: 0.5,
-                                            wordBreak: 'break-word'
-                                        }
+                                            wordBreak: 'break-word',
+                                        },
                                     }}
                                 />
                             );
@@ -518,7 +518,7 @@ const FichaDeudor: React.FC<Props> = ({ deudorId }) => {
                                 </Box>
                             </Stack>
                         </Grid>
-                        
+
                         <Grid item xs={12} md={6} sx={{ textAlign: { xs: 'left', md: 'right' } }}>
                             {tieneConveniosPagados ? (
                                 <>
@@ -554,10 +554,10 @@ const FichaDeudor: React.FC<Props> = ({ deudorId }) => {
             </Card>
 
             <Grid container spacing={3}>
-                
+
                 {/* COLUMNA IZQUIERDA */}
                 <Grid item xs={12} md={7}>
-                    
+
                     {/* ACCIONES Y ESTADOS */}
                     <Card elevation={2} sx={{ mb: 3, borderRadius: 3 }}>
                         <CardHeader title="Gestión y Estado" titleTypographyProps={{ variant: 'h6', fontWeight: 'bold' }} sx={{ pb: 0 }} />
@@ -628,8 +628,6 @@ const FichaDeudor: React.FC<Props> = ({ deudorId }) => {
                         </CardContent>
                     </Card>
 
-
-
                     {/* DASHBOARD PRINCIPAL (TABS) */}
                     <Card elevation={2} sx={{ borderRadius: 3, minHeight: 400 }}>
                         <Box sx={{ borderBottom: 1, borderColor: 'divider', bgcolor: 'background.default' }}>
@@ -638,14 +636,15 @@ const FichaDeudor: React.FC<Props> = ({ deudorId }) => {
                                 onChange={handleTabChange}
                                 variant="scrollable"
                                 scrollButtons="auto"
+                                allowScrollButtonsMobile
                                 textColor="primary"
                                 indicatorColor="primary"
                             >
-                                <Tab icon={<ChatIcon fontSize="small"/>} iconPosition="start" label="Comentarios" />
-                                <Tab icon={<ReceiptIcon fontSize="small"/>} iconPosition="start" label={`Facturas (${facturas?.length || 0})`} />
-                                <Tab icon={<AccountBalanceWalletIcon fontSize="small"/>} iconPosition="start" label={`Pagos (${pagos?.length || 0})`} />
-                                <Tab icon={<HandshakeIcon fontSize="small"/>} iconPosition="start" label={`Convenios (${convenios.length})`} />
-                                <Tab icon={<PeopleAltIcon fontSize="small"/>} iconPosition="start" label="Otras Cuentas" />
+                                <Tab icon={<ChatIcon fontSize="small" />} iconPosition="start" label="Comentarios" />
+                                <Tab icon={<ReceiptIcon fontSize="small" />} iconPosition="start" label={`Facturas (${facturas?.length || 0})`} />
+                                <Tab icon={<AccountBalanceWalletIcon fontSize="small" />} iconPosition="start" label={`Pagos (${pagos?.length || 0})`} />
+                                <Tab icon={<HandshakeIcon fontSize="small" />} iconPosition="start" label={`Convenios (${convenios.length})`} />
+                                <Tab icon={<PeopleAltIcon fontSize="small" />} iconPosition="start" label="Otras Cuentas" />
                             </Tabs>
                         </Box>
 
@@ -655,14 +654,7 @@ const FichaDeudor: React.FC<Props> = ({ deudorId }) => {
                                 <ComentariosPanel
                                     deudorId={deudorId}
                                     comentarios={comentarios || []}
-                                    onComentarioAgregado={(status?: 'success' | 'error') => {
-                                        if (status === 'success') {
-                                            setSnackbar({ open: true, message: 'Comentario agregado', severity: 'success' });
-                                            cargarInicial();
-                                        } else {
-                                            setSnackbar({ open: true, message: 'Error al agregar', severity: 'error' });
-                                        }
-                                    }}
+                                    onCreated={() => cargarInicial()}
                                 />
                             </Box>
                         </TabPanel>
@@ -697,11 +689,11 @@ const FichaDeudor: React.FC<Props> = ({ deudorId }) => {
                                                                 ${fac.importe.toLocaleString('es-AR', { minimumFractionDigits: 2 })}
                                                             </TableCell>
                                                             <TableCell>
-                                                                <Chip 
-                                                                    label={fac.estado || 'PENDIENTE'} 
-                                                                    size="small" 
-                                                                    color={fac.estado === 'PAGADA' ? 'success' : esVencida ? 'error' : 'warning'} 
-                                                                    variant="outlined" 
+                                                                <Chip
+                                                                    label={fac.estado || 'PENDIENTE'}
+                                                                    size="small"
+                                                                    color={fac.estado === 'PAGADA' ? 'success' : esVencida ? 'error' : 'warning'}
+                                                                    variant="outlined"
                                                                 />
                                                             </TableCell>
                                                         </TableRow>
@@ -773,7 +765,7 @@ const FichaDeudor: React.FC<Props> = ({ deudorId }) => {
                                     </Button>
                                 </Box>
                                 {loadingConvenios ? (
-                                    <Box display="flex" justifyContent="center" py={4}><CircularProgress size={24} /></Box>
+                                    <LoadingSkeleton variant="list" rows={3} />
                                 ) : convenios.length === 0 ? (
                                     <Typography variant="body2" color="text.secondary" align="center" fontStyle="italic" py={4}>
                                         No hay convenios registrados para este deudor.
@@ -861,7 +853,7 @@ const FichaDeudor: React.FC<Props> = ({ deudorId }) => {
                         <TabPanel value={tabVal} index={4}>
                             <Box sx={{ px: 2, pb: 2 }}>
                                 {loadingOtrasCuentas ? (
-                                    <Box display="flex" justifyContent="center" py={4}><CircularProgress size={24} /></Box>
+                                    <LoadingSkeleton variant="list" rows={3} />
                                 ) : otrasCuentas.length === 0 ? (
                                     <Typography variant="body2" color="text.secondary" align="center" fontStyle="italic" py={4}>
                                         Este deudor no tiene otras cuentas registradas.
@@ -920,18 +912,17 @@ const FichaDeudor: React.FC<Props> = ({ deudorId }) => {
                     {/* DATOS ADICIONALES */}
                     {hasExtras && (
                         <Card elevation={2} sx={{ borderRadius: 3 }}>
-                            <CardHeader 
-                                title="Datos Adicionales" 
-                                titleTypographyProps={{ variant: 'h6', fontWeight: 'bold' }} 
-                                avatar={<InfoIcon color="primary" />} 
+                            <CardHeader
+                                title="Datos Adicionales"
+                                titleTypographyProps={{ variant: 'h6', fontWeight: 'bold' }}
+                                avatar={<InfoIcon color="primary" />}
                             />
                             <Divider />
                             <CardContent>
                                 <Grid container spacing={2}>
-                                    {/* Mapeo de JSON camposAdicionales */}
                                     {camposAdicionales && Object.keys(camposAdicionales).map((key) => {
                                         const valor = camposAdicionales[key];
-                                        if(!valor) return null;
+                                        if (!valor) return null;
                                         return (
                                             <Grid item xs={6} key={key}>
                                                 <Typography variant="caption" color="text.secondary" sx={{ textTransform: 'uppercase', display: 'block' }}>
@@ -943,7 +934,6 @@ const FichaDeudor: React.FC<Props> = ({ deudorId }) => {
                                             </Grid>
                                         );
                                     })}
-                                    {/* Mapeo de la tabla campoExtras */}
                                     {campoExtras && campoExtras.map((extra: any) => (
                                         <Grid item xs={6} key={extra.id}>
                                             <Typography variant="caption" color="text.secondary" sx={{ textTransform: 'uppercase', display: 'block' }}>
@@ -959,11 +949,11 @@ const FichaDeudor: React.FC<Props> = ({ deudorId }) => {
                         </Card>
                     )}
                 </Grid>
-                
+
             </Grid>
 
-            {/* MODALES REUTILIZADOS (Igual a la lógica original) */}
-            <Dialog open={openModalAgregar} onClose={handleCloseModalAgregar} fullWidth maxWidth="sm">
+            {/* MODAL AGREGAR CONTACTO */}
+            <Dialog open={openModalAgregar} onClose={handleCloseModalAgregar} fullWidth maxWidth="sm" fullScreen={isMobile}>
                 <DialogTitle>Agregar {tipoSeleccionado}</DialogTitle>
                 <DialogContent>
                     {tipoSeleccionado === 'direccion' ? (
@@ -985,11 +975,11 @@ const FichaDeudor: React.FC<Props> = ({ deudorId }) => {
                                     <TextField label="Provincia" fullWidth value={nuevaDireccion.provincia} onChange={(e) => handleChangeDireccion('provincia', e.target.value)} />
                                 </Grid>
                             </Grid>
-                            
+
                             <Box sx={{ mt: 3, display: 'flex', flexDirection: 'column', gap: 2 }}>
-                                <Button 
-                                    variant="outlined" 
-                                    color="info" 
+                                <Button
+                                    variant="outlined"
+                                    color="info"
                                     startIcon={validandoDir ? <CircularProgress size={20} /> : <SearchIcon />}
                                     onClick={handleValidarDireccion}
                                     disabled={validandoDir || !nuevaDireccion.calle || !nuevaDireccion.numero || !nuevaDireccion.localidad || !nuevaDireccion.provincia}
@@ -998,11 +988,11 @@ const FichaDeudor: React.FC<Props> = ({ deudorId }) => {
                                 </Button>
 
                                 {previewDir && (
-                                    <Alert 
-                                        severity={previewDir.valido ? "success" : "warning"} 
+                                    <Alert
+                                        severity={previewDir.valido ? "success" : "warning"}
                                         icon={previewDir.valido ? <CheckCircleIcon /> : <ReportProblemIcon />}
                                     >
-                                        {previewDir.valido 
+                                        {previewDir.valido
                                             ? `Ubicación encontrada: ${previewDir.normalizada} (${previewDir.localidad}, ${previewDir.provincia})`
                                             : `No encontrada en Georef. Podés guardarla igual bajo tu confirmación manual.`}
                                     </Alert>
@@ -1046,12 +1036,12 @@ const FichaDeudor: React.FC<Props> = ({ deudorId }) => {
                         variant="contained"
                         onClick={async () => {
                             if (tipoSeleccionado === 'direccion') {
-                                const dirFormateada = previewDir?.valido 
+                                const dirFormateada = previewDir?.valido
                                     ? `${previewDir.normalizada}, ${previewDir.localidad || nuevaDireccion.localidad}, ${previewDir.provincia || nuevaDireccion.provincia} (CP ${nuevaDireccion.cp || '-'})`
                                     : `${nuevaDireccion.calle} ${nuevaDireccion.numero}, ${nuevaDireccion.localidad}, ${nuevaDireccion.provincia} (CP ${nuevaDireccion.cp || '-'})`;
-                                
+
                                 await api.post('/contactos', { tipo: 'direccion', valor: dirFormateada, deudorId });
-                                setSnackbar({ open: true, message: previewDir?.valido ? 'Dirección validada y guardada correctamente' : 'Dirección guardada manualmente', severity: 'success' });
+                                notify.success(previewDir?.valido ? 'Dirección validada y guardada correctamente' : 'Dirección guardada manualmente');
                                 await cargarInicial();
                                 setOpenModalAgregar(false);
                             } else {
@@ -1060,7 +1050,7 @@ const FichaDeudor: React.FC<Props> = ({ deudorId }) => {
                         }}
                         disabled={
                             tipoSeleccionado === 'direccion'
-                                ? (!previewDir) // Solo habilita si hay un previewDir
+                                ? (!previewDir)
                                 : tipoSeleccionado === 'telefono' || tipoSeleccionado === 'whatsapp' ? !previewTel?.valido
                                     : tipoSeleccionado === 'email' ? !previewEmail?.valido : !nuevoContacto.valor?.trim()
                         }
@@ -1071,7 +1061,7 @@ const FichaDeudor: React.FC<Props> = ({ deudorId }) => {
             </Dialog>
 
             {/* MODAL NUEVO CONVENIO */}
-            <Dialog open={openModalConvenio} onClose={() => setOpenModalConvenio(false)} fullWidth maxWidth="md">
+            <Dialog open={openModalConvenio} onClose={() => setOpenModalConvenio(false)} fullWidth maxWidth="md" fullScreen={isMobile}>
                 <DialogTitle>Nuevo Convenio</DialogTitle>
                 <DialogContent>
                     <Grid container spacing={2} sx={{ mt: 0.5 }}>
@@ -1198,7 +1188,7 @@ const FichaDeudor: React.FC<Props> = ({ deudorId }) => {
             </Dialog>
 
             {/* MODAL PAGO DE CUOTA */}
-            <Dialog open={!!cuotaAPagar} onClose={() => setCuotaAPagar(null)} maxWidth="xs" fullWidth>
+            <Dialog open={!!cuotaAPagar} onClose={() => setCuotaAPagar(null)} maxWidth="xs" fullWidth fullScreen={isMobile}>
                 <DialogTitle>Registrar pago — Cuota {cuotaAPagar?.nroCuota}</DialogTitle>
                 <DialogContent>
                     <Box display="flex" flexDirection="column" gap={2} mt={1}>
@@ -1232,22 +1222,6 @@ const FichaDeudor: React.FC<Props> = ({ deudorId }) => {
                     </Button>
                 </DialogActions>
             </Dialog>
-
-            {/* MODAL CONFIRMAR */}
-            <Dialog open={openModalConfirmar} onClose={() => setOpenModalConfirmar(false)} maxWidth="xs" fullWidth>
-                <DialogTitle>Eliminar contacto</DialogTitle>
-                <DialogContent>
-                    <Typography>¿Estás seguro que querés eliminar <strong>{contactoAEliminar?.valor}</strong>?</Typography>
-                </DialogContent>
-                <DialogActions>
-                    <Button onClick={() => setOpenModalConfirmar(false)}>Cancelar</Button>
-                    <Button color="error" variant="contained" onClick={handleEliminarContacto}>Eliminar</Button>
-                </DialogActions>
-            </Dialog>
-
-            <Snackbar open={snackbar.open} autoHideDuration={3000} onClose={handleCloseSnackbar} anchorOrigin={{ vertical: 'bottom', horizontal: 'left' }}>
-                <Alert onClose={handleCloseSnackbar} severity={snackbar.severity} variant="filled">{snackbar.message}</Alert>
-            </Snackbar>
         </Box>
     );
 };

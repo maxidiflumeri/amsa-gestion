@@ -1,7 +1,9 @@
 import React, { useEffect, useState } from 'react'
-import { Box, Typography, CircularProgress, Paper, Chip, Stack } from '@mui/material'
+import { Box, Typography, Paper, Chip, Stack } from '@mui/material'
 import PolicyIcon from '@mui/icons-material/Policy'
+import InboxIcon from '@mui/icons-material/Inbox'
 import RichTextEditor from '../common/RichTextEditor'
+import { LoadingSkeleton, EmptyState } from '../ui'
 import api from '../../api/axios'
 
 interface Props {
@@ -17,7 +19,7 @@ const PoliticaTab: React.FC<Props> = ({ deudorId }) => {
         if (!deudorId) return
         setLoading(true)
         api.get(`/deudores/${deudorId}`)
-            .then(r => {
+            .then((r) => {
                 setRemesa(r.data?.remesa || null)
                 setPolitica(r.data?.remesa?.politica || null)
             })
@@ -26,33 +28,30 @@ const PoliticaTab: React.FC<Props> = ({ deudorId }) => {
 
     if (!deudorId) {
         return (
-            <Box display="flex" justifyContent="center" alignItems="center" height={300}>
-                <Typography color="text.secondary" fontStyle="italic">
-                    Seleccioná un deudor para ver la política de gestión.
-                </Typography>
-            </Box>
+            <EmptyState
+                icon={<PolicyIcon />}
+                title="Sin deudor seleccionado"
+                description="Seleccioná un deudor para ver la política de gestión."
+            />
         )
     }
 
     if (loading) {
         return (
-            <Box display="flex" justifyContent="center" alignItems="center" height={300}>
-                <CircularProgress />
+            <Box sx={{ p: 3 }}>
+                <LoadingSkeleton variant="detail" />
             </Box>
         )
     }
 
     if (!politica) {
+        const numeroRemesa = remesa?.numeroRemesa || '-'
         return (
-            <Box display="flex" flexDirection="column" alignItems="center" justifyContent="center" height={300} gap={2}>
-                <PolicyIcon sx={{ fontSize: 56, color: 'text.disabled' }} />
-                <Typography color="text.secondary" fontStyle="italic">
-                    La remesa <strong>{remesa?.numeroRemesa || '-'}</strong> no tiene una política de gestión asignada.
-                </Typography>
-                <Typography variant="caption" color="text.disabled">
-                    Podés asociarla desde Ajustes → Políticas o desde el Historial de Importaciones.
-                </Typography>
-            </Box>
+            <EmptyState
+                icon={<InboxIcon />}
+                title="Sin política asignada"
+                description={`La remesa ${numeroRemesa} no tiene una política de gestión asignada. Podés asociarla desde Ajustes → Políticas o desde el Historial de Importaciones.`}
+            />
         )
     }
 

@@ -1,44 +1,72 @@
 import React, { useEffect, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import {
-    Box, Typography, Paper, Table, TableBody, TableCell, TableContainer,
-    TableHead, TableRow, Button, LinearProgress, Alert, Divider, Chip
-} from '@mui/material';
+import { Box, Chip, Divider, LinearProgress, Stack, Typography } from '@mui/material';
 import ArrowBackIcon from '@mui/icons-material/ArrowBack';
 import api from '../api/axios';
+import { useNotify } from '../hooks/useNotify';
+import {
+    PageHeader,
+    SectionCard,
+    LoadingSkeleton,
+    StatusChip,
+    DataTableResponsive,
+} from '../components/ui';
+import type { StatusValue } from '../components/ui';
+import type { DataTableColumn } from '../components/ui';
 
 interface ImportError {
     id: number;
     rowNumber: number;
     errorMsg: string;
-    rawRow: any;
+    rawRow: unknown;
     createdAt: string;
 }
+
+interface Remesa {
+    id: number;
+    numeroRemesa: string;
+    nombre: string;
+    categoria: string;
+    estadoProceso: string;
+    totalFilas: number;
+    okFilas: number;
+    errFilas: number;
+    fechaVencimiento?: string | null;
+    createdAt: string;
+}
+
+type ErrorRow = ImportError & Record<string, unknown>;
+
+const estadoToStatus: Record<string, StatusValue> = {
+    FINALIZADA: 'completed',
+    ERROR: 'failed',
+    FALLIDA: 'failed',
+    PROCESANDO: 'running',
+    VALIDANDO: 'pending',
+};
 
 export default function ImportDetail() {
     const { id } = useParams();
     const navigate = useNavigate();
-    const [remesa, setRemesa] = useState<any>(null);
+    const notify = useNotify();
+    const [remesa, setRemesa] = useState<Remesa | null>(null);
     const [errors, setErrors] = useState<ImportError[]>([]);
     const [loading, setLoading] = useState(true);
-    const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
     useEffect(() => {
         const fetchDetails = async () => {
             if (!id) return;
             try {
                 setLoading(true);
-                // 1. Obtener status de la remesa
                 const resStatus = await api.get(`/import/remesas/${id}`);
                 setRemesa(resStatus.data);
 
-                // 2. Obtener errores si los hay
                 if (resStatus.data?.errFilas > 0) {
                     const resErrors = await api.get(`/import/errores/${id}?pageSize=100`);
                     setErrors(resErrors.data.data);
                 }
             } catch (err: any) {
-                setErrorMsg(err.response?.data?.message || err.message || 'Error al cargar detalles.');
+                notify.error(err);
             } finally {
                 setLoading(false);
             }
@@ -47,39 +75,90 @@ export default function ImportDetail() {
         fetchDetails();
     }, [id]);
 
-    const getColorForStatus = (status?: string) => {
-        switch (status) {
-            case 'FINALIZADA': return 'success';
-            case 'ERROR': return 'error';
-            case 'PROCESANDO': return 'info';
-            case 'VALIDANDO': return 'warning';
-            default: return 'default';
-        }
-    };
+    const errorColumns: DataTableColumn<ErrorRow>[] = [
+        {
+            key: 'rowNumber',
+            label: 'Fila #',
+            render: (row) => String(row.rowNumber),
+        },
+        {
+            key: 'errorMsg',
+            label: 'Mensaje de error',
+            primary: true,
+            render: (row) => (
+                <Box sx={{ maxWidth: 320, wordBreak: 'break-word' }}>
+                    <StatusChip status="failed" label={String(row.errorMsg)} sx={{ height: 'auto', '& .MuiChip-label': { whiteSpace: 'normal' } }} />
+                </Box>
+            ),
+        },
+        {
+            key: 'rawRow',
+            label: 'Fila original (JSON)',
+            secondary: true,
+            render: (row) => (
+                <Typography
+                    variant="caption"
+                    sx={{ fontFamily: 'monospace', color: 'text.secondary', wordBreak: 'break-all' }}
+                >
+                    {JSON.stringify(row.rawRow)}
+                </Typography>
+            ),
+        },
+    ];
+
+    const estadoStatus: StatusValue = remesa ? (estadoToStatus[remesa.estadoProceso] ?? 'neutral') : 'neutral';
 
     return (
-        <Box sx={{ maxWidth: 1200, mx: 'auto', mt: 4, px: 2, pb: 6 }}>
-            <Box display="flex" alignItems="center" gap={2} mb={3}>
-                <Button startIcon={<ArrowBackIcon />} onClick={() => navigate('/historial-importaciones')}>
-                    Volver
-                </Button>
-                <Typography variant="h4" fontWeight="bold">
-                    Detalle de Importación #{id}
-                </Typography>
-            </Box>
+        <Box sx={{ px: { xs: 2, md: 3 }, py: 3 }}>
+            <PageHeader
+                title={`Detalle de Importación #${id}`}
+                breadcrumbs={[
+                    { label: 'Importaciones', href: '/historial-importaciones' },
+                    { label: `#${id}` },
+                ]}
+                actions={[
+                    {
+                        label: 'Volver',
+                        onClick: () => navigate(-1),
+                        variant: 'text',
+                        startIcon: <ArrowBackIcon />,
+                    },
+                ]}
+            />
 
-            {errorMsg && <Alert severity="error" sx={{ mb: 3 }}>{errorMsg}</Alert>}
-            {loading && <LinearProgress sx={{ mb: 2 }} />}
+            {loading && !remesa && (
+                <SectionCard sx={{ mb: 3 }}>
+                    <LoadingSkeleton variant="detail" />
+                </SectionCard>
+            )}
+
+            {loading && remesa && (
+                <LinearProgress sx={{ mb: 2 }} />
+            )}
 
             {remesa && (
-                <Paper variant="outlined" sx={{ p: 4, mb: 4 }}>
-                    <Box display="flex" justifyContent="space-between" mb={2} alignItems="center">
+                <SectionCard sx={{ mb: 3 }}>
+                    <Box
+                        display="flex"
+                        justifyContent="space-between"
+                        alignItems={{ xs: 'flex-start', sm: 'center' }}
+                        flexDirection={{ xs: 'column', sm: 'row' }}
+                        gap={2}
+                        mb={2}
+                    >
                         <Box>
-                            <Typography variant="h6">Estado: <Chip size="small" color={getColorForStatus(remesa.estadoProceso) as any} label={remesa.estadoProceso} /></Typography>
-                            <Typography variant="caption" color="primary" fontWeight="bold" display="block">#{remesa.numeroRemesa}</Typography>
+                            <Box display="flex" alignItems="center" gap={1} mb={0.5}>
+                                <Typography variant="h6" component="span">Estado:</Typography>
+                                <StatusChip status={estadoStatus} label={remesa.estadoProceso} />
+                            </Box>
+                            <Typography variant="caption" color="primary" fontWeight="bold" display="block">
+                                #{remesa.numeroRemesa}
+                            </Typography>
                         </Box>
-                        <Box sx={{ textAlign: 'right' }}>
-                            <Typography variant="body1">Categoría: <b>{remesa.categoria}</b></Typography>
+                        <Box sx={{ textAlign: { xs: 'left', sm: 'right' } }}>
+                            <Typography variant="body1">
+                                Categoría: <strong>{remesa.categoria}</strong>
+                            </Typography>
                             {remesa.fechaVencimiento && (
                                 <Typography variant="caption" color="text.secondary" display="block">
                                     Vencimiento Lote: {new Date(remesa.fechaVencimiento).toLocaleDateString()}
@@ -87,8 +166,13 @@ export default function ImportDetail() {
                             )}
                         </Box>
                     </Box>
+
                     <Divider sx={{ mb: 2 }} />
-                    <Box display="flex" gap={4}>
+
+                    <Stack
+                        direction={{ xs: 'column', sm: 'row' }}
+                        spacing={{ xs: 2, sm: 4 }}
+                    >
                         <Box>
                             <Typography variant="body2" color="text.secondary">Total Filas</Typography>
                             <Typography variant="h5">{remesa.totalFilas ?? 0}</Typography>
@@ -101,38 +185,23 @@ export default function ImportDetail() {
                             <Typography variant="body2" color="error.main">Filas Error</Typography>
                             <Typography variant="h5" color="error.main">{remesa.errFilas ?? 0}</Typography>
                         </Box>
-                    </Box>
-                </Paper>
+                    </Stack>
+                </SectionCard>
             )}
 
-            {remesa?.errFilas > 0 && (
-                <>
-                    <Typography variant="h6" color="error.main" mb={2}>Errores de fila</Typography>
-                    <TableContainer component={Paper} variant="outlined">
-                        <Table size="small">
-                            <TableHead>
-                                <TableRow>
-                                    <TableCell sx={{ fontWeight: 'bold' }}>Fila #</TableCell>
-                                    <TableCell sx={{ fontWeight: 'bold' }}>Mensaje de Error</TableCell>
-                                    <TableCell sx={{ fontWeight: 'bold' }}>Fila Orginal (JSON)</TableCell>
-                                </TableRow>
-                            </TableHead>
-                            <TableBody>
-                                {errors.map(err => (
-                                    <TableRow key={err.id}>
-                                        <TableCell>{err.rowNumber}</TableCell>
-                                        <TableCell sx={{ color: 'error.main', maxWidth: 300, wordWrap: 'break-word' }}>
-                                            {err.errorMsg}
-                                        </TableCell>
-                                        <TableCell sx={{ fontFamily: 'monospace', fontSize: '12px', color: 'text.secondary' }}>
-                                            {JSON.stringify(err.rawRow)}
-                                        </TableCell>
-                                    </TableRow>
-                                ))}
-                            </TableBody>
-                        </Table>
-                    </TableContainer>
-                </>
+            {remesa && remesa.errFilas > 0 && (
+                <SectionCard
+                    title="Errores de fila"
+                    noPadding
+                    sx={{ position: 'relative' }}
+                >
+                    <DataTableResponsive<ErrorRow>
+                        columns={errorColumns}
+                        rows={errors as ErrorRow[]}
+                        rowKey={(row) => String(row.id)}
+                        emptyMessage="No hay errores registrados."
+                    />
+                </SectionCard>
             )}
         </Box>
     );

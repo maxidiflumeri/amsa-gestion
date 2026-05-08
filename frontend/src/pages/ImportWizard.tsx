@@ -11,16 +11,17 @@ import {
     FormControl,
     InputLabel,
     LinearProgress,
-    Alert,
-    Paper,
-    IconButton,
-    Tooltip,
+    Stack,
     TextField,
+    useMediaQuery,
+    useTheme,
 } from "@mui/material";
 import ArrowBackIcon from "@mui/icons-material/ArrowBack";
 import ArrowForwardIcon from "@mui/icons-material/ArrowForward";
 import api from "../api/axios";
 import { useEmpresas } from "../hooks/useEmpresas";
+import { useNotify } from "../hooks/useNotify";
+import { PageContainer, PageHeader, SectionCard } from "../components/ui";
 
 import CategorySelector from "../components/import/CategorySelector";
 import FileDropZone from "../components/import/FileDropZone";
@@ -37,12 +38,15 @@ const steps = [
 ];
 
 export default function ImportWizard() {
+    const theme = useTheme();
+    const isMobile = useMediaQuery(theme.breakpoints.down("md"));
+    const notify = useNotify();
+
     const { empresas, loading: loadingEmpresas } = useEmpresas();
-    const [empresaId, setEmpresaId] = useState<number | "">(1); // default 1
+    const [empresaId, setEmpresaId] = useState<number | "">(1);
 
     const [activeStep, setActiveStep] = useState(0);
     const [loading, setLoading] = useState(false);
-    const [error, setError] = useState<string | null>(null);
 
     // Paso 0 – categoría
     const [categoria, setCategoria] = useState("");
@@ -51,7 +55,6 @@ export default function ImportWizard() {
     const [plantillas, setPlantillas] = useState<any[]>([]);
     const [selectedPlantilla, setSelectedPlantilla] = useState<number | null>(null);
     const [file, setFile] = useState<File | null>(null);
-    // Nuevos campos manuales para la remesa
     const [nombreRemesa, setNombreRemesa] = useState("");
     const [numeroRemesa, setNumeroRemesa] = useState("");
     const [fechaVencimiento, setFechaVencimiento] = useState("");
@@ -59,7 +62,7 @@ export default function ImportWizard() {
 
     const isExcelFile = file?.name?.match(/\.(xls|xlsx)$/i);
 
-    // Remesa de deudores origen (para FACTURAS, CONTACTOS, PAGOS)
+    // Remesa de deudores origen
     const [remesasDeudores, setRemesasDeudores] = useState<any[]>([]);
     const [remesaOrigenId, setRemesaOrigenId] = useState<number | null>(null);
     const needsOrigen = categoria !== "" && categoria !== "DEUDORES" && categoria !== "DEUDORES_Y_FACTURAS";
@@ -67,18 +70,10 @@ export default function ImportWizard() {
     // Paso 2 – preview
     const [remesaId, setRemesaId] = useState<number | null>(null);
     const [preview, setPreview] = useState<any[]>([]);
-    const [previewStats, setPreviewStats] = useState({
-        total: 0,
-        ok: 0,
-        err: 0,
-    });
+    const [previewStats, setPreviewStats] = useState({ total: 0, ok: 0, err: 0 });
 
     // Paso 4 – resultado final
-    const [finalResult, setFinalResult] = useState({
-        total: 0,
-        ok: 0,
-        err: 0,
-    });
+    const [finalResult, setFinalResult] = useState({ total: 0, ok: 0, err: 0 });
 
     // ─── Carga de plantillas ─────────────────────────────────
     useEffect(() => {
@@ -88,56 +83,49 @@ export default function ImportWizard() {
         setRemesaOrigenId(null);
         api.get(`/import/plantillas/${empresaId}/${categoria}`)
             .then((res) => setPlantillas(res.data))
-            .catch(() => setError("Error obteniendo plantillas"));
+            .catch((err) => notify.error(err));
     }, [categoria, empresaId]);
 
-    // ─── Carga de remesas de deudores (para vincular) ────────
+    // ─── Carga de remesas de deudores ────────────────────────
     useEffect(() => {
         if (!needsOrigen || !empresaId) {
             setRemesasDeudores([]);
             return;
         }
-        // Traemos todas las remesas finalizadas de la empresa (sin filtrar categoría)
-        // así aparecen tanto DEUDORES como DEUDORES_Y_FACTURAS y cualquier otra futura
         api.get(`/import/remesas/empresa/${empresaId}`)
             .then((res) => setRemesasDeudores(
-                res.data.filter((r: any) => r.estadoProceso === 'FINALIZADA')
+                res.data.filter((r: any) => r.estadoProceso === "FINALIZADA")
             ))
-            .catch(() => setError("Error obteniendo remesas de deudores"));
+            .catch((err) => notify.error(err));
     }, [needsOrigen, empresaId]);
 
     // ─── Handlers ────────────────────────────────────────────
 
     const handleCategorySelect = (cat: string) => {
         setCategoria(cat);
-        setError(null);
     };
 
     const handleFileSelect = (f: File) => {
         setFile(f);
-        setHojaExcel(""); // Resetear la hoja on new file
-        setError(null);
+        setHojaExcel("");
     };
 
     const handleNext = () => {
-        setError(null);
         setActiveStep((prev) => prev + 1);
     };
 
     const handleBack = () => {
-        setError(null);
         setActiveStep((prev) => prev - 1);
     };
 
     // Paso 1 → 2: Crear remesa + validar
     const handleCrearYValidar = async () => {
         if (!file || !selectedPlantilla || !categoria) {
-            setError("Seleccioná categoría, plantilla y archivo.");
+            notify.warning("Seleccioná categoría, plantilla y archivo.");
             return;
         }
 
         setLoading(true);
-        setError(null);
 
         try {
             const formData = new FormData();
@@ -154,11 +142,10 @@ export default function ImportWizard() {
             }
             formData.append("file", file);
 
-            if (isExcelFile && hojaExcel.trim() !== '') {
+            if (isExcelFile && hojaExcel.trim() !== "") {
                 formData.append("hoja", hojaExcel.trim());
             }
 
-            // 1) Crear remesa
             const resRemesa = await api.post("/import/remesas", formData, {
                 headers: { "Content-Type": "multipart/form-data" },
             });
@@ -166,10 +153,7 @@ export default function ImportWizard() {
             const newRemesaId = resRemesa.data.remesaId;
             setRemesaId(newRemesaId);
 
-            // 2) Validar
-            const resValidar = await api.post(
-                `/import/validar/${newRemesaId}`
-            );
+            const resValidar = await api.post(`/import/validar/${newRemesaId}`);
 
             setPreview(resValidar.data.sample ?? []);
             setPreviewStats({
@@ -178,39 +162,27 @@ export default function ImportWizard() {
                 err: resValidar.data.err ?? 0,
             });
 
-            setActiveStep(2); // ir a preview
+            setActiveStep(2);
         } catch (err: any) {
-            console.error(err);
-            setError(
-                err.response?.data?.message ||
-                    err.message ||
-                    "Error creando remesa"
-            );
+            notify.error(err);
+        } finally {
+            setLoading(false);
         }
-
-        setLoading(false);
     };
 
     // Paso 2 → 3: Confirmar y ejecutar
     const handleEjecutar = async () => {
         if (!remesaId) return;
 
-        setActiveStep(3); // ir al paso de progreso
-        setError(null);
+        setActiveStep(3);
 
         try {
             await api.post(`/import/ejecutar/${remesaId}`, {
                 remesaOrigenId: remesaOrigenId ?? undefined,
             });
-            // El componente ImportProgress se encarga del poleo
         } catch (err: any) {
-            console.error(err);
-            setError(
-                err.response?.data?.message ||
-                    err.message ||
-                    "Error ejecutando importación"
-            );
-            setActiveStep(2); // volver al preview
+            notify.error(err);
+            setActiveStep(2);
         }
     };
 
@@ -234,7 +206,6 @@ export default function ImportWizard() {
         setPreview([]);
         setPreviewStats({ total: 0, ok: 0, err: 0 });
         setFinalResult({ total: 0, ok: 0, err: 0 });
-        setError(null);
     };
 
     // ─── Render ──────────────────────────────────────────────
@@ -251,24 +222,21 @@ export default function ImportWizard() {
     };
 
     return (
-        <Box sx={{ maxWidth: 900, mx: "auto", mt: 4, px: 2, pb: 6 }}>
-            {/* Header */}
-            <Box sx={{ mb: 4 }}>
-                <Typography variant="h4" sx={{ mb: 1, fontWeight: 700 }}>
-                    Importación de datos
-                </Typography>
-                <Typography
-                    variant="body1"
-                    color="text.secondary"
-                >
-                    Subí tus archivos para cargar deudores, facturas o contactos.
-                </Typography>
-            </Box>
+        <PageContainer maxWidth={900}>
+            <PageHeader
+                title="Importación de datos"
+                subtitle="Subí tus archivos para cargar deudores, facturas o contactos."
+                breadcrumbs={[
+                    { label: "Inicio", href: "/" },
+                    { label: "Importación" },
+                ]}
+            />
 
             {/* Stepper */}
             <Stepper
                 activeStep={activeStep}
-                alternativeLabel
+                alternativeLabel={!isMobile}
+                orientation={isMobile ? "vertical" : "horizontal"}
                 sx={{ mb: 4 }}
             >
                 {steps.map((label) => (
@@ -278,22 +246,8 @@ export default function ImportWizard() {
                 ))}
             </Stepper>
 
-            {/* Error global */}
-            {error && (
-                <Alert
-                    severity="error"
-                    onClose={() => setError(null)}
-                    sx={{ mb: 3 }}
-                >
-                    {error}
-                </Alert>
-            )}
-
             {/* Contenido por paso */}
-            <Paper
-                variant="outlined"
-                sx={{ p: { xs: 2, sm: 4 }, borderRadius: 2, minHeight: 300 }}
-            >
+            <SectionCard sx={{ minHeight: 300 }}>
                 {/* PASO 0 — Categoría */}
                 {activeStep === 0 && (
                     <CategorySelector
@@ -304,13 +258,7 @@ export default function ImportWizard() {
 
                 {/* PASO 1 — Plantilla + Archivo */}
                 {activeStep === 1 && (
-                    <Box
-                        sx={{
-                            display: "flex",
-                            flexDirection: "column",
-                            gap: 3,
-                        }}
-                    >
+                    <Stack spacing={3}>
                         <Typography variant="h6" sx={{ fontWeight: 600 }}>
                             Configurar importación
                         </Typography>
@@ -334,7 +282,10 @@ export default function ImportWizard() {
                         </FormControl>
 
                         {/* Campos de Remesa Manual */}
-                        <Box sx={{ display: 'flex', gap: 2 }}>
+                        <Stack
+                            direction={{ xs: "column", sm: "row" }}
+                            spacing={2}
+                        >
                             <TextField
                                 label="Nombre de remesa"
                                 variant="outlined"
@@ -353,7 +304,7 @@ export default function ImportWizard() {
                                 onChange={(e) => setNumeroRemesa(e.target.value)}
                                 helperText="Opcional: se generará uno automático si se deja vacío"
                             />
-                        </Box>
+                        </Stack>
 
                         <TextField
                             label="Fecha de vencimiento (Lote)"
@@ -376,9 +327,7 @@ export default function ImportWizard() {
                                 label="Plantilla de mapeo"
                                 value={selectedPlantilla ?? ""}
                                 onChange={(e) =>
-                                    setSelectedPlantilla(
-                                        Number(e.target.value)
-                                    )
+                                    setSelectedPlantilla(Number(e.target.value))
                                 }
                             >
                                 {plantillas.length === 0 && (
@@ -405,9 +354,7 @@ export default function ImportWizard() {
                                     label="Vincular a remesa de deudores"
                                     value={remesaOrigenId ?? ""}
                                     onChange={(e) =>
-                                        setRemesaOrigenId(
-                                            Number(e.target.value)
-                                        )
+                                        setRemesaOrigenId(Number(e.target.value))
                                     }
                                 >
                                     {remesasDeudores.length === 0 && (
@@ -443,7 +390,7 @@ export default function ImportWizard() {
                                 helperText="Dejar vacío para usar la primera hoja del archivo Excel"
                             />
                         )}
-                    </Box>
+                    </Stack>
                 )}
 
                 {/* PASO 2 — Preview */}
@@ -477,7 +424,7 @@ export default function ImportWizard() {
                         }
                     />
                 )}
-            </Paper>
+            </SectionCard>
 
             {/* Barra de navegación inferior */}
             {activeStep < 3 && (
@@ -514,9 +461,7 @@ export default function ImportWizard() {
                             disabled={!canGoNext() || loading}
                             onClick={handleCrearYValidar}
                         >
-                            {loading
-                                ? "Procesando..."
-                                : "Crear remesa y validar"}
+                            {loading ? "Procesando..." : "Crear remesa y validar"}
                         </Button>
                     )}
 
@@ -532,8 +477,8 @@ export default function ImportWizard() {
                 </Box>
             )}
 
-            {/* Loading inferior */}
+            {/* Loading inline */}
             {loading && <LinearProgress sx={{ mt: 2, borderRadius: 1 }} />}
-        </Box>
+        </PageContainer>
     );
 }

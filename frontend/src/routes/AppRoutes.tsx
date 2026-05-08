@@ -5,7 +5,8 @@ import DeudoresPage from '../pages/DeudoresPage';
 import Login from '../pages/Login';
 import Inicio from '../pages/Inicio';
 import ImportWizard from '../pages/ImportWizard';
-import PlantillaManager from '../pages/PlantillaManager';
+import PlantillasList from '../pages/PlantillasList';
+import PlantillaEditor from '../pages/PlantillaEditor';
 import ImportHistory from '../pages/ImportHistory';
 import ImportDetail from '../pages/ImportDetail';
 import AjustesEmpresas from '../pages/ajustes/AjustesEmpresas';
@@ -29,7 +30,9 @@ const AppRoutes = () => {
                 <Route index element={<Inicio />} />
                 <Route path="gestion" element={<DeudoresPage />} />
                 <Route path="carga" element={<ImportWizard />} />
-                <Route path="plantillas" element={<PlantillaManager />} />
+                <Route path="plantillas" element={<PlantillasList />} />
+                <Route path="plantillas/nueva" element={<PlantillaEditor />} />
+                <Route path="plantillas/:id/editar" element={<PlantillaEditor />} />
                 <Route path="historial-importaciones" element={<ImportHistory />} />
                 <Route path="historial-importaciones/:id" element={<ImportDetail />} />
                 <Route path="ajustes/empresas" element={<AjustesEmpresas />} />

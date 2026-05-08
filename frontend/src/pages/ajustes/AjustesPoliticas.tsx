@@ -2,32 +2,39 @@ import React, { useState, useEffect } from 'react'
 import {
     Box,
     Button,
-    Table,
-    TableBody,
-    TableCell,
-    TableContainer,
-    TableHead,
-    TableRow,
-    IconButton,
-    TextField,
     Dialog,
     DialogTitle,
     DialogContent,
     DialogActions,
-    Typography,
-    Paper,
     Divider,
+    IconButton,
     MenuItem,
-    Chip,
-    Snackbar,
-    Alert,
+    Paper,
+    Stack,
+    TextField,
+    Tooltip,
+    Typography,
+    useMediaQuery,
+    useTheme,
 } from '@mui/material'
 import EditIcon from '@mui/icons-material/Edit'
 import AddIcon from '@mui/icons-material/Add'
 import BlockIcon from '@mui/icons-material/Block'
 import CheckCircleIcon from '@mui/icons-material/CheckCircle'
+import PolicyIcon from '@mui/icons-material/Policy'
+import BusinessIcon from '@mui/icons-material/Business'
 import api from '../../api/axios'
 import RichTextEditor from '../../components/common/RichTextEditor'
+import {
+    PageHeader,
+    DataTableResponsive,
+    EmptyState,
+    LoadingSkeleton,
+    StatusChip,
+} from '../../components/ui'
+import type { DataTableColumn } from '../../components/ui'
+import { useNotify } from '../../hooks/useNotify'
+import { useConfirm } from '../../context/ConfirmContext'
 
 interface Empresa {
     id: number
@@ -44,9 +51,23 @@ interface Politica {
     activa: boolean
 }
 
+type PoliticaRow = Politica & Record<string, unknown>
+
 const EMPTY_FORM = { nombre: '', descripcion: '', formasDePago: '', tipoAtencion: '' }
 
+/** Extrae texto plano de HTML para mostrar en celda truncada. */
+function stripHtml(html: string): string {
+    const tmp = document.createElement('div')
+    tmp.innerHTML = html
+    return tmp.textContent || tmp.innerText || ''
+}
+
 const AjustesPoliticas: React.FC = () => {
+    const theme = useTheme()
+    const isMobile = useMediaQuery(theme.breakpoints.down('md'))
+    const notify = useNotify()
+    const confirm = useConfirm()
+
     const [empresas, setEmpresas] = useState<Empresa[]>([])
     const [empresaId, setEmpresaId] = useState<number | ''>('')
     const [politicas, setPoliticas] = useState<Politica[]>([])
@@ -57,19 +78,31 @@ const AjustesPoliticas: React.FC = () => {
     const [form, setForm] = useState({ ...EMPTY_FORM })
     const [saving, setSaving] = useState(false)
 
-    const [snackbar, setSnackbar] = useState({ open: false, message: '', severity: 'success' as 'success' | 'error' })
-
+    // Carga inicial de empresas
     useEffect(() => {
-        api.get('/deudores/empresas').then(r => setEmpresas(r.data || []))
+        api.get('/deudores/empresas')
+            .then(r => setEmpresas(r.data || []))
+            .catch(err => notify.error(err))
     }, [])
 
+    // Carga políticas cuando cambia empresa
     useEffect(() => {
-        if (!empresaId) { setPoliticas([]); return }
+        if (!empresaId) {
+            setPoliticas([])
+            return
+        }
         setLoading(true)
         api.get(`/politicas?empresaId=${empresaId}`)
             .then(r => setPoliticas(r.data || []))
+            .catch(err => notify.error(err))
             .finally(() => setLoading(false))
     }, [empresaId])
+
+    const fetchPoliticas = async () => {
+        if (!empresaId) return
+        const r = await api.get(`/politicas?empresaId=${empresaId}`)
+        setPoliticas(r.data || [])
+    }
 
     const handleAbrir = (politica?: Politica) => {
         setEditando(politica || null)
@@ -82,6 +115,10 @@ const AjustesPoliticas: React.FC = () => {
         setOpenModal(true)
     }
 
+    const handleCerrar = () => {
+        setOpenModal(false)
+    }
+
     const handleGuardar = async () => {
         if (!empresaId || !form.nombre.trim()) return
         setSaving(true)
@@ -89,119 +126,245 @@ const AjustesPoliticas: React.FC = () => {
             const payload = { empresaId, ...form }
             if (editando) {
                 await api.put(`/politicas/${editando.id}`, payload)
+                notify.success('Política actualizada correctamente')
             } else {
                 await api.post('/politicas', payload)
+                notify.success('Política creada correctamente')
             }
-            setSnackbar({ open: true, message: editando ? 'Política actualizada' : 'Política creada', severity: 'success' })
             setOpenModal(false)
-            const r = await api.get(`/politicas?empresaId=${empresaId}`)
-            setPoliticas(r.data || [])
-        } catch (err: any) {
-            setSnackbar({ open: true, message: err.response?.data?.message || 'Error al guardar', severity: 'error' })
+            await fetchPoliticas()
+        } catch (err) {
+            notify.error(err as Error)
         } finally {
             setSaving(false)
         }
     }
 
     const handleToggleActiva = async (politica: Politica) => {
+        const accion = politica.activa ? 'desactivar' : 'activar'
+        const confirmed = await confirm({
+            title: `${politica.activa ? 'Desactivar' : 'Activar'} política`,
+            description: `¿Confirmás que querés ${accion} la política "${politica.nombre}"?`,
+            confirmLabel: politica.activa ? 'Desactivar' : 'Activar',
+            cancelLabel: 'Cancelar',
+            confirmColor: politica.activa ? 'error' : 'success',
+        })
+        if (!confirmed) return
+
         try {
             await api.put(`/politicas/${politica.id}`, { activa: !politica.activa })
-            const r = await api.get(`/politicas?empresaId=${empresaId}`)
-            setPoliticas(r.data || [])
-            setSnackbar({ open: true, message: politica.activa ? 'Política desactivada' : 'Política activada', severity: 'success' })
-        } catch {
-            setSnackbar({ open: true, message: 'Error al actualizar', severity: 'error' })
+            notify.success(politica.activa ? 'Política desactivada' : 'Política activada')
+            await fetchPoliticas()
+        } catch (err) {
+            notify.error(err as Error)
         }
     }
 
-    return (
-        <Box>
-            <Typography variant="h5" fontWeight="bold" mb={3}>Políticas de Gestión</Typography>
+    const columns: DataTableColumn<PoliticaRow>[] = [
+        {
+            key: 'nombre',
+            label: 'Nombre',
+            primary: true,
+            render: (row) => (
+                <Typography variant="body2" fontWeight={600}>
+                    {String(row.nombre)}
+                </Typography>
+            ),
+        },
+        {
+            key: 'descripcion',
+            label: 'Descripción',
+            secondary: true,
+            render: (row) => {
+                const texto = stripHtml(String(row.descripcion || ''))
+                return (
+                    <Typography
+                        variant="body2"
+                        color="text.secondary"
+                        sx={{
+                            maxWidth: 220,
+                            overflow: 'hidden',
+                            textOverflow: 'ellipsis',
+                            whiteSpace: 'nowrap',
+                        }}
+                    >
+                        {texto || '—'}
+                    </Typography>
+                )
+            },
+        },
+        {
+            key: 'formasDePago',
+            label: 'Formas de pago',
+            render: (row) => (
+                <Typography variant="body2">
+                    {String(row.formasDePago || '—')}
+                </Typography>
+            ),
+        },
+        {
+            key: 'tipoAtencion',
+            label: 'Tipo de atención',
+            render: (row) => (
+                <Typography variant="body2">
+                    {String(row.tipoAtencion || '—')}
+                </Typography>
+            ),
+        },
+        {
+            key: 'activa',
+            label: 'Estado',
+            render: (row) => (
+                <StatusChip
+                    status={row.activa ? 'success' : 'neutral'}
+                    label={row.activa ? 'Activa' : 'Inactiva'}
+                />
+            ),
+        },
+        {
+            key: 'acciones',
+            label: 'Acciones',
+            align: 'right',
+            hideInCard: false,
+            render: (row) => {
+                const p = row as unknown as Politica
+                return (
+                    <Box sx={{ display: 'flex', justifyContent: 'flex-end', gap: 0.5 }}>
+                        <Tooltip title="Editar política">
+                            <IconButton
+                                size="small"
+                                color="primary"
+                                onClick={(e) => {
+                                    e.stopPropagation()
+                                    handleAbrir(p)
+                                }}
+                            >
+                                <EditIcon fontSize="small" />
+                            </IconButton>
+                        </Tooltip>
+                        <Tooltip title={p.activa ? 'Desactivar' : 'Activar'}>
+                            <IconButton
+                                size="small"
+                                color={p.activa ? 'error' : 'success'}
+                                onClick={(e) => {
+                                    e.stopPropagation()
+                                    handleToggleActiva(p)
+                                }}
+                            >
+                                {p.activa
+                                    ? <BlockIcon fontSize="small" />
+                                    : <CheckCircleIcon fontSize="small" />
+                                }
+                            </IconButton>
+                        </Tooltip>
+                    </Box>
+                )
+            },
+        },
+    ]
 
-            <Paper sx={{ p: 2, mb: 3 }}>
-                <TextField
-                    select label="Empresa" size="small" value={empresaId}
-                    onChange={e => setEmpresaId(Number(e.target.value))}
-                    sx={{ minWidth: 260 }}
-                >
-                    {empresas.map(e => <MenuItem key={e.id} value={e.id}>{e.nombre}</MenuItem>)}
-                </TextField>
+    const rows: PoliticaRow[] = politicas.map(p => ({ ...p } as PoliticaRow))
+
+    // Solo skeleton en primera carga (loading AND lista vacía)
+    const isFirstLoad = loading && politicas.length === 0
+    const isEmpty = !loading && empresaId !== '' && politicas.length === 0
+
+    return (
+        <Box sx={{ p: 3 }}>
+            <PageHeader
+                title="Políticas de gestión"
+                subtitle="Configurá las políticas de gestión por empresa"
+                actions={[
+                    {
+                        label: 'Nueva política',
+                        onClick: () => handleAbrir(),
+                        startIcon: <AddIcon />,
+                        variant: 'contained',
+                        disabled: !empresaId,
+                    },
+                ]}
+            />
+
+            {/* Barra de filtros: selector de empresa */}
+            <Paper variant="outlined" sx={{ p: 2, mb: 3 }}>
+                <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2} alignItems={{ sm: 'center' }}>
+                    <BusinessIcon color="action" />
+                    <TextField
+                        select
+                        label="Empresa"
+                        size="small"
+                        value={empresaId}
+                        onChange={e => setEmpresaId(Number(e.target.value))}
+                        sx={{ minWidth: 260 }}
+                    >
+                        {empresas.map(e => (
+                            <MenuItem key={e.id} value={e.id}>{e.nombre}</MenuItem>
+                        ))}
+                    </TextField>
+                    {empresaId === '' && (
+                        <Typography variant="body2" color="text.secondary">
+                            Seleccioná una empresa para ver sus políticas
+                        </Typography>
+                    )}
+                </Stack>
             </Paper>
 
-            {empresaId !== '' && (
-                <>
-                    <Box display="flex" justifyContent="flex-end" mb={2}>
-                        <Button variant="contained" startIcon={<AddIcon />} onClick={() => handleAbrir()}>
-                            Nueva Política
-                        </Button>
-                    </Box>
-                    <TableContainer component={Paper}>
-                        <Table size="small">
-                            <TableHead>
-                                <TableRow>
-                                    <TableCell sx={{ bgcolor: 'action.hover' }}>Nombre</TableCell>
-                                    <TableCell sx={{ bgcolor: 'action.hover' }}>Descripción</TableCell>
-                                    <TableCell sx={{ bgcolor: 'action.hover' }}>Formas de Pago</TableCell>
-                                    <TableCell sx={{ bgcolor: 'action.hover' }}>Tipo Atención</TableCell>
-                                    <TableCell sx={{ bgcolor: 'action.hover' }}>Estado</TableCell>
-                                    <TableCell sx={{ bgcolor: 'action.hover' }}></TableCell>
-                                </TableRow>
-                            </TableHead>
-                            <TableBody>
-                                {loading ? (
-                                    <TableRow><TableCell colSpan={6} align="center">Cargando...</TableCell></TableRow>
-                                ) : politicas.length === 0 ? (
-                                    <TableRow>
-                                        <TableCell colSpan={6} align="center">
-                                            <Typography variant="body2" color="text.secondary" fontStyle="italic" py={2}>
-                                                No hay políticas para esta empresa
-                                            </Typography>
-                                        </TableCell>
-                                    </TableRow>
-                                ) : politicas.map(p => (
-                                    <TableRow key={p.id} hover>
-                                        <TableCell sx={{ fontWeight: 'bold' }}>{p.nombre}</TableCell>
-                                        <TableCell sx={{ maxWidth: 200, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                                            {p.descripcion || '-'}
-                                        </TableCell>
-                                        <TableCell>{p.formasDePago || '-'}</TableCell>
-                                        <TableCell>{p.tipoAtencion || '-'}</TableCell>
-                                        <TableCell>
-                                            <Chip
-                                                label={p.activa ? 'Activa' : 'Inactiva'}
-                                                color={p.activa ? 'success' : 'default'}
-                                                size="small"
-                                                variant="outlined"
-                                            />
-                                        </TableCell>
-                                        <TableCell align="right">
-                                            <IconButton size="small" onClick={() => handleAbrir(p)} title="Editar">
-                                                <EditIcon fontSize="small" />
-                                            </IconButton>
-                                            <IconButton
-                                                size="small"
-                                                color={p.activa ? 'error' : 'success'}
-                                                onClick={() => handleToggleActiva(p)}
-                                                title={p.activa ? 'Desactivar' : 'Activar'}
-                                            >
-                                                {p.activa ? <BlockIcon fontSize="small" /> : <CheckCircleIcon fontSize="small" />}
-                                            </IconButton>
-                                        </TableCell>
-                                    </TableRow>
-                                ))}
-                            </TableBody>
-                        </Table>
-                    </TableContainer>
-                </>
+            {/* Tabla / estados */}
+            {empresaId === '' ? (
+                <Paper variant="outlined">
+                    <EmptyState
+                        title="Seleccioná una empresa"
+                        description="Elegí una empresa en el selector de arriba para ver y gestionar sus políticas de gestión."
+                        icon={<PolicyIcon />}
+                    />
+                </Paper>
+            ) : (
+                <Paper variant="outlined">
+                    {isFirstLoad && (
+                        <LoadingSkeleton variant="table" rows={4} columns={6} />
+                    )}
+
+                    {isEmpty && (
+                        <EmptyState
+                            title="Sin políticas para esta empresa"
+                            description="Esta empresa no tiene políticas de gestión. Creá la primera para comenzar."
+                            icon={<PolicyIcon />}
+                            action={{
+                                label: 'Nueva política',
+                                onClick: () => handleAbrir(),
+                            }}
+                        />
+                    )}
+
+                    {!isFirstLoad && !isEmpty && (
+                        <DataTableResponsive<PoliticaRow>
+                            columns={columns}
+                            rows={rows}
+                            rowKey={(row) => String(row.id)}
+                        />
+                    )}
+                </Paper>
             )}
 
-            <Dialog open={openModal} onClose={() => setOpenModal(false)} fullWidth maxWidth="sm">
-                <DialogTitle>{editando ? 'Editar Política' : 'Nueva Política'}</DialogTitle>
+            {/* Modal crear/editar */}
+            <Dialog
+                open={openModal}
+                onClose={handleCerrar}
+                fullScreen={isMobile}
+                fullWidth
+                maxWidth="sm"
+            >
+                <DialogTitle>
+                    {editando ? 'Editar política' : 'Nueva política'}
+                </DialogTitle>
                 <Divider />
                 <DialogContent>
-                    <Box display="flex" flexDirection="column" gap={2} mt={1}>
+                    <Stack spacing={2.5} sx={{ pt: 1 }}>
                         <TextField
-                            label="Nombre *" fullWidth size="small"
+                            autoFocus
+                            label="Nombre *"
+                            fullWidth
+                            size="small"
                             value={form.nombre}
                             onChange={e => setForm(f => ({ ...f, nombre: e.target.value }))}
                         />
@@ -209,26 +372,38 @@ const AjustesPoliticas: React.FC = () => {
                             <Typography variant="caption" color="text.secondary" display="block" mb={0.5}>
                                 Descripción / Metodología
                             </Typography>
-                            <RichTextEditor
-                                value={form.descripcion}
-                                onChange={html => setForm(f => ({ ...f, descripcion: html }))}
-                                minHeight={180}
-                            />
+                            <Box sx={{ minHeight: isMobile ? 140 : 180 }}>
+                                <RichTextEditor
+                                    value={form.descripcion}
+                                    onChange={html => setForm(f => ({ ...f, descripcion: html }))}
+                                    minHeight={isMobile ? 140 : 180}
+                                />
+                            </Box>
                         </Box>
                         <TextField
-                            label="Formas de Pago" fullWidth size="small" multiline rows={2}
+                            label="Formas de pago"
+                            fullWidth
+                            size="small"
+                            multiline
+                            rows={2}
                             value={form.formasDePago}
                             onChange={e => setForm(f => ({ ...f, formasDePago: e.target.value }))}
                         />
                         <TextField
-                            label="Tipo de Atención" fullWidth size="small" multiline rows={2}
+                            label="Tipo de atención"
+                            fullWidth
+                            size="small"
+                            multiline
+                            rows={2}
                             value={form.tipoAtencion}
                             onChange={e => setForm(f => ({ ...f, tipoAtencion: e.target.value }))}
                         />
-                    </Box>
+                    </Stack>
                 </DialogContent>
                 <DialogActions>
-                    <Button onClick={() => setOpenModal(false)}>Cancelar</Button>
+                    <Button onClick={handleCerrar} disabled={saving}>
+                        Cancelar
+                    </Button>
                     <Button
                         variant="contained"
                         onClick={handleGuardar}
@@ -238,12 +413,6 @@ const AjustesPoliticas: React.FC = () => {
                     </Button>
                 </DialogActions>
             </Dialog>
-
-            <Snackbar open={snackbar.open} autoHideDuration={3000} onClose={() => setSnackbar(s => ({ ...s, open: false }))} anchorOrigin={{ vertical: 'bottom', horizontal: 'left' }}>
-                <Alert severity={snackbar.severity} variant="filled" onClose={() => setSnackbar(s => ({ ...s, open: false }))}>
-                    {snackbar.message}
-                </Alert>
-            </Snackbar>
         </Box>
     )
 }

@@ -3,11 +3,11 @@ import {
     Box,
     Typography,
     LinearProgress,
-    Paper,
     Chip,
 } from "@mui/material";
 import HourglassTopIcon from "@mui/icons-material/HourglassTop";
 import api from "../../api/axios";
+import { SectionCard } from "../ui";
 
 interface Props {
     remesaId: number;
@@ -23,7 +23,6 @@ export default function ImportProgress({ remesaId, onComplete }: Props) {
     const pollingRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
     useEffect(() => {
-        // Polling cada 2 segundos para obtener progreso
         pollingRef.current = setInterval(async () => {
             try {
                 const res = await api.get(`/import/remesas/${remesaId}`);
@@ -74,69 +73,76 @@ export default function ImportProgress({ remesaId, onComplete }: Props) {
                 Ejecutando importación
             </Typography>
 
-            <Paper
-                variant="outlined"
+            <SectionCard
                 sx={{
-                    p: 4,
                     textAlign: "center",
                     display: "flex",
                     flexDirection: "column",
                     alignItems: "center",
-                    gap: 2,
                 }}
             >
-                <HourglassTopIcon
+                <Box
                     sx={{
-                        fontSize: 48,
-                        color: "primary.main",
-                        animation: "spin 2s linear infinite",
-                        "@keyframes spin": {
-                            "0%": { transform: "rotate(0deg)" },
-                            "100%": { transform: "rotate(360deg)" },
-                        },
+                        display: "flex",
+                        flexDirection: "column",
+                        alignItems: "center",
+                        gap: 2,
+                        py: 2,
                     }}
-                />
-
-                <Typography variant="h4" fontWeight={700} color="primary.main">
-                    {progress}%
-                </Typography>
-
-                <LinearProgress
-                    variant="determinate"
-                    value={progress}
-                    sx={{
-                        width: "100%",
-                        height: 8,
-                        borderRadius: 4,
-                    }}
-                />
-
-                <Box sx={{ display: "flex", gap: 2, flexWrap: "wrap" }}>
-                    <Chip
-                        label={`Total: ${total}`}
-                        variant="outlined"
-                        size="small"
+                >
+                    <HourglassTopIcon
+                        sx={{
+                            fontSize: 48,
+                            color: "primary.main",
+                            animation: "spin 2s linear infinite",
+                            "@keyframes spin": {
+                                "0%": { transform: "rotate(0deg)" },
+                                "100%": { transform: "rotate(360deg)" },
+                            },
+                        }}
                     />
-                    <Chip
-                        label={`OK: ${ok}`}
-                        color="success"
-                        variant="outlined"
-                        size="small"
+
+                    <Typography variant="h4" fontWeight={700} color="primary.main">
+                        {progress}%
+                    </Typography>
+
+                    <LinearProgress
+                        variant="determinate"
+                        value={progress}
+                        sx={{
+                            width: "100%",
+                            height: 8,
+                            borderRadius: 4,
+                        }}
                     />
-                    {err > 0 && (
+
+                    <Box sx={{ display: "flex", gap: 2, flexWrap: "wrap", justifyContent: "center" }}>
                         <Chip
-                            label={`Errores: ${err}`}
-                            color="error"
+                            label={`Total: ${total}`}
                             variant="outlined"
                             size="small"
                         />
-                    )}
-                </Box>
+                        <Chip
+                            label={`OK: ${ok}`}
+                            color="success"
+                            variant="outlined"
+                            size="small"
+                        />
+                        {err > 0 && (
+                            <Chip
+                                label={`Errores: ${err}`}
+                                color="error"
+                                variant="outlined"
+                                size="small"
+                            />
+                        )}
+                    </Box>
 
-                <Typography variant="body2" color="text.secondary">
-                    Estado: {estado}
-                </Typography>
-            </Paper>
+                    <Typography variant="body2" color="text.secondary">
+                        Estado: {estado}
+                    </Typography>
+                </Box>
+            </SectionCard>
         </Box>
     );
 }

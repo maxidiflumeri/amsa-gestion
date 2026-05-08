@@ -1,11 +1,10 @@
-import React, { useEffect, useState } from 'react'
-import { Tabs, Tab, Box, Typography, Paper, Button } from '@mui/material'
-import SearchIcon from '@mui/icons-material/Search';
-import PolicyIcon from '@mui/icons-material/Policy';
-import FichaDeudor from './FichaDeudor';
-import DeudoresTable from './DeudoresTable';
-import BuscadorAvanzadoModal from './BuscadorAvanzadoModal';
-import PoliticaTab from './PoliticaTab';
+import React, { useRef } from 'react'
+import { Tabs, Tab, Box, useMediaQuery, useTheme } from '@mui/material'
+import PolicyIcon from '@mui/icons-material/Policy'
+import FichaDeudor from './FichaDeudor'
+import DeudoresTable from './DeudoresTable'
+import BuscadorAvanzadoModal from './BuscadorAvanzadoModal'
+import PoliticaTab from './PoliticaTab'
 
 interface Props {
     user: { nombre: string; rol: string }
@@ -13,6 +12,8 @@ interface Props {
     setSelectedTab: (index: number) => void
     selectedDeudorId: number | null
     setSelectedDeudorId: (id: number | null) => void
+    advancedSearchOpen: boolean
+    setAdvancedSearchOpen: (open: boolean) => void
 }
 
 const TabsPanel: React.FC<Props> = ({
@@ -21,68 +22,41 @@ const TabsPanel: React.FC<Props> = ({
     setSelectedTab,
     selectedDeudorId,
     setSelectedDeudorId,
+    advancedSearchOpen,
+    setAdvancedSearchOpen,
 }) => {
-    const [advancedSearchOpen, setAdvancedSearchOpen] = useState(false);
-    
-    // Al cambiar de pestaña o de deudor, forzamos el scroll al top
-    useEffect(() => {
-        const timeout = setTimeout(() => {
-            // Intentamos hacer scroll en el window primero
-            window.scrollTo({ top: 0, left: 0, behavior: 'auto' });
-            
-            // Si el layout privado (MUI Box 'main') tiene el scroll retenido oculto, lo forzamos al top también
-            const mainContent = document.querySelector('main');
-            if (mainContent) {
-                mainContent.scrollTo({ top: 0, left: 0, behavior: 'auto' });
-            }
-            // En caso que el html o body estén scrolleados desparejos
-            document.documentElement.scrollTo({ top: 0, left: 0, behavior: 'auto' });
-            document.body.scrollTo({ top: 0, left: 0, behavior: 'auto' });
-            
-        }, 100); // 100ms da margen seguro post-render de lista vs ficha
-        return () => clearTimeout(timeout);
-    }, [selectedTab, selectedDeudorId]);
+    const theme = useTheme()
+    const isMobile = useMediaQuery(theme.breakpoints.down('md'))
+    const tabContentRef = useRef<HTMLDivElement>(null)
+
+    const handleTabChange = (_: React.SyntheticEvent, v: number) => {
+        setSelectedTab(v)
+        // Scroll limpio al contenedor del tab activo
+        setTimeout(() => {
+            tabContentRef.current?.scrollIntoView({ behavior: 'auto', block: 'start' })
+        }, 50)
+    }
 
     return (
         <Box sx={{ display: 'flex', flexDirection: 'column' }}>
             {(user.rol === 'admin' || user.rol === 'operador') && (
-                <Paper 
-                    elevation={4} 
-                    sx={{ 
-                        position: 'sticky',
-                        top: 64, // Altura de la Toolbar de MUI (Navbar), para que quede justo pegado abajo
-                        zIndex: 1100,
-                        mb: 3,
-                        borderRadius: 2,
-                        display: 'flex',
-                        alignItems: 'center',
-                        pr: 2
-                    }}
+                <Tabs
+                    value={selectedTab}
+                    onChange={handleTabChange}
+                    indicatorColor="primary"
+                    textColor="primary"
+                    variant={isMobile ? 'scrollable' : 'standard'}
+                    scrollButtons={isMobile ? 'auto' : undefined}
+                    allowScrollButtonsMobile
+                    sx={{ mb: 2, borderBottom: 1, borderColor: 'divider' }}
                 >
-                    <Tabs 
-                        value={selectedTab} 
-                        onChange={(_, v) => setSelectedTab(v)} 
-                        indicatorColor="primary"
-                        textColor="primary"
-                        sx={{ flexGrow: 1, bgcolor: 'background.paper', borderRadius: 2 }}
-                    >
-                        <Tab label="👤 Datos del deudor" sx={{ fontWeight: 'bold' }} />
-                        <Tab label="📋 Lista de deudores" sx={{ fontWeight: 'bold' }} />
-                        <Tab icon={<PolicyIcon fontSize="small" />} iconPosition="start" label="Política" sx={{ fontWeight: 'bold' }} />
-                    </Tabs>
-                    <Button 
-                        variant="outlined" 
-                        color="primary" 
-                        startIcon={<SearchIcon />}
-                        onClick={() => setAdvancedSearchOpen(true)}
-                        sx={{ ml: 2, whiteSpace: 'nowrap', borderRadius: 2, fontWeight: 'bold' }}
-                    >
-                        Búsqueda Avanzada
-                    </Button>
-                </Paper>
+                    <Tab label="Datos del deudor" sx={{ fontWeight: 'bold' }} />
+                    <Tab label="Lista de deudores" sx={{ fontWeight: 'bold' }} />
+                    <Tab icon={<PolicyIcon fontSize="small" />} iconPosition="start" label="Política" sx={{ fontWeight: 'bold' }} />
+                </Tabs>
             )}
 
-            <Box sx={{ flexGrow: 1 }}>
+            <Box ref={tabContentRef} sx={{ flexGrow: 1 }}>
                 {selectedTab === 0 && user.rol !== 'invitado' && selectedDeudorId && (
                     <FichaDeudor deudorId={selectedDeudorId} />
                 )}
@@ -100,15 +74,13 @@ const TabsPanel: React.FC<Props> = ({
                 )}
             </Box>
 
-            {/* Modal Global de Búsqueda Avanzada */}
-            <BuscadorAvanzadoModal 
-                open={advancedSearchOpen} 
-                onClose={() => setAdvancedSearchOpen(false)} 
+            <BuscadorAvanzadoModal
+                open={advancedSearchOpen}
+                onClose={() => setAdvancedSearchOpen(false)}
                 onSelectDeudor={(id) => {
-                    setSelectedDeudorId(id);
-                    // Forzamos ir a la pestaña "Datos del deudor"
-                    setSelectedTab(0);
-                }} 
+                    setSelectedDeudorId(id)
+                    setSelectedTab(0)
+                }}
             />
         </Box>
     )

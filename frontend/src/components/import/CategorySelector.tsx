@@ -68,7 +68,8 @@ const CATEGORIES: CategoryOption[] = [
     {
         value: "ACTUALIZACIONES",
         label: "Actualizaciones",
-        description: "Reconciliar deuda actual: pagos automáticos, nuevas facturas y recalculo de saldo",
+        description:
+            "Reconciliar deuda actual: pagos automáticos, nuevas facturas y recalculo de saldo",
         icon: <SyncAltIcon sx={{ fontSize: 40 }} />,
         color: "#00796b",
     },
@@ -83,7 +84,7 @@ export default function CategorySelector({ selected, onSelect }: Props) {
     return (
         <Box>
             <Typography variant="h6" sx={{ mb: 2, fontWeight: 600 }}>
-                ¿Qué tipo de datos vas a importar?
+                Qué tipo de datos vas a importar?
             </Typography>
             <Box
                 sx={{
@@ -152,7 +153,7 @@ export default function CategorySelector({ selected, onSelect }: Props) {
                                             sx={{
                                                 mt: 1,
                                                 bgcolor: cat.color,
-                                                color: "white",
+                                                color: "common.white",
                                                 fontWeight: 500,
                                             }}
                                         />

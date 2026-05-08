@@ -15,15 +15,23 @@ import {
     MenuItem,
     Select,
     FormControl,
-    InputLabel,
     Chip,
     Tooltip,
     Alert,
+    Accordion,
+    AccordionSummary,
+    AccordionDetails,
+    Stack,
+    useTheme,
+    useMediaQuery,
 } from "@mui/material";
 import AddIcon from "@mui/icons-material/Add";
 import DeleteIcon from "@mui/icons-material/Delete";
 import CloudUploadIcon from "@mui/icons-material/CloudUpload";
+import ExpandMoreIcon from "@mui/icons-material/ExpandMore";
 import api from "../../api/axios";
+import { useNotify } from "../../hooks/useNotify";
+import { SectionCard } from "../ui";
 
 const DEST_FIELDS_BY_CATEGORY: Record<string, { value: string; label: string }[]> = {
     DEUDORES: [
@@ -120,6 +128,142 @@ interface Props {
     disabled?: boolean;
 }
 
+// ─── Sub-componentes de celdas (reutilizables en desktop y mobile) ────────────
+
+interface DestFieldCellProps {
+    field: MappingField;
+    destFields: { value: string; label: string }[];
+    onChange: (key: keyof MappingField, value: unknown) => void;
+}
+
+function DestFieldCell({ field, destFields, onChange }: DestFieldCellProps) {
+    if (field.isExtra) {
+        return (
+            <TextField
+                size="small"
+                fullWidth
+                value={field.destField}
+                onChange={(e) => onChange("destField", e.target.value)}
+                placeholder="ej: nro_cliente"
+                variant="outlined"
+            />
+        );
+    }
+    return (
+        <FormControl size="small" fullWidth>
+            <Select
+                value={field.destField}
+                onChange={(e) => onChange("destField", e.target.value)}
+                displayEmpty
+            >
+                <MenuItem value="" disabled>
+                    Seleccion\u00e1 un campo
+                </MenuItem>
+                {destFields.map((df) => (
+                    <MenuItem key={df.value} value={df.value}>
+                        {df.label}
+                    </MenuItem>
+                ))}
+            </Select>
+        </FormControl>
+    );
+}
+
+interface SourceColCellProps {
+    field: MappingField;
+    totalColumns: number;
+    previewRows: string[][];
+    onChange: (key: keyof MappingField, value: unknown) => void;
+}
+
+function SourceColCell({ field, totalColumns, previewRows, onChange }: SourceColCellProps) {
+    return (
+        <FormControl size="small" fullWidth>
+            <Select
+                value={field.fromIndex}
+                onChange={(e) => onChange("fromIndex", Number(e.target.value))}
+            >
+                {Array.from({ length: Math.max(totalColumns, 30) }).map((_, i) => (
+                    <MenuItem key={i} value={i}>
+                        Col {i}
+                        {previewRows.length > 0 && previewRows[0][i]
+                            ? ` — "${String(previewRows[0][i]).substring(0, 25)}"`
+                            : ""}
+                    </MenuItem>
+                ))}
+                <MenuItem value={-1} sx={{ fontWeight: "bold", color: "primary.main" }}>
+                    Valor Fijo / Est\u00e1tico
+                </MenuItem>
+            </Select>
+        </FormControl>
+    );
+}
+
+interface TransformCellProps {
+    field: MappingField;
+    onChange: (key: keyof MappingField, value: unknown) => void;
+    // For block fields with CONTACTO tipo special case
+    isContactoTipo?: boolean;
+}
+
+function TransformCell({ field, onChange, isContactoTipo }: TransformCellProps) {
+    if (field.fromIndex === -1) {
+        if (isContactoTipo) {
+            return (
+                <FormControl size="small" fullWidth>
+                    <Select
+                        value={field.staticValue || ""}
+                        onChange={(e) => onChange("staticValue", e.target.value)}
+                        displayEmpty
+                    >
+                        <MenuItem value="" disabled>Elegir tipo...</MenuItem>
+                        <MenuItem value="TELEFONO">Tel\u00e9fono</MenuItem>
+                        <MenuItem value="EMAIL">Email</MenuItem>
+                        <MenuItem value="DIRECCION">Direcci\u00f3n</MenuItem>
+                        <MenuItem value="RED_SOCIAL">Red Social</MenuItem>
+                        <MenuItem value="OTRO">Otro</MenuItem>
+                    </Select>
+                </FormControl>
+            );
+        }
+        return (
+            <TextField
+                size="small"
+                fullWidth
+                value={field.staticValue || ""}
+                onChange={(e) => onChange("staticValue", e.target.value)}
+                placeholder="Ingresar valor fijo..."
+            />
+        );
+    }
+
+    return (
+        <FormControl size="small" fullWidth>
+            <Select
+                multiple
+                value={field.transforms}
+                onChange={(e) => onChange("transforms", e.target.value)}
+                renderValue={(selected) => (
+                    <Box sx={{ display: "flex", flexWrap: "wrap", gap: 0.5 }}>
+                        {(selected as string[]).map((val) => {
+                            const t = AVAILABLE_TRANSFORMS.find((tr) => tr.value === val);
+                            return <Chip key={val} label={t?.label ?? val} size="small" />;
+                        })}
+                    </Box>
+                )}
+            >
+                {AVAILABLE_TRANSFORMS.map((t) => (
+                    <MenuItem key={t.value} value={t.value}>
+                        {t.label}
+                    </MenuItem>
+                ))}
+            </Select>
+        </FormControl>
+    );
+}
+
+// ─── Componente principal ─────────────────────────────────────────────────────
+
 export default function MappingEditor({
     fields,
     onChange,
@@ -130,19 +274,21 @@ export default function MappingEditor({
     categoria,
     disabled = false,
 }: Props) {
+    const theme = useTheme();
+    const isMobile = useMediaQuery(theme.breakpoints.down("md"));
+    const notify = useNotify();
+
     const destFields = DEST_FIELDS_BY_CATEGORY[categoria] ?? [];
     const [previewRows, setPreviewRows] = useState<string[][]>([]);
     const [totalColumns, setTotalColumns] = useState(0);
     const [previewFile, setPreviewFile] = useState<File | null>(null);
     const [loading, setLoading] = useState(false);
-    const [error, setError] = useState<string | null>(null);
 
     // Upload sample file for preview
     const handleFileUpload = useCallback(
         async (file: File) => {
             setPreviewFile(file);
             setLoading(true);
-            setError(null);
 
             try {
                 const formData = new FormData();
@@ -153,33 +299,26 @@ export default function MappingEditor({
                 const res = await api.post(
                     "/import/plantillas/preview",
                     formData,
-                    {
-                        headers: { "Content-Type": "multipart/form-data" },
-                    }
+                    { headers: { "Content-Type": "multipart/form-data" } }
                 );
 
                 setPreviewRows(res.data.rows ?? []);
                 setTotalColumns(res.data.totalColumns ?? 0);
-            } catch (e: any) {
-                setError(
-                    e.response?.data?.message || "Error parseando archivo"
-                );
+            } catch (e: unknown) {
+                notify.error(e as Error);
             }
 
             setLoading(false);
         },
-        [separador, tieneHeader]
+        [separador, tieneHeader, notify]
     );
+
+    // ─── Field handlers ───────────────────────────────────────────────────────
 
     const handleAddField = (isExtra: boolean) => {
         onChange([
             ...fields,
-            {
-                destField: "",
-                fromIndex: 0,
-                transforms: [],
-                isExtra,
-            },
+            { destField: "", fromIndex: 0, transforms: [], isExtra },
         ]);
     };
 
@@ -187,22 +326,19 @@ export default function MappingEditor({
         onChange(fields.filter((_, i) => i !== idx));
     };
 
-    const handleFieldChange = (
-        idx: number,
-        key: keyof MappingField,
-        value: any
-    ) => {
+    const handleFieldChange = (idx: number, key: keyof MappingField, value: unknown) => {
         const updated = [...fields];
-        (updated[idx] as any)[key] = value;
+        (updated[idx] as Record<string, unknown>)[key] = value;
         onChange(updated);
     };
 
-    // --- Block Handlers ---
+    // ─── Block handlers ───────────────────────────────────────────────────────
+
     const handleAddBlock = () => {
         if (!onBlocksChange) return;
         onBlocksChange([...blocks, { entity: "FACTURA", fields: [] }]);
     };
-    
+
     const handleRemoveBlock = (bIdx: number) => {
         if (!onBlocksChange) return;
         onBlocksChange(blocks.filter((_, i) => i !== bIdx));
@@ -218,12 +354,7 @@ export default function MappingEditor({
     const handleAddBlockField = (bIdx: number) => {
         if (!onBlocksChange) return;
         const updated = [...blocks];
-        updated[bIdx].fields.push({
-            destField: "",
-            fromIndex: 0,
-            transforms: [],
-            isExtra: false,
-        });
+        updated[bIdx].fields.push({ destField: "", fromIndex: 0, transforms: [], isExtra: false });
         onBlocksChange(updated);
     };
 
@@ -238,146 +369,46 @@ export default function MappingEditor({
         bIdx: number,
         fIdx: number,
         key: keyof MappingField,
-        value: any
+        value: unknown
     ) => {
         if (!onBlocksChange) return;
         const updated = [...blocks];
-        (updated[bIdx].fields[fIdx] as any)[key] = value;
+        (updated[bIdx].fields[fIdx] as Record<string, unknown>)[key] = value;
         onBlocksChange(updated);
     };
 
-    const mainFields = fields.filter((f) => !f.isExtra);
-    const extraFields = fields.filter((f) => f.isExtra);
+    // ─── Helpers de label ─────────────────────────────────────────────────────
+
+    const getFieldLabel = (field: MappingField, availableDestFields: { value: string; label: string }[]): string => {
+        if (!field.destField) return "(sin campo)";
+        const found = availableDestFields.find((df) => df.value === field.destField);
+        return found?.label ?? field.destField;
+    };
+
+    // ─── Desktop: renderFieldRow ──────────────────────────────────────────────
 
     const renderFieldRow = (field: MappingField, globalIdx: number) => (
         <TableRow key={globalIdx}>
             <TableCell sx={{ minWidth: 160 }}>
-                {field.isExtra ? (
-                    <TextField
-                        size="small"
-                        fullWidth
-                        value={field.destField}
-                        onChange={(e) =>
-                            handleFieldChange(
-                                globalIdx,
-                                "destField",
-                                e.target.value
-                            )
-                        }
-                        placeholder="ej: nro_cliente"
-                        variant="outlined"
-                    />
-                ) : (
-                    <FormControl size="small" fullWidth>
-                        <Select
-                            value={field.destField}
-                            onChange={(e) =>
-                                handleFieldChange(
-                                    globalIdx,
-                                    "destField",
-                                    e.target.value
-                                )
-                            }
-                            displayEmpty
-                        >
-                            <MenuItem value="" disabled>
-                                Seleccion\u00e1 un campo
-                            </MenuItem>
-                            {destFields.map((df) => (
-                                <MenuItem key={df.value} value={df.value}>
-                                    {df.label}
-                                </MenuItem>
-                            ))}
-                        </Select>
-                    </FormControl>
-                )}
+                <DestFieldCell
+                    field={field}
+                    destFields={destFields}
+                    onChange={(key, val) => handleFieldChange(globalIdx, key, val)}
+                />
             </TableCell>
             <TableCell sx={{ minWidth: 180 }}>
-                <FormControl size="small" fullWidth>
-                    <Select
-                        value={field.fromIndex}
-                        onChange={(e) =>
-                            handleFieldChange(
-                                globalIdx,
-                                "fromIndex",
-                                Number(e.target.value)
-                            )
-                        }
-                    >
-                        {Array.from({ length: Math.max(totalColumns, 30) }).map(
-                            (_, i) => (
-                                <MenuItem key={i} value={i}>
-                                    Col {i}
-                                    {previewRows.length > 0 && previewRows[0][i]
-                                        ? ` — "${String(previewRows[0][i]).substring(0, 25)}"`
-                                        : ""}
-                                </MenuItem>
-                            )
-                        )}
-                        <MenuItem value={-1} sx={{ fontWeight: 'bold', color: 'primary.main' }}>
-                            Valor Fijo / Estático
-                        </MenuItem>
-                    </Select>
-                </FormControl>
+                <SourceColCell
+                    field={field}
+                    totalColumns={totalColumns}
+                    previewRows={previewRows}
+                    onChange={(key, val) => handleFieldChange(globalIdx, key, val)}
+                />
             </TableCell>
             <TableCell sx={{ minWidth: 200 }}>
-                {field.fromIndex === -1 ? (
-                    <TextField
-                        size="small"
-                        fullWidth
-                        value={field.staticValue || ""}
-                        onChange={(e) =>
-                            handleFieldChange(
-                                globalIdx,
-                                "staticValue",
-                                e.target.value
-                            )
-                        }
-                        placeholder="Ingresar valor fijo..."
-                    />
-                ) : (
-                    <FormControl size="small" fullWidth>
-                        <Select
-                            multiple
-                        value={field.transforms}
-                        onChange={(e) =>
-                            handleFieldChange(
-                                globalIdx,
-                                "transforms",
-                                e.target.value
-                            )
-                        }
-                        renderValue={(selected) => (
-                            <Box
-                                sx={{
-                                    display: "flex",
-                                    flexWrap: "wrap",
-                                    gap: 0.5,
-                                }}
-                            >
-                                {(selected as string[]).map((val) => {
-                                    const t = AVAILABLE_TRANSFORMS.find(
-                                        (tr) => tr.value === val
-                                    );
-                                    return (
-                                        <Chip
-                                            key={val}
-                                            label={t?.label ?? val}
-                                            size="small"
-                                        />
-                                    );
-                                })}
-                            </Box>
-                        )}
-                    >
-                        {AVAILABLE_TRANSFORMS.map((t) => (
-                            <MenuItem key={t.value} value={t.value}>
-                                {t.label}
-                            </MenuItem>
-                        ))}
-                    </Select>
-                </FormControl>
-                )}
+                <TransformCell
+                    field={field}
+                    onChange={(key, val) => handleFieldChange(globalIdx, key, val)}
+                />
             </TableCell>
             <TableCell>
                 <Tooltip title="Eliminar campo">
@@ -393,98 +424,46 @@ export default function MappingEditor({
         </TableRow>
     );
 
+    // ─── Desktop: renderBlockFieldRow ─────────────────────────────────────────
+
     const renderBlockFieldRow = (bIdx: number, field: MappingField, fIdx: number) => {
         const entity = blocks[bIdx]?.entity;
-        // Mapear entidad singular a clave plural de DEST_FIELDS_BY_CATEGORY
-        const categoryKey = entity === "FACTURA" ? "FACTURAS" : (entity === "CONTACTO" ? "CONTACTOS" : entity);
+        const categoryKey =
+            entity === "FACTURA" ? "FACTURAS" : entity === "CONTACTO" ? "CONTACTOS" : entity;
         const blockDestFields = DEST_FIELDS_BY_CATEGORY[categoryKey] ?? [];
+        const isContactoTipo = entity === "CONTACTO" && field.destField === "tipo";
 
         return (
             <TableRow key={fIdx}>
                 <TableCell sx={{ minWidth: 160 }}>
-                    <FormControl size="small" fullWidth>
-                        <Select
-                            value={field.destField}
-                            onChange={(e) => handleBlockFieldChange(bIdx, fIdx, "destField", e.target.value)}
-                            displayEmpty
-                        >
-                            <MenuItem value="" disabled>Seleccioná un campo</MenuItem>
-                            {blockDestFields.map((df) => (
-                                <MenuItem key={df.value} value={df.value}>
-                                    {df.label}
-                                </MenuItem>
-                            ))}
-                        </Select>
-                    </FormControl>
+                    <DestFieldCell
+                        field={field}
+                        destFields={blockDestFields}
+                        onChange={(key, val) => handleBlockFieldChange(bIdx, fIdx, key, val)}
+                    />
                 </TableCell>
                 <TableCell sx={{ minWidth: 180 }}>
-                    <FormControl size="small" fullWidth>
-                        <Select
-                            value={field.fromIndex}
-                            onChange={(e) => handleBlockFieldChange(bIdx, fIdx, "fromIndex", Number(e.target.value))}
-                        >
-                            {Array.from({ length: Math.max(totalColumns, 30) }).map((_, i) => (
-                                <MenuItem key={i} value={i}>
-                                    Col {i} {previewRows.length > 0 && previewRows[0][i] ? ` — "${String(previewRows[0][i]).substring(0, 25)}"` : ""}
-                                </MenuItem>
-                            ))}
-                            <MenuItem value={-1} sx={{ fontWeight: 'bold', color: 'primary.main' }}>
-                                Valor Fijo / Estático
-                            </MenuItem>
-                        </Select>
-                    </FormControl>
+                    <SourceColCell
+                        field={field}
+                        totalColumns={totalColumns}
+                        previewRows={previewRows}
+                        onChange={(key, val) => handleBlockFieldChange(bIdx, fIdx, key, val)}
+                    />
                 </TableCell>
                 <TableCell sx={{ minWidth: 200 }}>
-                    {field.fromIndex === -1 ? (
-                        (entity === "CONTACTO" && field.destField === "tipo") ? (
-                            <FormControl size="small" fullWidth>
-                                <Select
-                                    value={field.staticValue || ""}
-                                    onChange={(e) => handleBlockFieldChange(bIdx, fIdx, "staticValue", e.target.value)}
-                                    displayEmpty
-                                >
-                                    <MenuItem value="" disabled>Elegir tipo...</MenuItem>
-                                    <MenuItem value="TELEFONO">Teléfono</MenuItem>
-                                    <MenuItem value="EMAIL">Email</MenuItem>
-                                    <MenuItem value="DIRECCION">Dirección</MenuItem>
-                                    <MenuItem value="RED_SOCIAL">Red Social</MenuItem>
-                                    <MenuItem value="OTRO">Otro</MenuItem>
-                                </Select>
-                            </FormControl>
-                        ) : (
-                            <TextField
-                                size="small"
-                                fullWidth
-                                value={field.staticValue || ""}
-                                onChange={(e) => handleBlockFieldChange(bIdx, fIdx, "staticValue", e.target.value)}
-                                placeholder="Ingresar valor fijo..."
-                            />
-                        )
-                    ) : (
-                        <FormControl size="small" fullWidth>
-                            <Select
-                                multiple
-                            value={field.transforms}
-                            onChange={(e) => handleBlockFieldChange(bIdx, fIdx, "transforms", e.target.value)}
-                            renderValue={(selected) => (
-                                <Box sx={{ display: "flex", flexWrap: "wrap", gap: 0.5 }}>
-                                    {(selected as string[]).map((val) => {
-                                        const t = AVAILABLE_TRANSFORMS.find((tr) => tr.value === val);
-                                        return <Chip key={val} label={t?.label ?? val} size="small" />;
-                                    })}
-                                </Box>
-                            )}
-                        >
-                            {AVAILABLE_TRANSFORMS.map((t) => (
-                                <MenuItem key={t.value} value={t.value}>{t.label}</MenuItem>
-                            ))}
-                        </Select>
-                    </FormControl>
-                    )}
+                    <TransformCell
+                        field={field}
+                        onChange={(key, val) => handleBlockFieldChange(bIdx, fIdx, key, val)}
+                        isContactoTipo={isContactoTipo}
+                    />
                 </TableCell>
                 <TableCell>
                     <Tooltip title="Eliminar campo">
-                        <IconButton size="small" color="error" onClick={() => handleRemoveBlockField(bIdx, fIdx)}>
+                        <IconButton
+                            size="small"
+                            color="error"
+                            onClick={() => handleRemoveBlockField(bIdx, fIdx)}
+                        >
                             <DeleteIcon fontSize="small" />
                         </IconButton>
                     </Tooltip>
@@ -492,6 +471,204 @@ export default function MappingEditor({
             </TableRow>
         );
     };
+
+    // ─── Mobile: Accordion por campo ─────────────────────────────────────────
+
+    const renderFieldAccordion = (field: MappingField, globalIdx: number) => {
+        const label = getFieldLabel(field, destFields);
+        return (
+            <Accordion key={globalIdx} variant="outlined" disableGutters>
+                <AccordionSummary expandIcon={<ExpandMoreIcon />}>
+                    <Box sx={{ display: "flex", alignItems: "center", gap: 1, width: "100%" }}>
+                        <Typography variant="body2" sx={{ fontWeight: 600, flexGrow: 1 }}>
+                            {field.isExtra ? `Extra: ${label}` : label}
+                        </Typography>
+                        {field.fromIndex === -1 && (
+                            <Chip label="Fijo" size="small" color="info" variant="outlined" />
+                        )}
+                        {field.transforms.length > 0 && (
+                            <Chip
+                                label={`${field.transforms.length} transform${field.transforms.length > 1 ? "s" : ""}`}
+                                size="small"
+                                variant="outlined"
+                            />
+                        )}
+                    </Box>
+                </AccordionSummary>
+                <AccordionDetails>
+                    <Stack spacing={2}>
+                        <Box>
+                            <Typography variant="caption" color="text.secondary" sx={{ mb: 0.5, display: "block" }}>
+                                {field.isExtra ? "Nombre del campo" : "Campo destino"}
+                            </Typography>
+                            <DestFieldCell
+                                field={field}
+                                destFields={destFields}
+                                onChange={(key, val) => handleFieldChange(globalIdx, key, val)}
+                            />
+                        </Box>
+                        <Box>
+                            <Typography variant="caption" color="text.secondary" sx={{ mb: 0.5, display: "block" }}>
+                                Columna origen
+                            </Typography>
+                            <SourceColCell
+                                field={field}
+                                totalColumns={totalColumns}
+                                previewRows={previewRows}
+                                onChange={(key, val) => handleFieldChange(globalIdx, key, val)}
+                            />
+                        </Box>
+                        <Box>
+                            <Typography variant="caption" color="text.secondary" sx={{ mb: 0.5, display: "block" }}>
+                                {field.fromIndex === -1 ? "Valor fijo" : "Transformaciones"}
+                            </Typography>
+                            <TransformCell
+                                field={field}
+                                onChange={(key, val) => handleFieldChange(globalIdx, key, val)}
+                            />
+                        </Box>
+                        <Box sx={{ display: "flex", justifyContent: "flex-end" }}>
+                            <Button
+                                size="small"
+                                color="error"
+                                startIcon={<DeleteIcon />}
+                                onClick={() => handleRemoveField(globalIdx)}
+                                disabled={disabled}
+                            >
+                                Eliminar campo
+                            </Button>
+                        </Box>
+                    </Stack>
+                </AccordionDetails>
+            </Accordion>
+        );
+    };
+
+    const renderBlockFieldAccordion = (bIdx: number, field: MappingField, fIdx: number) => {
+        const entity = blocks[bIdx]?.entity;
+        const categoryKey =
+            entity === "FACTURA" ? "FACTURAS" : entity === "CONTACTO" ? "CONTACTOS" : entity;
+        const blockDestFields = DEST_FIELDS_BY_CATEGORY[categoryKey] ?? [];
+        const isContactoTipo = entity === "CONTACTO" && field.destField === "tipo";
+        const label = getFieldLabel(field, blockDestFields);
+
+        return (
+            <Accordion key={fIdx} variant="outlined" disableGutters>
+                <AccordionSummary expandIcon={<ExpandMoreIcon />}>
+                    <Box sx={{ display: "flex", alignItems: "center", gap: 1, width: "100%" }}>
+                        <Typography variant="body2" sx={{ fontWeight: 600, flexGrow: 1 }}>
+                            {label}
+                        </Typography>
+                        {field.fromIndex === -1 && (
+                            <Chip label="Fijo" size="small" color="info" variant="outlined" />
+                        )}
+                    </Box>
+                </AccordionSummary>
+                <AccordionDetails>
+                    <Stack spacing={2}>
+                        <Box>
+                            <Typography variant="caption" color="text.secondary" sx={{ mb: 0.5, display: "block" }}>
+                                Campo destino
+                            </Typography>
+                            <DestFieldCell
+                                field={field}
+                                destFields={blockDestFields}
+                                onChange={(key, val) => handleBlockFieldChange(bIdx, fIdx, key, val)}
+                            />
+                        </Box>
+                        <Box>
+                            <Typography variant="caption" color="text.secondary" sx={{ mb: 0.5, display: "block" }}>
+                                Columna origen
+                            </Typography>
+                            <SourceColCell
+                                field={field}
+                                totalColumns={totalColumns}
+                                previewRows={previewRows}
+                                onChange={(key, val) => handleBlockFieldChange(bIdx, fIdx, key, val)}
+                            />
+                        </Box>
+                        <Box>
+                            <Typography variant="caption" color="text.secondary" sx={{ mb: 0.5, display: "block" }}>
+                                {field.fromIndex === -1 ? "Valor fijo" : "Transformaciones"}
+                            </Typography>
+                            <TransformCell
+                                field={field}
+                                onChange={(key, val) => handleBlockFieldChange(bIdx, fIdx, key, val)}
+                                isContactoTipo={isContactoTipo}
+                            />
+                        </Box>
+                        <Box sx={{ display: "flex", justifyContent: "flex-end" }}>
+                            <Button
+                                size="small"
+                                color="error"
+                                startIcon={<DeleteIcon />}
+                                onClick={() => handleRemoveBlockField(bIdx, fIdx)}
+                                disabled={disabled}
+                            >
+                                Eliminar campo
+                            </Button>
+                        </Box>
+                    </Stack>
+                </AccordionDetails>
+            </Accordion>
+        );
+    };
+
+    // ─── Render de una lista de campos (desktop tabla / mobile accordions) ────
+
+    const renderFieldList = (
+        fieldList: MappingField[],
+        getGlobalIdx: (localIdx: number) => number,
+        isExtra: boolean
+    ) => {
+        if (isMobile) {
+            return (
+                <Stack spacing={1}>
+                    {fieldList.map((f, localIdx) =>
+                        renderFieldAccordion(f, getGlobalIdx(localIdx))
+                    )}
+                    {fieldList.length === 0 && (
+                        <Typography variant="body2" color="text.secondary" sx={{ py: 1 }}>
+                            Sin campos {isExtra ? "extras" : "principales"} configurados.
+                        </Typography>
+                    )}
+                </Stack>
+            );
+        }
+
+        return (
+            <TableContainer component={Paper} variant="outlined">
+                <Table size="small">
+                    <TableHead>
+                        <TableRow>
+                            <TableCell sx={{ fontWeight: 700 }}>
+                                {isExtra ? "Nombre campo" : "Campo destino"}
+                            </TableCell>
+                            <TableCell sx={{ fontWeight: 700 }}>Columna origen</TableCell>
+                            <TableCell sx={{ fontWeight: 700 }}>Transformaciones</TableCell>
+                            <TableCell sx={{ width: 50 }} />
+                        </TableRow>
+                    </TableHead>
+                    <TableBody>
+                        {fieldList.map((f, localIdx) =>
+                            renderFieldRow(f, getGlobalIdx(localIdx))
+                        )}
+                    </TableBody>
+                </Table>
+            </TableContainer>
+        );
+    };
+
+    // Para pasar el globalIdx correcto, pre-calculamos índices
+    const mainFields = fields
+        .map((f, i) => ({ field: f, globalIdx: i }))
+        .filter(({ field }) => !field.isExtra);
+
+    const extraFields = fields
+        .map((f, i) => ({ field: f, globalIdx: i }))
+        .filter(({ field }) => field.isExtra);
+
+    // ─── JSX ──────────────────────────────────────────────────────────────────
 
     return (
         <Box sx={{ display: "flex", flexDirection: "column", gap: 3 }}>
@@ -522,46 +699,34 @@ export default function MappingEditor({
                         }
                     }}
                 />
-                <CloudUploadIcon
-                    sx={{ fontSize: 32, color: "text.secondary", mb: 1 }}
-                />
+                <CloudUploadIcon sx={{ fontSize: 32, color: "text.secondary", mb: 1 }} />
                 <Typography variant="body2" color="text.secondary">
-                    {previewFile
-                        ? `📎 ${previewFile.name} (${totalColumns} columnas detectadas)`
-                        : "Subí un archivo de muestra para ver las columnas"}
+                    {loading
+                        ? "Procesando archivo..."
+                        : previewFile
+                        ? `${previewFile.name} (${totalColumns} columnas detectadas)`
+                        : "Sub\u00ed un archivo de muestra para ver las columnas"}
                 </Typography>
             </Paper>
 
-            {error && <Alert severity="error">{error}</Alert>}
-
             {/* File preview table */}
             {previewRows.length > 0 && (
-                <Box>
-                    <Typography
-                        variant="subtitle2"
-                        sx={{ mb: 1, fontWeight: 600 }}
-                    >
-                        Preview del archivo ({previewRows.length} filas,{" "}
-                        {totalColumns} columnas)
-                    </Typography>
-                    <TableContainer
-                        component={Paper}
-                        variant="outlined"
-                        sx={{ maxHeight: 200, overflowX: "auto" }}
-                    >
+                <SectionCard
+                    title={`Preview del archivo (${previewRows.length} filas, ${totalColumns} columnas)`}
+                    noPadding
+                >
+                    <TableContainer sx={{ maxHeight: 200, overflowX: "auto" }}>
                         <Table size="small" stickyHeader>
                             <TableHead>
                                 <TableRow>
-                                    {Array.from({
-                                        length: totalColumns,
-                                    }).map((_, i) => (
+                                    {Array.from({ length: totalColumns }).map((_, i) => (
                                         <TableCell
                                             key={i}
                                             sx={{
                                                 fontWeight: 700,
                                                 whiteSpace: "nowrap",
                                                 fontSize: 12,
-                                                bgcolor: "grey.100",
+                                                bgcolor: theme.palette.action.hover,
                                             }}
                                         >
                                             Col {i}
@@ -583,7 +748,7 @@ export default function MappingEditor({
                                                     textOverflow: "ellipsis",
                                                 }}
                                             >
-                                                {cell || "—"}
+                                                {cell || "\u2014"}
                                             </TableCell>
                                         ))}
                                     </TableRow>
@@ -591,164 +756,163 @@ export default function MappingEditor({
                             </TableBody>
                         </Table>
                     </TableContainer>
-                </Box>
+                </SectionCard>
             )}
 
             {/* Main fields mapping */}
-            <Box>
-                <Typography
-                    variant="subtitle1"
-                    sx={{ fontWeight: 600, mb: 1 }}
-                >
-                    Campos principales
-                </Typography>
-                <TableContainer component={Paper} variant="outlined">
-                    <Table size="small">
-                        <TableHead>
-                            <TableRow>
-                                <TableCell sx={{ fontWeight: 700 }}>
-                                    Campo destino
-                                </TableCell>
-                                <TableCell sx={{ fontWeight: 700 }}>
-                                    Columna origen
-                                </TableCell>
-                                <TableCell sx={{ fontWeight: 700 }}>
-                                    Transformaciones
-                                </TableCell>
-                                <TableCell sx={{ width: 50 }} />
-                            </TableRow>
-                        </TableHead>
-                        <TableBody>
-                            {fields.map(
-                                (f, i) =>
-                                    !f.isExtra && renderFieldRow(f, i)
-                            )}
-                        </TableBody>
-                    </Table>
-                </TableContainer>
-                <Button
-                    startIcon={<AddIcon />}
-                    size="small"
-                    sx={{ mt: 1 }}
-                    onClick={() => handleAddField(false)}
-                    disabled={disabled}
-                >
-                    Agregar campo
-                </Button>
-            </Box>
+            <SectionCard
+                title="Campos principales"
+                action={
+                    <Button
+                        startIcon={<AddIcon />}
+                        size="small"
+                        onClick={() => handleAddField(false)}
+                        disabled={disabled}
+                        sx={{ mr: 1 }}
+                    >
+                        Agregar campo
+                    </Button>
+                }
+            >
+                {renderFieldList(
+                    mainFields.map(({ field }) => field),
+                    (localIdx) => mainFields[localIdx].globalIdx,
+                    false
+                )}
+            </SectionCard>
 
             {/* Extra fields (camposAdicionales) */}
-            <Box>
-                <Typography
-                    variant="subtitle1"
-                    sx={{ fontWeight: 600, mb: 1 }}
-                >
-                    Campos extras (→ camposAdicionales JSON)
-                </Typography>
-                <TableContainer component={Paper} variant="outlined">
-                    <Table size="small">
-                        <TableHead>
-                            <TableRow>
-                                <TableCell sx={{ fontWeight: 700 }}>
-                                    Nombre campo
-                                </TableCell>
-                                <TableCell sx={{ fontWeight: 700 }}>
-                                    Columna origen
-                                </TableCell>
-                                <TableCell sx={{ fontWeight: 700 }}>
-                                    Transformaciones
-                                </TableCell>
-                                <TableCell sx={{ width: 50 }} />
-                            </TableRow>
-                        </TableHead>
-                        <TableBody>
-                            {fields.map(
-                                (f, i) =>
-                                    f.isExtra && renderFieldRow(f, i)
-                            )}
-                        </TableBody>
-                    </Table>
-                </TableContainer>
-                <Button
-                    startIcon={<AddIcon />}
-                    size="small"
-                    sx={{ mt: 1 }}
-                    onClick={() => handleAddField(true)}
-                    disabled={disabled}
-                >
-                    Agregar campo extra
-                </Button>
-            </Box>
+            <SectionCard
+                title="Campos extras (\u2192 camposAdicionales JSON)"
+                action={
+                    <Button
+                        startIcon={<AddIcon />}
+                        size="small"
+                        onClick={() => handleAddField(true)}
+                        disabled={disabled}
+                        sx={{ mr: 1 }}
+                    >
+                        Agregar campo extra
+                    </Button>
+                }
+            >
+                {renderFieldList(
+                    extraFields.map(({ field }) => field),
+                    (localIdx) => extraFields[localIdx].globalIdx,
+                    true
+                )}
+            </SectionCard>
 
             {/* Repetitive Blocks */}
-            <Box>
-                <Typography variant="subtitle1" sx={{ fontWeight: 600, mb: 1 }}>
-                    Bloques repetitivos (Mapeo Múltiple N-1)
-                </Typography>
-                <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-                    ¿Tu archivo tiene facturas en columnas horizontales repetidas (ej. Cuota 1, Cuota 2, etc.)?
-                    Podés crear un bloque nuevo por cada iteración.
-                </Typography>
-                
-                {blocks.map((block, bIdx) => (
-                    <Paper key={bIdx} variant="outlined" sx={{ p: 2, mb: 2, borderColor: "primary.light" }}>
-                        <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center", mb: 2 }}>
-                            <Box sx={{ display: "flex", gap: 2, alignItems: "center" }}>
-                                <Typography variant="subtitle2" sx={{ fontWeight: 600, color: "primary.main" }}>
-                                    Iteración {bIdx + 1}
-                                </Typography>
-                                <FormControl size="small" sx={{ minWidth: 150 }}>
-                                    <Select
-                                        value={block.entity}
-                                        onChange={(e) => handleBlockEntityChange(bIdx, e.target.value)}
-                                    >
-                                        <MenuItem value="FACTURA">Factura</MenuItem>
-                                        <MenuItem value="CONTACTO">Contacto</MenuItem>
-                                    </Select>
-                                </FormControl>
-                            </Box>
-                            <Button size="small" color="error" onClick={() => handleRemoveBlock(bIdx)} disabled={disabled}>
-                                Eliminar iteración
-                            </Button>
-                        </Box>
-                        
-                        <TableContainer component={Paper} variant="outlined" sx={{ mb: 1 }}>
-                            <Table size="small">
-                                <TableHead>
-                                    <TableRow>
-                                        <TableCell sx={{ fontWeight: 700 }}>Campo destino</TableCell>
-                                        <TableCell sx={{ fontWeight: 700 }}>Columna origen</TableCell>
-                                        <TableCell sx={{ fontWeight: 700 }}>Transformaciones</TableCell>
-                                        <TableCell sx={{ width: 50 }} />
-                                    </TableRow>
-                                </TableHead>
-                                <TableBody>
-                                    {block.fields.map((f, fIdx) => renderBlockFieldRow(bIdx, f, fIdx))}
-                                </TableBody>
-                            </Table>
-                        </TableContainer>
-                        <Button
-                            startIcon={<AddIcon />}
-                            size="small"
-                            onClick={() => handleAddBlockField(bIdx)}
-                            disabled={disabled}
+            <SectionCard
+                title="Bloques repetitivos (Mapeo M\u00FAltiple N-1)"
+                subtitle="\u00BFTu archivo tiene facturas en columnas horizontales repetidas (ej. Cuota 1, Cuota 2, etc.)? Pod\u00E9s crear un bloque nuevo por cada iteraci\u00F3n."
+                action={
+                    <Button
+                        variant="outlined"
+                        startIcon={<AddIcon />}
+                        size="small"
+                        onClick={handleAddBlock}
+                        disabled={disabled}
+                        sx={{ mr: 1 }}
+                    >
+                        Nuevo bloque
+                    </Button>
+                }
+            >
+                <Stack spacing={2}>
+                    {blocks.map((block, bIdx) => (
+                        <Paper
+                            key={bIdx}
+                            variant="outlined"
+                            sx={{ p: 2, borderColor: "primary.light" }}
                         >
-                            Agregar campo a iteración
-                        </Button>
-                    </Paper>
-                ))}
+                            <Box
+                                sx={{
+                                    display: "flex",
+                                    justifyContent: "space-between",
+                                    alignItems: "center",
+                                    mb: 2,
+                                    flexWrap: "wrap",
+                                    gap: 1,
+                                }}
+                            >
+                                <Box sx={{ display: "flex", gap: 2, alignItems: "center" }}>
+                                    <Typography
+                                        variant="subtitle2"
+                                        sx={{ fontWeight: 600, color: "primary.main" }}
+                                    >
+                                        Iteraci\u00f3n {bIdx + 1}
+                                    </Typography>
+                                    <FormControl size="small" sx={{ minWidth: 150 }}>
+                                        <Select
+                                            value={block.entity}
+                                            onChange={(e) => handleBlockEntityChange(bIdx, e.target.value)}
+                                        >
+                                            <MenuItem value="FACTURA">Factura</MenuItem>
+                                            <MenuItem value="CONTACTO">Contacto</MenuItem>
+                                        </Select>
+                                    </FormControl>
+                                </Box>
+                                <Button
+                                    size="small"
+                                    color="error"
+                                    onClick={() => handleRemoveBlock(bIdx)}
+                                    disabled={disabled}
+                                >
+                                    Eliminar iteraci\u00f3n
+                                </Button>
+                            </Box>
 
-                <Button
-                    variant="outlined"
-                    startIcon={<AddIcon />}
-                    size="small"
-                    onClick={handleAddBlock}
-                    sx={{ mt: 1 }}
-                    disabled={disabled}
-                >
-                    Agregar nuevo bloque repetitivo
-                </Button>
-            </Box>
+                            {isMobile ? (
+                                <Stack spacing={1} sx={{ mb: 1 }}>
+                                    {block.fields.map((f, fIdx) =>
+                                        renderBlockFieldAccordion(bIdx, f, fIdx)
+                                    )}
+                                    {block.fields.length === 0 && (
+                                        <Typography variant="body2" color="text.secondary" sx={{ py: 1 }}>
+                                            Sin campos en esta iteraci\u00f3n.
+                                        </Typography>
+                                    )}
+                                </Stack>
+                            ) : (
+                                <TableContainer component={Paper} variant="outlined" sx={{ mb: 1 }}>
+                                    <Table size="small">
+                                        <TableHead>
+                                            <TableRow>
+                                                <TableCell sx={{ fontWeight: 700 }}>Campo destino</TableCell>
+                                                <TableCell sx={{ fontWeight: 700 }}>Columna origen</TableCell>
+                                                <TableCell sx={{ fontWeight: 700 }}>Transformaciones</TableCell>
+                                                <TableCell sx={{ width: 50 }} />
+                                            </TableRow>
+                                        </TableHead>
+                                        <TableBody>
+                                            {block.fields.map((f, fIdx) =>
+                                                renderBlockFieldRow(bIdx, f, fIdx)
+                                            )}
+                                        </TableBody>
+                                    </Table>
+                                </TableContainer>
+                            )}
+
+                            <Button
+                                startIcon={<AddIcon />}
+                                size="small"
+                                onClick={() => handleAddBlockField(bIdx)}
+                                disabled={disabled}
+                            >
+                                Agregar campo a iteraci\u00f3n
+                            </Button>
+                        </Paper>
+                    ))}
+
+                    {blocks.length === 0 && (
+                        <Typography variant="body2" color="text.secondary">
+                            Sin bloques repetitivos configurados.
+                        </Typography>
+                    )}
+                </Stack>
+            </SectionCard>
         </Box>
     );
 }

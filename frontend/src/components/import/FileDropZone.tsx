@@ -23,23 +23,17 @@ export default function FileDropZone({
 }: Props) {
     const [isDragOver, setIsDragOver] = useState(false);
 
-    const handleDragOver = useCallback(
-        (e: React.DragEvent) => {
-            e.preventDefault();
-            e.stopPropagation();
-            setIsDragOver(true);
-        },
-        []
-    );
+    const handleDragOver = useCallback((e: React.DragEvent) => {
+        e.preventDefault();
+        e.stopPropagation();
+        setIsDragOver(true);
+    }, []);
 
-    const handleDragLeave = useCallback(
-        (e: React.DragEvent) => {
-            e.preventDefault();
-            e.stopPropagation();
-            setIsDragOver(false);
-        },
-        []
-    );
+    const handleDragLeave = useCallback((e: React.DragEvent) => {
+        e.preventDefault();
+        e.stopPropagation();
+        setIsDragOver(false);
+    }, []);
 
     const handleDrop = useCallback(
         (e: React.DragEvent) => {
@@ -90,7 +84,7 @@ export default function FileDropZone({
                     bgcolor: isDragOver
                         ? "action.hover"
                         : file
-                        ? "success.main"  + "08"
+                        ? "success.light"
                         : "background.default",
                     transition: "all 0.2s ease",
                     "&:hover": {
@@ -164,8 +158,7 @@ export default function FileDropZone({
                             }}
                         />
                         <Typography variant="subtitle1" color="text.secondary">
-                            Arrastrá tu archivo acá o hacé clic para
-                            seleccionar
+                            Arrastrá tu archivo acá o hacé clic para seleccionar
                         </Typography>
                         <Typography variant="caption" color="text.disabled">
                             Formatos soportados: CSV, TXT, XLS, XLSX

@@ -1,120 +1,121 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react'
 import {
     Box,
-    Typography,    
+    Typography,
     Avatar,
     TextField,
-    IconButton,    
-    Paper,    
-} from '@mui/material';
-import SendIcon from '@mui/icons-material/Send';
-import CommentIcon from '@mui/icons-material/Comment';
-import api from '../../api/axios';
+    IconButton,
+} from '@mui/material'
+import SendIcon from '@mui/icons-material/Send'
+import CommentIcon from '@mui/icons-material/Comment'
+import { EmptyState, SectionCard } from '../ui'
+import api from '../../api/axios'
+import { useNotify } from '../../hooks/useNotify'
 
 interface Comentario {
-    id: number;
-    texto: string;
-    fecha: string;
-    usuario?: { nombre?: string };
-    origen?: string;
+    id: number
+    texto: string
+    fecha: string
+    usuario?: { nombre?: string }
+    origen?: string
 }
 
 interface ComentariosProps {
-    deudorId: number;
-    comentarios: Comentario[];
-    onComentarioAgregado?: (status: 'success' | 'error') => void;
+    deudorId: number
+    comentarios: Comentario[]
+    onCreated?: () => void
 }
 
 const ComentariosPanel: React.FC<ComentariosProps> = ({
     deudorId,
     comentarios = [],
-    onComentarioAgregado,
+    onCreated,
 }) => {
-    const [nuevoComentario, setNuevoComentario] = useState('');
-    const [sending, setSending] = useState(false);
-    const [snackbar, setSnackbar] = useState({ open: false, message: '', severity: 'success' });
-    const bottomRef = useRef<HTMLDivElement | null>(null);
+    const notify = useNotify()
+    const [nuevoComentario, setNuevoComentario] = useState('')
+    const [sending, setSending] = useState(false)
+    const bottomRef = useRef<HTMLDivElement | null>(null)
 
     // Cargar draft del localStorage
     useEffect(() => {
-        const draft = localStorage.getItem(`comentario_draft_${deudorId}`);
-        if (draft) setNuevoComentario(draft);
-    }, [deudorId]);
+        const draft = localStorage.getItem(`comentario_draft_${deudorId}`)
+        if (draft) setNuevoComentario(draft)
+    }, [deudorId])
 
     // Guardar draft al escribir
     useEffect(() => {
-        localStorage.setItem(`comentario_draft_${deudorId}`, nuevoComentario);
-    }, [nuevoComentario, deudorId]);
+        localStorage.setItem(`comentario_draft_${deudorId}`, nuevoComentario)
+    }, [nuevoComentario, deudorId])
 
     const handleSend = async () => {
-        if (!nuevoComentario.trim()) return;
+        if (!nuevoComentario.trim()) return
         try {
-            setSending(true);
+            setSending(true)
             await api.post('/comentarios', {
                 deudorId,
                 texto: nuevoComentario.trim(),
                 origen: 'manual',
-            });
-            setNuevoComentario('');
-            localStorage.removeItem(`comentario_draft_${deudorId}`);
-            onComentarioAgregado?.('success'); // 👈 ahora pasamos el estado de éxito
+            })
+            setNuevoComentario('')
+            localStorage.removeItem(`comentario_draft_${deudorId}`)
+            notify.success('Comentario agregado')
+            onCreated?.()
         } catch (err) {
-            console.error(err);
-            onComentarioAgregado?.('error'); // 👈 y el de error
+            notify.error(err as Error)
         } finally {
-            setSending(false);
+            setSending(false)
         }
-    };
-
+    }
 
     const handleKeyDown = (e: React.KeyboardEvent) => {
         if (e.key === 'Enter' && !e.shiftKey) {
-            e.preventDefault();
-            handleSend();
+            e.preventDefault()
+            handleSend()
         }
-    };
-
-    const handleCloseSnackbar = () => setSnackbar({ ...snackbar, open: false });
+    }
 
     return (
-        <Paper variant="outlined" sx={{ p: 2, borderRadius: 4, mt: 2, boxShadow: 2 }}>
+        <SectionCard>
             <Typography variant="h6" gutterBottom fontWeight="bold">
                 <CommentIcon sx={{ mr: 1, verticalAlign: 'middle' }} /> Comentarios
             </Typography>
 
             {/* Lista de comentarios */}
             <Box sx={{ maxHeight: 280, overflowY: 'auto', mb: 2, pr: 1 }}>
-                {comentarios.length === 0 && (
-                    <Typography color="text.secondary" sx={{ textAlign: 'center', mt: 4 }}>
-                        No hay comentarios aún.
-                    </Typography>
-                )}
-                {comentarios.map((c) => (
-                    <Box
-                        key={c.id}
-                        sx={{
-                            display: 'flex',
-                            alignItems: 'flex-start',
-                            mb: 2,
-                            bgcolor: 'action.hover',
-                            p: 1.5,
-                            borderRadius: 2,
-                        }}
-                    >
-                        <Avatar sx={{ bgcolor: 'primary.main', mr: 1 }}>
-                            {c.usuario?.nombre ? c.usuario.nombre.charAt(0).toUpperCase() : '?'}
-                        </Avatar>
-                        <Box sx={{ flex: 1 }}>
-                            <Typography variant="subtitle2">
-                                {c.usuario?.nombre || 'Usuario'}{' '}
-                                <Typography component="span" variant="caption" color="text.secondary">
-                                    {new Date(c.fecha).toLocaleString()}
+                {comentarios.length === 0 ? (
+                    <EmptyState
+                        icon={<CommentIcon />}
+                        title="Sin comentarios"
+                        description="No hay comentarios registrados para este deudor."
+                    />
+                ) : (
+                    comentarios.map((c) => (
+                        <Box
+                            key={c.id}
+                            sx={{
+                                display: 'flex',
+                                alignItems: 'flex-start',
+                                mb: 2,
+                                bgcolor: 'action.hover',
+                                p: 1.5,
+                                borderRadius: 2,
+                            }}
+                        >
+                            <Avatar sx={{ bgcolor: 'primary.main', mr: 1 }}>
+                                {c.usuario?.nombre ? c.usuario.nombre.charAt(0).toUpperCase() : '?'}
+                            </Avatar>
+                            <Box sx={{ flex: 1 }}>
+                                <Typography variant="subtitle2">
+                                    {c.usuario?.nombre || 'Usuario'}{' '}
+                                    <Typography component="span" variant="caption" color="text.secondary">
+                                        {new Date(c.fecha).toLocaleString()}
+                                    </Typography>
                                 </Typography>
-                            </Typography>
-                            <Typography variant="body2">{c.texto}</Typography>
+                                <Typography variant="body2">{c.texto}</Typography>
+                            </Box>
                         </Box>
-                    </Box>
-                ))}
+                    ))
+                )}
                 <div ref={bottomRef} />
             </Box>
 
@@ -127,18 +128,16 @@ const ComentariosPanel: React.FC<ComentariosProps> = ({
                     mt: 1,
                     p: 1.5,
                     borderRadius: 3,
-                    bgcolor: (theme) =>
-                        theme.palette.mode === 'dark' ? 'background.paper' : 'grey.50',
-                    border: (theme) =>
-                        `1px solid ${theme.palette.divider}`,
+                    bgcolor: 'background.paper',
+                    border: (t) => `1px solid ${t.palette.divider}`,
                 }}
             >
                 <TextField
                     placeholder="Escribí un comentario..."
                     multiline
                     fullWidth
-                    minRows={3}       // 👈 altura inicial mayor
-                    maxRows={8}       // 👈 expansión suave
+                    minRows={3}
+                    maxRows={8}
                     variant="outlined"
                     value={nuevoComentario}
                     onChange={(e) => setNuevoComentario(e.target.value)}
@@ -146,7 +145,7 @@ const ComentariosPanel: React.FC<ComentariosProps> = ({
                     disabled={sending}
                     InputProps={{
                         sx: {
-                            backgroundColor: 'background.paper',
+                            bgcolor: 'background.paper',
                             borderRadius: 2,
                             '& .MuiInputBase-input': {
                                 fontSize: 15,
@@ -172,8 +171,8 @@ const ComentariosPanel: React.FC<ComentariosProps> = ({
                     </IconButton>
                 </Box>
             </Box>
-        </Paper>
-    );
-};
+        </SectionCard>
+    )
+}
 
-export default ComentariosPanel;
+export default ComentariosPanel
