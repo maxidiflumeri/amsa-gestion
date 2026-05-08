@@ -2,22 +2,34 @@ export type ColumnaV2 = {
   id: string
   path: string
   label: string
-  tipo?: 'texto' | 'numero' | 'fecha' | 'boolean' | 'moneda'
+  tipo?: 'texto' | 'numero' | 'fecha' | 'boolean' | 'moneda' | 'telefono'
   formato?: string
   ancho?: number
   cardinalidad?: 'expandir' | 'concatenar' | 'primero' | 'ultimo'
   separadorConcat?: string
+  formatoTelefonoId?: number
+}
+
+export type FormatoTelefonoV2 = {
+  id: number
+  nombre: string
+  descripcion?: string
+  patron: string
+  activo: boolean
 }
 
 export type FiltroV2 = {
   id: string
   path: string
   operador: 'eq' | 'neq' | 'in' | 'notIn' | 'contains' | 'startsWith' | 'endsWith' |
-            'gt' | 'gte' | 'lt' | 'lte' | 'between' | 'isNull' | 'isNotNull' | 'rangoClaves'
+            'gt' | 'gte' | 'lt' | 'lte' | 'between' | 'notBetween' | 'isNull' | 'isNotNull' | 'rangoClaves'
   valor?: any
   variable?: boolean
   labelVariable?: string
   valorPorDefecto?: any
+  obligatorio?: boolean
+  tipoEscalar?: string
+  enumValues?: string[]
 }
 
 export type OrdenamientoV2 = {

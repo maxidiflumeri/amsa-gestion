@@ -8,12 +8,17 @@ type VariableInputProps = {
 }
 
 const VariableInput = ({ filtro, value, onChange }: VariableInputProps) => {
+  const baseLabel = filtro.labelVariable || filtro.path
+  const label = filtro.obligatorio ? `${baseLabel} *` : `${baseLabel} (opcional)`
   return (
     <FilterValueInput
       operador={filtro.operador}
+      tipoEscalar={filtro.tipoEscalar}
+      enumValues={filtro.enumValues}
+      path={filtro.path}
       value={value}
       onChange={onChange}
-      label={filtro.labelVariable || filtro.path}
+      label={label}
     />
   )
 }

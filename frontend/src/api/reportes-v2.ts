@@ -1,5 +1,5 @@
 import api from './axios'
-import { PlantillaV2, NodoCatalogo, DefinicionV2 } from '../types/reportes-v2'
+import { PlantillaV2, NodoCatalogo, DefinicionV2, FormatoTelefonoV2 } from '../types/reportes-v2'
 
 export type EstimacionV2 = {
   totalEstimado: number
@@ -63,6 +63,11 @@ export const reportesV2Api = {
   catalogo: (raiz = 'deudor', depth = 3) =>
     api.get<NodoCatalogo[]>(`/reportes/v2/catalogo?raiz=${raiz}&depth=${depth}`),
 
+  camposAdicionalesKeys: (empresaId?: number) =>
+    api.get<{ keys: string[] }>(
+      `/reportes/v2/catalogo/campos-adicionales${empresaId ? `?empresaId=${empresaId}` : ''}`,
+    ),
+
   listarPlantillas: (empresaId?: number) =>
     api.get<PlantillaV2[]>(
       `/reportes/v2/plantillas${empresaId ? `?empresaId=${empresaId}` : ''}`,
@@ -117,4 +122,10 @@ export const reportesV2Api = {
 
   eliminarEjecucion: (id: number) =>
     api.delete(`/reportes/v2/ejecuciones/${id}`),
+
+  formatosTelefono: () =>
+    api.get<FormatoTelefonoV2[]>('/reportes/formatos-tel'),
+
+  crearFormatoTelefono: (data: { nombre: string; descripcion?: string; patron: string }) =>
+    api.post<FormatoTelefonoV2>('/reportes/formatos-tel', data),
 }

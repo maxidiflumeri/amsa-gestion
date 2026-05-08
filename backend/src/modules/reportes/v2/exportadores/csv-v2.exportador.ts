@@ -62,6 +62,10 @@ export class CsvV2Exportador {
       return (filas as FilaConSubtotales[]).map(f => {
         if (f.tipo === 'dato') {
           return f.datos;
+        } else if (f.tipo === 'cabecera') {
+          const row: Record<string, any> = { [columnas[0]]: f.grupoLabel || '' };
+          columnas.slice(1).forEach(col => { row[col] = ''; });
+          return row;
         } else if (f.tipo === 'subtotal' || f.tipo === 'total') {
           const row: Record<string, any> = { [columnas[0]]: f.grupoLabel || 'Total' };
           columnas.slice(1).forEach(col => {

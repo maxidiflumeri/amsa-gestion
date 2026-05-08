@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Box, Button, Typography, Paper, useTheme } from '@mui/material'
+import { Box, Button, Typography, Paper, useTheme, Alert, Collapse, Link } from '@mui/material'
 import AddIcon from '@mui/icons-material/Add'
 import { DndContext, closestCenter, DragEndEvent } from '@dnd-kit/core'
 import { SortableContext, verticalListSortingStrategy, arrayMove } from '@dnd-kit/sortable'
@@ -10,13 +10,15 @@ import FilterEditor from './FilterEditor'
 type FilterBuilderProps = {
   filtros: FiltroV2[]
   catalogo: NodoCatalogo[]
+  empresaId?: number | null
   onChange: (filtros: FiltroV2[]) => void
 }
 
-const FilterBuilder = ({ filtros, catalogo, onChange }: FilterBuilderProps) => {
+const FilterBuilder = ({ filtros, catalogo, empresaId, onChange }: FilterBuilderProps) => {
   const theme = useTheme()
   const [editorOpen, setEditorOpen] = useState(false)
   const [editingFiltro, setEditingFiltro] = useState<FiltroV2 | null>(null)
+  const [helpOpen, setHelpOpen] = useState(false)
 
   const handleAddClick = () => {
     setEditingFiltro(null)
@@ -71,6 +73,27 @@ const FilterBuilder = ({ filtros, catalogo, onChange }: FilterBuilderProps) => {
         </Button>
       </Box>
 
+      <Alert severity="info" sx={{ mb: 2 }}>
+        <Typography variant="body2">
+          Los filtros restringen qué datos aparecen en el reporte (ej: solo deudores activos, vencimientos entre dos fechas).{' '}
+          <Link component="button" type="button" onClick={() => setHelpOpen(o => !o)} sx={{ verticalAlign: 'baseline' }}>
+            {helpOpen ? 'Ocultar ejemplos' : 'Ver ejemplos'}
+          </Link>
+        </Typography>
+        <Collapse in={helpOpen}>
+          <Box sx={{ mt: 1.5, fontSize: 13, lineHeight: 1.6 }}>
+            <Box><b>Fijo vs Variable:</b></Box>
+            <Box>• <b>Fijo</b>: el valor se guarda en la plantilla. Útil cuando el filtro siempre vale lo mismo (ej: empresa = ACME).</Box>
+            <Box>• <b>Variable</b>: el usuario completa el valor al ejecutar. Útil para reportes parametrizables (ej: "fecha desde / hasta").</Box>
+            <Box sx={{ mt: 1 }}><b>Ejemplos:</b></Box>
+            <Box>• Estado situación = "Activo" — sólo deudores activos.</Box>
+            <Box>• Monto Total ≥ 100.000 — sólo deudas grandes.</Box>
+            <Box>• Fecha vencimiento entre [variable] y [variable] — el usuario elige el rango al ejecutar.</Box>
+            <Box sx={{ mt: 1 }}>Si definís varios filtros, se aplican <b>todos juntos</b> (AND). Para combinaciones OR, usá el operador <code>in</code>.</Box>
+          </Box>
+        </Collapse>
+      </Alert>
+
       {filtros.length === 0 ? (
         <Box
           sx={{
@@ -109,6 +132,7 @@ const FilterBuilder = ({ filtros, catalogo, onChange }: FilterBuilderProps) => {
         open={editorOpen}
         filtro={editingFiltro}
         catalogo={catalogo}
+        empresaId={empresaId}
         onSave={handleSave}
         onDelete={editingFiltro ? handleDelete : undefined}
         onClose={() => setEditorOpen(false)}

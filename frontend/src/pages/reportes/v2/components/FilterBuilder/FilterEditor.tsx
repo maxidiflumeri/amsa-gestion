@@ -16,16 +16,39 @@ import FilterPathSelector from './FilterPathSelector'
 import FilterOperatorSelector from './FilterOperatorSelector'
 import FilterValueInput from './FilterValueInput'
 
+const findInCatalogo = (
+  nodos: NodoCatalogo[],
+  targetPath: string,
+  parentPath = '',
+): { tipoEscalar?: string; enumValues?: string[] } | null => {
+  for (const nodo of nodos) {
+    const currentPath = parentPath ? `${parentPath}.${nodo.nombre}` : nodo.nombre
+    if (currentPath === targetPath) {
+      return { tipoEscalar: nodo.tipoEscalar, enumValues: nodo.enumValues }
+    }
+    if (nodo.hijos) {
+      const found = findInCatalogo(nodo.hijos, targetPath, currentPath)
+      if (found) return found
+    }
+  }
+  // Match [count] paths
+  if (targetPath.endsWith('[count]')) {
+    return { tipoEscalar: 'numero' }
+  }
+  return null
+}
+
 type FilterEditorProps = {
   open: boolean
   filtro: FiltroV2 | null
   catalogo: NodoCatalogo[]
+  empresaId?: number | null
   onSave: (filtro: FiltroV2) => void
   onDelete?: () => void
   onClose: () => void
 }
 
-const FilterEditor = ({ open, filtro, catalogo, onSave, onDelete, onClose }: FilterEditorProps) => {
+const FilterEditor = ({ open, filtro, catalogo, empresaId, onSave, onDelete, onClose }: FilterEditorProps) => {
   const [path, setPath] = useState('')
   const [tipoEscalar, setTipoEscalar] = useState<string | undefined>()
   const [enumValues, setEnumValues] = useState<string[] | undefined>()
@@ -34,15 +57,28 @@ const FilterEditor = ({ open, filtro, catalogo, onSave, onDelete, onClose }: Fil
   const [variable, setVariable] = useState(false)
   const [labelVariable, setLabelVariable] = useState('')
   const [valorPorDefecto, setValorPorDefecto] = useState<any>(undefined)
+  const [obligatorio, setObligatorio] = useState(false)
 
   useEffect(() => {
     if (filtro) {
       setPath(filtro.path)
+      let resolvedTipo = filtro.tipoEscalar
+      let resolvedEnum = filtro.enumValues
+      if (!resolvedTipo && filtro.path) {
+        const fromCat = findInCatalogo(catalogo, filtro.path)
+        if (fromCat) {
+          resolvedTipo = fromCat.tipoEscalar
+          resolvedEnum = fromCat.enumValues
+        }
+      }
+      setTipoEscalar(resolvedTipo)
+      setEnumValues(resolvedEnum)
       setOperador(filtro.operador)
       setValor(filtro.valor)
       setVariable(filtro.variable || false)
       setLabelVariable(filtro.labelVariable || '')
       setValorPorDefecto(filtro.valorPorDefecto)
+      setObligatorio(filtro.obligatorio || false)
     } else {
       setPath('')
       setTipoEscalar(undefined)
@@ -52,6 +88,7 @@ const FilterEditor = ({ open, filtro, catalogo, onSave, onDelete, onClose }: Fil
       setVariable(false)
       setLabelVariable('')
       setValorPorDefecto(undefined)
+      setObligatorio(false)
     }
   }, [filtro, open])
 
@@ -80,6 +117,9 @@ const FilterEditor = ({ open, filtro, catalogo, onSave, onDelete, onClose }: Fil
       variable,
       labelVariable: variable ? labelVariable : undefined,
       valorPorDefecto: variable ? valorPorDefecto : undefined,
+      obligatorio: variable ? obligatorio : undefined,
+      tipoEscalar,
+      enumValues,
     }
 
     onSave(newFiltro)
@@ -96,6 +136,7 @@ const FilterEditor = ({ open, filtro, catalogo, onSave, onDelete, onClose }: Fil
         <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2, pt: 1 }}>
           <FilterPathSelector
             catalogo={catalogo}
+            empresaId={empresaId}
             value={path}
             onChange={handlePathChange}
           />
@@ -130,10 +171,20 @@ const FilterEditor = ({ open, filtro, catalogo, onSave, onDelete, onClose }: Fil
                     required
                     helperText="Texto que verá el usuario al ejecutar el reporte"
                   />
+                  <FormControlLabel
+                    control={
+                      <Switch
+                        checked={obligatorio}
+                        onChange={e => setObligatorio(e.target.checked)}
+                      />
+                    }
+                    label="Obligatorio al ejecutar"
+                  />
                   <FilterValueInput
                     operador={operador}
                     tipoEscalar={tipoEscalar}
                     enumValues={enumValues}
+                    path={path}
                     value={valorPorDefecto}
                     onChange={setValorPorDefecto}
                     label="Valor por defecto (opcional)"
@@ -144,6 +195,7 @@ const FilterEditor = ({ open, filtro, catalogo, onSave, onDelete, onClose }: Fil
                   operador={operador}
                   tipoEscalar={tipoEscalar}
                   enumValues={enumValues}
+                  path={path}
                   value={valor}
                   onChange={setValor}
                 />

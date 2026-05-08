@@ -16,6 +16,9 @@ import {
   InputLabel,
   Chip,
   Stack,
+  Alert,
+  Collapse,
+  Link,
 } from '@mui/material'
 import DeleteIcon from '@mui/icons-material/Delete'
 import AddIcon from '@mui/icons-material/Add'
@@ -36,6 +39,8 @@ export default function GroupingBuilder({
   onChange,
 }: GroupingBuilderProps) {
   const [selectedAgrupacion, setSelectedAgrupacion] = useState<string | null>(null)
+  const [helpAgrupOpen, setHelpAgrupOpen] = useState(false)
+  const [helpTotalOpen, setHelpTotalOpen] = useState(false)
 
   const handleAddAgrupacion = () => {
     if (columnas.length === 0) return
@@ -99,6 +104,24 @@ export default function GroupingBuilder({
             Agregar
           </Button>
         </Box>
+
+        <Alert severity="info" sx={{ mb: 2 }}>
+          <Typography variant="body2">
+            Agrupan filas que comparten un mismo valor (ej: por empresa, por estado).{' '}
+            <Link component="button" type="button" onClick={() => setHelpAgrupOpen(o => !o)} sx={{ verticalAlign: 'baseline' }}>
+              {helpAgrupOpen ? 'Ocultar ejemplos' : 'Ver ejemplos'}
+            </Link>
+          </Typography>
+          <Collapse in={helpAgrupOpen}>
+            <Box sx={{ mt: 1.5, fontSize: 13, lineHeight: 1.6 }}>
+              <Box>• Cada nivel agrega un encabezado de grupo en el reporte.</Box>
+              <Box>• Si activás <b>"Mostrar subtotales"</b>, se calcula un total por grupo (usando los totales definidos al lado).</Box>
+              <Box>• <b>"Salto de página (PDF)"</b> empieza cada grupo en una página nueva al exportar.</Box>
+              <Box sx={{ mt: 1 }}><b>Ejemplo:</b> agrupar por <i>Empresa</i> → el reporte muestra un bloque por empresa con sus deudores y, si tildás subtotales, una fila "Total ACME" debajo.</Box>
+              <Box sx={{ mt: 1 }}>Podés anidar varios niveles: <i>Empresa → Estado situación</i> agrupa primero por empresa y dentro de cada empresa, por estado.</Box>
+            </Box>
+          </Collapse>
+        </Alert>
 
         {agrupaciones.length === 0 ? (
           <Typography variant="body2" color="text.secondary">
@@ -174,6 +197,25 @@ export default function GroupingBuilder({
             Agregar
           </Button>
         </Box>
+
+        <Alert severity="info" sx={{ mb: 2 }}>
+          <Typography variant="body2">
+            Calculan un valor agregado al pie del reporte (suma, promedio, mínimo, máximo, cantidad).{' '}
+            <Link component="button" type="button" onClick={() => setHelpTotalOpen(o => !o)} sx={{ verticalAlign: 'baseline' }}>
+              {helpTotalOpen ? 'Ocultar ejemplos' : 'Ver ejemplos'}
+            </Link>
+          </Typography>
+          <Collapse in={helpTotalOpen}>
+            <Box sx={{ mt: 1.5, fontSize: 13, lineHeight: 1.6 }}>
+              <Box>• <b>Suma</b>: total acumulado de la columna (ej: total adeudado).</Box>
+              <Box>• <b>Promedio</b>: valor medio de la columna.</Box>
+              <Box>• <b>Cantidad</b>: cuántas filas hay (no necesita columna numérica).</Box>
+              <Box>• <b>Mínimo / Máximo</b>: el menor o mayor valor de la columna.</Box>
+              <Box sx={{ mt: 1 }}><b>Ejemplo:</b> Suma de <i>Monto Total</i> → fila final "Total: $1.250.000".</Box>
+              <Box sx={{ mt: 1 }}>Si tenés <b>agrupaciones con subtotales</b>, estos totales se calculan también por cada grupo.</Box>
+            </Box>
+          </Collapse>
+        </Alert>
 
         {totales.length === 0 ? (
           <Typography variant="body2" color="text.secondary">

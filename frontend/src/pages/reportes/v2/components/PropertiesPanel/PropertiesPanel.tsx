@@ -1,6 +1,8 @@
+import { useEffect, useState } from 'react'
 import { Box, Paper, Typography, TextField, MenuItem, Stack } from '@mui/material'
 import SettingsIcon from '@mui/icons-material/Settings'
-import { ColumnaV2 } from '../../../../../types/reportes-v2'
+import { ColumnaV2, FormatoTelefonoV2 } from '../../../../../types/reportes-v2'
+import { reportesV2Api } from '../../../../../api/reportes-v2'
 import CardinalitySelector from './CardinalitySelector'
 
 type PropertiesPanelProps = {
@@ -9,6 +11,17 @@ type PropertiesPanelProps = {
 }
 
 const PropertiesPanel = ({ columna, onColumnChange }: PropertiesPanelProps) => {
+  const [formatosTelefono, setFormatosTelefono] = useState<FormatoTelefonoV2[]>([])
+
+  useEffect(() => {
+    if (columna?.tipo === 'telefono' && formatosTelefono.length === 0) {
+      reportesV2Api
+        .formatosTelefono()
+        .then(res => setFormatosTelefono(res.data.filter(f => f.activo !== false)))
+        .catch(() => setFormatosTelefono([]))
+    }
+  }, [columna?.tipo])
+
   if (!columna) {
     return (
       <Paper sx={{ p: 3, height: '100%', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center' }}>
@@ -64,7 +77,37 @@ const PropertiesPanel = ({ columna, onColumnChange }: PropertiesPanelProps) => {
             <MenuItem value="fecha">Fecha</MenuItem>
             <MenuItem value="boolean">Booleano</MenuItem>
             <MenuItem value="moneda">Moneda</MenuItem>
+            <MenuItem value="telefono">Teléfono</MenuItem>
           </TextField>
+
+          {columna.tipo === 'telefono' && (
+            <TextField
+              select
+              label="Formato de teléfono"
+              fullWidth
+              value={columna.formatoTelefonoId ?? ''}
+              onChange={e =>
+                onColumnChange(
+                  'formatoTelefonoId',
+                  e.target.value === '' ? undefined : Number(e.target.value),
+                )
+              }
+              helperText={
+                formatosTelefono.length === 0
+                  ? 'No hay formatos cargados. Creá uno desde Reportes → Formatos.'
+                  : 'Patrón aplicado al número (usa {numero})'
+              }
+            >
+              <MenuItem value="">
+                <em>Sin formato (crudo)</em>
+              </MenuItem>
+              {formatosTelefono.map(f => (
+                <MenuItem key={f.id} value={f.id}>
+                  {f.nombre} — <code style={{ marginLeft: 4 }}>{f.patron}</code>
+                </MenuItem>
+              ))}
+            </TextField>
+          )}
 
           {showFormatoField && (
             <TextField

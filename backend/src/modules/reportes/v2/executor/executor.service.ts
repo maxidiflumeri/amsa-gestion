@@ -38,7 +38,7 @@ export class ExecutorService {
 
     this.validateDefinicion(definicion);
 
-    const plan = this.queryPlanner.planQuery(definicion, filtrosVars);
+    const plan = this.queryPlanner.planQuery(definicion, filtrosVars, preview);
 
     const queryOptions: any = {
       where: plan.where,
@@ -73,12 +73,31 @@ export class ExecutorService {
       this.logger.log(`Post-procesamiento de filtros aplicado. Filas resultantes: ${rawData.length}`);
     }
 
+    const formatoTelefonoIds = Array.from(
+      new Set(
+        definicion.columnas
+          .map(c => c.formatoTelefonoId)
+          .filter((v): v is number => typeof v === 'number'),
+      ),
+    );
+    const formatosTelefono = formatoTelefonoIds.length
+      ? await this.prisma.formato_telefono.findMany({
+          where: { id: { in: formatoTelefonoIds } },
+        })
+      : [];
+    const formatoTelefonoMap = new Map<number, string>(
+      formatosTelefono.map(f => [f.id, f.patron]),
+    );
+
     const parsedColumns = definicion.columnas.map(col => ({
       path: this.parser.parse(col.path),
       label: col.label,
       tipo: col.tipo,
-      formato: col.formato,
-      cardinalidad: col.cardinalidad,
+      formato:
+        col.tipo === 'telefono' && col.formatoTelefonoId
+          ? formatoTelefonoMap.get(col.formatoTelefonoId) || col.formato
+          : col.formato,
+      cardinalidad: col.cardinalidad || definicion.cardinalidadDefault || 'primero',
       separadorConcat: col.separadorConcat,
     }));
 
@@ -108,11 +127,14 @@ export class ExecutorService {
     let resultado: Record<string, any>[] | FilaConSubtotales[] = filasFormateadas;
 
     if (definicion.agrupaciones && definicion.agrupaciones.length > 0 || definicion.totales && definicion.totales.length > 0) {
+      const pathToLabel: Record<string, string> = {};
+      for (const c of definicion.columnas) pathToLabel[c.path] = c.label;
       resultado = this.groupingService.aplicarAgrupacionYTotales(
         filasFormateadas,
         definicion.agrupaciones || [],
         definicion.totales || [],
         definicion.columnas.map(c => c.label),
+        pathToLabel,
       );
       this.logger.log(`Agrupaciones/totales aplicadas. Filas con subtotales: ${resultado.length}`);
     }

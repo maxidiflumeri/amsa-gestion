@@ -52,6 +52,15 @@ const ExecutionForm = ({ plantillaId, filtrosVariables }: ExecutionFormProps) =>
     setValores((prev) => ({ ...prev, [filtroId]: value }))
   }
 
+  const isVacio = (v: any): boolean => {
+    if (v === undefined || v === null || v === '') return true
+    if (Array.isArray(v)) {
+      if (v.length === 0) return true
+      return v.every(x => x === undefined || x === null || x === '')
+    }
+    return false
+  }
+
   const buildFiltrosVars = (): Record<string, any> | null => {
     const filtrosVars: Record<string, any> = {}
 
@@ -60,17 +69,18 @@ const ExecutionForm = ({ plantillaId, filtrosVariables }: ExecutionFormProps) =>
       const requiresValue =
         filtro.operador !== 'isNull' && filtro.operador !== 'isNotNull'
 
-      if (requiresValue && filtro.valorPorDefecto === undefined) {
-        if (
-          valor === undefined ||
-          valor === '' ||
-          (Array.isArray(valor) && valor.length === 0)
-        ) {
-          return null
-        }
+      if (
+        filtro.obligatorio &&
+        requiresValue &&
+        filtro.valorPorDefecto === undefined &&
+        isVacio(valor)
+      ) {
+        return null
       }
 
-      filtrosVars[filtro.id] = valor
+      if (!isVacio(valor)) {
+        filtrosVars[filtro.id] = valor
+      }
     }
 
     return filtrosVars
@@ -110,14 +120,10 @@ const ExecutionForm = ({ plantillaId, filtrosVariables }: ExecutionFormProps) =>
     const requiresValue =
       filtro.operador !== 'isNull' && filtro.operador !== 'isNotNull'
     if (!requiresValue) return true
+    if (!filtro.obligatorio) return true
     if (filtro.valorPorDefecto !== undefined) return true
 
-    const valor = valores[filtro.id]
-    return (
-      valor !== undefined &&
-      valor !== '' &&
-      (!Array.isArray(valor) || valor.length > 0)
-    )
+    return !isVacio(valores[filtro.id])
   })
 
   const busy = executing || estimating

@@ -120,6 +120,26 @@ describe('CardinalityResolver', () => {
       expect(resultado[3]).toMatchObject({ emails: 'email2', telefonos: 'tel2' });
     });
 
+    it('debe zippear (no cartesiano) columnas con el mismo prefijo de path', () => {
+      const filas = [
+        {
+          nombre: 'Juan',
+          tipo: ['email', 'email', 'telefono'],
+          valor: ['a@x.com', 'b@x.com', '555'],
+        },
+      ];
+
+      const resultado = resolver.expandRows(filas, [
+        { label: 'tipo', path: 'contactos.tipo' },
+        { label: 'valor', path: 'contactos.valor' },
+      ]);
+
+      expect(resultado).toHaveLength(3);
+      expect(resultado[0]).toMatchObject({ tipo: 'email', valor: 'a@x.com' });
+      expect(resultado[1]).toMatchObject({ tipo: 'email', valor: 'b@x.com' });
+      expect(resultado[2]).toMatchObject({ tipo: 'telefono', valor: '555' });
+    });
+
     it('debe manejar valores null en expansión', () => {
       const filas = [
         {

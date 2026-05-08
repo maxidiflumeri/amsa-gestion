@@ -174,8 +174,8 @@ const ReportesV2Home = () => {
                         <>
                           <IconButton
                             size="small"
-                            disabled
-                            title="Disponible en Fase 4"
+                            onClick={() => navigate(`/reportes/v2/${plantilla.id}/ejecutar`)}
+                            title="Ejecutar"
                           >
                             <PlayArrowIcon fontSize="small" />
                           </IconButton>

@@ -3,6 +3,22 @@ import { PrismaClient } from '@prisma/client';
 const prisma = new PrismaClient();
 
 async function main() {
+    // Usuario "system" id=1 (placeholder hasta que se implemente JWT auth real).
+    // Necesario porque ejecucion_reporte_v2.usuarioId tiene FK a usuario.
+    const usuarioSystem = await prisma.usuario.upsert({
+        where: { id: 1 },
+        update: {},
+        create: {
+            id: 1,
+            googleId: 'system',
+            nombre: 'System',
+            email: 'system@local',
+            rol: 'admin',
+            updatedAt: new Date(),
+        },
+    });
+    console.log(`✅ Usuario: ${usuarioSystem.email} (id=${usuarioSystem.id})`);
+
     // Empresa "Personal" (ya te funcionó – lo dejo igual)
     const empresa = await prisma.empresa.upsert({
         where: { nombre: 'Personal' },

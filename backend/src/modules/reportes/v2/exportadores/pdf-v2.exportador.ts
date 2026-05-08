@@ -1,8 +1,11 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { TDocumentDefinitions, Content } from 'pdfmake/interfaces';
 import { FilaConSubtotales } from '../executor/grouping.service';
+import * as path from 'path';
 
 const PdfPrinter = require('pdfmake');
+
+const fontsDir = path.dirname(require.resolve('pdfmake/build/fonts/Roboto/Roboto-Regular.ttf'));
 
 export interface OpcionesPdf {
   landscape?: boolean;
@@ -24,10 +27,10 @@ export class PdfV2Exportador {
 
   private fonts = {
     Roboto: {
-      normal: require('pdfmake/build/vfs_fonts.js').pdfMake.vfs,
-      bold: require('pdfmake/build/vfs_fonts.js').pdfMake.vfs,
-      italics: require('pdfmake/build/vfs_fonts.js').pdfMake.vfs,
-      bolditalics: require('pdfmake/build/vfs_fonts.js').pdfMake.vfs,
+      normal: path.join(fontsDir, 'Roboto-Regular.ttf'),
+      bold: path.join(fontsDir, 'Roboto-Medium.ttf'),
+      italics: path.join(fontsDir, 'Roboto-Italic.ttf'),
+      bolditalics: path.join(fontsDir, 'Roboto-MediumItalic.ttf'),
     },
   };
 
@@ -199,6 +202,18 @@ export class PdfV2Exportador {
         const row = columnas.map(col => ({
           text: String(fila.datos[col] ?? ''),
         }));
+        tableBody.push(row);
+      } else if (fila.tipo === 'cabecera') {
+        const row = [
+          {
+            text: fila.grupoLabel || '',
+            bold: true,
+            color: '#1565C0',
+            fillColor: '#E3F2FD',
+            colSpan: columnas.length,
+          },
+          ...Array(columnas.length - 1).fill({}),
+        ];
         tableBody.push(row);
       } else if (fila.tipo === 'subtotal') {
         const row = [

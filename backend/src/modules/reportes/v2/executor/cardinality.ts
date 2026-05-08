@@ -85,47 +85,48 @@ export class CardinalityResolver {
   }
 
   private expandSingleRow(fila: any, columnasExpandir: Array<{ label: string; path: string }>): any[] {
-    // Para cada columna con expandir, necesitamos el array de valores
-    // Si una columna tiene múltiples valores, duplicamos la fila
-    // Si múltiples columnas tienen expandir, producto cartesiano
+    // Columnas con el mismo prefijo de path (ej: contactos.tipo + contactos.valor)
+    // se "zippean" por índice (mismo registro de la relación 1-N).
+    // Columnas con prefijos distintos hacen producto cartesiano.
 
-    const columnaArrays: Array<{ label: string; valores: any[] }> = [];
+    const valoresDe = (label: string): any[] => {
+      const v = fila[label];
+      if (Array.isArray(v)) return v.length > 0 ? v : [null];
+      if (v !== null && v !== undefined) return [v];
+      return [null];
+    };
 
-    for (const columna of columnasExpandir) {
-      const valor = fila[columna.label];
-
-      // Si el valor ya es array (porque el resolver devolvió el array completo), usarlo
-      // Si está vacío, usar [null] para que genere una fila con valor null
-      // Si no, envolver en array
-      let valores: any[];
-
-      if (Array.isArray(valor)) {
-        valores = valor.length > 0 ? valor : [null];
-      } else if (valor !== null && valor !== undefined) {
-        valores = [valor];
-      } else {
-        valores = [null];
-      }
-
-      columnaArrays.push({ label: columna.label, valores });
+    const grupos = new Map<string, Array<{ label: string; valores: any[] }>>();
+    for (const col of columnasExpandir) {
+      const idx = col.path.lastIndexOf('.');
+      const prefix = idx > 0 ? col.path.slice(0, idx) : col.path;
+      const arr = grupos.get(prefix) || [];
+      arr.push({ label: col.label, valores: valoresDe(col.label) });
+      grupos.set(prefix, arr);
     }
 
-    // Generar producto cartesiano
-    const resultado = this.cartesianProduct(columnaArrays);
-
-    // Crear filas expandidas
-    const filasExpandidas: any[] = [];
-
-    for (const combinacion of resultado) {
-      const nuevaFila = { ...fila };
-
-      for (const { label, valor } of combinacion) {
-        nuevaFila[label] = valor;
+    // Por cada grupo, zip por índice → array de combos parciales
+    const combosPorGrupo: Array<Array<Record<string, any>>> = [];
+    for (const cols of grupos.values()) {
+      const maxLen = Math.max(...cols.map(c => c.valores.length), 1);
+      const zipped: Array<Record<string, any>> = [];
+      for (let i = 0; i < maxLen; i++) {
+        const obj: Record<string, any> = {};
+        for (const c of cols) {
+          obj[c.label] = i < c.valores.length ? c.valores[i] : null;
+        }
+        zipped.push(obj);
       }
-
-      filasExpandidas.push(nuevaFila);
+      combosPorGrupo.push(zipped);
     }
 
+    // Producto cartesiano entre grupos
+    const cartesian = combosPorGrupo.reduce<Array<Record<string, any>>>(
+      (acc, group) => acc.flatMap(a => group.map(b => ({ ...a, ...b }))),
+      [{}],
+    );
+
+    const filasExpandidas = cartesian.map(c => ({ ...fila, ...c }));
     return filasExpandidas.length > 0 ? filasExpandidas : [fila];
   }
 

@@ -22,7 +22,10 @@ import {
   UpdatePlantillaV2Dto,
 } from './dto/plantilla-v2.dto';
 import { EjecutarV2Dto, PreviewV2Dto } from './dto/ejecutar-v2.dto';
-import { CatalogoQueryDto } from './dto/catalogo.dto';
+import {
+  CatalogoQueryDto,
+  CamposAdicionalesQueryDto,
+} from './dto/catalogo.dto';
 import {
   EstimarV2Dto,
   ListarEjecucionesQueryDto,
@@ -71,6 +74,19 @@ export class ReportesV2Controller {
     this.logger.log(`GET /reportes/v2/catalogo raiz=${raiz} depth=${depth}`);
 
     return this.catalogoService.getCatalogo(raiz, depth);
+  }
+
+  @Get('catalogo/campos-adicionales')
+  async getCamposAdicionalesKeys(
+    @Query() query: CamposAdicionalesQueryDto,
+  ) {
+    this.logger.log(
+      `GET /reportes/v2/catalogo/campos-adicionales empresaId=${query.empresaId ?? 'all'}`,
+    );
+    const keys = await this.catalogoService.getCamposAdicionalesKeys(
+      query.empresaId,
+    );
+    return { keys };
   }
 
   @Post('catalogo/invalidate-cache')

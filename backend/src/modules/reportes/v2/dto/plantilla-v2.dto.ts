@@ -24,7 +24,7 @@ export class ColumnaDto {
 
   @IsOptional()
   @IsString()
-  tipo?: 'texto' | 'numero' | 'fecha' | 'boolean' | 'moneda';
+  tipo?: 'texto' | 'numero' | 'fecha' | 'boolean' | 'moneda' | 'telefono';
 
   @IsOptional()
   @IsString()
@@ -41,6 +41,10 @@ export class ColumnaDto {
   @IsOptional()
   @IsString()
   separadorConcat?: string;
+
+  @IsOptional()
+  @IsInt()
+  formatoTelefonoId?: number;
 }
 
 export class FiltroDto {
@@ -66,6 +70,10 @@ export class FiltroDto {
 
   @IsOptional()
   valorPorDefecto?: any;
+
+  @IsOptional()
+  @IsBoolean()
+  obligatorio?: boolean;
 }
 
 export class OrdenamientoDto {

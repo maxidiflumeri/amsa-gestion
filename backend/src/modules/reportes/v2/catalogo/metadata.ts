@@ -1,5 +1,6 @@
 export const LABELS_CUSTOM: Record<string, string> = {
   // Deudor
+  'id': 'ID Deudor',
   'documento': 'DNI / Documento',
   'nombre': 'Nombre',
   'apellido': 'Apellido',
@@ -7,8 +8,21 @@ export const LABELS_CUSTOM: Record<string, string> = {
   'fechaVencimiento': 'Fecha de Vencimiento',
   'camposAdicionales': 'Campos Adicionales',
 
-  // Empresa
-  'empresa.nombre': 'Empresa',
+  // Relaciones top-level (label de la rama)
+  'empresa': 'Empresa',
+  'remesa': 'Remesa',
+  'estadoSituacion': 'Estado Situación',
+  'estadoGestion': 'Estado Gestión',
+  'motivoNoPago': 'Motivo No Pago',
+  'contactos': 'Contactos',
+  'pagos': 'Pagos',
+  'facturas': 'Facturas',
+  'comentarios': 'Comentarios',
+  'convenios': 'Convenios',
+  'convenios.cuotas': 'Cuotas de Convenio',
+
+  // Empresa (campos)
+  'empresa.nombre': 'Nombre Empresa',
   'empresa.cuit': 'CUIT Empresa',
 
   // Remesa
@@ -63,6 +77,26 @@ export const LABELS_CUSTOM: Record<string, string> = {
   'convenios.cuotas.fechaPago': 'Fecha Pago Cuota',
 };
 
+/**
+ * Modelos administrativos / técnicos que no deberían aparecer en el catálogo.
+ * Se aplica al field.type (nombre del modelo destino de una relación).
+ */
+export const MODELOS_OCULTOS = new Set<string>([
+  'empresa_parametro',
+  'plantillaimport',
+  'plantilla_reporte',
+  'plantilla_reporte_v2',
+  'ejecucion_reporte',
+  'ejecucion_reporte_v2',
+  'jobimport',
+  'importerror',
+  'transaccion',
+  'politica',
+  'formato_telefono',
+  'usuario',
+  'campoextra',
+]);
+
 export const CAMPOS_OCULTOS = new Set<string>([
   'id',
   'createdAt',
@@ -93,9 +127,9 @@ export const AGREGADORES_POR_TIPO: Record<string, string[]> = {
 };
 
 export const OPERADORES_POR_TIPO: Record<string, string[]> = {
-  'String': ['eq', 'neq', 'contains', 'startsWith', 'endsWith', 'in', 'notIn', 'isNull', 'isNotNull'],
-  'Int': ['eq', 'neq', 'gt', 'gte', 'lt', 'lte', 'between', 'in', 'notIn', 'isNull', 'isNotNull'],
-  'Float': ['eq', 'neq', 'gt', 'gte', 'lt', 'lte', 'between', 'in', 'notIn', 'isNull', 'isNotNull'],
-  'DateTime': ['eq', 'gt', 'gte', 'lt', 'lte', 'between', 'isNull', 'isNotNull'],
+  'String': ['eq', 'neq', 'contains', 'startsWith', 'endsWith', 'in', 'notIn', 'between', 'notBetween', 'isNull', 'isNotNull'],
+  'Int': ['eq', 'neq', 'gt', 'gte', 'lt', 'lte', 'between', 'notBetween', 'in', 'notIn', 'isNull', 'isNotNull'],
+  'Float': ['eq', 'neq', 'gt', 'gte', 'lt', 'lte', 'between', 'notBetween', 'in', 'notIn', 'isNull', 'isNotNull'],
+  'DateTime': ['eq', 'gt', 'gte', 'lt', 'lte', 'between', 'notBetween', 'isNull', 'isNotNull'],
   'Boolean': ['eq', 'isNull', 'isNotNull'],
 };

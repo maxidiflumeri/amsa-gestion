@@ -11,7 +11,21 @@ export class PathResolver {
    * Soporta: relaciones, agregadores, filtros, indexadores, acceso JSON.
    */
   resolve(fila: any, path: PathAST, cardinalidad?: 'expandir' | 'concatenar' | 'primero' | 'ultimo'): any {
-    let current = fila;
+    const card = cardinalidad || 'primero';
+    const value = this.resolveSegments(fila, path, card);
+
+    if (Array.isArray(value)) {
+      return this.collapseArray(value, { segments: [], raw: path.raw }, card);
+    }
+    return value;
+  }
+
+  private resolveSegments(
+    fila: any,
+    path: PathAST,
+    cardinalidad: 'expandir' | 'concatenar' | 'primero' | 'ultimo',
+  ): any {
+    let current: any = fila;
 
     for (let i = 0; i < path.segments.length; i++) {
       const segment = path.segments[i];
@@ -21,21 +35,49 @@ export class PathResolver {
         return null;
       }
 
-      // Acceso al campo/relación
+      if (Array.isArray(current)) {
+        const remaining: PathAST = { segments: path.segments.slice(i), raw: path.raw };
+        return this.collapseArray(current, remaining, cardinalidad);
+      }
+
       current = current[segment.name];
 
-      // Si no existe el campo, retornar null
       if (current === undefined) {
         return null;
       }
 
-      // Aplicar modificadores
       if (segment.modifiers.length > 0) {
         current = this.applyModifiers(current, segment.modifiers, isLastSegment, path.raw);
       }
     }
 
     return current;
+  }
+
+  private collapseArray(
+    arr: any[],
+    remaining: PathAST,
+    cardinalidad: 'expandir' | 'concatenar' | 'primero' | 'ultimo',
+  ): any {
+    const resolveItem = (item: any) =>
+      remaining.segments.length === 0 ? item : this.resolve(item, remaining, 'primero');
+
+    if (cardinalidad === 'primero') {
+      return arr.length > 0 ? resolveItem(arr[0]) : null;
+    }
+    if (cardinalidad === 'ultimo') {
+      return arr.length > 0 ? resolveItem(arr[arr.length - 1]) : null;
+    }
+    if (cardinalidad === 'concatenar') {
+      return arr
+        .map(resolveItem)
+        .filter(v => v !== null && v !== undefined && v !== '')
+        .join(', ');
+    }
+    if (cardinalidad === 'expandir') {
+      return arr.map(resolveItem);
+    }
+    return null;
   }
 
   private applyModifiers(value: any, modifiers: Selector[], isLastSegment: boolean, pathRaw: string): any {
@@ -168,7 +210,7 @@ export class PathResolver {
             raw: path.raw,
           };
 
-          const arrayValue = this.resolve(fila, partialPath);
+          const arrayValue = this.resolveSegments(fila, partialPath, 'primero');
 
           if (!Array.isArray(arrayValue)) {
             return null;

@@ -1,4 +1,5 @@
 import { Injectable, Logger, BadRequestException } from '@nestjs/common';
+import { Prisma } from '@prisma/client';
 import { PathParser } from '../parser/path-parser';
 import { IncludeBuilder } from './include-builder';
 import { PathAST } from '../parser/path-ast';
@@ -19,7 +20,11 @@ export class QueryPlanner {
   private parser = new PathParser();
   private includeBuilder = new IncludeBuilder();
 
-  planQuery(definicion: DefinicionPlantillaDto, filtrosVars?: Record<string, any>): QueryPlan {
+  planQuery(
+    definicion: DefinicionPlantillaDto,
+    filtrosVars?: Record<string, any>,
+    preview: boolean = false,
+  ): QueryPlan {
     this.logger.log('Planificando query para F2');
 
     const paths: PathAST[] = [];
@@ -56,11 +61,13 @@ export class QueryPlanner {
 
     const include = this.includeBuilder.buildInclude(paths);
 
-    const { where, postProcessingFilters } = this.buildWhere(definicion, filtrosVars);
+    const { where, postProcessingFilters } = this.buildWhere(definicion, filtrosVars, preview);
 
     if (postProcessingFilters.length > 0) {
       requiresPostProcessing = true;
     }
+
+    this.applyListFiltersToInclude(include, definicion, filtrosVars, preview);
 
     const plan: QueryPlan = {
       where,
@@ -83,6 +90,7 @@ export class QueryPlanner {
   private buildWhere(
     definicion: DefinicionPlantillaDto,
     filtrosVars?: Record<string, any>,
+    preview: boolean = false,
   ): { where: any; postProcessingFilters: Array<{ path: string; operador: string; valor: any }> } {
     if (!definicion.filtros || definicion.filtros.length === 0) {
       return { where: {}, postProcessingFilters: [] };
@@ -93,6 +101,8 @@ export class QueryPlanner {
 
     for (const filtro of definicion.filtros) {
       let valor = filtro.valor;
+      const sinValor =
+        filtro.operador !== 'isNull' && filtro.operador !== 'isNotNull';
 
       // Resolver variables
       if (filtro.variable) {
@@ -100,15 +110,24 @@ export class QueryPlanner {
           valor = filtrosVars[filtro.id] ?? filtrosVars[filtro.path];
         } else if (filtro.valorPorDefecto !== undefined) {
           valor = filtro.valorPorDefecto;
+        } else if (preview) {
+          continue;
+        } else if (filtro.obligatorio) {
+          throw new BadRequestException(
+            `Filtro variable "${filtro.labelVariable || filtro.id}" es requerido pero no se proporcionó valor`,
+          );
         } else {
-          // Variable requerida sin valor
+          continue;
+        }
+      }
+
+      // Saltar filtro si el valor está vacío
+      if (sinValor && this.esValorVacio(valor)) {
+        if (filtro.variable && filtro.obligatorio && !preview) {
           throw new BadRequestException(
             `Filtro variable "${filtro.labelVariable || filtro.id}" es requerido pero no se proporcionó valor`,
           );
         }
-      }
-
-      if (filtro.variable && valor === undefined) {
         continue;
       }
 
@@ -179,30 +198,168 @@ export class QueryPlanner {
 
     if (parts.length === 1) {
       // Campo escalar directo
-      return this.buildPrismaCondition(parts[0], operador, valor);
+      return this.buildPrismaCondition('deudor', parts[0], operador, valor);
     } else {
-      // Path relacional: empresa.nombre, estadoSituacion.clave
-      return this.buildNestedCondition(parts, operador, valor);
+      // Path relacional: empresa.nombre, estadoSituacion.clave, contactos.tipo
+      return this.buildNestedCondition(parts, operador, valor, 'deudor');
     }
   }
 
-  private buildNestedCondition(parts: string[], operador: string, valor: any): any {
+  private buildNestedCondition(
+    parts: string[],
+    operador: string,
+    valor: any,
+    modeloActual: string,
+  ): any {
     const [first, ...rest] = parts;
 
-    if (rest.length === 1) {
-      // Relación simple: empresa.nombre
-      return {
-        [first]: this.buildPrismaCondition(rest[0], operador, valor),
-      };
-    } else {
-      // Relación anidada: empresa.pais.nombre
-      return {
-        [first]: this.buildNestedCondition(rest, operador, valor),
-      };
+    const field = this.getRelationField(modeloActual, first);
+    const isList = field?.isList === true;
+    const tipoModelo = field?.type;
+
+    const inner =
+      rest.length === 1
+        ? this.buildPrismaCondition(tipoModelo || modeloActual, rest[0], operador, valor)
+        : tipoModelo
+          ? this.buildNestedCondition(rest, operador, valor, tipoModelo)
+          : null;
+
+    if (inner === null) {
+      return null;
+    }
+
+    if (isList) {
+      return { [first]: { some: inner } };
+    }
+
+    return { [first]: inner };
+  }
+
+  private applyListFiltersToInclude(
+    include: any,
+    definicion: DefinicionPlantillaDto,
+    filtrosVars?: Record<string, any>,
+    preview: boolean = false,
+  ): void {
+    if (!include || !definicion.filtros || definicion.filtros.length === 0) return;
+
+    for (const filtro of definicion.filtros) {
+      const parts = filtro.path.split('.');
+      if (parts.length < 2) continue;
+
+      const ast = this.parser.parse(filtro.path);
+      const hasModifiers = ast.segments.some(seg => seg.modifiers.length > 0);
+      if (hasModifiers) continue;
+
+      let valor = filtro.valor;
+      if (filtro.variable) {
+        if (filtrosVars && (filtrosVars[filtro.id] !== undefined || filtrosVars[filtro.path] !== undefined)) {
+          valor = filtrosVars[filtro.id] ?? filtrosVars[filtro.path];
+        } else if (filtro.valorPorDefecto !== undefined) {
+          valor = filtro.valorPorDefecto;
+        } else {
+          continue;
+        }
+      }
+      if (this.esValorVacio(valor)) continue;
+
+      this.injectListFilter(include, parts, 'deudor', filtro.operador, valor);
     }
   }
 
-  private buildPrismaCondition(field: string, operador: string, valor: any): any {
+  private injectListFilter(
+    includeNode: any,
+    parts: string[],
+    modeloActual: string,
+    operador: string,
+    valor: any,
+  ): void {
+    if (!includeNode || parts.length === 0) return;
+    const [first, ...rest] = parts;
+
+    const field = this.getRelationField(modeloActual, first);
+    if (!field || field.kind !== 'object') return;
+
+    const child = includeNode[first];
+    if (child === undefined) return;
+
+    let childObj: any;
+    if (child === true) {
+      childObj = {};
+      includeNode[first] = childObj;
+    } else if (typeof child === 'object') {
+      childObj = child;
+    } else {
+      return;
+    }
+
+    if (rest.length === 1) {
+      // Prisma sólo acepta `where` dentro de include para relaciones 1-N
+      if (!field.isList) return;
+      const cond = this.buildPrismaCondition(field.type, rest[0], operador, valor);
+      if (!cond) return;
+      childObj.where = childObj.where
+        ? { AND: [childObj.where, cond] }
+        : cond;
+      return;
+    }
+
+    if (childObj.include) {
+      this.injectListFilter(childObj.include, rest, field.type, operador, valor);
+    }
+  }
+
+  private esValorVacio(valor: any): boolean {
+    if (valor === undefined || valor === null || valor === '') return true;
+    if (Array.isArray(valor)) {
+      if (valor.length === 0) return true;
+      return valor.every(v => v === undefined || v === null || v === '');
+    }
+    return false;
+  }
+
+  private getRelationField(modelName: string, fieldName: string): any | null {
+    const modelo = (Prisma.dmmf.datamodel.models as any[]).find(
+      m => m.name.toLowerCase() === modelName.toLowerCase(),
+    );
+    if (!modelo) return null;
+    return modelo.fields.find((f: any) => f.name === fieldName) || null;
+  }
+
+  private coerceValor(modeloActual: string, fieldName: string, valor: any): any {
+    const field = this.getRelationField(modeloActual, fieldName);
+    if (!field || field.kind !== 'scalar') return valor;
+
+    const coerce = (v: any): any => {
+      if (v == null || v === '') return v;
+      if (field.type === 'Int' || field.type === 'BigInt') {
+        const n = typeof v === 'number' ? v : parseInt(String(v), 10);
+        return Number.isNaN(n) ? v : n;
+      }
+      if (field.type === 'Float' || field.type === 'Decimal') {
+        const n = typeof v === 'number' ? v : parseFloat(String(v));
+        return Number.isNaN(n) ? v : n;
+      }
+      if (field.type === 'DateTime') {
+        if (v instanceof Date) return v;
+        const d = new Date(v);
+        return Number.isNaN(d.getTime()) ? v : d;
+      }
+      if (field.type === 'Boolean') {
+        if (typeof v === 'boolean') return v;
+        if (v === 'true') return true;
+        if (v === 'false') return false;
+        return v;
+      }
+      return v;
+    };
+
+    if (Array.isArray(valor)) return valor.map(coerce);
+    return coerce(valor);
+  }
+
+  private buildPrismaCondition(modeloActual: string, field: string, operador: string, valorOriginal: any): any {
+    const valor = this.coerceValor(modeloActual, field, valorOriginal);
     switch (operador) {
       case 'eq':
         return { [field]: { equals: valor } };
@@ -217,13 +374,13 @@ export class QueryPlanner {
         return { [field]: { notIn: Array.isArray(valor) ? valor : [valor] } };
 
       case 'contains':
-        return { [field]: { contains: valor, mode: 'insensitive' } };
+        return { [field]: { contains: valor } };
 
       case 'startsWith':
-        return { [field]: { startsWith: valor, mode: 'insensitive' } };
+        return { [field]: { startsWith: valor } };
 
       case 'endsWith':
-        return { [field]: { endsWith: valor, mode: 'insensitive' } };
+        return { [field]: { endsWith: valor } };
 
       case 'gt':
         return { [field]: { gt: valor } };
@@ -242,6 +399,13 @@ export class QueryPlanner {
           return { [field]: { gte: valor[0], lte: valor[1] } };
         }
         this.logger.warn(`Operador "between" requiere array de 2 elementos, recibido: ${valor}`);
+        return null;
+
+      case 'notBetween':
+        if (Array.isArray(valor) && valor.length === 2) {
+          return { [field]: { not: { gte: valor[0], lte: valor[1] } } };
+        }
+        this.logger.warn(`Operador "notBetween" requiere array de 2 elementos, recibido: ${valor}`);
         return null;
 
       case 'isNull':

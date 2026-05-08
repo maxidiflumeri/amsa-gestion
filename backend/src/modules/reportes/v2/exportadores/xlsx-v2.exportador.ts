@@ -152,6 +152,15 @@ export class XlsxV2Exportador {
         columnas.forEach((col, idx) => {
           row.getCell(idx + 1).value = fila.datos[col] ?? '';
         });
+      } else if (fila.tipo === 'cabecera') {
+        row.getCell(1).value = fila.grupoLabel || '';
+        row.getCell(1).font = { bold: true, color: { argb: 'FF1565C0' } };
+        row.getCell(1).fill = {
+          type: 'pattern',
+          pattern: 'solid',
+          fgColor: { argb: 'FFE3F2FD' },
+        };
+        worksheet.mergeCells(currentRow - 1, 1, currentRow - 1, columnas.length);
       } else if (fila.tipo === 'subtotal') {
         row.getCell(1).value = fila.grupoLabel || 'Subtotal';
         row.getCell(1).font = { bold: true };

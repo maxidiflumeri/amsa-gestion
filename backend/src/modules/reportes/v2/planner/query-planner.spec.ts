@@ -35,7 +35,7 @@ describe('QueryPlanner', () => {
       });
     });
 
-    it('debe construir where para filtro contains (case-insensitive)', () => {
+    it('debe construir where para filtro contains', () => {
       const definicion: DefinicionPlantillaDto = {
         columnas: [{ id: 'c1', path: 'nombre', label: 'Nombre' }],
         filtros: [{ id: 'f1', path: 'nombre', operador: 'contains', valor: 'juan' }],
@@ -44,7 +44,7 @@ describe('QueryPlanner', () => {
       const plan = planner.planQuery(definicion);
 
       expect(plan.where).toEqual({
-        AND: [{ nombre: { contains: 'juan', mode: 'insensitive' } }],
+        AND: [{ nombre: { contains: 'juan' } }],
       });
     });
 

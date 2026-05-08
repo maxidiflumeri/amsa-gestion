@@ -15,6 +15,14 @@ export class CatalogoQueryDto {
   depth?: number;
 }
 
+export class CamposAdicionalesQueryDto {
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  @Type(() => Number)
+  empresaId?: number;
+}
+
 export interface NodoCatalogo {
   path: string;
   nombre: string;

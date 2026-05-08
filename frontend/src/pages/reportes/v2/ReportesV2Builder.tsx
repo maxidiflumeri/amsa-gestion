@@ -329,21 +329,46 @@ const ReportesV2Builder = () => {
         onAddColumn={handleAddColumn}
       >
         {({ isDragActive, selectedId, onSelectColumn }) => (
-          <Box>
+          <Box sx={{ display: 'flex', flexDirection: 'column', minHeight: 0 }}>
+            <Paper
+              elevation={2}
+              sx={{
+                position: 'sticky',
+                top: 0,
+                zIndex: 2,
+                mb: 2,
+                borderBottom: 1,
+                borderColor: 'divider',
+              }}
+            >
+              <Tabs
+                value={state.currentTab}
+                onChange={(_, val) => dispatch({ type: 'SET_TAB', tab: val })}
+                variant="scrollable"
+                scrollButtons="auto"
+              >
+                <Tab label="Columnas" />
+                <Tab label="Filtros" />
+                <Tab label="Agrupaciones y Totales" />
+                <Tab label="Preview" />
+              </Tabs>
+            </Paper>
+
             {state.currentTab === 0 && (
               <Grid container spacing={2} sx={{ mb: 2 }}>
                 <Grid item xs={12} md={3}>
-                  <Box sx={{ height: 600 }}>
+                  <Box sx={{ height: 'calc(100vh - 280px)', minHeight: 400 }}>
                     <FieldExplorer
                       catalogo={state.catalogo}
                       loading={state.catalogoLoading}
+                      empresaId={state.plantilla.empresaId}
                       onAddColumn={handleAddColumn}
                     />
                   </Box>
                 </Grid>
 
                 <Grid item xs={12} md={6}>
-                  <Box sx={{ height: 600 }}>
+                  <Box sx={{ height: 'calc(100vh - 280px)', minHeight: 400 }}>
                     <ColumnCanvas
                       columnas={state.plantilla.definicion?.columnas || []}
                       selectedId={selectedId}
@@ -355,7 +380,7 @@ const ReportesV2Builder = () => {
                 </Grid>
 
                 <Grid item xs={12} md={3}>
-                  <Box sx={{ height: 600 }}>
+                  <Box sx={{ height: 'calc(100vh - 280px)', minHeight: 400 }}>
                     <PropertiesPanel
                       columna={state.plantilla.definicion?.columnas.find(c => c.id === selectedId) || null}
                       onColumnChange={(field, value) => {
@@ -374,6 +399,7 @@ const ReportesV2Builder = () => {
                 <FilterBuilder
                   filtros={state.plantilla.definicion?.filtros || []}
                   catalogo={state.catalogo}
+                  empresaId={state.plantilla.empresaId}
                   onChange={handleFiltrosChange}
                 />
               </Box>
@@ -395,15 +421,6 @@ const ReportesV2Builder = () => {
                 <PreviewPanel definicion={state.plantilla.definicion!} />
               </Box>
             )}
-
-            <Paper sx={{ p: 2 }}>
-              <Tabs value={state.currentTab} onChange={(_, val) => dispatch({ type: 'SET_TAB', tab: val })}>
-                <Tab label="Columnas" />
-                <Tab label="Filtros" />
-                <Tab label="Agrupaciones y Totales" />
-                <Tab label="Preview" />
-              </Tabs>
-            </Paper>
           </Box>
         )}
       </BuilderShell>

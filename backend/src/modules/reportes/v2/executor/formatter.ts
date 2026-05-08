@@ -22,7 +22,20 @@ export class Formatter {
       return value ? 'Sí' : 'No';
     }
 
+    if (tipo === 'telefono') {
+      return this.formatTelefono(value, formato);
+    }
+
     return value;
+  }
+
+  formatTelefono(valor: any, patron?: string): string {
+    if (valor === null || valor === undefined || valor === '') return '';
+    const limpio = String(valor).replace(/\D/g, '');
+    if (!limpio) return '';
+    const sinPrefijo = limpio.startsWith('54') ? limpio.slice(2) : limpio;
+    if (!patron) return sinPrefijo;
+    return patron.replace('{numero}', sinPrefijo);
   }
 
   private formatFecha(fecha: Date, formato?: string): string {

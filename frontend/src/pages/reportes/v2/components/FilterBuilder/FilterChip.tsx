@@ -31,7 +31,7 @@ const FilterChip = ({ filtro, tipoEscalar, onClick, onDelete }: FilterChipProps)
     if (val === undefined || val === null) return ''
     if (Array.isArray(val)) {
       if (val.length === 0) return ''
-      if (val.length === 2 && filtro.operador === 'between') {
+      if (val.length === 2 && (filtro.operador === 'between' || filtro.operador === 'notBetween')) {
         return `${val[0]} - ${val[1]}`
       }
       return val.join(', ')

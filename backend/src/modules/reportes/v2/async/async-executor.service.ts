@@ -179,11 +179,14 @@ export class AsyncExecutorService {
     const tieneTotales = definicion.totales && definicion.totales.length > 0;
 
     if (tieneAgrupaciones || tieneTotales) {
+      const pathToLabel: Record<string, string> = {};
+      for (const c of definicion.columnas) pathToLabel[c.path] = c.label;
       resultado = this.groupingService.aplicarAgrupacionYTotales(
         filasFlat,
         definicion.agrupaciones || [],
         definicion.totales || [],
         definicion.columnas.map((c) => c.label),
+        pathToLabel,
       );
     }
 
