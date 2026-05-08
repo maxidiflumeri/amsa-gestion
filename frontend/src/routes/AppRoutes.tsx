@@ -15,6 +15,9 @@ import ReportesHome from '../pages/reportes/ReportesHome'
 import ReportesWizard from '../pages/reportes/ReportesWizard'
 import ReportesEjecutar from '../pages/reportes/ReportesEjecutar'
 import ReportesEstadisticas from '../pages/reportes/ReportesEstadisticas'
+import ReportesV2Home from '../pages/reportes/v2/ReportesV2Home'
+import ReportesV2Builder from '../pages/reportes/v2/ReportesV2Builder'
+import ReportesV2Ejecutar from '../pages/reportes/v2/ReportesV2Ejecutar'
 
 const AppRoutes = () => {
 
@@ -37,6 +40,10 @@ const AppRoutes = () => {
                 <Route path="reportes/:id/editar" element={<ReportesWizard />} />
                 <Route path="reportes/:id/ejecutar" element={<ReportesEjecutar />} />
                 <Route path="reportes/estadisticas" element={<ReportesEstadisticas />} />
+                <Route path="reportes/v2" element={<ReportesV2Home />} />
+                <Route path="reportes/v2/nuevo" element={<ReportesV2Builder />} />
+                <Route path="reportes/v2/:id/editar" element={<ReportesV2Builder />} />
+                <Route path="reportes/v2/:id/ejecutar" element={<ReportesV2Ejecutar />} />
                 {/* futuras rutas privadas */}
 
             </Route>

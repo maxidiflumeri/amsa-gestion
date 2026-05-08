@@ -16,6 +16,7 @@ import SettingsInputComponentIcon from '@mui/icons-material/SettingsInputCompone
 import PolicyIcon from '@mui/icons-material/Policy'
 import TableChartIcon from '@mui/icons-material/TableChart'
 import BarChartIcon from '@mui/icons-material/BarChart'
+import AutoGraphIcon from '@mui/icons-material/AutoGraph'
 
 import { useColorMode } from '../../context/ThemeContext'
 
@@ -103,7 +104,11 @@ const Sidebar: React.FC<Props> = ({ drawerOpen }) => {
                         <List component="div" disablePadding>
                             <ListItemButton sx={{ pl: 4 }} onClick={() => navigate('/reportes')}>
                                 <ListItemIcon><TableChartIcon fontSize="small" /></ListItemIcon>
-                                <ListItemText primary="Mis Plantillas" />
+                                <ListItemText primary="Mis Plantillas (v1)" />
+                            </ListItemButton>
+                            <ListItemButton sx={{ pl: 4 }} onClick={() => navigate('/reportes/v2')}>
+                                <ListItemIcon><AutoGraphIcon fontSize="small" /></ListItemIcon>
+                                <ListItemText primary="Reportes v2 (Beta)" />
                             </ListItemButton>
                             <ListItemButton sx={{ pl: 4 }} onClick={() => navigate('/reportes/estadisticas')}>
                                 <ListItemIcon><BarChartIcon fontSize="small" /></ListItemIcon>
