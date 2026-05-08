@@ -58,9 +58,7 @@ const BuilderHeader = ({ plantilla, empresas, onPlantillaChange, onSave, onCance
             <MenuItem value="xlsx">Excel (XLSX)</MenuItem>
             <MenuItem value="csv">CSV</MenuItem>
             <MenuItem value="txt">Texto plano (TXT)</MenuItem>
-            <MenuItem value="pdf" disabled title="Disponible en Fase 5">
-              PDF (próximamente)
-            </MenuItem>
+            <MenuItem value="pdf">PDF</MenuItem>
           </TextField>
 
           <Box sx={{ flexGrow: 1 }} />

@@ -47,6 +47,55 @@ export type DefinicionV2 = {
   limiteFilas?: number
 }
 
+export type OpcionesXlsx = {
+  headerColor?: string
+  freezeRow?: boolean
+  autoWidth?: boolean
+  brandingEmpresa?: {
+    nombreEmpresa?: string
+    nombreReporte?: string
+    fechaGeneracion?: string
+    filtrosAplicados?: string
+  }
+}
+
+export type OpcionesPdf = {
+  landscape?: boolean
+  pageSize?: 'A4' | 'LETTER'
+  header?: string
+  footer?: boolean
+  brandingEmpresa?: {
+    nombreEmpresa?: string
+    nombreReporte?: string
+    fechaGeneracion?: string
+    filtrosAplicados?: string
+  }
+}
+
+export type OpcionesCsv = {
+  separador?: ',' | ';' | '|' | '\t'
+  encoding?: 'utf8' | 'latin1'
+  bom?: boolean
+  quoting?: boolean
+  lineEnding?: '\r\n' | '\n'
+  incluirHeader?: boolean
+}
+
+export type OpcionesTxt = {
+  separador?: '\t' | ' ' | '|'
+  encoding?: 'utf8' | 'latin1'
+  lineEnding?: '\r\n' | '\n'
+  incluirHeader?: boolean
+  anchoFijo?: number[]
+}
+
+export type OpcionesFormato = {
+  xlsx?: OpcionesXlsx
+  pdf?: OpcionesPdf
+  csv?: OpcionesCsv
+  txt?: OpcionesTxt
+}
+
 export type PlantillaV2 = {
   id?: number
   nombre: string
@@ -56,7 +105,7 @@ export type PlantillaV2 = {
   activo?: boolean
   definicion: DefinicionV2
   formatoSalida: 'xlsx' | 'csv' | 'txt' | 'pdf'
-  opcionesFormato?: any
+  opcionesFormato?: OpcionesFormato
   createdAt?: string
   updatedAt?: string
 }

@@ -7,6 +7,8 @@ import { ExecutorService } from './executor/executor.service';
 import { XlsxV2Exportador } from './exportadores/xlsx-v2.exportador';
 import { CsvV2Exportador } from './exportadores/csv-v2.exportador';
 import { TxtV2Exportador } from './exportadores/txt-v2.exportador';
+import { PdfV2Exportador } from './exportadores/pdf-v2.exportador';
+import { FilaConSubtotales } from './executor/grouping.service';
 
 @Injectable()
 export class ReportesV2Service {
@@ -18,6 +20,7 @@ export class ReportesV2Service {
     private xlsxExportador: XlsxV2Exportador,
     private csvExportador: CsvV2Exportador,
     private txtExportador: TxtV2Exportador,
+    private pdfExportador: PdfV2Exportador,
   ) {}
 
   async findAll(empresaId?: number) {
@@ -162,12 +165,14 @@ export class ReportesV2Service {
         false,
       );
 
-      const buffer = this.exportar(
+      const bufferOrPromise = this.exportar(
         resultado.filas,
         resultado.columnas,
         plantilla.formatoSalida,
         plantilla.opcionesFormato as any,
       );
+
+      const buffer = bufferOrPromise instanceof Promise ? await bufferOrPromise : bufferOrPromise;
 
       const duracion = Date.now() - startTime;
 
@@ -241,7 +246,12 @@ export class ReportesV2Service {
     return variables;
   }
 
-  private exportar(filas: Record<string, any>[], columnas: string[], formato: string, opciones?: any): Buffer {
+  private exportar(
+    filas: Record<string, any>[] | FilaConSubtotales[],
+    columnas: string[],
+    formato: string,
+    opciones?: any,
+  ): Buffer | Promise<Buffer> {
     switch (formato) {
       case FormatoSalidaV2.XLSX:
         return this.xlsxExportador.generar(filas, columnas, opciones);
@@ -249,8 +259,10 @@ export class ReportesV2Service {
         return this.csvExportador.generar(filas, columnas, opciones);
       case FormatoSalidaV2.TXT:
         return this.txtExportador.generar(filas, columnas, opciones);
+      case FormatoSalidaV2.PDF:
+        return this.pdfExportador.generar(filas, columnas, opciones);
       default:
-        throw new BadRequestException(`Formato ${formato} no soportado en Fase 1. PDF disponible en Fase 5.`);
+        throw new BadRequestException(`Formato ${formato} no soportado`);
     }
   }
 }

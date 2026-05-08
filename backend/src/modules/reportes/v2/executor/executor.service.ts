@@ -5,10 +5,11 @@ import { PathParser } from '../parser/path-parser';
 import { PathResolver } from './path-resolver';
 import { Formatter } from './formatter';
 import { CardinalityResolver } from './cardinality';
+import { GroupingService, FilaConSubtotales } from './grouping.service';
 import { DefinicionPlantillaDto } from '../dto/plantilla-v2.dto';
 
 export interface ExecutionResult {
-  filas: Record<string, any>[];
+  filas: Record<string, any>[] | FilaConSubtotales[];
   totalFilas: number;
   columnas: string[];
 }
@@ -20,6 +21,7 @@ export class ExecutorService {
   private resolver = new PathResolver();
   private formatter = new Formatter();
   private cardinalityResolver = new CardinalityResolver();
+  private groupingService = new GroupingService();
 
   constructor(
     private prisma: PrismaService,
@@ -102,9 +104,22 @@ export class ExecutorService {
     // Aplicar formato a cada fila
     const filasFormateadas = filas.map(fila => this.formatter.formatFila(fila, parsedColumns));
 
+    // Aplicar agrupaciones y totales si están definidas
+    let resultado: Record<string, any>[] | FilaConSubtotales[] = filasFormateadas;
+
+    if (definicion.agrupaciones && definicion.agrupaciones.length > 0 || definicion.totales && definicion.totales.length > 0) {
+      resultado = this.groupingService.aplicarAgrupacionYTotales(
+        filasFormateadas,
+        definicion.agrupaciones || [],
+        definicion.totales || [],
+        definicion.columnas.map(c => c.label),
+      );
+      this.logger.log(`Agrupaciones/totales aplicadas. Filas con subtotales: ${resultado.length}`);
+    }
+
     return {
-      filas: filasFormateadas,
-      totalFilas: filasFormateadas.length,
+      filas: resultado,
+      totalFilas: resultado.length,
       columnas: definicion.columnas.map(c => c.label),
     };
   }

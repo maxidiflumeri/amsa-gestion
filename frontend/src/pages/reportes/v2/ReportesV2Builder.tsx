@@ -2,7 +2,7 @@ import { useEffect, useState, useReducer } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { Box, Container, Grid, Snackbar, Alert, Tabs, Tab, Paper } from '@mui/material'
 import { v4 as uuidv4 } from 'uuid'
-import { PlantillaV2, ColumnaV2, NodoCatalogo, FiltroV2 } from '../../../types/reportes-v2'
+import { PlantillaV2, ColumnaV2, NodoCatalogo, FiltroV2, AgrupacionV2, TotalV2 } from '../../../types/reportes-v2'
 import { reportesV2Api } from '../../../api/reportes-v2'
 import api from '../../../api/axios'
 import BuilderHeader from './components/BuilderHeader/BuilderHeader'
@@ -11,6 +11,7 @@ import FieldExplorer from './components/FieldExplorer/FieldExplorer'
 import ColumnCanvas from './components/ColumnCanvas/ColumnCanvas'
 import PropertiesPanel from './components/PropertiesPanel/PropertiesPanel'
 import FilterBuilder from './components/FilterBuilder/FilterBuilder'
+import GroupingBuilder from './components/GroupingBuilder/GroupingBuilder'
 import PreviewPanel from './components/Preview/PreviewPanel'
 import { validatePlantilla, ValidationError } from './utils/validatePlantilla'
 
@@ -37,6 +38,7 @@ type BuilderAction =
   | { type: 'UPDATE_COLUMNA'; id: string; field: keyof ColumnaV2; value: any }
   | { type: 'REMOVE_COLUMNA'; id: string }
   | { type: 'SET_FILTROS'; filtros: FiltroV2[] }
+  | { type: 'SET_AGRUPACIONES_TOTALES'; agrupaciones: AgrupacionV2[]; totales: TotalV2[] }
   | { type: 'SET_LOADING'; loading: boolean }
   | { type: 'SET_CATALOGO_LOADING'; loading: boolean }
   | { type: 'SET_SAVING'; saving: boolean }
@@ -142,6 +144,19 @@ const builderReducer = (state: BuilderState, action: BuilderAction): BuilderStat
         },
         hasChanges: true,
       }
+    case 'SET_AGRUPACIONES_TOTALES':
+      return {
+        ...state,
+        plantilla: {
+          ...state.plantilla,
+          definicion: {
+            ...state.plantilla.definicion!,
+            agrupaciones: action.agrupaciones,
+            totales: action.totales,
+          },
+        },
+        hasChanges: true,
+      }
     case 'SET_LOADING':
       return { ...state, loading: action.loading }
     case 'SET_CATALOGO_LOADING':
@@ -232,6 +247,10 @@ const ReportesV2Builder = () => {
 
   const handleFiltrosChange = (filtros: FiltroV2[]) => {
     dispatch({ type: 'SET_FILTROS', filtros })
+  }
+
+  const handleAgrupacionesTotalesChange = (agrupaciones: AgrupacionV2[], totales: TotalV2[]) => {
+    dispatch({ type: 'SET_AGRUPACIONES_TOTALES', agrupaciones, totales })
   }
 
   useEffect(() => {
@@ -362,6 +381,17 @@ const ReportesV2Builder = () => {
 
             {state.currentTab === 2 && (
               <Box sx={{ mb: 2 }}>
+                <GroupingBuilder
+                  agrupaciones={state.plantilla.definicion?.agrupaciones || []}
+                  totales={state.plantilla.definicion?.totales || []}
+                  columnas={state.plantilla.definicion?.columnas || []}
+                  onChange={handleAgrupacionesTotalesChange}
+                />
+              </Box>
+            )}
+
+            {state.currentTab === 3 && (
+              <Box sx={{ mb: 2 }}>
                 <PreviewPanel definicion={state.plantilla.definicion!} />
               </Box>
             )}
@@ -370,8 +400,8 @@ const ReportesV2Builder = () => {
               <Tabs value={state.currentTab} onChange={(_, val) => dispatch({ type: 'SET_TAB', tab: val })}>
                 <Tab label="Columnas" />
                 <Tab label="Filtros" />
+                <Tab label="Agrupaciones y Totales" />
                 <Tab label="Preview" />
-                <Tab label="Agrupaciones (Fase 5)" disabled />
               </Tabs>
             </Paper>
           </Box>

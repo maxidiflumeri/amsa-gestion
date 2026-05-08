@@ -7,6 +7,7 @@ import { ExecutorService } from './executor/executor.service';
 import { XlsxV2Exportador } from './exportadores/xlsx-v2.exportador';
 import { CsvV2Exportador } from './exportadores/csv-v2.exportador';
 import { TxtV2Exportador } from './exportadores/txt-v2.exportador';
+import { PdfV2Exportador } from './exportadores/pdf-v2.exportador';
 import { PrismaService } from '../../../prisma/prisma.service';
 
 @Module({
@@ -19,6 +20,7 @@ import { PrismaService } from '../../../prisma/prisma.service';
     XlsxV2Exportador,
     CsvV2Exportador,
     TxtV2Exportador,
+    PdfV2Exportador,
     PrismaService,
   ],
   exports: [ReportesV2Service],

@@ -5,6 +5,7 @@ export enum FormatoSalidaV2 {
   XLSX = 'xlsx',
   CSV = 'csv',
   TXT = 'txt',
+  PDF = 'pdf',
 }
 
 export enum RaizV2 {
@@ -75,6 +76,31 @@ export class OrdenamientoDto {
   direccion: 'asc' | 'desc';
 }
 
+export class AgrupacionDto {
+  @IsString()
+  path: string;
+
+  @IsOptional()
+  @IsBoolean()
+  mostrarSubtotales?: boolean;
+
+  @IsOptional()
+  @IsBoolean()
+  saltoPagina?: boolean;
+}
+
+export class TotalDto {
+  @IsString()
+  path: string;
+
+  @IsString()
+  funcion: 'sum' | 'avg' | 'count' | 'min' | 'max';
+
+  @IsOptional()
+  @IsString()
+  label?: string;
+}
+
 export class DefinicionPlantillaDto {
   @IsArray()
   @ValidateNested({ each: true })
@@ -95,11 +121,15 @@ export class DefinicionPlantillaDto {
 
   @IsOptional()
   @IsArray()
-  agrupaciones?: any[];
+  @ValidateNested({ each: true })
+  @Type(() => AgrupacionDto)
+  agrupaciones?: AgrupacionDto[];
 
   @IsOptional()
   @IsArray()
-  totales?: any[];
+  @ValidateNested({ each: true })
+  @Type(() => TotalDto)
+  totales?: TotalDto[];
 
   @IsOptional()
   @IsString()
