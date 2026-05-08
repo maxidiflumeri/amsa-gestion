@@ -1,6 +1,6 @@
 ---
 name: implementer
-model: claude-sonnet-4-5
+model: claude-sonnet-4-6
 description: >
   Agente implementador de AMSA Sender y AMSA Gestión. Recibe el plan del
   agente architect y ejecuta el código paso a paso. Invocar cuando ya existe

@@ -34,7 +34,9 @@
       "Bash(node -e \"try { require\\('@prisma/client'\\); require\\('xlsx'\\); require\\('path'\\); console.log\\('✓ Todas las dependencias están disponibles'\\); } catch\\(e\\) { console.error\\('✗ Error:', e.message\\); process.exit\\(1\\); }\")",
       "Bash(node:*)",
       "Bash(wait)",
-      "Bash(rm verify-data.ts)"
+      "Bash(rm verify-data.ts)",
+      "Bash(npm test *)",
+      "Bash(npx jest *)"
     ]
   }
 }

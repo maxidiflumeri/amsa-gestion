@@ -1,6 +1,6 @@
 ---
 name: architect
-model: claude-opus-4-5
+model: claude-opus-4-7
 description: >
   Agente arquitecto de AMSA Sender y AMSA Gestión. Invocar SIEMPRE antes de
   implementar cualquier funcionalidad nueva, módulo, integración o refactor
