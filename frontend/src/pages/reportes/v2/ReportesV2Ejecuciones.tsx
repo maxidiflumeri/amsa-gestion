@@ -1,36 +1,30 @@
 import { useEffect, useMemo, useState, useCallback } from 'react'
 import {
-  Container,
-  Paper,
-  Typography,
   Box,
-  Table,
-  TableHead,
-  TableRow,
-  TableCell,
-  TableBody,
-  Chip,
   IconButton,
   Tooltip,
   LinearProgress,
   TextField,
   MenuItem,
   Pagination,
-  Snackbar,
-  Alert,
-  CircularProgress,
-  Button,
+  Typography,
 } from '@mui/material'
 import DownloadIcon from '@mui/icons-material/Download'
 import CancelIcon from '@mui/icons-material/Cancel'
 import DeleteIcon from '@mui/icons-material/Delete'
 import RefreshIcon from '@mui/icons-material/Refresh'
+import InboxIcon from '@mui/icons-material/Inbox'
 import {
   reportesV2Api,
   EjecucionV2,
   EstadoEjecucionV2,
 } from '../../../api/reportes-v2'
 import { useReportesV2Socket } from './hooks/useReportesV2Socket'
+import { PageHeader, SectionCard, EmptyState, StatusChip, DataTableResponsive } from '../../../components/ui'
+import type { StatusValue } from '../../../components/ui'
+import type { DataTableColumn } from '../../../components/ui'
+import { useNotify } from '../../../hooks/useNotify'
+import { useConfirm } from '../../../context/ConfirmContext'
 
 const ESTADOS: EstadoEjecucionV2[] = [
   'PENDIENTE',
@@ -40,14 +34,11 @@ const ESTADOS: EstadoEjecucionV2[] = [
   'CANCELADA',
 ]
 
-const estadoColor: Record<
-  EstadoEjecucionV2,
-  'default' | 'primary' | 'success' | 'error' | 'warning' | 'info'
-> = {
-  PENDIENTE: 'info',
-  EJECUTANDO: 'primary',
-  FINALIZADA: 'success',
-  FALLIDA: 'error',
+const estadoToStatus: Record<EstadoEjecucionV2, StatusValue> = {
+  PENDIENTE: 'pending',
+  EJECUTANDO: 'running',
+  FINALIZADA: 'completed',
+  FALLIDA: 'failed',
   CANCELADA: 'warning',
 }
 
@@ -70,17 +61,14 @@ function formatFecha(s: string | null | undefined): string {
 const REFRESH_MS = 30_000
 
 const ReportesV2Ejecuciones = () => {
+  const notify = useNotify()
+  const confirm = useConfirm()
   const [items, setItems] = useState<EjecucionV2[]>([])
   const [total, setTotal] = useState(0)
   const [page, setPage] = useState(1)
   const [pageSize] = useState(20)
   const [loading, setLoading] = useState(true)
   const [estado, setEstado] = useState<EstadoEjecucionV2 | ''>('')
-  const [snack, setSnack] = useState<{
-    open: boolean
-    severity: 'success' | 'error' | 'info'
-    message: string
-  }>({ open: false, severity: 'info', message: '' })
 
   const totalPages = useMemo(
     () => Math.max(1, Math.ceil(total / pageSize)),
@@ -98,11 +86,7 @@ const ReportesV2Ejecuciones = () => {
       setItems(res.data.items)
       setTotal(res.data.total)
     } catch (err: any) {
-      setSnack({
-        open: true,
-        severity: 'error',
-        message: err.response?.data?.message || 'Error al cargar ejecuciones',
-      })
+      notify.error(err)
     } finally {
       setLoading(false)
     }
@@ -148,11 +132,7 @@ const ReportesV2Ejecuciones = () => {
             : it,
         ),
       )
-      setSnack({
-        open: true,
-        severity: 'success',
-        message: `Reporte #${p.ejecucionId} finalizado.`,
-      })
+      notify.success(`Reporte #${p.ejecucionId} finalizado.`)
     },
     onFallido: (p) => {
       setItems((prev) =>
@@ -162,11 +142,7 @@ const ReportesV2Ejecuciones = () => {
             : it,
         ),
       )
-      setSnack({
-        open: true,
-        severity: 'error',
-        message: `Reporte #${p.ejecucionId} falló: ${p.error}`,
-      })
+      notify.error(`Reporte #${p.ejecucionId} falló: ${p.error}`)
     },
   })
 
@@ -183,57 +159,174 @@ const ReportesV2Ejecuciones = () => {
       a.click()
       a.remove()
       window.URL.revokeObjectURL(url)
+      notify.success('Descarga iniciada')
     } catch (err: any) {
-      setSnack({
-        open: true,
-        severity: 'error',
-        message: err.response?.data?.message || 'No se pudo descargar',
-      })
+      notify.error(err)
     }
   }
 
   const handleCancelar = async (id: number) => {
     try {
       await reportesV2Api.cancelarEjecucion(id)
-      setSnack({
-        open: true,
-        severity: 'info',
-        message: `Cancelación solicitada para #${id}`,
-      })
+      notify.info(`Cancelación solicitada para #${id}`)
       cargar()
     } catch (err: any) {
-      setSnack({
-        open: true,
-        severity: 'error',
-        message: err.response?.data?.message || 'No se pudo cancelar',
-      })
+      notify.error(err)
     }
   }
 
   const handleEliminar = async (id: number) => {
-    if (!confirm(`¿Eliminar ejecución #${id}? Esta acción no se puede deshacer.`)) return
+    const ok = await confirm({
+      title: 'Eliminar ejecución',
+      description: `¿Eliminar ejecución #${id}? Esta acción no se puede deshacer.`,
+      confirmLabel: 'Eliminar',
+      confirmColor: 'error',
+    })
+    if (!ok) return
     try {
       await reportesV2Api.eliminarEjecucion(id)
+      notify.success(`Ejecución #${id} eliminada`)
       cargar()
     } catch (err: any) {
-      setSnack({
-        open: true,
-        severity: 'error',
-        message: err.response?.data?.message || 'No se pudo eliminar',
-      })
+      notify.error(err)
     }
   }
 
-  return (
-    <Container maxWidth="xl" sx={{ py: 3 }}>
-      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
-        <Typography variant="h4">Mis ejecuciones</Typography>
-        <Button startIcon={<RefreshIcon />} onClick={cargar} variant="outlined">
-          Refrescar
-        </Button>
-      </Box>
+  const columns: DataTableColumn<EjecucionV2>[] = [
+    {
+      key: 'id',
+      label: 'ID',
+      render: (row) => String(row.id),
+    },
+    {
+      key: 'plantilla',
+      label: 'Plantilla',
+      primary: true,
+      render: (row) => row.plantilla?.nombre || `#${row.plantillaId}`,
+    },
+    {
+      key: 'createdAt',
+      label: 'Fecha',
+      secondary: true,
+      render: (row) => formatFecha(row.createdAt),
+    },
+    {
+      key: 'estado',
+      label: 'Estado',
+      render: (row) => (
+        <StatusChip
+          status={estadoToStatus[row.estado]}
+          label={row.estado}
+        />
+      ),
+    },
+    {
+      key: 'progreso',
+      label: 'Progreso',
+      hideInCard: true,
+      render: (row) =>
+        row.estado === 'EJECUTANDO' || row.estado === 'PENDIENTE' ? (
+          <Box>
+            <LinearProgress
+              variant={row.estado === 'PENDIENTE' ? 'indeterminate' : 'determinate'}
+              value={row.progreso}
+            />
+            <Typography variant="caption" color="text.secondary">
+              {row.filasProcesadas}
+              {row.totalFilas ? ` / ${row.totalFilas}` : ''} ({row.progreso}%)
+            </Typography>
+          </Box>
+        ) : (
+          <Typography variant="body2" color="text.secondary">
+            {row.estado === 'FINALIZADA' ? 'Completo' : '-'}
+          </Typography>
+        ),
+    },
+    {
+      key: 'formato',
+      label: 'Formato',
+      hideInCard: true,
+      render: (row) => row.formato || row.plantilla?.formatoSalida || '-',
+    },
+    {
+      key: 'totalFilas',
+      label: 'Filas',
+      align: 'right',
+      hideInCard: true,
+      render: (row) => String(row.totalFilas ?? '-'),
+    },
+    {
+      key: 'archivoTamano',
+      label: 'Tamaño',
+      align: 'right',
+      hideInCard: true,
+      render: (row) => formatBytes(row.archivoTamano),
+    },
+    {
+      key: 'acciones',
+      label: 'Acciones',
+      align: 'right',
+      render: (row) => (
+        <>
+          <Tooltip title="Descargar">
+            <span>
+              <IconButton
+                size="small"
+                disabled={row.estado !== 'FINALIZADA'}
+                onClick={() => handleDescargar(row)}
+              >
+                <DownloadIcon fontSize="small" />
+              </IconButton>
+            </span>
+          </Tooltip>
+          <Tooltip title="Cancelar">
+            <span>
+              <IconButton
+                size="small"
+                disabled={row.estado !== 'PENDIENTE' && row.estado !== 'EJECUTANDO'}
+                onClick={() => handleCancelar(row.id)}
+              >
+                <CancelIcon fontSize="small" />
+              </IconButton>
+            </span>
+          </Tooltip>
+          <Tooltip title="Eliminar">
+            <span>
+              <IconButton
+                size="small"
+                disabled={row.estado === 'PENDIENTE' || row.estado === 'EJECUTANDO'}
+                onClick={() => handleEliminar(row.id)}
+              >
+                <DeleteIcon fontSize="small" />
+              </IconButton>
+            </span>
+          </Tooltip>
+        </>
+      ),
+    },
+  ]
 
-      <Paper sx={{ p: 2, mb: 2 }}>
+  const isRefreshing = loading && items.length > 0
+
+  return (
+    <Box sx={{ px: { xs: 2, md: 3 }, py: 3 }}>
+      <PageHeader
+        title="Mis ejecuciones"
+        breadcrumbs={[
+          { label: 'Reportes', href: '/reportes/v2' },
+          { label: 'Ejecuciones' },
+        ]}
+        actions={[
+          {
+            label: 'Refrescar',
+            onClick: cargar,
+            startIcon: <RefreshIcon />,
+            variant: 'outlined',
+          },
+        ]}
+      />
+
+      <SectionCard sx={{ mb: 2 }}>
         <Box sx={{ display: 'flex', gap: 2, flexWrap: 'wrap' }}>
           <TextField
             select
@@ -254,149 +347,48 @@ const ReportesV2Ejecuciones = () => {
             ))}
           </TextField>
         </Box>
-      </Paper>
+      </SectionCard>
 
-      <Paper sx={{ position: 'relative' }}>
-        {loading && (
-          <Box
-            sx={{
-              position: 'absolute',
-              top: 0,
-              left: 0,
-              right: 0,
-              p: 1,
-              display: 'flex',
-              justifyContent: 'center',
-            }}
-          >
-            <CircularProgress size={20} />
-          </Box>
-        )}
-        <Table size="small">
-          <TableHead>
-            <TableRow>
-              <TableCell>ID</TableCell>
-              <TableCell>Plantilla</TableCell>
-              <TableCell>Fecha</TableCell>
-              <TableCell>Estado</TableCell>
-              <TableCell sx={{ minWidth: 200 }}>Progreso</TableCell>
-              <TableCell>Formato</TableCell>
-              <TableCell align="right">Filas</TableCell>
-              <TableCell align="right">Tamaño</TableCell>
-              <TableCell align="right">Acciones</TableCell>
-            </TableRow>
-          </TableHead>
-          <TableBody>
-            {items.length === 0 && !loading && (
-              <TableRow>
-                <TableCell colSpan={9} align="center">
-                  <Typography color="text.secondary" sx={{ py: 4 }}>
-                    No hay ejecuciones registradas.
-                  </Typography>
-                </TableCell>
-              </TableRow>
-            )}
-            {items.map((it) => (
-              <TableRow key={it.id} hover>
-                <TableCell>{it.id}</TableCell>
-                <TableCell>{it.plantilla?.nombre || `#${it.plantillaId}`}</TableCell>
-                <TableCell>{formatFecha(it.createdAt)}</TableCell>
-                <TableCell>
-                  <Chip
-                    label={it.estado}
-                    color={estadoColor[it.estado]}
-                    size="small"
-                  />
-                </TableCell>
-                <TableCell>
-                  {it.estado === 'EJECUTANDO' || it.estado === 'PENDIENTE' ? (
-                    <Box>
-                      <LinearProgress
-                        variant={it.estado === 'PENDIENTE' ? 'indeterminate' : 'determinate'}
-                        value={it.progreso}
-                      />
-                      <Typography variant="caption" color="text.secondary">
-                        {it.filasProcesadas}
-                        {it.totalFilas ? ` / ${it.totalFilas}` : ''} ({it.progreso}%)
-                      </Typography>
-                    </Box>
-                  ) : (
-                    <Typography variant="body2" color="text.secondary">
-                      {it.estado === 'FINALIZADA' ? 'Completo' : '-'}
-                    </Typography>
-                  )}
-                </TableCell>
-                <TableCell>{it.formato || it.plantilla?.formatoSalida || '-'}</TableCell>
-                <TableCell align="right">{it.totalFilas ?? '-'}</TableCell>
-                <TableCell align="right">{formatBytes(it.archivoTamano)}</TableCell>
-                <TableCell align="right">
-                  <Tooltip title="Descargar">
-                    <span>
-                      <IconButton
-                        size="small"
-                        disabled={it.estado !== 'FINALIZADA'}
-                        onClick={() => handleDescargar(it)}
-                      >
-                        <DownloadIcon fontSize="small" />
-                      </IconButton>
-                    </span>
-                  </Tooltip>
-                  <Tooltip title="Cancelar">
-                    <span>
-                      <IconButton
-                        size="small"
-                        disabled={
-                          it.estado !== 'PENDIENTE' && it.estado !== 'EJECUTANDO'
-                        }
-                        onClick={() => handleCancelar(it.id)}
-                      >
-                        <CancelIcon fontSize="small" />
-                      </IconButton>
-                    </span>
-                  </Tooltip>
-                  <Tooltip title="Eliminar">
-                    <span>
-                      <IconButton
-                        size="small"
-                        disabled={
-                          it.estado === 'PENDIENTE' || it.estado === 'EJECUTANDO'
-                        }
-                        onClick={() => handleEliminar(it.id)}
-                      >
-                        <DeleteIcon fontSize="small" />
-                      </IconButton>
-                    </span>
-                  </Tooltip>
-                </TableCell>
-              </TableRow>
-            ))}
-          </TableBody>
-        </Table>
-
-        <Box sx={{ display: 'flex', justifyContent: 'center', p: 2 }}>
-          <Pagination
-            count={totalPages}
-            page={page}
-            onChange={(_, p) => setPage(p)}
-            color="primary"
+      <SectionCard noPadding sx={{ position: 'relative' }}>
+        {isRefreshing && (
+          <LinearProgress
+            sx={{ position: 'absolute', top: 0, left: 0, right: 0, borderRadius: '8px 8px 0 0' }}
           />
-        </Box>
-      </Paper>
+        )}
 
-      <Snackbar
-        open={snack.open}
-        autoHideDuration={4000}
-        onClose={() => setSnack({ ...snack, open: false })}
-        anchorOrigin={{ vertical: 'bottom', horizontal: 'center' }}
-      >
-        <Alert
-          severity={snack.severity}
-          onClose={() => setSnack({ ...snack, open: false })}
-        >
-          {snack.message}
-        </Alert>
-      </Snackbar>
-    </Container>
+        {loading && items.length === 0 ? (
+          <Box sx={{ p: 2 }}>
+            <EmptyState
+              icon={<InboxIcon />}
+              title="No hay ejecuciones"
+              description="Cuando ejecutes una plantilla aparecerá acá"
+            />
+          </Box>
+        ) : items.length === 0 ? (
+          <EmptyState
+            icon={<InboxIcon />}
+            title="No hay ejecuciones"
+            description="Cuando ejecutes una plantilla aparecerá acá"
+          />
+        ) : (
+          <>
+            <DataTableResponsive
+              columns={columns}
+              rows={items}
+              rowKey={(row) => String(row.id)}
+            />
+            <Box sx={{ display: 'flex', justifyContent: 'center', p: 2 }}>
+              <Pagination
+                count={totalPages}
+                page={page}
+                onChange={(_, p) => setPage(p)}
+                color="primary"
+              />
+            </Box>
+          </>
+        )}
+      </SectionCard>
+    </Box>
   )
 }
 

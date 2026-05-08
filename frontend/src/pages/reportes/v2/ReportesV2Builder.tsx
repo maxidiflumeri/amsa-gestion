@@ -1,10 +1,16 @@
-import { useEffect, useState, useReducer } from 'react'
+import { useEffect, useReducer } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
-import { Box, Container, Grid, Snackbar, Alert, Tabs, Tab, Paper } from '@mui/material'
+import { Box, Grid, Alert, Tabs, Tab, Paper, Button } from '@mui/material'
 import { v4 as uuidv4 } from 'uuid'
+import SaveIcon from '@mui/icons-material/Save'
+import CloseIcon from '@mui/icons-material/Close'
 import { PlantillaV2, ColumnaV2, NodoCatalogo, FiltroV2, AgrupacionV2, TotalV2 } from '../../../types/reportes-v2'
 import { reportesV2Api } from '../../../api/reportes-v2'
 import api from '../../../api/axios'
+import { PageHeader, SectionCard, LoadingSkeleton } from '../../../components/ui'
+import { useNotify } from '../../../hooks/useNotify'
+import { useConfirm } from '../../../context/ConfirmContext'
+import { useBreakpoint } from '../../../hooks/useBreakpoint'
 import BuilderHeader from './components/BuilderHeader/BuilderHeader'
 import BuilderShell from './components/BuilderShell'
 import FieldExplorer from './components/FieldExplorer/FieldExplorer'
@@ -25,6 +31,7 @@ type BuilderState = {
   error: string | null
   hasChanges: boolean
   currentTab: number
+  mobileSubTab: number
   validationErrors: ValidationError[]
 }
 
@@ -44,6 +51,7 @@ type BuilderAction =
   | { type: 'SET_SAVING'; saving: boolean }
   | { type: 'SET_ERROR'; error: string | null }
   | { type: 'SET_TAB'; tab: number }
+  | { type: 'SET_MOBILE_SUB_TAB'; tab: number }
   | { type: 'MARK_CHANGES'; hasChanges: boolean }
   | { type: 'SET_VALIDATION_ERRORS'; errors: ValidationError[] }
 
@@ -71,6 +79,7 @@ const initialState: BuilderState = {
   error: null,
   hasChanges: false,
   currentTab: 0,
+  mobileSubTab: 0,
   validationErrors: [],
 }
 
@@ -167,6 +176,8 @@ const builderReducer = (state: BuilderState, action: BuilderAction): BuilderStat
       return { ...state, error: action.error }
     case 'SET_TAB':
       return { ...state, currentTab: action.tab }
+    case 'SET_MOBILE_SUB_TAB':
+      return { ...state, mobileSubTab: action.tab }
     case 'MARK_CHANGES':
       return { ...state, hasChanges: action.hasChanges }
     case 'SET_VALIDATION_ERRORS':
@@ -179,6 +190,9 @@ const builderReducer = (state: BuilderState, action: BuilderAction): BuilderStat
 const ReportesV2Builder = () => {
   const { id } = useParams<{ id: string }>()
   const navigate = useNavigate()
+  const notify = useNotify()
+  const confirm = useConfirm()
+  const { isMobile } = useBreakpoint()
   const [state, dispatch] = useReducer(builderReducer, initialState)
 
   useEffect(() => {
@@ -199,8 +213,9 @@ const ReportesV2Builder = () => {
           dispatch({ type: 'SET_LOADING', loading: false })
         }
       } catch (error: any) {
-        dispatch({ type: 'SET_ERROR', error: error.response?.data?.message || 'Error al cargar datos' })
+        notify.error(error)
         dispatch({ type: 'SET_CATALOGO_LOADING', loading: false })
+        dispatch({ type: 'SET_LOADING', loading: false })
       }
     }
 
@@ -263,7 +278,7 @@ const ReportesV2Builder = () => {
     const hasErrors = errors.some(e => e.type === 'error')
 
     if (hasErrors) {
-      dispatch({ type: 'SET_ERROR', error: 'Hay errores de validación. Por favor, corregílos antes de guardar.' })
+      notify.warning('Hay errores de validación. Por favor, corregílos antes de guardar.')
       return
     }
 
@@ -277,32 +292,66 @@ const ReportesV2Builder = () => {
       }
 
       dispatch({ type: 'MARK_CHANGES', hasChanges: false })
+      notify.success('Plantilla guardada')
       navigate('/reportes/v2')
     } catch (error: any) {
-      dispatch({ type: 'SET_ERROR', error: error.response?.data?.message || 'Error al guardar la plantilla' })
+      notify.error(error)
     } finally {
       dispatch({ type: 'SET_SAVING', saving: false })
     }
   }
 
-  const handleCancel = () => {
+  const handleCancel = async () => {
     if (state.hasChanges) {
-      if (window.confirm('Hay cambios sin guardar. ¿Desea salir de todos modos?')) {
-        navigate('/reportes/v2')
-      }
-    } else {
-      navigate('/reportes/v2')
+      const ok = await confirm({
+        title: 'Cambios sin guardar',
+        description: 'Hay cambios sin guardar. ¿Querés salir igual?',
+        confirmLabel: 'Salir',
+        cancelLabel: 'Seguir editando',
+        confirmColor: 'warning',
+      })
+      if (!ok) return
     }
+    navigate('/reportes/v2')
   }
-
-  const selectedColumn = state.plantilla.definicion?.columnas.find(
-    c => c.id === (state as any).selectedColumnId
-  ) || null
 
   const hasErrors = state.validationErrors.some(e => e.type === 'error')
 
+  const isInitialLoading = state.loading && !state.plantilla.nombre
+
+  if (isInitialLoading) {
+    return (
+      <Box sx={{ px: { xs: 2, md: 3 }, py: 3 }}>
+        <LoadingSkeleton variant="form" />
+      </Box>
+    )
+  }
+
   return (
-    <Container maxWidth="xl" sx={{ py: 3 }}>
+    <Box sx={{ px: { xs: 2, md: 3 }, py: 3 }}>
+      <PageHeader
+        title={id ? state.plantilla.nombre || 'Editar plantilla' : 'Nueva plantilla'}
+        breadcrumbs={[
+          { label: 'Reportes', href: '/reportes/v2' },
+          { label: id ? 'Editar' : 'Nueva' },
+        ]}
+        actions={[
+          {
+            label: 'Cancelar',
+            onClick: handleCancel,
+            variant: 'outlined',
+            startIcon: <CloseIcon />,
+          },
+          {
+            label: state.saving ? 'Guardando...' : 'Guardar',
+            onClick: handleSave,
+            variant: 'contained',
+            disabled: state.saving || hasErrors,
+            startIcon: <SaveIcon />,
+          },
+        ]}
+      />
+
       {state.validationErrors.length > 0 && (
         <Box sx={{ mb: 2 }}>
           {state.validationErrors.map((err, idx) => (
@@ -313,15 +362,13 @@ const ReportesV2Builder = () => {
         </Box>
       )}
 
-      <BuilderHeader
-        plantilla={state.plantilla}
-        empresas={state.empresas}
-        onPlantillaChange={handlePlantillaChange}
-        onSave={handleSave}
-        onCancel={handleCancel}
-        loading={state.saving}
-        disabled={hasErrors}
-      />
+      <SectionCard title="Detalles" sx={{ mb: 2 }}>
+        <BuilderHeader
+          plantilla={state.plantilla}
+          empresas={state.empresas}
+          onPlantillaChange={handlePlantillaChange}
+        />
+      </SectionCard>
 
       <BuilderShell
         columnas={state.plantilla.definicion?.columnas || []}
@@ -355,43 +402,88 @@ const ReportesV2Builder = () => {
             </Paper>
 
             {state.currentTab === 0 && (
-              <Grid container spacing={2} sx={{ mb: 2 }}>
-                <Grid item xs={12} md={3}>
-                  <Box sx={{ height: 'calc(100vh - 280px)', minHeight: 400 }}>
-                    <FieldExplorer
-                      catalogo={state.catalogo}
-                      loading={state.catalogoLoading}
-                      empresaId={state.plantilla.empresaId}
-                      onAddColumn={handleAddColumn}
-                    />
-                  </Box>
-                </Grid>
+              isMobile ? (
+                <Box>
+                  <Tabs
+                    value={state.mobileSubTab}
+                    onChange={(_, val) => dispatch({ type: 'SET_MOBILE_SUB_TAB', tab: val })}
+                    variant="fullWidth"
+                    sx={{ mb: 2 }}
+                  >
+                    <Tab label="Campos" />
+                    <Tab label="Canvas" />
+                    <Tab label="Propiedades" disabled={!selectedId} />
+                  </Tabs>
 
-                <Grid item xs={12} md={6}>
-                  <Box sx={{ height: 'calc(100vh - 280px)', minHeight: 400 }}>
-                    <ColumnCanvas
-                      columnas={state.plantilla.definicion?.columnas || []}
-                      selectedId={selectedId}
-                      isDragActive={isDragActive}
-                      onSelect={onSelectColumn}
-                      onRemove={handleRemoveColumn}
-                    />
-                  </Box>
-                </Grid>
+                  {state.mobileSubTab === 0 && (
+                    <Box sx={{ minHeight: 400 }}>
+                      <FieldExplorer
+                        catalogo={state.catalogo}
+                        loading={state.catalogoLoading}
+                        empresaId={state.plantilla.empresaId}
+                        onAddColumn={handleAddColumn}
+                      />
+                    </Box>
+                  )}
+                  {state.mobileSubTab === 1 && (
+                    <Box sx={{ minHeight: 400 }}>
+                      <ColumnCanvas
+                        columnas={state.plantilla.definicion?.columnas || []}
+                        selectedId={selectedId}
+                        isDragActive={isDragActive}
+                        onSelect={onSelectColumn}
+                        onRemove={handleRemoveColumn}
+                      />
+                    </Box>
+                  )}
+                  {state.mobileSubTab === 2 && (
+                    <Box sx={{ minHeight: 400 }}>
+                      <PropertiesPanel
+                        columna={state.plantilla.definicion?.columnas.find(c => c.id === selectedId) || null}
+                        onColumnChange={(field, value) => {
+                          if (selectedId) handleColumnChange(selectedId, field, value)
+                        }}
+                      />
+                    </Box>
+                  )}
+                </Box>
+              ) : (
+                <Grid container spacing={2} sx={{ mb: 2 }}>
+                  <Grid item xs={12} md={3}>
+                    <Box sx={{ height: 'calc(100vh - 280px)', minHeight: 400 }}>
+                      <FieldExplorer
+                        catalogo={state.catalogo}
+                        loading={state.catalogoLoading}
+                        empresaId={state.plantilla.empresaId}
+                        onAddColumn={handleAddColumn}
+                      />
+                    </Box>
+                  </Grid>
 
-                <Grid item xs={12} md={3}>
-                  <Box sx={{ height: 'calc(100vh - 280px)', minHeight: 400 }}>
-                    <PropertiesPanel
-                      columna={state.plantilla.definicion?.columnas.find(c => c.id === selectedId) || null}
-                      onColumnChange={(field, value) => {
-                        if (selectedId) {
-                          handleColumnChange(selectedId, field, value)
-                        }
-                      }}
-                    />
-                  </Box>
+                  <Grid item xs={12} md={6}>
+                    <Box sx={{ height: 'calc(100vh - 280px)', minHeight: 400 }}>
+                      <ColumnCanvas
+                        columnas={state.plantilla.definicion?.columnas || []}
+                        selectedId={selectedId}
+                        isDragActive={isDragActive}
+                        onSelect={onSelectColumn}
+                        onRemove={handleRemoveColumn}
+                      />
+                    </Box>
+                  </Grid>
+
+                  <Grid item xs={12} md={3}>
+                    <Box sx={{ height: 'calc(100vh - 280px)', minHeight: 400 }}>
+                      <PropertiesPanel
+                        columna={state.plantilla.definicion?.columnas.find(c => c.id === selectedId) || null}
+                        onColumnChange={(field, value) => {
+                          if (selectedId) handleColumnChange(selectedId, field, value)
+                        }}
+                      />
+                    </Box>
+                  </Grid>
                 </Grid>
-              </Grid>
+              )
             )}
 
             {state.currentTab === 1 && (
@@ -424,17 +516,7 @@ const ReportesV2Builder = () => {
           </Box>
         )}
       </BuilderShell>
-
-      <Snackbar
-        open={!!state.error}
-        autoHideDuration={6000}
-        onClose={() => dispatch({ type: 'SET_ERROR', error: null })}
-      >
-        <Alert severity="error" onClose={() => dispatch({ type: 'SET_ERROR', error: null })}>
-          {state.error}
-        </Alert>
-      </Snackbar>
-    </Container>
+    </Box>
   )
 }
 

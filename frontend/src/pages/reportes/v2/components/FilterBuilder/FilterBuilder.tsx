@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { Box, Button, Typography, Paper, useTheme, Alert, Collapse, Link } from '@mui/material'
 import AddIcon from '@mui/icons-material/Add'
-import { DndContext, closestCenter, DragEndEvent } from '@dnd-kit/core'
+import { DndContext, closestCenter, MouseSensor, TouchSensor, KeyboardSensor, useSensor, useSensors, DragEndEvent } from '@dnd-kit/core'
 import { SortableContext, verticalListSortingStrategy, arrayMove } from '@dnd-kit/sortable'
 import { FiltroV2, NodoCatalogo } from '../../../../../types/reportes-v2'
 import FilterChip from './FilterChip'
@@ -17,6 +17,12 @@ type FilterBuilderProps = {
 const FilterBuilder = ({ filtros, catalogo, empresaId, onChange }: FilterBuilderProps) => {
   const theme = useTheme()
   const [editorOpen, setEditorOpen] = useState(false)
+
+  const sensors = useSensors(
+    useSensor(MouseSensor, { activationConstraint: { distance: 8 } }),
+    useSensor(TouchSensor, { activationConstraint: { delay: 200, tolerance: 5 } }),
+    useSensor(KeyboardSensor)
+  )
   const [editingFiltro, setEditingFiltro] = useState<FiltroV2 | null>(null)
   const [helpOpen, setHelpOpen] = useState(false)
 
@@ -112,7 +118,7 @@ const FilterBuilder = ({ filtros, catalogo, empresaId, onChange }: FilterBuilder
           </Typography>
         </Box>
       ) : (
-        <DndContext collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
+        <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
           <SortableContext items={filtros.map(f => f.id)} strategy={verticalListSortingStrategy}>
             <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
               {filtros.map(filtro => (

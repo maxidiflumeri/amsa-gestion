@@ -1,11 +1,10 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import {
   Box,
   Button,
   Typography,
   CircularProgress,
   Alert,
-  Snackbar,
   Dialog,
   DialogTitle,
   DialogContent,
@@ -14,6 +13,7 @@ import {
 } from '@mui/material'
 import PlayArrowIcon from '@mui/icons-material/PlayArrow'
 import { FiltroV2 } from '../../../../../types/reportes-v2'
+import { useNotify } from '../../../../../hooks/useNotify'
 import VariableInput from './VariableInput'
 import useExecution from './useExecution'
 
@@ -23,6 +23,7 @@ type ExecutionFormProps = {
 }
 
 const ExecutionForm = ({ plantillaId, filtrosVariables }: ExecutionFormProps) => {
+  const notify = useNotify()
   const {
     executing,
     error,
@@ -32,6 +33,13 @@ const ExecutionForm = ({ plantillaId, filtrosVariables }: ExecutionFormProps) =>
     estimar,
     clearSuccess,
   } = useExecution()
+
+  useEffect(() => {
+    if (success) {
+      notify.success('Reporte generado exitosamente')
+      clearSuccess()
+    }
+  }, [success])
   const [valores, setValores] = useState<Record<string, any>>(() => {
     const initial: Record<string, any> = {}
     filtrosVariables.forEach((filtro) => {
@@ -204,16 +212,6 @@ const ExecutionForm = ({ plantillaId, filtrosVariables }: ExecutionFormProps) =>
         </DialogActions>
       </Dialog>
 
-      <Snackbar
-        open={success}
-        autoHideDuration={3000}
-        onClose={clearSuccess}
-        anchorOrigin={{ vertical: 'bottom', horizontal: 'center' }}
-      >
-        <Alert severity="success" onClose={clearSuccess}>
-          Reporte generado exitosamente
-        </Alert>
-      </Snackbar>
     </Box>
   )
 }

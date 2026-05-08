@@ -1,6 +1,8 @@
-import { Box, Button, Typography, Paper, CircularProgress, Alert, Chip } from '@mui/material'
+import { Box, Button, Paper, Alert, Chip } from '@mui/material'
 import RefreshIcon from '@mui/icons-material/Refresh'
+import TableViewIcon from '@mui/icons-material/TableView'
 import { DefinicionV2 } from '../../../../../types/reportes-v2'
+import { EmptyState, LoadingSkeleton } from '../../../../../components/ui'
 import usePreview from './usePreview'
 import PreviewTable from './PreviewTable'
 
@@ -17,10 +19,11 @@ const PreviewPanel = ({ definicion }: PreviewPanelProps) => {
 
   if (definicion.columnas.length === 0) {
     return (
-      <Paper sx={{ p: 6, textAlign: 'center' }}>
-        <Typography variant="body1" color="text.secondary">
-          Agregá columnas para ver el preview
-        </Typography>
+      <Paper sx={{ p: 6 }}>
+        <EmptyState
+          icon={<TableViewIcon />}
+          title="Agregá columnas para ver el preview"
+        />
       </Paper>
     )
   }
@@ -28,7 +31,7 @@ const PreviewPanel = ({ definicion }: PreviewPanelProps) => {
   return (
     <Paper sx={{ p: 3 }}>
       <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
-        <Typography variant="h6">Preview</Typography>
+        <Box />
         <Button
           variant="outlined"
           startIcon={<RefreshIcon />}
@@ -46,11 +49,7 @@ const PreviewPanel = ({ definicion }: PreviewPanelProps) => {
         </Alert>
       )}
 
-      {loading && (
-        <Box sx={{ display: 'flex', justifyContent: 'center', p: 4 }}>
-          <CircularProgress />
-        </Box>
-      )}
+      {loading && <LoadingSkeleton variant="table" rows={5} />}
 
       {error && (
         <Alert severity="error" sx={{ mb: 2 }}>

@@ -10,6 +10,7 @@ import {
   Switch,
   TextField,
 } from '@mui/material'
+import { useBreakpoint } from '../../../../../hooks/useBreakpoint'
 import { v4 as uuidv4 } from 'uuid'
 import { FiltroV2, NodoCatalogo } from '../../../../../types/reportes-v2'
 import FilterPathSelector from './FilterPathSelector'
@@ -49,6 +50,7 @@ type FilterEditorProps = {
 }
 
 const FilterEditor = ({ open, filtro, catalogo, empresaId, onSave, onDelete, onClose }: FilterEditorProps) => {
+  const { isMobile } = useBreakpoint()
   const [path, setPath] = useState('')
   const [tipoEscalar, setTipoEscalar] = useState<string | undefined>()
   const [enumValues, setEnumValues] = useState<string[] | undefined>()
@@ -130,7 +132,7 @@ const FilterEditor = ({ open, filtro, catalogo, empresaId, onSave, onDelete, onC
   const canSave = path && operador && (variable || !requiresValue || (valor !== undefined && valor !== '' && (!Array.isArray(valor) || valor.length > 0))) && (!variable || labelVariable.trim())
 
   return (
-    <Dialog open={open} onClose={onClose} maxWidth="sm" fullWidth>
+    <Dialog open={open} onClose={onClose} maxWidth="sm" fullWidth fullScreen={isMobile}>
       <DialogTitle>{filtro ? 'Editar filtro' : 'Agregar filtro'}</DialogTitle>
       <DialogContent>
         <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2, pt: 1 }}>

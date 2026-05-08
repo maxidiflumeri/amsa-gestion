@@ -1,5 +1,5 @@
 import { useState, ReactNode } from 'react'
-import { DndContext, DragOverlay, closestCenter, PointerSensor, KeyboardSensor, useSensor, useSensors, DragStartEvent, DragEndEvent } from '@dnd-kit/core'
+import { DndContext, DragOverlay, closestCenter, MouseSensor, TouchSensor, KeyboardSensor, useSensor, useSensors, DragStartEvent, DragEndEvent } from '@dnd-kit/core'
 import { arrayMove } from '@dnd-kit/sortable'
 import { Grid, Box, Chip } from '@mui/material'
 import { ColumnaV2, NodoCatalogo } from '../../../../types/reportes-v2'
@@ -20,11 +20,8 @@ const BuilderShell = ({ columnas, onColumnasChange, onAddColumn, children }: Bui
   const [selectedId, setSelectedId] = useState<string | null>(null)
 
   const sensors = useSensors(
-    useSensor(PointerSensor, {
-      activationConstraint: {
-        distance: 8,
-      },
-    }),
+    useSensor(MouseSensor, { activationConstraint: { distance: 8 } }),
+    useSensor(TouchSensor, { activationConstraint: { delay: 200, tolerance: 5 } }),
     useSensor(KeyboardSensor)
   )
 

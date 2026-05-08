@@ -3,6 +3,7 @@ import { Box, Paper, Typography, TextField, MenuItem, Stack } from '@mui/materia
 import SettingsIcon from '@mui/icons-material/Settings'
 import { ColumnaV2, FormatoTelefonoV2 } from '../../../../../types/reportes-v2'
 import { reportesV2Api } from '../../../../../api/reportes-v2'
+import { EmptyState } from '../../../../../components/ui'
 import CardinalitySelector from './CardinalitySelector'
 
 type PropertiesPanelProps = {
@@ -24,14 +25,12 @@ const PropertiesPanel = ({ columna, onColumnChange }: PropertiesPanelProps) => {
 
   if (!columna) {
     return (
-      <Paper sx={{ p: 3, height: '100%', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center' }}>
-        <SettingsIcon sx={{ fontSize: 64, mb: 2, opacity: 0.3, color: 'text.secondary' }} />
-        <Typography variant="h6" color="text.secondary" gutterBottom>
-          Seleccioná una columna
-        </Typography>
-        <Typography variant="body2" color="text.secondary" align="center">
-          Hacé click en una columna del canvas para editar sus propiedades
-        </Typography>
+      <Paper sx={{ height: '100%', display: 'flex', flexDirection: 'column', justifyContent: 'center' }}>
+        <EmptyState
+          icon={<SettingsIcon />}
+          title="Seleccioná una columna"
+          description="Hacé click en una columna del canvas para editar sus propiedades"
+        />
       </Paper>
     )
   }

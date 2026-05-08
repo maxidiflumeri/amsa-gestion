@@ -1,27 +1,20 @@
 import { useEffect, useState } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
-import {
-  Container,
-  Paper,
-  Typography,
-  Box,
-  CircularProgress,
-  Alert,
-  Button,
-  Breadcrumbs,
-  Link,
-} from '@mui/material'
-import ArrowBackIcon from '@mui/icons-material/ArrowBack'
+import { Box, Button } from '@mui/material'
+import ErrorOutlineIcon from '@mui/icons-material/ErrorOutline'
 import { reportesV2Api } from '../../../api/reportes-v2'
 import { PlantillaV2 } from '../../../types/reportes-v2'
+import { PageHeader, SectionCard, EmptyState, LoadingSkeleton } from '../../../components/ui'
+import { useNotify } from '../../../hooks/useNotify'
 import ExecutionForm from './components/ExecutionForm/ExecutionForm'
 
 const ReportesV2Ejecutar = () => {
   const { id } = useParams<{ id: string }>()
   const navigate = useNavigate()
+  const notify = useNotify()
   const [plantilla, setPlantilla] = useState<PlantillaV2 | null>(null)
   const [loading, setLoading] = useState(true)
-  const [error, setError] = useState<string | null>(null)
+  const [notFound, setNotFound] = useState(false)
 
   useEffect(() => {
     if (!id) {
@@ -34,7 +27,8 @@ const ReportesV2Ejecutar = () => {
         const res = await reportesV2Api.obtenerPlantilla(parseInt(id))
         setPlantilla(res.data)
       } catch (err: any) {
-        setError(err.response?.data?.message || 'Error al cargar la plantilla')
+        notify.error(err)
+        setNotFound(true)
       } finally {
         setLoading(false)
       }
@@ -45,69 +39,41 @@ const ReportesV2Ejecutar = () => {
 
   if (loading) {
     return (
-      <Container maxWidth="md" sx={{ py: 8 }}>
-        <Box sx={{ display: 'flex', justifyContent: 'center', p: 4 }}>
-          <CircularProgress />
-        </Box>
-      </Container>
+      <Box sx={{ px: { xs: 2, md: 3 }, py: 3 }}>
+        <LoadingSkeleton variant="form" />
+      </Box>
     )
   }
 
-  if (error || !plantilla) {
+  if (notFound || !plantilla) {
     return (
-      <Container maxWidth="md" sx={{ py: 8 }}>
-        <Alert severity="error">{error || 'Plantilla no encontrada'}</Alert>
-        <Box sx={{ mt: 2 }}>
-          <Button variant="outlined" onClick={() => navigate('/reportes/v2')}>
-            Volver a reportes
-          </Button>
-        </Box>
-      </Container>
+      <Box sx={{ px: { xs: 2, md: 3 }, py: 3 }}>
+        <EmptyState
+          icon={<ErrorOutlineIcon />}
+          title="Plantilla no encontrada"
+          action={{ label: 'Volver', onClick: () => navigate('/reportes/v2') }}
+        />
+      </Box>
     )
   }
 
   const filtrosVariables = plantilla.definicion.filtros?.filter(f => f.variable) || []
 
   return (
-    <Container maxWidth="md" sx={{ py: 3 }}>
-      <Breadcrumbs sx={{ mb: 2 }}>
-        <Link
-          component="button"
-          variant="body2"
-          onClick={() => navigate('/reportes/v2')}
-          sx={{ cursor: 'pointer' }}
-        >
-          Reportes
-        </Link>
-        <Typography variant="body2" color="text.primary">
-          Ejecutar
-        </Typography>
-      </Breadcrumbs>
+    <Box sx={{ px: { xs: 2, md: 3 }, py: 3 }}>
+      <PageHeader
+        title={plantilla.nombre}
+        subtitle={plantilla.descripcion}
+        breadcrumbs={[
+          { label: 'Reportes', href: '/reportes/v2' },
+          { label: 'Ejecutar' },
+        ]}
+      />
 
-      <Box sx={{ mb: 3, display: 'flex', alignItems: 'center', gap: 2 }}>
-        <Button
-          startIcon={<ArrowBackIcon />}
-          onClick={() => navigate('/reportes/v2')}
-          size="small"
-        >
-          Volver
-        </Button>
-      </Box>
-
-      <Paper sx={{ p: 4 }}>
-        <Typography variant="h4" gutterBottom>
-          {plantilla.nombre}
-        </Typography>
-
-        {plantilla.descripcion && (
-          <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
-            {plantilla.descripcion}
-          </Typography>
-        )}
-
+      <SectionCard>
         <ExecutionForm plantillaId={plantilla.id!} filtrosVariables={filtrosVariables} />
-      </Paper>
-    </Container>
+      </SectionCard>
+    </Box>
   )
 }
 

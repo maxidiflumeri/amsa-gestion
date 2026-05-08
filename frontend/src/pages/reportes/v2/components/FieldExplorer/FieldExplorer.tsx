@@ -1,5 +1,6 @@
 import { useState, useMemo, useEffect } from 'react'
 import { Box, TextField, Paper, Typography, CircularProgress, Collapse, IconButton, Chip, Divider, Tooltip } from '@mui/material'
+import { LoadingSkeleton } from '../../../../../components/ui'
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore'
 import ChevronRightIcon from '@mui/icons-material/ChevronRight'
 import StarIcon from '@mui/icons-material/Star'
@@ -250,8 +251,8 @@ const FieldExplorer = ({ catalogo, loading, empresaId, onAddColumn }: FieldExplo
 
   if (loading) {
     return (
-      <Paper sx={{ p: 3, height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-        <CircularProgress />
+      <Paper sx={{ p: 2, height: '100%' }}>
+        <LoadingSkeleton variant="list" rows={6} />
       </Paper>
     )
   }
