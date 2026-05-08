@@ -1,7 +1,7 @@
 import React, { useRef } from 'react'
 import { Tabs, Tab, Box, useMediaQuery, useTheme } from '@mui/material'
 import PolicyIcon from '@mui/icons-material/Policy'
-import FichaDeudor from './FichaDeudor'
+import FichaDeudor from './ficha'
 import DeudoresTable from './DeudoresTable'
 import BuscadorAvanzadoModal from './BuscadorAvanzadoModal'
 import PoliticaTab from './PoliticaTab'
