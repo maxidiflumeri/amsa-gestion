@@ -1,0 +1,170 @@
+{
+  "nombre": "Cartera Detallada - Ejemplo F2",
+  "descripcion": "Plantilla completa que demuestra todos los features de Fase 2: agregadores, filtros sobre relaciones, cardinalidad y variables",
+  "raiz": "deudor",
+  "empresaId": null,
+  "formatoSalida": "xlsx",
+  "definicion": {
+    "columnas": [
+      {
+        "id": "c1",
+        "path": "documento",
+        "label": "DNI"
+      },
+      {
+        "id": "c2",
+        "path": "nombre",
+        "label": "Nombre"
+      },
+      {
+        "id": "c3",
+        "path": "apellido",
+        "label": "Apellido"
+      },
+      {
+        "id": "c4",
+        "path": "empresa.nombre",
+        "label": "Empresa"
+      },
+      {
+        "id": "c5",
+        "path": "estadoSituacion.descripcion",
+        "label": "Situación"
+      },
+      {
+        "id": "c6",
+        "path": "montoTotal",
+        "label": "Deuda Total",
+        "tipo": "moneda"
+      },
+      {
+        "id": "c7",
+        "path": "pagos[sum].importe",
+        "label": "Total Pagado",
+        "tipo": "moneda"
+      },
+      {
+        "id": "c8",
+        "path": "pagos[count]",
+        "label": "Cantidad de Pagos"
+      },
+      {
+        "id": "c9",
+        "path": "pagos[avg].importe",
+        "label": "Promedio por Pago",
+        "tipo": "moneda"
+      },
+      {
+        "id": "c10",
+        "path": "pagos[last].fecha",
+        "label": "Último Pago - Fecha",
+        "tipo": "fecha",
+        "formato": "DD/MM/YYYY"
+      },
+      {
+        "id": "c11",
+        "path": "convenios[estado=ACTIVO][count]",
+        "label": "Convenios Activos"
+      },
+      {
+        "id": "c12",
+        "path": "convenios[estado=ACTIVO][sum].montoTotal",
+        "label": "Total Convenios Activos",
+        "tipo": "moneda"
+      },
+      {
+        "id": "c13",
+        "path": "contactos[tipo=email][first].valor",
+        "label": "Email Principal"
+      },
+      {
+        "id": "c14",
+        "path": "contactos[tipo=telefono].valor",
+        "label": "Teléfonos",
+        "cardinalidad": "concatenar",
+        "separadorConcat": " | "
+      },
+      {
+        "id": "c15",
+        "path": "comentarios[last].texto",
+        "label": "Último Comentario"
+      },
+      {
+        "id": "c16",
+        "path": "camposAdicionales.cuotas_vencidas",
+        "label": "Cuotas Vencidas"
+      },
+      {
+        "id": "c17",
+        "path": "facturas[count]",
+        "label": "Cantidad de Facturas"
+      },
+      {
+        "id": "c18",
+        "path": "facturas[sum].monto",
+        "label": "Total Facturado",
+        "tipo": "moneda"
+      }
+    ],
+    "filtros": [
+      {
+        "id": "f1",
+        "path": "empresa.nombre",
+        "operador": "eq",
+        "valor": null,
+        "variable": true,
+        "labelVariable": "Empresa",
+        "valorPorDefecto": "TELECOM_PERSONAL"
+      },
+      {
+        "id": "f2",
+        "path": "pagos[count]",
+        "operador": "gt",
+        "valor": 0
+      },
+      {
+        "id": "f3",
+        "path": "estadoSituacion.clave",
+        "operador": "in",
+        "valor": null,
+        "variable": true,
+        "labelVariable": "Situaciones",
+        "valorPorDefecto": ["SIT-PAGANDO", "SIT-CONVENIO"]
+      },
+      {
+        "id": "f4",
+        "path": "montoTotal",
+        "operador": "between",
+        "valor": null,
+        "variable": true,
+        "labelVariable": "Rango de Deuda",
+        "valorPorDefecto": [100, 50000]
+      },
+      {
+        "id": "f5",
+        "path": "convenios[estado=ACTIVO][count]",
+        "operador": "gte",
+        "valor": 1
+      }
+    ],
+    "ordenamientos": [
+      {
+        "path": "montoTotal",
+        "direccion": "desc"
+      },
+      {
+        "path": "pagos[last].fecha",
+        "direccion": "desc"
+      }
+    ],
+    "cardinalidadDefault": "primero",
+    "limiteFilas": 5000
+  },
+  "opcionesFormato": {
+    "xlsx": {
+      "headerColor": "#1976d2",
+      "freezeRow": true,
+      "autoWidth": true
+    }
+  }
+}

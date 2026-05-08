@@ -14,6 +14,7 @@ import { EmpresasModule } from './modules/empresas/empresas.module';
 import { PoliticasModule } from './modules/politicas/politicas.module';
 import { ConveniosModule } from './modules/convenios/convenios.module';
 import { ReportesModule } from './modules/reportes/reportes.module';
+import { ReportesV2Module } from './modules/reportes/v2/reportes-v2.module';
 
 @Module({
   imports: [
@@ -34,7 +35,8 @@ import { ReportesModule } from './modules/reportes/reportes.module';
     EmpresasModule,
     PoliticasModule,
     ConveniosModule,
-    ReportesModule
+    ReportesModule,
+    ReportesV2Module
   ],
 
   controllers: [AppController],

@@ -84,18 +84,19 @@ model deudor {
 }
 
 model empresa {
-  id              Int                 @id @default(autoincrement())
-  nombre          String              @unique(map: "Empresa_nombre_key")
+  id              Int                    @id @default(autoincrement())
+  nombre          String                 @unique(map: "Empresa_nombre_key")
   cuit            String?
   configuracion   Json?
-  createdAt       DateTime            @default(now())
-  updatedAt       DateTime            @updatedAt
+  createdAt       DateTime               @default(now())
+  updatedAt       DateTime               @updatedAt
   deudor          deudor[]
   parametro       empresa_parametro[]
   plantillaimport plantillaimport[]
   remesa          remesa[]
   politicas       politica[]
   plantillas      plantilla_reporte[]
+  plantillasV2    plantilla_reporte_v2[] @relation("PlantillaV2Empresa")
 }
 
 model factura {
@@ -150,20 +151,20 @@ model pago {
 }
 
 model parametro {
-  id                              Int                 @id @default(autoincrement())
-  grupo                           String
-  clave                           String              @unique(map: "Parametro_clave_key")
-  descripcion                     String
-  padreId                         Int?
-  categoria                       String?
-  esGlobal                        Boolean             @default(true)
-  activo                          Boolean             @default(true)
-  parametroPadre                  parametro?          @relation("CondicionParametro", fields: [padreId], references: [id])
-  subParametros                   parametro[]         @relation("CondicionParametro")
-  deudoresConEstaGestion          deudor[]            @relation("DeudorEstadoGestion")
-  deudoresConEstaSituacion        deudor[]            @relation("DeudorEstadoSituacion")
-  deudoresConEsteMotivoNoPago     deudor[]            @relation("DeudorMotivoNoPago")
-  empresas                        empresa_parametro[]
+  id                          Int                 @id @default(autoincrement())
+  grupo                       String
+  clave                       String              @unique(map: "Parametro_clave_key")
+  descripcion                 String
+  padreId                     Int?
+  categoria                   String?
+  esGlobal                    Boolean             @default(true)
+  activo                      Boolean             @default(true)
+  parametroPadre              parametro?          @relation("CondicionParametro", fields: [padreId], references: [id])
+  subParametros               parametro[]         @relation("CondicionParametro")
+  deudoresConEstaGestion      deudor[]            @relation("DeudorEstadoGestion")
+  deudoresConEstaSituacion    deudor[]            @relation("DeudorEstadoSituacion")
+  deudoresConEsteMotivoNoPago deudor[]            @relation("DeudorMotivoNoPago")
+  empresas                    empresa_parametro[]
 }
 
 model empresa_parametro {
@@ -253,18 +254,20 @@ model transaccion {
 }
 
 model usuario {
-  id          Int                 @id @default(autoincrement())
-  googleId    String              @unique(map: "Usuario_googleId_key")
-  nombre      String
-  email       String              @unique(map: "Usuario_email_key")
-  avatarUrl   String?
-  rol         String              @default("usuario")
-  createdAt   DateTime            @default(now())
-  updatedAt   DateTime
-  comentario  comentario[]
-  transaccion transaccion[]
-  convenios   convenio[]
-  ejecuciones ejecucion_reporte[]
+  id            Int                    @id @default(autoincrement())
+  googleId      String                 @unique(map: "Usuario_googleId_key")
+  nombre        String
+  email         String                 @unique(map: "Usuario_email_key")
+  avatarUrl     String?
+  rol           String                 @default("usuario")
+  createdAt     DateTime               @default(now())
+  updatedAt     DateTime
+  comentario    comentario[]
+  transaccion   transaccion[]
+  convenios     convenio[]
+  ejecuciones   ejecucion_reporte[]
+  plantillasV2  plantilla_reporte_v2[] @relation("PlantillaV2CreadoPor")
+  ejecucionesV2 ejecucion_reporte_v2[] @relation("EjecucionV2Usuario")
 }
 
 enum jobimport_estado {
@@ -304,60 +307,60 @@ enum remesa_categoria {
 }
 
 model politica {
-  id          Int      @id @default(autoincrement())
-  empresaId   Int
-  nombre      String
-  descripcion String?  @db.Text
-  formasDePago String? @db.Text
-  tipoAtencion String? @db.Text
-  datosExtra  Json?
-  activa      Boolean  @default(true)
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
-  empresa     empresa  @relation(fields: [empresaId], references: [id])
-  remesas     remesa[]
+  id           Int      @id @default(autoincrement())
+  empresaId    Int
+  nombre       String
+  descripcion  String?  @db.Text
+  formasDePago String?  @db.Text
+  tipoAtencion String?  @db.Text
+  datosExtra   Json?
+  activa       Boolean  @default(true)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+  empresa      empresa  @relation(fields: [empresaId], references: [id])
+  remesas      remesa[]
 
   @@index([empresaId])
 }
 
 model convenio {
-  id             Int              @id @default(autoincrement())
-  deudorId       Int
-  usuarioId      Int?
-  tipo           String
-  estado         String           @default("ACTIVO")
-  montoTotal     Float
-  cantCuotas     Int
-  montoCuota     Float
-  fechaInicio    DateTime
-  observaciones  String?          @db.Text
-  createdAt      DateTime         @default(now())
-  updatedAt      DateTime         @updatedAt
-  deudor         deudor           @relation(fields: [deudorId], references: [id])
-  usuario        usuario?         @relation(fields: [usuarioId], references: [id])
-  cuotas         cuota_convenio[]
+  id            Int              @id @default(autoincrement())
+  deudorId      Int
+  usuarioId     Int?
+  tipo          String
+  estado        String           @default("ACTIVO")
+  montoTotal    Float
+  cantCuotas    Int
+  montoCuota    Float
+  fechaInicio   DateTime
+  observaciones String?          @db.Text
+  createdAt     DateTime         @default(now())
+  updatedAt     DateTime         @updatedAt
+  deudor        deudor           @relation(fields: [deudorId], references: [id])
+  usuario       usuario?         @relation(fields: [usuarioId], references: [id])
+  cuotas        cuota_convenio[]
 
   @@index([deudorId])
   @@index([usuarioId])
 }
 
 model cuota_convenio {
-  id             Int       @id @default(autoincrement())
-  convenioId     Int
-  nroCuota       Int
+  id               Int       @id @default(autoincrement())
+  convenioId       Int
+  nroCuota         Int
   fechaVencimiento DateTime
-  importe        Float
-  estado         String    @default("PENDIENTE")
-  fechaPago      DateTime?
-  convenio       convenio  @relation(fields: [convenioId], references: [id], onDelete: Cascade)
+  importe          Float
+  estado           String    @default("PENDIENTE")
+  fechaPago        DateTime?
+  convenio         convenio  @relation(fields: [convenioId], references: [id], onDelete: Cascade)
 
   @@index([convenioId])
 }
 
 model plantilla_reporte {
-  id            Int                  @id @default(autoincrement())
+  id            Int                 @id @default(autoincrement())
   nombre        String
-  descripcion   String?              @db.Text
+  descripcion   String?             @db.Text
   tipo          String
   fuente        String
   filtrosFijos  Json
@@ -367,10 +370,10 @@ model plantilla_reporte {
   opcionesExcel Json?
   opcionesPdf   Json?
   empresaId     Int?
-  activo        Boolean              @default(true)
-  createdAt     DateTime             @default(now())
-  updatedAt     DateTime             @updatedAt
-  empresa       empresa?             @relation(fields: [empresaId], references: [id])
+  activo        Boolean             @default(true)
+  createdAt     DateTime            @default(now())
+  updatedAt     DateTime            @updatedAt
+  empresa       empresa?            @relation(fields: [empresaId], references: [id])
   ejecuciones   ejecucion_reporte[]
 
   @@index([empresaId])
@@ -396,4 +399,47 @@ model formato_telefono {
   descripcion String?
   patron      String
   activo      Boolean @default(true)
+}
+
+model plantilla_reporte_v2 {
+  id              Int                    @id @default(autoincrement())
+  nombre          String
+  descripcion     String?                @db.Text
+  raiz            String                 @default("deudor")
+  empresaId       Int?
+  activo          Boolean                @default(true)
+  definicion      Json
+  formatoSalida   String
+  opcionesFormato Json?
+  creadoPorId     Int?
+  createdAt       DateTime               @default(now())
+  updatedAt       DateTime               @updatedAt
+  empresa         empresa?               @relation("PlantillaV2Empresa", fields: [empresaId], references: [id])
+  creadoPor       usuario?               @relation("PlantillaV2CreadoPor", fields: [creadoPorId], references: [id])
+  ejecuciones     ejecucion_reporte_v2[]
+
+  @@index([empresaId])
+  @@index([activo])
+  @@index([creadoPorId])
+}
+
+model ejecucion_reporte_v2 {
+  id            Int                  @id @default(autoincrement())
+  plantillaId   Int
+  usuarioId     Int
+  filtrosUsados Json
+  totalFilas    Int?
+  estado        String               @default("PENDIENTE")
+  modo          String               @default("SYNC")
+  archivoPath   String?
+  errorMsg      String?              @db.Text
+  duracionMs    Int?
+  createdAt     DateTime             @default(now())
+  finishedAt    DateTime?
+  plantilla     plantilla_reporte_v2 @relation(fields: [plantillaId], references: [id], onDelete: Cascade)
+  usuario       usuario              @relation("EjecucionV2Usuario", fields: [usuarioId], references: [id])
+
+  @@index([plantillaId])
+  @@index([usuarioId, createdAt])
+  @@index([estado])
 }
