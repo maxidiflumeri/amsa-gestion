@@ -66,11 +66,11 @@ const estadoToStatus: Record<string, StatusValue> = {
     VALIDANDO: 'pending',
 };
 
-const ESTADOS_EN_CURSO = ['VALIDANDO', 'PROCESANDO'];
+const ESTADOS_EN_CURSO = ['PROCESANDO'];
 
 function esEliminable(row: { estadoProceso?: unknown; okFilas?: unknown }): boolean {
     const estado = String(row.estadoProceso ?? '');
-    if (estado === 'PENDIENTE' || estado === 'FALLIDA') return true;
+    if (estado === 'PENDIENTE' || estado === 'VALIDANDO' || estado === 'FALLIDA') return true;
     if (estado === 'FINALIZADA' && Number(row.okFilas ?? 0) === 0) return true;
     return false;
 }
@@ -254,10 +254,10 @@ export default function ImportHistory() {
                 const eliminable = esEliminable(row);
                 const puedeEliminar = tienePermiso('importacion.eliminar');
                 const tooltipEliminar = enCurso
-                    ? 'No se puede eliminar mientras está en curso'
+                    ? 'No se puede eliminar mientras está procesando'
                     : eliminable
                         ? 'Eliminar importación'
-                        : 'Solo se pueden eliminar importaciones pendientes o totalmente fallidas';
+                        : 'Solo se pueden eliminar importaciones pendientes, en validación o totalmente fallidas';
 
                 return (
                     <Box display="flex" justifyContent="center" gap={0.5}>

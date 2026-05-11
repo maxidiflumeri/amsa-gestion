@@ -867,18 +867,20 @@ export class ImportService {
         const remesa = await this.prisma.remesa.findUnique({ where: { id: remesaId } });
         if (!remesa) throw new NotFoundException(`Remesa ${remesaId} no encontrada`);
 
-        const estadosEnCurso: string[] = ['VALIDANDO', 'PROCESANDO'];
-        if (estadosEnCurso.includes(remesa.estadoProceso)) {
+        if (remesa.estadoProceso === 'PROCESANDO') {
             throw new BadRequestException('No se puede eliminar una importación en curso');
         }
 
         const totalmenteFallida =
             remesa.estadoProceso === 'FALLIDA' ||
             (remesa.estadoProceso === 'FINALIZADA' && (remesa.okFilas ?? 0) === 0);
-        const eliminable = remesa.estadoProceso === 'PENDIENTE' || totalmenteFallida;
+        const eliminable =
+            remesa.estadoProceso === 'PENDIENTE' ||
+            remesa.estadoProceso === 'VALIDANDO' ||
+            totalmenteFallida;
         if (!eliminable) {
             throw new BadRequestException(
-                'Solo se pueden eliminar importaciones pendientes o que fallaron completamente',
+                'Solo se pueden eliminar importaciones pendientes, en validación o que fallaron completamente',
             );
         }
 
