@@ -1,169 +1,188 @@
-import React, { useState, useEffect } from 'react'
+import { useEffect, useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 import {
-  Box, Typography, Divider, Card, CardContent, CardActions,
-  IconButton, Chip, Stack, Fab, Dialog, DialogTitle, DialogContent,
-  DialogContentText, DialogActions, Button, Grid
+  IconButton,
+  Box,
+  Stack,
 } from '@mui/material'
 import AddIcon from '@mui/icons-material/Add'
-import PlayArrowIcon from '@mui/icons-material/PlayArrow'
 import EditIcon from '@mui/icons-material/Edit'
+import ContentCopyIcon from '@mui/icons-material/ContentCopy'
 import DeleteIcon from '@mui/icons-material/Delete'
-import { useNavigate } from 'react-router-dom'
-import api from '../../api/axios'
+import PlayArrowIcon from '@mui/icons-material/PlayArrow'
+import AssessmentIcon from '@mui/icons-material/Assessment'
+import { reportesApi } from '../../api/reportes'
+import { Plantilla } from '../../types/reportes'
+import { PageHeader, SectionCard, EmptyState, LoadingSkeleton, DataTableResponsive } from '../../components/ui'
+import type { DataTableColumn } from '../../components/ui'
+import { useNotify } from '../../hooks/useNotify'
+import { useConfirm } from '../../context/ConfirmContext'
 
-interface Plantilla {
-  id: number
-  nombre: string
-  descripcion: string
-  tipo: string
-  fuente: string
-  formatoSalida: string
-  empresaId?: number
-  activo: boolean
-  empresa?: { nombre: string }
-}
-
-const ReportesHome: React.FC = () => {
+const ReportesHome = () => {
   const navigate = useNavigate()
+  const notify = useNotify()
+  const confirm = useConfirm()
   const [plantillas, setPlantillas] = useState<Plantilla[]>([])
-  const [deleteDialog, setDeleteDialog] = useState<number | null>(null)
-
-  const fetchPlantillas = async () => {
-    try {
-      const res = await api.get('/reportes/plantillas')
-      setPlantillas(res.data)
-    } catch (error) {
-      console.error('Error fetching plantillas:', error)
-    }
-  }
+  const [loading, setLoading] = useState(true)
 
   useEffect(() => {
-    fetchPlantillas()
+    loadPlantillas()
   }, [])
 
-  const handleDelete = async (id: number) => {
+  const loadPlantillas = async () => {
     try {
-      await api.delete(`/reportes/plantillas/${id}`)
-      setDeleteDialog(null)
-      fetchPlantillas()
-    } catch (error) {
-      console.error('Error deleting plantilla:', error)
+      setLoading(true)
+      const res = await reportesApi.listarPlantillas()
+      const items: Plantilla[] = (res.data || []).slice().sort((a: any, b: any) => {
+        const dateA = new Date(a.updatedAt || a.createdAt || 0).getTime()
+        const dateB = new Date(b.updatedAt || b.createdAt || 0).getTime()
+        return dateB - dateA
+      })
+      setPlantillas(items)
+    } catch (err: any) {
+      notify.error(err)
+    } finally {
+      setLoading(false)
     }
   }
 
-  const getTipoColor = (tipo: string): 'default' | 'primary' | 'secondary' | 'success' => {
-    switch (tipo) {
-      case 'base': return 'primary'
-      case 'informe': return 'secondary'
-      case 'estadistico': return 'success'
-      default: return 'default'
+  const handleDuplicate = async (plantilla: Plantilla) => {
+    if (!plantilla.id) return
+    try {
+      await reportesApi.duplicarPlantilla(plantilla.id)
+      notify.success('Plantilla duplicada')
+      loadPlantillas()
+    } catch (err: any) {
+      notify.error(err)
     }
   }
 
-  const getFormatoColor = (formato: string): 'default' | 'info' | 'success' | 'warning' => {
-    switch (formato) {
-      case 'xlsx': return 'success'
-      case 'csv': return 'info'
-      case 'pdf': return 'warning'
-      default: return 'default'
+  const handleDelete = async (plantilla: Plantilla) => {
+    if (!plantilla.id) return
+    const ok = await confirm({
+      title: 'Desactivar plantilla',
+      description: `¿Estás seguro de desactivar "${plantilla.nombre}"?`,
+      confirmLabel: 'Desactivar',
+      confirmColor: 'error',
+    })
+    if (!ok) return
+    try {
+      await reportesApi.eliminarPlantilla(plantilla.id)
+      notify.success('Plantilla desactivada')
+      loadPlantillas()
+    } catch (err: any) {
+      notify.error(err)
     }
   }
+
+  const columns: DataTableColumn<Plantilla>[] = [
+    {
+      key: 'nombre',
+      label: 'Nombre',
+      primary: true,
+      render: (row) => row.nombre || '-',
+    },
+    {
+      key: 'descripcion',
+      label: 'Descripción',
+      secondary: true,
+      render: (row) => (row as any).descripcion || '-',
+    },
+    {
+      key: 'empresa',
+      label: 'Empresa',
+      hideInCard: true,
+      render: (row) => (row as any).empresa?.nombre || (row as any).empresaId || 'Global',
+    },
+    {
+      key: 'formato',
+      label: 'Formato',
+      hideInCard: true,
+      render: (row) => row.formatoSalida.toUpperCase(),
+    },
+    {
+      key: 'updatedAt',
+      label: 'Última modificación',
+      hideInCard: true,
+      render: (row) =>
+        (row as any).updatedAt
+          ? new Date((row as any).updatedAt).toLocaleDateString()
+          : '-',
+    },
+    {
+      key: 'acciones',
+      label: 'Acciones',
+      align: 'right',
+      render: (row) => (
+        <Stack direction="row" spacing={0.5} justifyContent="flex-end">
+          <IconButton
+            size="small"
+            onClick={() => navigate(`/reportes/${row.id}/ejecutar`)}
+            title="Ejecutar"
+          >
+            <PlayArrowIcon fontSize="small" />
+          </IconButton>
+          <IconButton
+            size="small"
+            onClick={() => navigate(`/reportes/${row.id}/editar`)}
+            title="Editar"
+          >
+            <EditIcon fontSize="small" />
+          </IconButton>
+          <IconButton
+            size="small"
+            onClick={() => handleDuplicate(row)}
+            title="Duplicar"
+          >
+            <ContentCopyIcon fontSize="small" />
+          </IconButton>
+          <IconButton
+            size="small"
+            onClick={() => handleDelete(row)}
+            title="Desactivar"
+            color="error"
+          >
+            <DeleteIcon fontSize="small" />
+          </IconButton>
+        </Stack>
+      ),
+    },
+  ]
 
   return (
-    <Box sx={{ p: 3 }}>
-      <Box sx={{ mb: 3 }}>
-        <Typography variant="h4" gutterBottom sx={{ fontWeight: 'bold' }}>
-          Mis Plantillas de Reportes
-        </Typography>
-        <Typography variant="body1" color="text.secondary">
-          Administre y ejecute plantillas de reportes personalizados.
-        </Typography>
-        <Divider sx={{ mt: 2 }} />
-      </Box>
+    <Box sx={{ px: { xs: 2, md: 3 }, py: 3 }}>
+      <PageHeader
+        title="Reportes dinámicos"
+        actions={[
+          {
+            label: 'Nueva plantilla',
+            onClick: () => navigate('/reportes/nuevo'),
+            startIcon: <AddIcon />,
+            variant: 'contained',
+          },
+        ]}
+      />
 
-      <Grid container spacing={2}>
-        {plantillas.map((plantilla) => (
-          <Grid item xs={12} sm={6} md={4} key={plantilla.id}>
-            <Card sx={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
-              <CardContent sx={{ flexGrow: 1 }}>
-                <Typography variant="h6" gutterBottom>
-                  {plantilla.nombre}
-                </Typography>
-                <Typography variant="body2" color="text.secondary" sx={{ mb: 2, minHeight: 40 }}>
-                  {plantilla.descripcion || 'Sin descripción'}
-                </Typography>
-                <Stack direction="row" spacing={1} sx={{ mb: 1 }}>
-                  <Chip label={plantilla.tipo} size="small" color={getTipoColor(plantilla.tipo)} />
-                  <Chip label={plantilla.formatoSalida.toUpperCase()} size="small" color={getFormatoColor(plantilla.formatoSalida)} />
-                </Stack>
-                <Typography variant="caption" color="text.secondary">
-                  {plantilla.empresa ? plantilla.empresa.nombre : 'Global'}
-                </Typography>
-              </CardContent>
-              <CardActions sx={{ justifyContent: 'flex-end', px: 2, pb: 2 }}>
-                <IconButton
-                  size="small"
-                  color="success"
-                  onClick={() => navigate(`/reportes/${plantilla.id}/ejecutar`)}
-                  title="Ejecutar"
-                >
-                  <PlayArrowIcon />
-                </IconButton>
-                <IconButton
-                  size="small"
-                  color="primary"
-                  onClick={() => navigate(`/reportes/${plantilla.id}/editar`)}
-                  title="Editar"
-                >
-                  <EditIcon />
-                </IconButton>
-                <IconButton
-                  size="small"
-                  color="error"
-                  onClick={() => setDeleteDialog(plantilla.id)}
-                  title="Eliminar"
-                >
-                  <DeleteIcon />
-                </IconButton>
-              </CardActions>
-            </Card>
-          </Grid>
-        ))}
-      </Grid>
-
-      {plantillas.length === 0 && (
-        <Box sx={{ textAlign: 'center', py: 8, color: 'text.disabled' }}>
-          <Typography variant="h6">No hay plantillas creadas</Typography>
-          <Typography variant="body2">Haga clic en el botón + para crear su primera plantilla</Typography>
-        </Box>
+      {loading && plantillas.length === 0 ? (
+        <SectionCard>
+          <LoadingSkeleton variant="table" rows={5} />
+        </SectionCard>
+      ) : plantillas.length === 0 ? (
+        <EmptyState
+          icon={<AssessmentIcon />}
+          title="No hay plantillas"
+          description="Creá tu primera plantilla de reportes"
+          action={{ label: 'Nueva plantilla', onClick: () => navigate('/reportes/nuevo') }}
+        />
+      ) : (
+        <SectionCard noPadding>
+          <DataTableResponsive
+            columns={columns}
+            rows={plantillas}
+            rowKey={(row) => String(row.id)}
+          />
+        </SectionCard>
       )}
-
-      <Fab
-        color="primary"
-        aria-label="nueva plantilla"
-        sx={{ position: 'fixed', bottom: 24, right: 24 }}
-        onClick={() => navigate('/reportes/nueva')}
-      >
-        <AddIcon />
-      </Fab>
-
-      <Dialog
-        open={deleteDialog !== null}
-        onClose={() => setDeleteDialog(null)}
-      >
-        <DialogTitle>Confirmar eliminación</DialogTitle>
-        <DialogContent>
-          <DialogContentText>
-            ¿Está seguro que desea eliminar esta plantilla? Esta acción no se puede deshacer.
-          </DialogContentText>
-        </DialogContent>
-        <DialogActions>
-          <Button onClick={() => setDeleteDialog(null)}>Cancelar</Button>
-          <Button onClick={() => deleteDialog && handleDelete(deleteDialog)} color="error" variant="contained">
-            Eliminar
-          </Button>
-        </DialogActions>
-      </Dialog>
     </Box>
   )
 }

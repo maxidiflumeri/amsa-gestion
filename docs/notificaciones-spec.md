@@ -163,7 +163,7 @@ Comportamiento:
 | 8 | `NotificacionesContext` + hooks + API client | completed |
 | 9 | `NotificacionesBell` + `Popover` en AppShell | completed |
 | 10 | Refactor `ImportProgress.tsx` (sacar polling) | completed |
-| 11 | QA E2E multi-usuario, F5, permisos | pending |
+| 11 | QA E2E multi-usuario, F5, permisos | completed |
 | 12 | (Fase 2) Cron de cleanup | pending |
 
 ## 5. Changelog
@@ -312,3 +312,81 @@ npx prisma generate
 - `deudor` no se eliminan en cascade al borrar una remesa (son datos de negocio); solo se borran `jobimport` e `importerror`.
 - El permiso `importacion.eliminar` NO se agregó a OPERADOR (debe asignarse manualmente si corresponde).
 - Los useEffect de carga de parámetros en PlantillaEditor están divididos: uno para modo creación (reacciona a cambio de empresa), uno para modo edición (reacciona a que empresaId se pueble luego de loadPlantilla).
+
+---
+
+### 2026-05-11 — Fixes UX/QA tras E2E de Fase 4
+
+> Commits de referencia: `a3d1e6c` (Fase 4 main) y `2607c61` (VALIDANDO eliminable).
+>
+> Bugs y mejoras descubiertas durante el QA E2E del paso 11, todas resueltas antes de cerrar la fase.
+
+**1. Fix navegación "Nueva plantilla" — `frontend/src/pages/PlantillasList.tsx`**
+- Síntoma: al crear plantilla, `PlantillaEditor` mostraba "No se pudo determinar la empresa".
+- Causa: `PlantillaEditor` lee `sessionStorage.plantillas_empresaId`, pero `PlantillasList` nunca lo escribía antes de navegar.
+- Fix: agregado `sessionStorage.setItem('plantillas_empresaId', String(empresaId))` antes del `navigate('/plantillas/nueva')` en los dos puntos de entrada (botón principal + acción del empty state).
+
+**2. Fix cálculo de progreso siempre en 100% — `backend/src/modules/imports/imports.service.ts`**
+- Síntoma: la barra de progreso de "Importaciones en curso" mostraba siempre 100% apenas iniciaba.
+- Causa: el cálculo usaba `(ok + err) / total`, pero `total` era un contador acumulado que crece con cada batch — quedaba siempre igual a `ok + err`.
+- Fix: usar `remesa.totalFilas` como denominador fijo:
+  ```ts
+  progreso = totalEsperado > 0 ? Math.min(100, Math.floor((ok + err) / totalEsperado * 100)) : 0;
+  ```
+- Mismo arreglo en el payload del emit `import:progreso`.
+
+**3. Fix `rutaAccion` rota — `backend/src/modules/imports/imports.service.ts`**
+- Síntoma: clicar la notificación "Importación finalizada" llevaba a `/importacion/historial/:id` → página en blanco.
+- Causa: ruta hardcoded incorrecta en `rutaAccion` al crear la notificación.
+- Fix: cambiada a `/historial-importaciones/${remesaId}` (la real según `AppRoutes.tsx`). Aplicado tanto en finalización exitosa como en error.
+
+**4. Rediseño de `ImportDetail.tsx` + monitoreo live**
+- Pedido: la página antigua solo mostraba 4 datos sueltos (categoría, total, ok, err). Se rediseñó completa con look moderno y métricas visuales.
+- Cambios:
+  - Hero card con número de remesa + categoría + estado (`StatusChip`).
+  - 4 stat cards: Total / OK / Errores / Tasa de éxito.
+  - Donut chart (Recharts v3.8.1) con OK vs Err y **label centrado en SVG** (porcentaje grande + total).
+  - Info card con 8 campos: empresa, plantilla, política, usuario creador, archivo, duración, fecha inicio, fecha fin.
+  - `backend.imports.service.status()` enriquecido con includes (`empresa`, `plantilla`, `usuariocreador`, `politica`, `jobimport`) y campos derivados `duracionMs`, `tasaExitoPct`.
+- **Auto-refresh por socket**: suscripción a `import:progreso` e `import:finalizada` filtradas por `remesaId`. Al recibir evento, actualiza el state local sin re-fetch.
+  ```ts
+  useEffect(() => {
+      if (!socket || !id) return;
+      const onProgreso = (p) => { if (p.remesaId === Number(id)) setRemesa(prev => ({...prev, ...p})); };
+      socket.on('import:progreso', onProgreso);
+      socket.on('import:finalizada', onFinalizada);
+      return () => { socket.off(...); };
+  }, [socket, id, fetchAll]);
+  ```
+
+**5. Fix loop infinito de requests GET — `frontend/src/pages/ImportDetail.tsx`**
+- Síntoma: backend log mostraba `GET /api/import/remesas/4` disparándose sin parar.
+- Causa: `useNotify()` devuelve un objeto nuevo en cada render → `fetchAll` (envuelto en `useCallback` con `notify` como dep) se recreaba → el `useEffect` que llamaba `fetchAll` se re-disparaba en bucle.
+- Fix: patrón `notifyRef` — guardar `notify` en un `useRef` actualizado por su propio `useEffect`, y usar `notifyRef.current.error(...)` dentro de `fetchAll`. La dep `notify` se elimina del `useCallback`.
+
+**6. Reglas más estrictas para eliminar remesa**
+- Pedido del usuario: "Las importaciones finalizadas correctamente no deben poder eliminarse… solo las que finalizaron totalmente con errores".
+- Backend (`imports.service.ts` → `deleteRemesa`):
+  ```ts
+  const totalmenteFallida =
+      remesa.estadoProceso === 'FALLIDA' ||
+      (remesa.estadoProceso === 'FINALIZADA' && (remesa.okFilas ?? 0) === 0);
+  const eliminable =
+      remesa.estadoProceso === 'PENDIENTE' ||
+      remesa.estadoProceso === 'VALIDANDO' ||
+      totalmenteFallida;
+  ```
+- Frontend (`ImportHistory.tsx`): nuevo helper `esEliminable(row)` con la misma lógica; tooltip dinámico explica la razón cuando el botón está deshabilitado.
+
+**7. Permitir eliminar remesas en `VALIDANDO` (commit `2607c61`)**
+- Caso real: el usuario inicia carga, cambia de pantalla y la remesa queda atascada en `VALIDANDO` para siempre (no hay UI para retomarla).
+- Decisión: por ahora solo permitir eliminar (retake queda para una futura iteración).
+- Cambio: agregado `VALIDANDO` al set de estados eliminables tanto en backend como en frontend. Solo `PROCESANDO` bloquea ahora.
+
+**Bugs/dudas descubiertos pero NO resueltos en este ciclo:**
+- Cascade al eliminar remesa: `deudor` NO se borra (decisión: son datos de negocio). Pendiente validar con usuario si es lo correcto a largo plazo.
+- Retake de remesa en `VALIDANDO`: feature diferida.
+- Permisos cacheados en `localStorage.amsa_usuario`: el botón "Eliminar" no aparecía hasta logout/login completo tras correr el seed. Documentar para futuras incorporaciones de permisos.
+
+**Cierre de Fase 4:**
+Con estos fixes, el paso 11 del plan (QA E2E multi-usuario, F5, permisos) queda marcado como `completed`. Sólo resta el paso 12 (cron de cleanup, Fase 2).

@@ -13,13 +13,9 @@ import AjustesEmpresas from '../pages/ajustes/AjustesEmpresas';
 import AjustesParametros from '../pages/ajustes/AjustesParametros';
 import AjustesPoliticas from '../pages/ajustes/AjustesPoliticas';
 import ReportesHome from '../pages/reportes/ReportesHome';
-import ReportesWizard from '../pages/reportes/ReportesWizard';
+import ReportesBuilder from '../pages/reportes/ReportesBuilder';
 import ReportesEjecutar from '../pages/reportes/ReportesEjecutar';
-import ReportesEstadisticas from '../pages/reportes/ReportesEstadisticas';
-import ReportesV2Home from '../pages/reportes/v2/ReportesV2Home';
-import ReportesV2Builder from '../pages/reportes/v2/ReportesV2Builder';
-import ReportesV2Ejecutar from '../pages/reportes/v2/ReportesV2Ejecutar';
-import ReportesV2Ejecuciones from '../pages/reportes/v2/ReportesV2Ejecuciones';
+import ReportesEjecuciones from '../pages/reportes/ReportesEjecuciones';
 import RolesPage from '../pages/admin/RolesPage';
 import UsuariosPage from '../pages/admin/UsuariosPage';
 
@@ -41,15 +37,10 @@ const AppRoutes = () => {
                 <Route path="ajustes/parametros" element={<AjustesParametros />} />
                 <Route path="ajustes/politicas" element={<AjustesPoliticas />} />
                 <Route path="reportes" element={<ReportesHome />} />
-                <Route path="reportes/nueva" element={<ReportesWizard />} />
-                <Route path="reportes/:id/editar" element={<ReportesWizard />} />
+                <Route path="reportes/nuevo" element={<ReportesBuilder />} />
+                <Route path="reportes/:id/editar" element={<ReportesBuilder />} />
+                <Route path="reportes/ejecuciones" element={<ReportesEjecuciones />} />
                 <Route path="reportes/:id/ejecutar" element={<ReportesEjecutar />} />
-                <Route path="reportes/estadisticas" element={<ReportesEstadisticas />} />
-                <Route path="reportes/v2" element={<ReportesV2Home />} />
-                <Route path="reportes/v2/nuevo" element={<ReportesV2Builder />} />
-                <Route path="reportes/v2/:id/editar" element={<ReportesV2Builder />} />
-                <Route path="reportes/v2/ejecuciones" element={<ReportesV2Ejecuciones />} />
-                <Route path="reportes/v2/:id/ejecutar" element={<ReportesV2Ejecutar />} />
                 <Route path="admin/roles" element={<RolesPage />} />
                 <Route path="admin/usuarios" element={<UsuariosPage />} />
             </Route>

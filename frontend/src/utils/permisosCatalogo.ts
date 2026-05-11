@@ -54,25 +54,15 @@ export const TODOS_LOS_PERMISOS: PermisoSeccion[] = [
         ],
     },
     {
-        seccion: 'Reportes v1',
+        seccion: 'Reportes',
         permisos: [
-            { key: 'reportes.v1.ver', label: 'Ver reportes v1' },
-            { key: 'reportes.v1.crear', label: 'Crear reportes v1' },
-            { key: 'reportes.v1.editar', label: 'Editar reportes v1' },
-            { key: 'reportes.v1.eliminar', label: 'Eliminar reportes v1' },
-            { key: 'reportes.v1.ejecutar', label: 'Ejecutar reportes v1' },
-        ],
-    },
-    {
-        seccion: 'Reportes v2',
-        permisos: [
-            { key: 'reportes.v2.ver', label: 'Ver reportes v2' },
-            { key: 'reportes.v2.crear', label: 'Crear reportes v2' },
-            { key: 'reportes.v2.editar', label: 'Editar reportes v2' },
-            { key: 'reportes.v2.eliminar', label: 'Eliminar reportes v2' },
-            { key: 'reportes.v2.ejecutar', label: 'Ejecutar reportes v2' },
-            { key: 'reportes.v2.ver_ejecuciones', label: 'Ver todas las ejecuciones', descripcion: 'Puede ver ejecuciones de todos los usuarios' },
-            { key: 'reportes.v2.gestionar_formatos', label: 'Gestionar formatos de exportación' },
+            { key: 'reportes.ver', label: 'Ver reportes' },
+            { key: 'reportes.crear', label: 'Crear reportes' },
+            { key: 'reportes.editar', label: 'Editar reportes' },
+            { key: 'reportes.eliminar', label: 'Eliminar reportes' },
+            { key: 'reportes.ejecutar', label: 'Ejecutar reportes' },
+            { key: 'reportes.ver_ejecuciones', label: 'Ver todas las ejecuciones', descripcion: 'Puede ver ejecuciones de todos los usuarios' },
+            { key: 'reportes.gestionar_formatos', label: 'Gestionar formatos de exportación' },
         ],
     },
     {

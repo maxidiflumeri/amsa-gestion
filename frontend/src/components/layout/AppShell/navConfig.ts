@@ -26,12 +26,10 @@ export const navConfig: NavItem[] = [
     {
         label: 'Reportes',
         icon: 'TableChart',
-        requiredPermissions: ['reportes.v1.ver', 'reportes.v2.ver'],
+        requiredPermissions: ['reportes.ver'],
         children: [
-            { label: 'Mis Plantillas (v1)', icon: 'TableChart', path: '/reportes', requiredPermissions: ['reportes.v1.ver'] },
-            { label: 'Reportes v2 (Beta)', icon: 'AutoGraph', path: '/reportes/v2', requiredPermissions: ['reportes.v2.ver'] },
-            { label: 'Mis ejecuciones (v2)', icon: 'History', path: '/reportes/v2/ejecuciones', requiredPermissions: ['reportes.v2.ver'] },
-            { label: 'Estadísticas', icon: 'BarChart', path: '/reportes/estadisticas', requiredPermissions: ['reportes.v1.ver'] },
+            { label: 'Mis plantillas', icon: 'AutoGraph', path: '/reportes', requiredPermissions: ['reportes.ver'] },
+            { label: 'Mis ejecuciones', icon: 'History', path: '/reportes/ejecuciones', requiredPermissions: ['reportes.ver'] },
         ],
     },
     {

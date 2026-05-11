@@ -1,10 +1,12 @@
-# Reportes Dinámicos v2 — Spec Integral
+# Reportes Dinámicos — Spec Integral
 
 **Proyecto:** AMSA Gestión
 **Módulo:** `reportes`
-**Fecha:** 2026-05-08
-**Estado:** Draft para aprobación
+**Fecha:** 2026-05-08 · actualizado 2026-05-11
+**Estado:** Implementado (Fases F0–F7)
 **Base:** commit `8d276ed` (módulo informes/reportes/bases v1)
+
+> **NOTA 2026-05-11 — Rename v2 → reportes.** El sufijo `v2` se eliminó de todo el código, DB y URLs (v2 es ahora la versión oficial y única). El módulo v1 se removió. Este documento conserva las referencias `v2` originales como histórico del diseño; mapeo: `plantilla_reporte_v2` → `plantilla_reporte`, `ejecucion_reporte_v2` → `ejecucion_reporte`, `RaizV2`/`ColumnaV2`/`FiltroV2`/`AgrupacionV2`/`TotalV2`/`PlantillaV2`/`EjecucionV2` → sin sufijo, archivos `*-v2.ts` → sin sufijo, ruta `/reportes/v2/*` → `/reportes/*`, permisos `reportes.v2.X` → `reportes.X`. Ver CHANGELOG 2026-05-11 para detalle.
 
 ---
 

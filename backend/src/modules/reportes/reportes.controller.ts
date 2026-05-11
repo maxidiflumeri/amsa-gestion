@@ -1,142 +1,318 @@
-import { Controller, Get, Post, Patch, Delete, Body, Param, ParseIntPipe, Query, Res, Logger, Req } from '@nestjs/common';
+import {
+  Controller,
+  Get,
+  Post,
+  Patch,
+  Delete,
+  Body,
+  Param,
+  Query,
+  ParseIntPipe,
+  Logger,
+  Res,
+  Req,
+  BadRequestException,
+} from '@nestjs/common';
 import type { Request, Response } from 'express';
+import * as path from 'path';
 import { ReportesService } from './reportes.service';
-import { EjecutorService } from './ejecutor/ejecutor.service';
-import { PrismaService } from 'src/prisma/prisma.service';
+import { CatalogoService } from './catalogo/catalogo.service';
+import {
+  CreatePlantillaDto,
+  UpdatePlantillaDto,
+} from './dto/plantilla.dto';
+import { EjecutarDto, PreviewDto } from './dto/ejecutar.dto';
+import {
+  CatalogoQueryDto,
+  CamposAdicionalesQueryDto,
+} from './dto/catalogo.dto';
+import {
+  EstimarDto,
+  ListarEjecucionesQueryDto,
+} from './dto/ejecuciones.dto';
+import { EjecucionesService } from './ejecuciones/ejecuciones.service';
 import { Permisos } from '../../auth/decorators';
 
+function resolverUsuarioId(req: Request): number {
+  const usuario = (req as any)['usuario'];
+  if (usuario?.sub && Number.isFinite(usuario.sub)) return usuario.sub;
+  return 1;
+}
+
+function resolverEmpresaId(req: Request): number | null {
+  const headerVal = req.header('x-empresa-id');
+  if (headerVal) {
+    const parsed = parseInt(headerVal, 10);
+    if (!Number.isNaN(parsed) && parsed > 0) return parsed;
+  }
+  return null;
+}
+
 @Controller('reportes')
-@Permisos('reportes.v1.ver')
+@Permisos('reportes.ver')
 export class ReportesController {
   private readonly logger = new Logger(ReportesController.name);
 
   constructor(
-    private readonly reportesService: ReportesService,
-    private readonly ejecutorService: EjecutorService,
-    private readonly prisma: PrismaService,
+    private reportesService: ReportesService,
+    private catalogoService: CatalogoService,
+    private ejecucionesService: EjecucionesService,
   ) {}
 
-  // ── Plantillas ───────────────────────────────────────────────────────────
-
-  @Get('plantillas')
-  findAll(@Query('empresaId') empresaId?: string) {
-    return this.reportesService.findAllPlantillas(empresaId ? parseInt(empresaId) : undefined);
-  }
-
-  @Get('plantillas/:id')
-  findOne(@Param('id', ParseIntPipe) id: number) {
-    return this.reportesService.findOnePlantilla(id);
-  }
-
-  @Post('plantillas')
-  @Permisos('reportes.v1.crear')
-  create(@Body() body: any) {
-    return this.reportesService.createPlantilla(body);
-  }
-
-  @Patch('plantillas/:id')
-  @Permisos('reportes.v1.editar')
-  update(@Param('id', ParseIntPipe) id: number, @Body() body: any) {
-    return this.reportesService.updatePlantilla(id, body);
-  }
-
-  @Delete('plantillas/:id')
-  @Permisos('reportes.v1.eliminar')
-  remove(@Param('id', ParseIntPipe) id: number) {
-    return this.reportesService.deletePlantilla(id);
-  }
-
-  // ── Ejecución ────────────────────────────────────────────────────────────
-
-  @Post('plantillas/:id/ejecutar')
-  @Permisos('reportes.v1.ejecutar')
-  async ejecutar(
-    @Param('id', ParseIntPipe) id: number,
-    @Body() body: { filtrosVars?: any; usuarioId?: number },
-    @Res() res: Response,
-    @Req() req: Request,
-  ) {
-    this.logger.log(`Ejecutando plantilla ${id}`);
-    const plantilla = await this.reportesService.findOnePlantilla(id);
-    const { buffer, mimeType, extension, totalFilas } = await this.ejecutorService.ejecutar(plantilla, body.filtrosVars || {});
-
-    // Usar usuarioId del JWT
-    const jwtUsuario = (req as any)['usuario'];
-    const usuarioIdReal = jwtUsuario?.sub || body.usuarioId || 1;
-
-    try {
-      await this.prisma.ejecucion_reporte.create({
-        data: {
-          plantillaId: id,
-          usuarioId: usuarioIdReal,
-          filtrosUsados: body.filtrosVars || {},
-          totalFilas,
-        },
-      });
-    } catch (error) {
-      this.logger.warn(`No se pudo registrar log de ejecución (ej. usuario inexistente): ${error.message}`);
-    }
-
-    const nombreArchivo = `${plantilla.nombre.replace(/[^a-zA-Z0-9]/g, '_')}_${new Date().toISOString().slice(0, 10)}.${extension}`;
-    res.setHeader('Content-Type', mimeType);
-    res.setHeader('Content-Disposition', `attachment; filename="${nombreArchivo}"`);
-    res.send(buffer);
-  }
-
-  @Post('plantillas/:id/preview')
-  async preview(
-    @Param('id', ParseIntPipe) id: number,
-    @Body() body: { filtrosVars?: any },
-  ) {
-    const plantilla = await this.reportesService.findOnePlantilla(id);
-    return this.ejecutorService.preview(plantilla, body.filtrosVars || {});
-  }
-
-  @Get('campos-extra')
-  async getCamposExtra(@Query('empresaId') empresaId?: string) {
-    return this.reportesService.getCamposExtra(empresaId ? Number(empresaId) : undefined);
-  }
-
-  // ── Estadísticas de remesa ───────────────────────────────────────────────
-
-  @Get('estadisticas/remesa/:remesaId')
-  estadisticasRemesa(@Param('remesaId', ParseIntPipe) remesaId: number) {
-    return this.reportesService.estadisticasRemesa(remesaId);
-  }
-
-  // ── Fuentes y Columnas disponibles ─────────────────────────────────────────────────
-
-  @Get('fuentes')
-  getFuentes() {
-    return this.reportesService.getFuentesDisponibles();
-  }
-
-  @Get('columnas/:fuente')
-  columnas(@Param('fuente') fuente: string) {
-    return this.reportesService.getColumnasDisponibles(fuente);
-  }
-
-  // ── Formatos de teléfono ─────────────────────────────────────────────────
-
   @Get('formatos-tel')
-  getFormatosTel() {
+  async getFormatosTel() {
+    this.logger.log('GET /reportes/formatos-tel');
     return this.reportesService.findAllFormatosTel();
   }
 
   @Post('formatos-tel')
-  @Permisos('reportes.v2.gestionar_formatos')
-  createFormatoTel(@Body() body: { nombre: string; descripcion?: string; patron: string }) {
+  @Permisos('reportes.gestionar_formatos')
+  async createFormatoTel(
+    @Body() body: { nombre: string; descripcion?: string; patron: string },
+  ) {
+    this.logger.log(`POST /reportes/formatos-tel nombre=${body.nombre}`);
     return this.reportesService.createFormatoTel(body);
   }
 
-  // ── Remesas por empresa (helper para filtros variables) ──────────────────
-  @Get('remesas')
-  async getRemesas(@Query('empresaId') empresaId?: string) {
-    return this.prisma.remesa.findMany({
-      where: empresaId ? { empresaId: parseInt(empresaId) } : undefined,
-      select: { id: true, nombre: true, numeroRemesa: true, empresaId: true, createdAt: true },
-      orderBy: { createdAt: 'desc' },
-      take: 100,
+  @Get('catalogo')
+  async getCatalogo(@Query() query: CatalogoQueryDto) {
+    const raiz = query.raiz || 'deudor';
+    const depth = query.depth || 3;
+
+    this.logger.log(`GET /reportes/catalogo raiz=${raiz} depth=${depth}`);
+
+    return this.catalogoService.getCatalogo(raiz, depth);
+  }
+
+  @Get('catalogo/campos-adicionales')
+  async getCamposAdicionalesKeys(
+    @Query() query: CamposAdicionalesQueryDto,
+  ) {
+    this.logger.log(
+      `GET /reportes/catalogo/campos-adicionales empresaId=${query.empresaId ?? 'all'}`,
+    );
+    const keys = await this.catalogoService.getCamposAdicionalesKeys(
+      query.empresaId,
+    );
+    return { keys };
+  }
+
+  @Post('catalogo/invalidate-cache')
+  invalidateCatalogCache() {
+    this.logger.log('POST /reportes/catalogo/invalidate-cache');
+    this.catalogoService.invalidateCache();
+    return { message: 'Cache invalidado' };
+  }
+
+  @Get('plantillas')
+  async findAll(@Query('empresaId') empresaId?: string) {
+    this.logger.log(`GET /reportes/plantillas empresaId=${empresaId}`);
+
+    const empresaIdNum = empresaId ? parseInt(empresaId, 10) : undefined;
+
+    if (empresaId && Number.isNaN(empresaIdNum!)) {
+      throw new BadRequestException('empresaId debe ser un número');
+    }
+
+    return this.reportesService.findAll(empresaIdNum);
+  }
+
+  @Get('plantillas/:id')
+  async findOne(@Param('id', ParseIntPipe) id: number) {
+    this.logger.log(`GET /reportes/plantillas/${id}`);
+    return this.reportesService.findOne(id);
+  }
+
+  @Post('plantillas')
+  @Permisos('reportes.crear')
+  async create(@Body() dto: CreatePlantillaDto) {
+    this.logger.log(`POST /reportes/plantillas`);
+    return this.reportesService.create(dto);
+  }
+
+  @Patch('plantillas/:id')
+  @Permisos('reportes.editar')
+  async update(
+    @Param('id', ParseIntPipe) id: number,
+    @Body() dto: UpdatePlantillaDto,
+  ) {
+    this.logger.log(`PATCH /reportes/plantillas/${id}`);
+    return this.reportesService.update(id, dto);
+  }
+
+  @Delete('plantillas/:id')
+  @Permisos('reportes.eliminar')
+  async remove(@Param('id', ParseIntPipe) id: number) {
+    this.logger.log(`DELETE /reportes/plantillas/${id}`);
+    return this.reportesService.remove(id);
+  }
+
+  @Post('plantillas/:id/duplicar')
+  async duplicate(@Param('id', ParseIntPipe) id: number) {
+    this.logger.log(`POST /reportes/plantillas/${id}/duplicar`);
+    return this.reportesService.duplicate(id);
+  }
+
+  @Post('plantillas/:id/estimar')
+  async estimar(
+    @Param('id', ParseIntPipe) id: number,
+    @Body() dto: EstimarDto,
+  ) {
+    this.logger.log(`POST /reportes/plantillas/${id}/estimar`);
+    return this.ejecucionesService.estimar(id, dto.filtrosVars);
+  }
+
+  @Post('plantillas/:id/ejecutar')
+  @Permisos('reportes.ejecutar')
+  async ejecutar(
+    @Param('id', ParseIntPipe) id: number,
+    @Body() dto: EjecutarDto,
+    @Req() req: Request,
+    @Res() res: Response,
+  ): Promise<void> {
+    this.logger.log(`POST /reportes/plantillas/${id}/ejecutar`);
+
+    const usuarioId = resolverUsuarioId(req);
+    const filtrosVars = dto.filtrosVars || {};
+
+    const estimacion = await this.ejecucionesService.estimar(id, filtrosVars);
+
+    if (estimacion.modoSugerido === 'async') {
+      const result = await this.ejecucionesService.encolarEjecucion(
+        id,
+        usuarioId,
+        filtrosVars,
+      );
+      res.status(202).json(result);
+      return;
+    }
+
+    const plantilla = await this.reportesService.findOne(id);
+    const buffer = await this.reportesService.ejecutar(id, dto, usuarioId);
+
+    const extension = plantilla.formatoSalida;
+    const filename = `${plantilla.nombre.replace(/[^a-zA-Z0-9]/g, '_')}.${extension}`;
+
+    const mimeTypes: Record<string, string> = {
+      xlsx: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      csv: 'text/csv',
+      txt: 'text/plain',
+      pdf: 'application/pdf',
+    };
+
+    res.setHeader(
+      'Content-Type',
+      mimeTypes[extension] || 'application/octet-stream',
+    );
+    res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+    res.send(buffer);
+  }
+
+  @Post('preview')
+  async preview(@Body() dto: PreviewDto) {
+    this.logger.log('POST /reportes/preview');
+    return this.reportesService.preview(dto);
+  }
+
+  @Get('plantillas/:id/variables')
+  async getVariables(@Param('id', ParseIntPipe) id: number) {
+    this.logger.log(`GET /reportes/plantillas/${id}/variables`);
+    return this.reportesService.getVariables(id);
+  }
+
+  @Get('ejecuciones')
+  async listarEjecuciones(
+    @Req() req: Request,
+    @Query() query: ListarEjecucionesQueryDto,
+  ) {
+    const usuarioId = resolverUsuarioId(req);
+    const empresaId = resolverEmpresaId(req);
+    const permisos: string[] = (req as any)['usuario']?.permisos ?? [];
+    const verTodas = permisos.includes('reportes.ver_ejecuciones');
+
+    this.logger.log(
+      `GET /reportes/ejecuciones usuarioId=${usuarioId} estado=${query.estado} verTodas=${verTodas}`,
+    );
+
+    // Si tiene el permiso de ver todas, pasar usuarioId=0 para que el servicio no filtre
+    return this.ejecucionesService.listar(verTodas ? 0 : usuarioId, empresaId, query);
+  }
+
+  @Get('ejecuciones/:id')
+  async obtenerEjecucion(
+    @Param('id', ParseIntPipe) id: number,
+    @Req() req: Request,
+  ) {
+    const usuarioId = resolverUsuarioId(req);
+    this.logger.log(`GET /reportes/ejecuciones/${id}`);
+    return this.ejecucionesService.obtener(id, usuarioId);
+  }
+
+  @Get('ejecuciones/:id/descargar')
+  async descargarEjecucion(
+    @Param('id', ParseIntPipe) id: number,
+    @Req() req: Request,
+    @Res() res: Response,
+  ): Promise<void> {
+    const usuarioId = resolverUsuarioId(req);
+    this.logger.log(`GET /reportes/ejecuciones/${id}/descargar`);
+
+    const { ejecucion, stream } = await this.ejecucionesService.obtenerArchivo(
+      id,
+      usuarioId,
+    );
+
+    const ext = ejecucion.archivoPath
+      ? path.extname(ejecucion.archivoPath).replace('.', '')
+      : 'bin';
+
+    const mimeTypes: Record<string, string> = {
+      xlsx: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      csv: 'text/csv',
+      txt: 'text/plain',
+      pdf: 'application/pdf',
+    };
+
+    const baseName = `ejecucion_${ejecucion.id}.${ext}`;
+
+    res.setHeader(
+      'Content-Type',
+      mimeTypes[ext] || 'application/octet-stream',
+    );
+    res.setHeader('Content-Disposition', `attachment; filename="${baseName}"`);
+    if (ejecucion.archivoTamano) {
+      res.setHeader('Content-Length', String(ejecucion.archivoTamano));
+    }
+
+    stream.on('error', (err) => {
+      this.logger.error(`Error streaming archivo ${id}: ${err.message}`);
+      if (!res.headersSent) {
+        res.status(500).json({ message: 'Error al leer archivo' });
+      } else {
+        res.end();
+      }
     });
+
+    stream.pipe(res);
+  }
+
+  @Post('ejecuciones/:id/cancelar')
+  async cancelarEjecucion(
+    @Param('id', ParseIntPipe) id: number,
+    @Req() req: Request,
+  ) {
+    const usuarioId = resolverUsuarioId(req);
+    this.logger.log(`POST /reportes/ejecuciones/${id}/cancelar`);
+    return this.ejecucionesService.cancelar(id, usuarioId);
+  }
+
+  @Delete('ejecuciones/:id')
+  async eliminarEjecucion(
+    @Param('id', ParseIntPipe) id: number,
+    @Req() req: Request,
+  ) {
+    const usuarioId = resolverUsuarioId(req);
+    this.logger.log(`DELETE /reportes/ejecuciones/${id}`);
+    return this.ejecucionesService.eliminar(id, usuarioId);
   }
 }

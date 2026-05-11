@@ -19,7 +19,7 @@ interface PermisoGuardProps {
  * Uso:
  *   <PermisoGuard permiso="empresas.crear">...</PermisoGuard>
  *   <PermisoGuard alguno={['admin.gestionar_roles', 'admin.gestionar_usuarios']}>...</PermisoGuard>
- *   <PermisoGuard todos={['reportes.v2.ver', 'reportes.v2.crear']}>...</PermisoGuard>
+ *   <PermisoGuard todos={['reportes.ver', 'reportes.crear']}>...</PermisoGuard>
  */
 const PermisoGuard: React.FC<PermisoGuardProps> = ({
     permiso,

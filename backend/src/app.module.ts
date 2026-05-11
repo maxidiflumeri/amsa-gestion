@@ -15,7 +15,6 @@ import { EmpresasModule } from './modules/empresas/empresas.module';
 import { PoliticasModule } from './modules/politicas/politicas.module';
 import { ConveniosModule } from './modules/convenios/convenios.module';
 import { ReportesModule } from './modules/reportes/reportes.module';
-import { ReportesV2Module } from './modules/reportes/v2/reportes-v2.module';
 import { AuthModule } from './auth/auth.module';
 import { RolesModule } from './modules/roles/roles.module';
 import { UsuariosModule } from './modules/usuarios/usuarios.module';
@@ -46,7 +45,6 @@ import { NotificacionesModule } from './modules/notificaciones/notificaciones.mo
     PoliticasModule,
     ConveniosModule,
     ReportesModule,
-    ReportesV2Module,
     RealtimeModule,
     NotificacionesModule,
   ],

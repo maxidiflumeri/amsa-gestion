@@ -95,8 +95,7 @@ model empresa {
   plantillaimport plantillaimport[]
   remesa          remesa[]
   politicas       politica[]
-  plantillas      plantilla_reporte[]
-  plantillasV2    plantilla_reporte_v2[] @relation("PlantillaV2Empresa")
+  plantillas    plantilla_reporte[] @relation("PlantillaEmpresa")
 }
 
 model factura {
@@ -289,9 +288,8 @@ model usuario {
   comentario      comentario[]
   transaccion     transaccion[]
   convenios       convenio[]
-  ejecuciones     ejecucion_reporte[]
-  plantillasV2    plantilla_reporte_v2[] @relation("PlantillaV2CreadoPor")
-  ejecucionesV2   ejecucion_reporte_v2[] @relation("EjecucionV2Usuario")
+  plantillas    plantilla_reporte[] @relation("PlantillaCreadoPor")
+  ejecuciones   ejecucion_reporte[] @relation("EjecucionUsuario")
   notificaciones  Notificacion[]
   remesasCreadas  remesa[]               @relation("RemesaUsuarioCreador")
 
@@ -385,42 +383,6 @@ model cuota_convenio {
   @@index([convenioId])
 }
 
-model plantilla_reporte {
-  id            Int                 @id @default(autoincrement())
-  nombre        String
-  descripcion   String?             @db.Text
-  tipo          String
-  fuente        String
-  filtrosFijos  Json
-  filtrosVars   Json
-  columnas      Json
-  formatoSalida String
-  opcionesExcel Json?
-  opcionesPdf   Json?
-  empresaId     Int?
-  activo        Boolean             @default(true)
-  createdAt     DateTime            @default(now())
-  updatedAt     DateTime            @updatedAt
-  empresa       empresa?            @relation(fields: [empresaId], references: [id])
-  ejecuciones   ejecucion_reporte[]
-
-  @@index([empresaId])
-}
-
-model ejecucion_reporte {
-  id            Int               @id @default(autoincrement())
-  plantillaId   Int
-  usuarioId     Int
-  filtrosUsados Json
-  totalFilas    Int?
-  createdAt     DateTime          @default(now())
-  plantilla     plantilla_reporte @relation(fields: [plantillaId], references: [id], onDelete: Cascade)
-  usuario       usuario           @relation(fields: [usuarioId], references: [id])
-
-  @@index([plantillaId])
-  @@index([usuarioId])
-}
-
 model formato_telefono {
   id          Int     @id @default(autoincrement())
   nombre      String  @unique
@@ -429,7 +391,7 @@ model formato_telefono {
   activo      Boolean @default(true)
 }
 
-model plantilla_reporte_v2 {
+model plantilla_reporte {
   id              Int                    @id @default(autoincrement())
   nombre          String
   descripcion     String?                @db.Text
@@ -442,16 +404,16 @@ model plantilla_reporte_v2 {
   creadoPorId     Int?
   createdAt       DateTime               @default(now())
   updatedAt       DateTime               @updatedAt
-  empresa         empresa?               @relation("PlantillaV2Empresa", fields: [empresaId], references: [id])
-  creadoPor       usuario?               @relation("PlantillaV2CreadoPor", fields: [creadoPorId], references: [id])
-  ejecuciones     ejecucion_reporte_v2[]
+  empresa         empresa?               @relation("PlantillaEmpresa", fields: [empresaId], references: [id])
+  creadoPor       usuario?               @relation("PlantillaCreadoPor", fields: [creadoPorId], references: [id])
+  ejecuciones     ejecucion_reporte[]
 
   @@index([empresaId])
   @@index([activo])
   @@index([creadoPorId])
 }
 
-model ejecucion_reporte_v2 {
+model ejecucion_reporte {
   id              Int                  @id @default(autoincrement())
   plantillaId     Int
   usuarioId       Int
@@ -472,8 +434,8 @@ model ejecucion_reporte_v2 {
   createdAt       DateTime             @default(now())
   iniciadoEn      DateTime?
   finishedAt      DateTime?
-  plantilla       plantilla_reporte_v2 @relation(fields: [plantillaId], references: [id], onDelete: Cascade)
-  usuario         usuario              @relation("EjecucionV2Usuario", fields: [usuarioId], references: [id])
+  plantilla       plantilla_reporte @relation(fields: [plantillaId], references: [id], onDelete: Cascade)
+  usuario         usuario              @relation("EjecucionUsuario", fields: [usuarioId], references: [id])
 
   @@index([plantillaId])
   @@index([usuarioId, createdAt])

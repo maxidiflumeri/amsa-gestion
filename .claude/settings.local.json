@@ -36,7 +36,32 @@
       "Bash(wait)",
       "Bash(rm verify-data.ts)",
       "Bash(npm test *)",
-      "Bash(npx jest *)"
+      "Bash(npx jest *)",
+      "Bash(tasklist)",
+      "Bash(PRISMA_USER_CONSENT_FOR_DANGEROUS_AI_ACTION=\"si, proceder\" npx prisma migrate reset --force --skip-seed)",
+      "Bash(PRISMA_USER_CONSENT_FOR_DANGEROUS_AI_ACTION=\"si, proceder\" npx prisma db push --force-reset --accept-data-loss)",
+      "Bash(mysql *)",
+      "Bash(PRISMA_USER_CONSENT_FOR_DANGEROUS_AI_ACTION=\"si, proceder\" npx prisma migrate dev --name baseline_with_rbac --create-only)",
+      "Bash(taskkill /F /IM node.exe)",
+      "Bash(python3 -c \"import json,sys; d=json.load\\(sys.stdin\\); print\\(list\\(d.get\\('dependencies',{}\\).keys\\(\\)\\)\\)\")",
+      "Bash(PRISMA_USER_CONSENT_FOR_DANGEROUS_AI_ACTION=\"si, proceder\" npx prisma migrate status)",
+      "Read(//c/Users/MDIFLUME/Documents/Proyectos/Propios/amsa-sender/backend/src/auth//**)",
+      "Read(//c/Users/MDIFLUME/Documents/Proyectos/Propios/amsa-sender/frontend/src/context//**)",
+      "Read(//c/Users/MDIFLUME/Documents/Proyectos/Propios/amsa-sender/frontend/src/**)",
+      "Bash(cat)",
+      "Bash(bash /tmp/rename-v2.sh)",
+      "Bash(chmod +x /tmp/rename-v2-fast.sh)",
+      "Bash(bash /tmp/rename-v2-fast.sh)",
+      "Bash(mv backend/src/modules/reportes/v2/* backend/src/modules/reportes/)",
+      "Bash(mv backend/src/modules/reportes/v2/.[!.]* backend/src/modules/reportes/)",
+      "Bash(xargs -0 -n 20 -P 4 sed -i -e 's|from '\\\\''\\\\.\\\\./\\\\.\\\\./\\\\.\\\\./\\\\.\\\\./\\\\.\\\\./\\\\.\\\\./|from '\\\\''../../../../../|g' -e 's|from '\\\\''\\\\.\\\\./\\\\.\\\\./\\\\.\\\\./\\\\.\\\\./\\\\.\\\\./|from '\\\\''../../../../|g' -e 's|from '\\\\''\\\\.\\\\./\\\\.\\\\./\\\\.\\\\./\\\\.\\\\./|from '\\\\''../../../|g')",
+      "Bash(sed -i \"s|@Controller\\('reportes/v2'\\)|@Controller\\('reportes'\\)|g\" backend/src/modules/reportes/reportes.controller.ts)",
+      "Bash(sed -i \"s|path.join\\(this.storageRoot, 'reportes', 'v2', anio, mes\\)|path.join\\(this.storageRoot, 'reportes', anio, mes\\)|g\" backend/src/modules/reportes/storage/reportes-storage.service.ts)",
+      "Bash(sed -i \"s|path.join\\('reportes', 'v2', anio, mes\\)|path.join\\('reportes', anio, mes\\)|g\" backend/src/modules/reportes/storage/reportes-storage.service.spec.ts)",
+      "Bash(\"/c/Program Files/MySQL/MySQL Server 8.0/bin/mysql.exe\" -h localhost -u root -p123456 amsa-gestion -e \"SELECT id, nombre, JSON_EXTRACT\\(permisos, '\\\\$'\\) AS permisos FROM rol;\")",
+      "Bash(/c/Program Files/MySQL/MySQL Server 8.0/bin/mysql.exe *)",
+      "Bash(awk -F/ '{print NF\": \"$0}')",
+      "Bash(xargs -0 -n 20 -P 4 sed -i -e 's|from '\\\\''\\\\.\\\\./\\\\.\\\\./\\\\.\\\\./types/|from '\\\\''../../../../types/|g' -e 's|from '\\\\''\\\\.\\\\./\\\\.\\\\./\\\\.\\\\./api/|from '\\\\''../../../../api/|g' -e 's|from '\\\\''\\\\.\\\\./\\\\.\\\\./\\\\.\\\\./components/|from '\\\\''../../../../components/|g' -e 's|from '\\\\''\\\\.\\\\./\\\\.\\\\./\\\\.\\\\./hooks/|from '\\\\''../../../../hooks/|g' -e 's|from '\\\\''\\\\.\\\\./\\\\.\\\\./\\\\.\\\\./context/|from '\\\\''../../../../context/|g' -e 's|from '\\\\''\\\\.\\\\./\\\\.\\\\./\\\\.\\\\./utils/|from '\\\\''../../../../utils/|g')"
     ]
   }
 }
