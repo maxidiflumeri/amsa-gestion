@@ -15,6 +15,7 @@ import LightModeIcon from '@mui/icons-material/LightMode';
 import LogoutIcon from '@mui/icons-material/Logout';
 import PersonIcon from '@mui/icons-material/Person';
 import { useColorMode } from '../../../context/ColorModeContext';
+import { useAuth } from '../../../context/AuthContext';
 import { useNavigate } from 'react-router-dom';
 
 interface User {
@@ -38,6 +39,7 @@ function getInitials(nombre: string): string {
 const UserMenu: React.FC<UserMenuProps> = ({ user }) => {
     const [anchorEl, setAnchorEl] = useState<null | HTMLElement>(null);
     const { mode, toggleColorMode } = useColorMode();
+    const { logout } = useAuth();
     const navigate = useNavigate();
 
     const open = Boolean(anchorEl);
@@ -48,8 +50,7 @@ const UserMenu: React.FC<UserMenuProps> = ({ user }) => {
 
     const handleLogout = () => {
         handleClose();
-        localStorage.removeItem('token');
-        localStorage.removeItem('usuario');
+        logout();
         navigate('/login');
     };
 

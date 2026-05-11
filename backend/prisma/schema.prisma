@@ -253,21 +253,36 @@ model transaccion {
   @@index([usuarioId, createdAt], map: "Transaccion_usuarioId_createdAt_idx")
 }
 
+model rol {
+  id       Int       @id @default(autoincrement())
+  nombre   String    @unique
+  permisos Json
+  creadoAt DateTime  @default(now())
+  usuarios usuario[]
+
+  @@map("rol")
+}
+
 model usuario {
   id            Int                    @id @default(autoincrement())
-  googleId      String                 @unique(map: "Usuario_googleId_key")
+  googleId      String?                @unique(map: "Usuario_googleId_key")
   nombre        String
   email         String                 @unique(map: "Usuario_email_key")
   avatarUrl     String?
   rol           String                 @default("usuario")
+  rolId         Int?
+  activo        Boolean                @default(true)
   createdAt     DateTime               @default(now())
   updatedAt     DateTime
+  rolObj        rol?                   @relation(fields: [rolId], references: [id])
   comentario    comentario[]
   transaccion   transaccion[]
   convenios     convenio[]
   ejecuciones   ejecucion_reporte[]
   plantillasV2  plantilla_reporte_v2[] @relation("PlantillaV2CreadoPor")
   ejecucionesV2 ejecucion_reporte_v2[] @relation("EjecucionV2Usuario")
+
+  @@index([rolId])
 }
 
 enum jobimport_estado {

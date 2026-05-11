@@ -3,6 +3,7 @@ export interface NavItem {
     icon: string; // nombre del icono MUI
     path?: string;
     children?: NavItem[];
+    requiredPermissions?: string[]; // cualquiera de estos permisos habilita el item
 }
 
 export const navConfig: NavItem[] = [
@@ -10,33 +11,46 @@ export const navConfig: NavItem[] = [
         label: 'Gestión',
         icon: 'Assignment',
         path: '/gestion',
+        requiredPermissions: ['deudores.ver'],
     },
     {
         label: 'Importación de Datos',
         icon: 'UploadFile',
+        requiredPermissions: ['importacion.ver_historial', 'importacion.ejecutar', 'plantillas_import.ver'],
         children: [
-            { label: 'Nueva Importación', icon: 'UploadFile', path: '/carga' },
-            { label: 'Historial', icon: 'History', path: '/historial-importaciones' },
-            { label: 'Plantillas', icon: 'Description', path: '/plantillas' },
+            { label: 'Nueva Importación', icon: 'UploadFile', path: '/carga', requiredPermissions: ['importacion.ejecutar'] },
+            { label: 'Historial', icon: 'History', path: '/historial-importaciones', requiredPermissions: ['importacion.ver_historial'] },
+            { label: 'Plantillas', icon: 'Description', path: '/plantillas', requiredPermissions: ['plantillas_import.ver'] },
         ],
     },
     {
         label: 'Reportes',
         icon: 'TableChart',
+        requiredPermissions: ['reportes.v1.ver', 'reportes.v2.ver'],
         children: [
-            { label: 'Mis Plantillas (v1)', icon: 'TableChart', path: '/reportes' },
-            { label: 'Reportes v2 (Beta)', icon: 'AutoGraph', path: '/reportes/v2' },
-            { label: 'Mis ejecuciones (v2)', icon: 'History', path: '/reportes/v2/ejecuciones' },
-            { label: 'Estadísticas', icon: 'BarChart', path: '/reportes/estadisticas' },
+            { label: 'Mis Plantillas (v1)', icon: 'TableChart', path: '/reportes', requiredPermissions: ['reportes.v1.ver'] },
+            { label: 'Reportes v2 (Beta)', icon: 'AutoGraph', path: '/reportes/v2', requiredPermissions: ['reportes.v2.ver'] },
+            { label: 'Mis ejecuciones (v2)', icon: 'History', path: '/reportes/v2/ejecuciones', requiredPermissions: ['reportes.v2.ver'] },
+            { label: 'Estadísticas', icon: 'BarChart', path: '/reportes/estadisticas', requiredPermissions: ['reportes.v1.ver'] },
         ],
     },
     {
         label: 'Ajustes',
-        icon: 'Settings',
+        icon: 'Tune',
+        requiredPermissions: ['empresas.ver', 'parametros.ver', 'politicas.ver'],
         children: [
-            { label: 'Empresas', icon: 'Business', path: '/ajustes/empresas' },
-            { label: 'Parámetros', icon: 'SettingsInputComponent', path: '/ajustes/parametros' },
-            { label: 'Políticas', icon: 'Policy', path: '/ajustes/politicas' },
+            { label: 'Empresas', icon: 'Business', path: '/ajustes/empresas', requiredPermissions: ['empresas.ver'] },
+            { label: 'Parámetros', icon: 'SettingsInputComponent', path: '/ajustes/parametros', requiredPermissions: ['parametros.ver'] },
+            { label: 'Políticas', icon: 'Policy', path: '/ajustes/politicas', requiredPermissions: ['politicas.ver'] },
+        ],
+    },
+    {
+        label: 'Administración',
+        icon: 'AdminPanelSettings',
+        requiredPermissions: ['admin.gestionar_roles', 'admin.gestionar_usuarios'],
+        children: [
+            { label: 'Roles', icon: 'Shield', path: '/admin/roles', requiredPermissions: ['admin.gestionar_roles'] },
+            { label: 'Usuarios', icon: 'People', path: '/admin/usuarios', requiredPermissions: ['admin.gestionar_usuarios'] },
         ],
     },
 ];

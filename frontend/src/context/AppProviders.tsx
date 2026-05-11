@@ -2,9 +2,11 @@ import React, { useEffect } from 'react';
 import { CssBaseline } from '@mui/material';
 import { SnackbarProvider } from 'notistack';
 import { BrowserRouter } from 'react-router-dom';
+import { GoogleOAuthProvider } from '@react-oauth/google';
 import { ColorModeProvider } from './ColorModeContext';
 import { ConfirmProvider } from './ConfirmContext';
 import { PageMetaProvider } from './PageMetaContext';
+import { AuthProvider } from './AuthContext';
 import { setupAxiosInterceptors } from '../api/setupAxiosInterceptors';
 import { useNotify } from '../hooks/useNotify';
 
@@ -23,25 +25,31 @@ const AxiosInterceptorSetup: React.FC<{ children: React.ReactNode }> = ({ childr
     return <>{children}</>;
 };
 
+const GOOGLE_CLIENT_ID = import.meta.env.VITE_GOOGLE_CLIENT_ID || '';
+
 export const AppProviders: React.FC<{ children: React.ReactNode }> = ({ children }) => {
     return (
-        <ColorModeProvider>
-            <CssBaseline />
-            <SnackbarProvider
-                maxSnack={4}
-                anchorOrigin={{ vertical: 'bottom', horizontal: 'right' }}
-                autoHideDuration={4000}
-            >
-                <ConfirmProvider>
-                    <PageMetaProvider>
-                        <BrowserRouter>
-                            <AxiosInterceptorSetup>
-                                {children}
-                            </AxiosInterceptorSetup>
-                        </BrowserRouter>
-                    </PageMetaProvider>
-                </ConfirmProvider>
-            </SnackbarProvider>
-        </ColorModeProvider>
+        <GoogleOAuthProvider clientId={GOOGLE_CLIENT_ID}>
+            <ColorModeProvider>
+                <CssBaseline />
+                <SnackbarProvider
+                    maxSnack={4}
+                    anchorOrigin={{ vertical: 'bottom', horizontal: 'right' }}
+                    autoHideDuration={4000}
+                >
+                    <ConfirmProvider>
+                        <PageMetaProvider>
+                            <BrowserRouter>
+                                <AuthProvider>
+                                    <AxiosInterceptorSetup>
+                                        {children}
+                                    </AxiosInterceptorSetup>
+                                </AuthProvider>
+                            </BrowserRouter>
+                        </PageMetaProvider>
+                    </ConfirmProvider>
+                </SnackbarProvider>
+            </ColorModeProvider>
+        </GoogleOAuthProvider>
     );
 };

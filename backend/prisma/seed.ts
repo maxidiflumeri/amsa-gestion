@@ -1,25 +1,130 @@
 import { PrismaClient } from '@prisma/client';
 
+// Inline de TODAS_LAS_KEYS para no depender de compilación de módulos NestJS
+const TODAS_LAS_KEYS: string[] = [
+    'deudores.ver',
+    'deudores.editar_estado',
+    'deudores.exportar',
+    'comentarios.ver',
+    'comentarios.crear',
+    'comentarios.eliminar',
+    'convenios.ver',
+    'convenios.crear',
+    'convenios.cancelar',
+    'convenios.registrar_pago',
+    'importacion.ejecutar',
+    'importacion.ver_historial',
+    'plantillas_import.ver',
+    'plantillas_import.crear',
+    'plantillas_import.editar',
+    'plantillas_import.eliminar',
+    'reportes.v1.ver',
+    'reportes.v1.crear',
+    'reportes.v1.editar',
+    'reportes.v1.eliminar',
+    'reportes.v1.ejecutar',
+    'reportes.v2.ver',
+    'reportes.v2.crear',
+    'reportes.v2.editar',
+    'reportes.v2.eliminar',
+    'reportes.v2.ejecutar',
+    'reportes.v2.ver_ejecuciones',
+    'reportes.v2.gestionar_formatos',
+    'empresas.ver',
+    'empresas.crear',
+    'empresas.editar',
+    'empresas.eliminar',
+    'parametros.ver',
+    'parametros.crear',
+    'parametros.editar',
+    'parametros.eliminar',
+    'politicas.ver',
+    'politicas.crear',
+    'politicas.editar',
+    'politicas.eliminar',
+    'admin.gestionar_roles',
+    'admin.gestionar_usuarios',
+];
+
+const PERMISOS_OPERADOR: string[] = [
+    'deudores.ver',
+    'comentarios.ver',
+    'comentarios.crear',
+    'convenios.ver',
+    'importacion.ver_historial',
+    'plantillas_import.ver',
+    'reportes.v1.ver',
+    'reportes.v1.ejecutar',
+    'reportes.v2.ver',
+    'reportes.v2.ejecutar',
+    'empresas.ver',
+    'parametros.ver',
+    'politicas.ver',
+];
+
 const prisma = new PrismaClient();
 
 async function main() {
-    // Usuario "system" id=1 (placeholder hasta que se implemente JWT auth real).
-    // Necesario porque ejecucion_reporte_v2.usuarioId tiene FK a usuario.
-    const usuarioSystem = await prisma.usuario.upsert({
-        where: { id: 1 },
-        update: {},
+    // 1. Crear rol ADMIN
+    const rolAdmin = await prisma.rol.upsert({
+        where: { nombre: 'ADMIN' },
+        update: { permisos: TODAS_LAS_KEYS },
         create: {
-            id: 1,
-            googleId: 'system',
-            nombre: 'System',
-            email: 'system@local',
-            rol: 'admin',
+            nombre: 'ADMIN',
+            permisos: TODAS_LAS_KEYS,
+        },
+    });
+    console.log(`Rol ADMIN: id=${rolAdmin.id} (${TODAS_LAS_KEYS.length} permisos)`);
+
+    // 2. Crear rol OPERADOR (mínimo, para testing)
+    const rolOperador = await prisma.rol.upsert({
+        where: { nombre: 'OPERADOR' },
+        update: { permisos: PERMISOS_OPERADOR },
+        create: {
+            nombre: 'OPERADOR',
+            permisos: PERMISOS_OPERADOR,
+        },
+    });
+    console.log(`Rol OPERADOR: id=${rolOperador.id} (${PERMISOS_OPERADOR.length} permisos)`);
+
+    // 3. Upsert usuario maxidiflumeri@gmail.com como ADMIN
+    const usuarioAdmin = await prisma.usuario.upsert({
+        where: { email: 'maxidiflumeri@gmail.com' },
+        update: {
+            nombre: 'Maxi Di Flume',
+            rolId: rolAdmin.id,
+            activo: true,
+            updatedAt: new Date(),
+        },
+        create: {
+            nombre: 'Maxi Di Flume',
+            email: 'maxidiflumeri@gmail.com',
+            rolId: rolAdmin.id,
+            activo: true,
             updatedAt: new Date(),
         },
     });
-    console.log(`✅ Usuario: ${usuarioSystem.email} (id=${usuarioSystem.id})`);
+    console.log(`Usuario ADMIN: ${usuarioAdmin.email} (id=${usuarioAdmin.id}, rolId=${usuarioAdmin.rolId})`);
 
-    // Empresa "Personal" (ya te funcionó – lo dejo igual)
+    // 4. Mantener usuario system para FK legacy (sin id fijo, por email)
+    const existeSystem = await prisma.usuario.findUnique({ where: { email: 'system@local' } });
+    let usuarioSystem: { id: number; email: string };
+    if (!existeSystem) {
+        usuarioSystem = await prisma.usuario.create({
+            data: {
+                googleId: 'system',
+                nombre: 'System',
+                email: 'system@local',
+                activo: false,
+                updatedAt: new Date(),
+            },
+        });
+    } else {
+        usuarioSystem = existeSystem;
+    }
+    console.log(`Usuario System: ${usuarioSystem.email} (id=${usuarioSystem.id})`);
+
+    // 5. Empresa "Personal"
     const empresa = await prisma.empresa.upsert({
         where: { nombre: 'Personal' },
         update: {},
@@ -27,19 +132,18 @@ async function main() {
             nombre: 'Personal',
             cuit: '30-12345678-9',
             configuracion: {},
-            // no hace falta updatedAt si en schema tiene @updatedAt
         },
     });
+    console.log(`Empresa: ${empresa.nombre} (id=${empresa.id})`);
 
-    console.log(`✅ Empresa: ${empresa.nombre} (id=${empresa.id})`);
-
+    // 6. Plantillas de importación
     const pDeudores = await ensurePlantillaDeudores(empresa.id);
-    console.log(`✅ Plantilla creada/actualizada: ${pDeudores.nombre}`);
+    console.log(`Plantilla: ${pDeudores.nombre}`);
 
     const pFacturas = await ensurePlantillaFacturas(empresa.id);
-    console.log(`✅ Plantilla creada/actualizada: ${pFacturas.nombre}`);
+    console.log(`Plantilla: ${pFacturas.nombre}`);
 
-    console.log('🎉 Seed OK');
+    console.log('Seed completado correctamente');
 }
 
 main()
@@ -50,8 +154,6 @@ main()
         process.exit(1);
     });
 
-
-// Helpers
 async function ensurePlantillaDeudores(personalId: number) {
     const nombre = 'Personal - Deudores (CA)';
     const version = 1;
@@ -63,7 +165,7 @@ async function ensurePlantillaDeudores(personalId: number) {
     const dataBase = {
         empresaId: personalId,
         nombre,
-        categoria: 'DEUDORES' as any, // enum
+        categoria: 'DEUDORES' as any,
         version,
         separador: '|',
         tieneHeader: false,
@@ -88,19 +190,12 @@ async function ensurePlantillaDeudores(personalId: number) {
     if (existente) {
         return prisma.plantillaimport.update({
             where: { id: existente.id },
-            data: {
-                ...dataBase,
-                updatedAt: new Date(), // satisface el tipo actual
-            },
+            data: { ...dataBase, updatedAt: new Date() },
         });
     }
 
     return prisma.plantillaimport.create({
-        data: {
-            ...dataBase,
-            // por si tu modelo lo exige en create:
-            updatedAt: new Date(),
-        },
+        data: { ...dataBase, updatedAt: new Date() },
     });
 }
 
@@ -115,7 +210,7 @@ async function ensurePlantillaFacturas(personalId: number) {
     const dataBase = {
         empresaId: personalId,
         nombre,
-        categoria: 'FACTURAS' as any, // enum
+        categoria: 'FACTURAS' as any,
         version,
         separador: '|',
         tieneHeader: false,
@@ -136,17 +231,11 @@ async function ensurePlantillaFacturas(personalId: number) {
     if (existente) {
         return prisma.plantillaimport.update({
             where: { id: existente.id },
-            data: {
-                ...dataBase,
-                updatedAt: new Date(),
-            },
+            data: { ...dataBase, updatedAt: new Date() },
         });
     }
 
     return prisma.plantillaimport.create({
-        data: {
-            ...dataBase,
-            updatedAt: new Date(),
-        },
+        data: { ...dataBase, updatedAt: new Date() },
     });
 }

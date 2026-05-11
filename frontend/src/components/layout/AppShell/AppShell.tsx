@@ -3,24 +3,9 @@ import { Box, Toolbar, useMediaQuery, useTheme } from '@mui/material';
 import { Outlet } from 'react-router-dom';
 import AppBarComponent from './AppBar';
 import SideNav from './SideNav';
+import { useAuth } from '../../../context/AuthContext';
 
 const SIDEBAR_COLLAPSED_KEY = 'app_sidebar_collapsed';
-
-function readUser(): { nombre: string; rol: string } {
-    try {
-        const raw = localStorage.getItem('usuario');
-        if (raw) {
-            const u = JSON.parse(raw);
-            return {
-                nombre: u.nombre || u.name || 'Usuario',
-                rol: u.rol || u.role || '-',
-            };
-        }
-    } catch {
-        /* ignore */
-    }
-    return { nombre: 'Usuario', rol: '-' };
-}
 
 function readCollapsed(): boolean {
     try {
@@ -35,8 +20,12 @@ const AppShell: React.FC = () => {
     const isDesktop = useMediaQuery(theme.breakpoints.up('md'));
     const [mobileOpen, setMobileOpen] = useState(false);
     const [collapsed, setCollapsed] = useState<boolean>(readCollapsed);
+    const { usuario } = useAuth();
 
-    const user = readUser();
+    const user = {
+        nombre: usuario?.nombre ?? 'Usuario',
+        rol: usuario?.rol ?? '-',
+    };
 
     useEffect(() => {
         try {

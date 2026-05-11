@@ -1,9 +1,11 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { ForbiddenException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { PrismaService } from 'src/prisma/prisma.service';
 import { CreateComentarioDto } from './dtos/create-comentario.dto';
 
 @Injectable()
 export class ComentariosService {
+    private readonly logger = new Logger(ComentariosService.name);
+
     constructor(private prisma: PrismaService) { }
 
     async create(dto: CreateComentarioDto) {
@@ -21,6 +23,19 @@ export class ComentariosService {
     async remove(id: number) {
         const comentario = await this.prisma.comentario.findUnique({ where: { id } });
         if (!comentario) throw new NotFoundException('Comentario no encontrado');
+
+        await this.prisma.comentario.delete({ where: { id } });
+        return comentario;
+    }
+
+    async removePropio(id: number, usuarioId: number | undefined) {
+        const comentario = await this.prisma.comentario.findUnique({ where: { id } });
+        if (!comentario) throw new NotFoundException('Comentario no encontrado');
+
+        if (comentario.usuarioId !== null && comentario.usuarioId !== usuarioId) {
+            this.logger.warn(`Usuario ${usuarioId} intentó eliminar comentario ${id} de usuario ${comentario.usuarioId}`);
+            throw new ForbiddenException('Solo podés eliminar tus propios comentarios.');
+        }
 
         await this.prisma.comentario.delete({ where: { id } });
         return comentario;

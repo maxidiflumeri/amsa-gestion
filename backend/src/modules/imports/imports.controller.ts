@@ -3,8 +3,10 @@ import { Body, Controller, Get, Param, ParseIntPipe, Post, Put, Query, UploadedF
 import { FileInterceptor } from '@nestjs/platform-express';
 import { ImportService } from './imports.service';
 import { CreatePlantillaDto, CreateRemesaDto } from './dtos/import.dto';
+import { Permisos } from '../../auth/decorators';
 
 @Controller('import')
+@Permisos('importacion.ver_historial')
 export class ImportController {
     constructor(private readonly service: ImportService) { }
 
@@ -21,11 +23,13 @@ export class ImportController {
 
     // --- PLANTILLAS ---
     @Post('plantillas')
+    @Permisos('plantillas_import.crear')
     createPlantilla(@Body() dto: CreatePlantillaDto) {
         return this.service.createPlantilla(dto);
     }
 
     @Get('plantillas/:empresaId/:categoria')
+    @Permisos('plantillas_import.ver')
     listPlantillas(@Param('empresaId', ParseIntPipe) empresaId: number, @Param('categoria') categoria: string) {
         return this.service.listPlantillas(empresaId, categoria);
     }
@@ -83,11 +87,13 @@ export class ImportController {
     }
 
     @Post('validar/:id')
+    @Permisos('importacion.ejecutar')
     validate(@Param('id', ParseIntPipe) id: number) {
         return this.service.validateRemesa(id);
     }
 
     @Post('ejecutar/:id')
+    @Permisos('importacion.ejecutar')
     run(
         @Param('id', ParseIntPipe) id: number,
         @Body('remesaOrigenId') remesaOrigenId?: number,

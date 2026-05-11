@@ -1,44 +1,44 @@
-// src/pages/Login.tsx
 import React, { useState } from 'react';
 import {
     Box,
-    Button,
+    CircularProgress,
     Container,
+    Divider,
     Stack,
-    TextField,
     Typography,
     useTheme,
 } from '@mui/material';
 import { useNavigate } from 'react-router-dom';
+import { GoogleLogin, CredentialResponse } from '@react-oauth/google';
 import { SectionCard } from '../components/ui';
 import { useNotify } from '../hooks/useNotify';
+import { useAuth } from '../context/AuthContext';
 import logoAmsa from '../assets/logo-amsa-gestion.png';
 
 const Login: React.FC = () => {
     const theme = useTheme();
     const navigate = useNavigate();
     const notify = useNotify();
-
-    const [usuario, setUsuario] = useState('');
-    const [password, setPassword] = useState('');
+    const { login } = useAuth();
     const [loading, setLoading] = useState(false);
+    const isDark = theme.palette.mode === 'dark';
 
-    const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
-        e.preventDefault();
-
-        if (!usuario.trim() || !password.trim()) {
-            notify.warning('Completá usuario y contraseña.');
+    const handleLoginSuccess = async (credentialResponse: CredentialResponse) => {
+        const idToken = credentialResponse.credential;
+        if (!idToken) {
+            notify.error('No se recibió el token de Google');
             return;
         }
-
         setLoading(true);
         try {
-            // TODO: llamar API real de autenticación
-            // const response = await authApi.login({ usuario, password });
-            // guardar token en contexto/store
+            await login(idToken);
             navigate('/');
-        } catch (err) {
-            notify.error(err as Error);
+        } catch (err: any) {
+            const mensaje =
+                err?.response?.data?.message ||
+                err?.message ||
+                'Error al iniciar sesión con Google';
+            notify.error(mensaje);
         } finally {
             setLoading(false);
         }
@@ -57,75 +57,49 @@ const Login: React.FC = () => {
         >
             <Container maxWidth="xs" disableGutters>
                 <SectionCard>
-                    <Box
-                        component="form"
-                        onSubmit={handleSubmit}
-                        noValidate
-                    >
-                        <Stack spacing={3} alignItems="center">
-                            {/* Logo */}
-                            <Box
-                                component="img"
-                                src={logoAmsa}
-                                alt="AMSA Gestión"
-                                sx={{
-                                    height: 56,
-                                    objectFit: 'contain',
-                                    mt: 1,
-                                    // Invertir el logo en dark mode si es necesario
-                                    filter:
-                                        theme.palette.mode === 'dark'
-                                            ? 'brightness(0) invert(1)'
-                                            : 'none',
-                                }}
-                            />
+                    <Stack spacing={3} alignItems="center" sx={{ p: 1 }}>
+                        <Box
+                            component="img"
+                            src={logoAmsa}
+                            alt="AMSA Gestión"
+                            sx={{
+                                height: 56,
+                                objectFit: 'contain',
+                                mt: 1,
+                            }}
+                        />
 
-                            <Box sx={{ width: '100%', textAlign: 'center' }}>
-                                <Typography variant="h5" fontWeight={700} gutterBottom>
-                                    Iniciar sesión
-                                </Typography>
-                                <Typography variant="body2" color="text.secondary">
-                                    Ingresá tus credenciales para continuar
-                                </Typography>
-                            </Box>
+                        <Box sx={{ width: '100%', textAlign: 'center' }}>
+                            <Typography variant="h5" fontWeight={700} gutterBottom>
+                                Iniciar sesión
+                            </Typography>
+                            <Typography variant="body2" color="text.secondary">
+                                Usá tu cuenta de Google corporativa para acceder
+                            </Typography>
+                        </Box>
 
-                            <Stack spacing={2} sx={{ width: '100%' }}>
-                                <TextField
-                                    label="Usuario"
-                                    value={usuario}
-                                    onChange={(e) => setUsuario(e.target.value)}
-                                    fullWidth
-                                    required
-                                    autoComplete="username"
-                                    autoFocus
-                                    disabled={loading}
-                                    inputProps={{ maxLength: 100 }}
+                        <Divider sx={{ width: '100%' }} />
+
+                        <Box sx={{ display: 'flex', justifyContent: 'center', minHeight: 44 }}>
+                            {loading ? (
+                                <CircularProgress size={36} />
+                            ) : (
+                                <GoogleLogin
+                                    onSuccess={handleLoginSuccess}
+                                    onError={() => notify.error('Error en el login con Google')}
+                                    theme={isDark ? 'filled_black' : 'outline'}
+                                    size="large"
+                                    shape="pill"
+                                    text="signin_with"
+                                    locale="es"
                                 />
-                                <TextField
-                                    label="Contraseña"
-                                    type="password"
-                                    value={password}
-                                    onChange={(e) => setPassword(e.target.value)}
-                                    fullWidth
-                                    required
-                                    autoComplete="current-password"
-                                    disabled={loading}
-                                    inputProps={{ maxLength: 100 }}
-                                />
-                            </Stack>
+                            )}
+                        </Box>
 
-                            <Button
-                                type="submit"
-                                variant="contained"
-                                color="primary"
-                                fullWidth
-                                size="large"
-                                disabled={loading || !usuario.trim() || !password.trim()}
-                            >
-                                {loading ? 'Ingresando…' : 'Entrar'}
-                            </Button>
-                        </Stack>
-                    </Box>
+                        <Typography variant="caption" color="text.disabled" textAlign="center">
+                            Solo usuarios autorizados por el administrador pueden acceder.
+                        </Typography>
+                    </Stack>
                 </SectionCard>
             </Container>
         </Box>

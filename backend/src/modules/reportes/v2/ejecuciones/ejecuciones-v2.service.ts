@@ -138,7 +138,8 @@ export class EjecucionesV2Service {
     const page = query.page || 1;
     const pageSize = query.pageSize || DEFAULT_PAGE_SIZE;
 
-    const where: Prisma.ejecucion_reporte_v2WhereInput = { usuarioId };
+    // usuarioId=0 significa "ver todas" (permiso admin)
+    const where: Prisma.ejecucion_reporte_v2WhereInput = usuarioId > 0 ? { usuarioId } : {};
 
     if (query.estado) {
       where.estado = query.estado;

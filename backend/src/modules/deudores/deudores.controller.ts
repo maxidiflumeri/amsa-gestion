@@ -5,8 +5,10 @@ import { UpdateDeudorDto } from './dtos/update-deudor.dto';
 import { AdvancedSearchDto } from './dtos/advanced-search.dto';
 import { Prisma } from '@prisma/client';
 import { Audit } from '../transacciones/audit.decorator';
+import { Permisos } from '../../auth/decorators';
 
 @Controller('deudores')
+@Permisos('deudores.ver')
 export class DeudoresController {
     constructor(private readonly deudoresService: DeudoresService) { }
 
@@ -53,6 +55,7 @@ export class DeudoresController {
     }
 
     @Put(':id')
+    @Permisos('deudores.editar_estado')
     @Audit({
         tipo: 'UPDATE',
         entidad: 'Deudor',

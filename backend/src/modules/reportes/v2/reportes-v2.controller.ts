@@ -31,20 +31,12 @@ import {
   ListarEjecucionesQueryDto,
 } from './dto/ejecuciones-v2.dto';
 import { EjecucionesV2Service } from './ejecuciones/ejecuciones-v2.service';
-
-const DEFAULT_USUARIO_ID = 1;
+import { Permisos } from '../../../auth/decorators';
 
 function resolverUsuarioId(req: Request): number {
-  const headerVal = req.header('x-usuario-id');
-  if (headerVal) {
-    const parsed = parseInt(headerVal, 10);
-    if (!Number.isNaN(parsed) && parsed > 0) return parsed;
-  }
-  const anyReq = req as any;
-  if (anyReq.user?.id && Number.isFinite(anyReq.user.id)) {
-    return anyReq.user.id;
-  }
-  return DEFAULT_USUARIO_ID;
+  const usuario = (req as any)['usuario'];
+  if (usuario?.sub && Number.isFinite(usuario.sub)) return usuario.sub;
+  return 1;
 }
 
 function resolverEmpresaId(req: Request): number | null {
@@ -57,6 +49,7 @@ function resolverEmpresaId(req: Request): number | null {
 }
 
 @Controller('reportes/v2')
+@Permisos('reportes.v2.ver')
 export class ReportesV2Controller {
   private readonly logger = new Logger(ReportesV2Controller.name);
 
@@ -116,12 +109,14 @@ export class ReportesV2Controller {
   }
 
   @Post('plantillas')
+  @Permisos('reportes.v2.crear')
   async create(@Body() dto: CreatePlantillaV2Dto) {
     this.logger.log(`POST /reportes/v2/plantillas`);
     return this.reportesService.create(dto);
   }
 
   @Patch('plantillas/:id')
+  @Permisos('reportes.v2.editar')
   async update(
     @Param('id', ParseIntPipe) id: number,
     @Body() dto: UpdatePlantillaV2Dto,
@@ -131,6 +126,7 @@ export class ReportesV2Controller {
   }
 
   @Delete('plantillas/:id')
+  @Permisos('reportes.v2.eliminar')
   async remove(@Param('id', ParseIntPipe) id: number) {
     this.logger.log(`DELETE /reportes/v2/plantillas/${id}`);
     return this.reportesService.remove(id);
@@ -152,6 +148,7 @@ export class ReportesV2Controller {
   }
 
   @Post('plantillas/:id/ejecutar')
+  @Permisos('reportes.v2.ejecutar')
   async ejecutar(
     @Param('id', ParseIntPipe) id: number,
     @Body() dto: EjecutarV2Dto,
@@ -215,12 +212,15 @@ export class ReportesV2Controller {
   ) {
     const usuarioId = resolverUsuarioId(req);
     const empresaId = resolverEmpresaId(req);
+    const permisos: string[] = (req as any)['usuario']?.permisos ?? [];
+    const verTodas = permisos.includes('reportes.v2.ver_ejecuciones');
 
     this.logger.log(
-      `GET /reportes/v2/ejecuciones usuarioId=${usuarioId} estado=${query.estado}`,
+      `GET /reportes/v2/ejecuciones usuarioId=${usuarioId} estado=${query.estado} verTodas=${verTodas}`,
     );
 
-    return this.ejecucionesService.listar(usuarioId, empresaId, query);
+    // Si tiene el permiso de ver todas, pasar usuarioId=0 para que el servicio no filtre
+    return this.ejecucionesService.listar(verTodas ? 0 : usuarioId, empresaId, query);
   }
 
   @Get('ejecuciones/:id')

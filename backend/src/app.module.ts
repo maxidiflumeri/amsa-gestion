@@ -1,4 +1,5 @@
 import { Module } from '@nestjs/common';
+import { ConfigModule } from '@nestjs/config';
 import { BullModule } from '@nestjs/bullmq';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
@@ -15,9 +16,13 @@ import { PoliticasModule } from './modules/politicas/politicas.module';
 import { ConveniosModule } from './modules/convenios/convenios.module';
 import { ReportesModule } from './modules/reportes/reportes.module';
 import { ReportesV2Module } from './modules/reportes/v2/reportes-v2.module';
+import { AuthModule } from './auth/auth.module';
+import { RolesModule } from './modules/roles/roles.module';
+import { UsuariosModule } from './modules/usuarios/usuarios.module';
 
 @Module({
   imports: [
+    ConfigModule.forRoot({ isGlobal: true }),
     LoggerModule,
     PrismaModule,
     BullModule.forRoot({
@@ -26,6 +31,9 @@ import { ReportesV2Module } from './modules/reportes/v2/reportes-v2.module';
         port: parseInt(process.env.REDIS_PORT || '6379', 10),
       },
     }),
+    AuthModule,
+    RolesModule,
+    UsuariosModule,
     DeudoresModule,
     ParametrosModule,
     TransaccionesModule,
@@ -36,11 +44,9 @@ import { ReportesV2Module } from './modules/reportes/v2/reportes-v2.module';
     PoliticasModule,
     ConveniosModule,
     ReportesModule,
-    ReportesV2Module
+    ReportesV2Module,
   ],
-
   controllers: [AppController],
-  providers: [AppService]
+  providers: [AppService],
 })
-
 export class AppModule {}

@@ -27,9 +27,14 @@ import SettingsIcon from '@mui/icons-material/Settings';
 import BusinessIcon from '@mui/icons-material/Business';
 import SettingsInputComponentIcon from '@mui/icons-material/SettingsInputComponent';
 import PolicyIcon from '@mui/icons-material/Policy';
+import AdminPanelSettingsIcon from '@mui/icons-material/AdminPanelSettings';
+import ShieldIcon from '@mui/icons-material/Shield';
+import PeopleIcon from '@mui/icons-material/People';
+import TuneIcon from '@mui/icons-material/Tune';
 
 import { navConfig, NavItem } from './navConfig';
 import { useNavigate, useLocation } from 'react-router-dom';
+import { useAuth } from '../../../context/AuthContext';
 
 const DRAWER_WIDTH_EXPANDED = 240;
 const DRAWER_WIDTH_COLLAPSED = 72;
@@ -46,6 +51,10 @@ const iconMap: Record<string, React.ReactNode> = {
     Business: <BusinessIcon />,
     SettingsInputComponent: <SettingsInputComponentIcon />,
     Policy: <PolicyIcon />,
+    AdminPanelSettings: <AdminPanelSettingsIcon />,
+    Shield: <ShieldIcon />,
+    People: <PeopleIcon />,
+    Tune: <TuneIcon />,
 };
 
 function getIcon(name: string): React.ReactNode {
@@ -159,10 +168,28 @@ interface SideNavProps {
     collapsed?: boolean;
 }
 
+function filtrarItemsPorPermisos(items: NavItem[], tienePermiso: (k: string) => boolean): NavItem[] {
+    return items
+        .filter((item) => {
+            if (!item.requiredPermissions || item.requiredPermissions.length === 0) return true;
+            return item.requiredPermissions.some((p) => tienePermiso(p));
+        })
+        .map((item) => ({
+            ...item,
+            children: item.children
+                ? filtrarItemsPorPermisos(item.children, tienePermiso)
+                : undefined,
+        }))
+        .filter((item) => !item.children || item.children.length > 0 || item.path);
+}
+
 const SideNav: React.FC<SideNavProps> = ({ open, onClose, variant, collapsed = false }) => {
     const theme = useTheme();
+    const { tienePermiso } = useAuth();
     const isCollapsed = variant === 'permanent' && collapsed;
     const width = isCollapsed ? DRAWER_WIDTH_COLLAPSED : DRAWER_WIDTH_EXPANDED;
+
+    const itemsFiltrados = filtrarItemsPorPermisos(navConfig, tienePermiso);
 
     const drawerContent = (
         <Box sx={{ display: 'flex', flexDirection: 'column', height: '100%', overflow: 'hidden' }}>
@@ -172,7 +199,7 @@ const SideNav: React.FC<SideNavProps> = ({ open, onClose, variant, collapsed = f
 
             <Box sx={{ flexGrow: 1, overflowY: 'auto', overflowX: 'hidden', pt: 1 }}>
                 <List disablePadding>
-                    {navConfig.map((item) => (
+                    {itemsFiltrados.map((item) => (
                         <NavItemRow
                             key={item.path ?? item.label}
                             item={item}

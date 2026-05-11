@@ -6,16 +6,20 @@ import {
     Body,
     Get,
     Req,
+    ForbiddenException,
 } from '@nestjs/common';
 import { ComentariosService } from './comentarios.service';
 import { Audit } from '../transacciones/audit.decorator';
 import { CreateComentarioDto } from './dtos/create-comentario.dto';
+import { Permisos } from '../../auth/decorators';
 
 @Controller('comentarios')
+@Permisos('comentarios.ver')
 export class ComentariosController {
     constructor(private readonly comentariosService: ComentariosService) { }
 
     @Post()
+    @Permisos('comentarios.crear')
     @Audit({
         tipo: 'CREATE',
         entidad: 'Comentario',
@@ -25,19 +29,23 @@ export class ComentariosController {
         data: (res, req) => ({ body: req.body }),
     })
     create(@Body() dto: CreateComentarioDto, @Req() req: any) {
-        dto.usuarioId = req.user?.id ?? null;
+        const usuario = req['usuario'];
+        dto.usuarioId = usuario?.sub ?? null;
         return this.comentariosService.create(dto);
     }
 
     @Delete(':id')
+    @Permisos('comentarios.eliminar')
     @Audit({
         tipo: 'DELETE',
         entidad: 'Comentario',
         entidadIdFromResponse: 'id',
         resumen: (res, req) => `Eliminó comentario ${req.params.id}`,
     })
-    remove(@Param('id') id: string) {
-        return this.comentariosService.remove(+id);
+    async remove(@Param('id') id: string, @Req() req: any) {
+        const usuario = req['usuario'];
+        const usuarioId: number | undefined = usuario?.sub;
+        return this.comentariosService.removePropio(+id, usuarioId);
     }
 
     @Get('deudor/:deudorId')

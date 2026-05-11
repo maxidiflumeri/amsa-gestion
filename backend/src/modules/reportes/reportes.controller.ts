@@ -1,10 +1,12 @@
-import { Controller, Get, Post, Patch, Delete, Body, Param, ParseIntPipe, Query, Res, Logger } from '@nestjs/common';
-import type { Response } from 'express';
+import { Controller, Get, Post, Patch, Delete, Body, Param, ParseIntPipe, Query, Res, Logger, Req } from '@nestjs/common';
+import type { Request, Response } from 'express';
 import { ReportesService } from './reportes.service';
 import { EjecutorService } from './ejecutor/ejecutor.service';
 import { PrismaService } from 'src/prisma/prisma.service';
+import { Permisos } from '../../auth/decorators';
 
 @Controller('reportes')
+@Permisos('reportes.v1.ver')
 export class ReportesController {
   private readonly logger = new Logger(ReportesController.name);
 
@@ -27,16 +29,19 @@ export class ReportesController {
   }
 
   @Post('plantillas')
+  @Permisos('reportes.v1.crear')
   create(@Body() body: any) {
     return this.reportesService.createPlantilla(body);
   }
 
   @Patch('plantillas/:id')
+  @Permisos('reportes.v1.editar')
   update(@Param('id', ParseIntPipe) id: number, @Body() body: any) {
     return this.reportesService.updatePlantilla(id, body);
   }
 
   @Delete('plantillas/:id')
+  @Permisos('reportes.v1.eliminar')
   remove(@Param('id', ParseIntPipe) id: number) {
     return this.reportesService.deletePlantilla(id);
   }
@@ -44,18 +49,20 @@ export class ReportesController {
   // ── Ejecución ────────────────────────────────────────────────────────────
 
   @Post('plantillas/:id/ejecutar')
+  @Permisos('reportes.v1.ejecutar')
   async ejecutar(
     @Param('id', ParseIntPipe) id: number,
     @Body() body: { filtrosVars?: any; usuarioId?: number },
     @Res() res: Response,
+    @Req() req: Request,
   ) {
     this.logger.log(`Ejecutando plantilla ${id}`);
     const plantilla = await this.reportesService.findOnePlantilla(id);
     const { buffer, mimeType, extension, totalFilas } = await this.ejecutorService.ejecutar(plantilla, body.filtrosVars || {});
 
-    // Registrar ejecución con un usuario válido
-    const primerUsuario = await this.prisma.usuario.findFirst();
-    const usuarioIdReal = body.usuarioId || (primerUsuario?.id || 1);
+    // Usar usuarioId del JWT
+    const jwtUsuario = (req as any)['usuario'];
+    const usuarioIdReal = jwtUsuario?.sub || body.usuarioId || 1;
 
     try {
       await this.prisma.ejecucion_reporte.create({
@@ -117,6 +124,7 @@ export class ReportesController {
   }
 
   @Post('formatos-tel')
+  @Permisos('reportes.v2.gestionar_formatos')
   createFormatoTel(@Body() body: { nombre: string; descripcion?: string; patron: string }) {
     return this.reportesService.createFormatoTel(body);
   }
