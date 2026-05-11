@@ -165,6 +165,8 @@ model parametro {
   deudoresConEstaSituacion    deudor[]            @relation("DeudorEstadoSituacion")
   deudoresConEsteMotivoNoPago deudor[]            @relation("DeudorMotivoNoPago")
   empresas                    empresa_parametro[]
+  plantillasConSituacion      plantillaimport[]   @relation("PlantillaDefaultSituacion")
+  plantillasConGestion        plantillaimport[]   @relation("PlantillaDefaultGestion")
 }
 
 model empresa_parametro {
@@ -181,22 +183,28 @@ model empresa_parametro {
 }
 
 model plantillaimport {
-  id          Int                       @id @default(autoincrement())
-  empresaId   Int
-  nombre      String
-  categoria   plantillaimport_categoria
-  version     Int                       @default(1)
-  activo      Boolean                   @default(true)
-  separador   String                    @default("|")
-  tieneHeader Boolean                   @default(false)
-  mappingJson Json
-  createdAt   DateTime                  @default(now())
-  updatedAt   DateTime                  @updatedAt
-  empresa     empresa                   @relation(fields: [empresaId], references: [id], map: "PlantillaImport_empresaId_fkey")
-  remesa      remesa[]
+  id                      Int                       @id @default(autoincrement())
+  empresaId               Int
+  nombre                  String
+  categoria               plantillaimport_categoria
+  version                 Int                       @default(1)
+  activo                  Boolean                   @default(true)
+  separador               String                    @default("|")
+  tieneHeader             Boolean                   @default(false)
+  mappingJson             Json
+  defaultEstadoSituacionId Int?
+  defaultEstadoGestionId   Int?
+  createdAt               DateTime                  @default(now())
+  updatedAt               DateTime                  @updatedAt
+  empresa                 empresa                   @relation(fields: [empresaId], references: [id], map: "PlantillaImport_empresaId_fkey")
+  defaultEstadoSituacion  parametro?                @relation("PlantillaDefaultSituacion", fields: [defaultEstadoSituacionId], references: [id], onDelete: SetNull)
+  defaultEstadoGestion    parametro?                @relation("PlantillaDefaultGestion", fields: [defaultEstadoGestionId], references: [id], onDelete: SetNull)
+  remesa                  remesa[]
 
   @@unique([empresaId, nombre, version], map: "unique_empresa_nombre_version")
   @@index([empresaId, categoria], map: "PlantillaImport_empresaId_categoria_idx")
+  @@index([defaultEstadoSituacionId])
+  @@index([defaultEstadoGestionId])
 }
 
 model remesa {
@@ -219,17 +227,20 @@ model remesa {
   hoja             String?
   fechaVencimiento DateTime?
   politicaId       Int?
+  usuarioCreadorId Int?                 @map("usuarioCreadorId")
   deudor           deudor[]
   importerror      importerror[]
   jobimport        jobimport[]
   empresa          empresa              @relation(fields: [empresaId], references: [id], map: "Remesa_empresaId_fkey")
   plantilla        plantillaimport?     @relation(fields: [plantillaId], references: [id], map: "Remesa_plantillaId_fkey")
   politica         politica?            @relation(fields: [politicaId], references: [id])
+  usuarioCreador   usuario?             @relation("RemesaUsuarioCreador", fields: [usuarioCreadorId], references: [id], onDelete: SetNull)
 
   @@unique([empresaId, numeroRemesa], map: "Remesa_empresaId_numeroRemesa_key")
   @@index([empresaId, categoria], map: "Remesa_empresaId_categoria_idx")
   @@index([plantillaId], map: "Remesa_plantillaId_fkey")
   @@index([politicaId])
+  @@index([usuarioCreadorId])
 }
 
 model transaccion {
@@ -264,23 +275,25 @@ model rol {
 }
 
 model usuario {
-  id            Int                    @id @default(autoincrement())
-  googleId      String?                @unique(map: "Usuario_googleId_key")
-  nombre        String
-  email         String                 @unique(map: "Usuario_email_key")
-  avatarUrl     String?
-  rol           String                 @default("usuario")
-  rolId         Int?
-  activo        Boolean                @default(true)
-  createdAt     DateTime               @default(now())
-  updatedAt     DateTime
-  rolObj        rol?                   @relation(fields: [rolId], references: [id])
-  comentario    comentario[]
-  transaccion   transaccion[]
-  convenios     convenio[]
-  ejecuciones   ejecucion_reporte[]
-  plantillasV2  plantilla_reporte_v2[] @relation("PlantillaV2CreadoPor")
-  ejecucionesV2 ejecucion_reporte_v2[] @relation("EjecucionV2Usuario")
+  id              Int                    @id @default(autoincrement())
+  googleId        String?                @unique(map: "Usuario_googleId_key")
+  nombre          String
+  email           String                 @unique(map: "Usuario_email_key")
+  avatarUrl       String?
+  rol             String                 @default("usuario")
+  rolId           Int?
+  activo          Boolean                @default(true)
+  createdAt       DateTime               @default(now())
+  updatedAt       DateTime
+  rolObj          rol?                   @relation(fields: [rolId], references: [id])
+  comentario      comentario[]
+  transaccion     transaccion[]
+  convenios       convenio[]
+  ejecuciones     ejecucion_reporte[]
+  plantillasV2    plantilla_reporte_v2[] @relation("PlantillaV2CreadoPor")
+  ejecucionesV2   ejecucion_reporte_v2[] @relation("EjecucionV2Usuario")
+  notificaciones  Notificacion[]
+  remesasCreadas  remesa[]               @relation("RemesaUsuarioCreador")
 
   @@index([rolId])
 }
@@ -466,4 +479,43 @@ model ejecucion_reporte_v2 {
   @@index([usuarioId, createdAt])
   @@index([estado])
   @@index([empresaId])
+}
+
+enum TipoNotificacion {
+  IMPORTACION_INICIADA
+  IMPORTACION_FINALIZADA
+  IMPORTACION_ERROR
+  REPORTE_LISTO
+  REPORTE_ERROR
+  CONVENIO_VENCIDO
+  SISTEMA
+}
+
+enum EntidadTipo {
+  REMESA
+  REPORTE_EJECUCION
+  CONVENIO
+  GENERICO
+}
+
+model Notificacion {
+  id            Int               @id @default(autoincrement())
+  usuarioId     Int
+  tipo          TipoNotificacion
+  entidadTipo   EntidadTipo?
+  entidadId     Int?
+  titulo        String            @db.VarChar(200)
+  mensaje       String            @db.VarChar(1000)
+  payload       Json?
+  leida         Boolean           @default(false)
+  leidaEn       DateTime?
+  rutaAccion    String?           @db.VarChar(500)
+  creadoEn      DateTime          @default(now())
+  actualizadoEn DateTime          @updatedAt
+  usuario       usuario           @relation(fields: [usuarioId], references: [id], onDelete: Cascade)
+
+  @@index([usuarioId, leida, creadoEn(sort: Desc)])
+  @@index([entidadTipo, entidadId])
+  @@index([creadoEn])
+  @@map("notificacion")
 }

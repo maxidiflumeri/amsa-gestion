@@ -1,4 +1,4 @@
-import React, { useEffect, useRef } from "react";
+import React, { useEffect, useState } from "react";
 import {
     Box,
     Typography,
@@ -8,64 +8,80 @@ import {
 import HourglassTopIcon from "@mui/icons-material/HourglassTop";
 import api from "../../api/axios";
 import { SectionCard } from "../ui";
+import { useImportacionesEnCurso } from "../../hooks/useImportacionesEnCurso";
 
 interface Props {
     remesaId: number;
     onComplete: (result: { total: number; ok: number; err: number }) => void;
 }
 
+interface EstadoFinal {
+    total: number;
+    ok: number;
+    err: number;
+    estado: string;
+    progreso: number;
+}
+
 export default function ImportProgress({ remesaId, onComplete }: Props) {
-    const [progress, setProgress] = React.useState(0);
-    const [total, setTotal] = React.useState(0);
-    const [ok, setOk] = React.useState(0);
-    const [err, setErr] = React.useState(0);
-    const [estado, setEstado] = React.useState("PROCESANDO");
-    const pollingRef = useRef<ReturnType<typeof setInterval> | null>(null);
+    const importsEnCurso = useImportacionesEnCurso();
+    const [estadoFinal, setEstadoFinal] = useState<EstadoFinal | null>(null);
+    const [completadoRef] = React.useState({ disparado: false });
+
+    const importActual = importsEnCurso.find((i) => i.remesaId === remesaId) ?? null;
+
+    const progreso = importActual?.progreso ?? estadoFinal?.progreso ?? 0;
+    const total = importActual?.totalFilas ?? estadoFinal?.total ?? 0;
+    const ok = importActual?.okFilas ?? estadoFinal?.ok ?? 0;
+    const err = importActual?.errFilas ?? estadoFinal?.err ?? 0;
+    const estado = importActual?.estadoProceso ?? estadoFinal?.estado ?? 'PROCESANDO';
 
     useEffect(() => {
-        pollingRef.current = setInterval(async () => {
+        if (importActual) return;
+
+        // La remesa no aparece en el contexto — buscar estado final via REST
+        let cancelado = false;
+
+        async function fetchEstadoFinal() {
             try {
                 const res = await api.get(`/import/remesas/${remesaId}`);
                 const data = res.data;
 
-                setTotal(data.totalFilas ?? 0);
-                setOk(data.okFilas ?? 0);
-                setErr(data.errFilas ?? 0);
-                setEstado(data.estadoProceso ?? "PROCESANDO");
+                if (cancelado) return;
 
                 const procesadas = (data.okFilas ?? 0) + (data.errFilas ?? 0);
                 const totalFilas = data.totalFilas ?? 1;
-                setProgress(
-                    Math.min(
-                        Math.round((procesadas / totalFilas) * 100),
-                        100
-                    )
-                );
+                const porcentaje = Math.min(Math.round((procesadas / totalFilas) * 100), 100);
 
-                if (
-                    data.estadoProceso === "FINALIZADA" ||
-                    data.estadoProceso === "FALLIDA"
-                ) {
-                    if (pollingRef.current) {
-                        clearInterval(pollingRef.current);
-                    }
-                    onComplete({
-                        total: data.totalFilas ?? 0,
-                        ok: data.okFilas ?? 0,
-                        err: data.errFilas ?? 0,
-                    });
-                }
+                setEstadoFinal({
+                    total: data.totalFilas ?? 0,
+                    ok: data.okFilas ?? 0,
+                    err: data.errFilas ?? 0,
+                    estado: data.estadoProceso ?? 'PROCESANDO',
+                    progreso: porcentaje,
+                });
             } catch {
-                // Silenciar errores de polling
+                // Error silencioso
             }
-        }, 2000);
+        }
 
-        return () => {
-            if (pollingRef.current) {
-                clearInterval(pollingRef.current);
-            }
-        };
-    }, [remesaId, onComplete]);
+        fetchEstadoFinal();
+        return () => { cancelado = true; };
+    }, [remesaId, importActual]);
+
+    // Llamar onComplete cuando la remesa finaliza
+    useEffect(() => {
+        if (completadoRef.disparado) return;
+
+        const esTerminal = estado === 'FINALIZADA' || estado === 'FALLIDA';
+        if (!esTerminal) return;
+
+        // Solo si ya tenemos datos consistentes
+        if (total === 0 && ok === 0 && err === 0) return;
+
+        completadoRef.disparado = true;
+        onComplete({ total, ok, err });
+    }, [estado, total, ok, err, onComplete, completadoRef]);
 
     return (
         <Box>
@@ -103,12 +119,12 @@ export default function ImportProgress({ remesaId, onComplete }: Props) {
                     />
 
                     <Typography variant="h4" fontWeight={700} color="primary.main">
-                        {progress}%
+                        {progreso}%
                     </Typography>
 
                     <LinearProgress
                         variant="determinate"
-                        value={progress}
+                        value={progreso}
                         sx={{
                             width: "100%",
                             height: 8,

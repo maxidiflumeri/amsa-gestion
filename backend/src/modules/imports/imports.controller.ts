@@ -1,9 +1,16 @@
 // src/import/import.controller.ts
-import { Body, Controller, Get, Param, ParseIntPipe, Post, Put, Query, UploadedFile, UseInterceptors } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Param, ParseIntPipe, Post, Put, Query, UploadedFile, UseInterceptors } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { ImportService } from './imports.service';
 import { CreatePlantillaDto, CreateRemesaDto } from './dtos/import.dto';
-import { Permisos } from '../../auth/decorators';
+import { Permisos, UsuarioActual } from '../../auth/decorators';
+
+interface UsuarioJwt {
+    sub: number;
+    email: string;
+    rol: string;
+    permisos: string[];
+}
 
 @Controller('import')
 @Permisos('importacion.ver_historial')
@@ -96,9 +103,16 @@ export class ImportController {
     @Permisos('importacion.ejecutar')
     run(
         @Param('id', ParseIntPipe) id: number,
+        @UsuarioActual() user: UsuarioJwt,
         @Body('remesaOrigenId') remesaOrigenId?: number,
     ) {
-        return this.service.executeRemesa(id, remesaOrigenId ? Number(remesaOrigenId) : undefined);
+        return this.service.executeRemesa(id, user.sub, remesaOrigenId ? Number(remesaOrigenId) : undefined);
+    }
+
+    @Get('en-curso')
+    @Permisos('importacion.ver_historial')
+    getEnCurso(@UsuarioActual() user: UsuarioJwt) {
+        return this.service.listarEnCurso(user);
     }
 
     @Get('remesas/:id')
@@ -127,5 +141,15 @@ export class ImportController {
         @Body('politicaId') politicaId: number | null,
     ) {
         return this.service.updatePolitica(id, politicaId);
+    }
+
+    // --- ELIMINAR REMESA ---
+    @Delete('remesas/:id')
+    @Permisos('importacion.eliminar')
+    deleteRemesa(
+        @Param('id', ParseIntPipe) id: number,
+        @UsuarioActual() user: UsuarioJwt,
+    ) {
+        return this.service.deleteRemesa(id, { sub: user.sub, permisos: user.permisos });
     }
 }

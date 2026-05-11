@@ -14,6 +14,7 @@ import MenuIcon from '@mui/icons-material/Menu';
 import NavigateNextIcon from '@mui/icons-material/NavigateNext';
 import logo from '../../../assets/logo-amsa-gestion.png';
 import UserMenu from './UserMenu';
+import NotificacionesBell from './NotificacionesBell';
 import { usePageMeta } from '../../../context/PageMetaContext';
 import { Link as RouterLink } from 'react-router-dom';
 
@@ -130,6 +131,7 @@ const AppBarComponent: React.FC<AppBarProps> = ({
                     )}
                 </Box>
 
+                <NotificacionesBell />
                 <UserMenu user={user} />
             </Toolbar>
         </MuiAppBar>

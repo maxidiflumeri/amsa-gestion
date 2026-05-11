@@ -19,6 +19,8 @@ import { ReportesV2Module } from './modules/reportes/v2/reportes-v2.module';
 import { AuthModule } from './auth/auth.module';
 import { RolesModule } from './modules/roles/roles.module';
 import { UsuariosModule } from './modules/usuarios/usuarios.module';
+import { RealtimeModule } from './modules/realtime/realtime.module';
+import { NotificacionesModule } from './modules/notificaciones/notificaciones.module';
 
 @Module({
   imports: [
@@ -45,6 +47,8 @@ import { UsuariosModule } from './modules/usuarios/usuarios.module';
     ConveniosModule,
     ReportesModule,
     ReportesV2Module,
+    RealtimeModule,
+    NotificacionesModule,
   ],
   controllers: [AppController],
   providers: [AppService],

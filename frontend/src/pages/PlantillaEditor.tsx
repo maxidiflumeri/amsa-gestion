@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useState } from 'react'
 import {
+    Alert,
     Box,
     Divider,
     FormControl,
@@ -162,6 +163,13 @@ function fieldsToMappingJson(
 
 // ─── Componente ──────────────────────────────────────────────────────────────
 
+interface Parametro {
+    id: number
+    clave: string
+    descripcion: string
+    grupo: string
+}
+
 const PlantillaEditor: React.FC = () => {
     const { id } = useParams<{ id?: string }>()
     const navigate = useNavigate()
@@ -178,12 +186,37 @@ const PlantillaEditor: React.FC = () => {
     const [matchKeys, setMatchKeys] = useState('empresaId,documento')
     const [fields, setFields] = useState<MappingField[]>([])
     const [blocks, setBlocks] = useState<MappingBlock[]>([])
+    const [defaultEstadoSituacionId, setDefaultEstadoSituacionId] = useState<number | ''>('')
+    const [defaultEstadoGestionId, setDefaultEstadoGestionId] = useState<number | ''>('')
 
     // Empresa del editor: para creación la toma de la lista via state o default
     const [empresaId, setEmpresaId] = useState<number | null>(null)
 
+    // Parámetros de situación y gestión
+    const [paramsSituacion, setParamsSituacion] = useState<Parametro[]>([])
+    const [paramsGestion, setParamsGestion] = useState<Parametro[]>([])
+    const [loadingParams, setLoadingParams] = useState(false)
+
     const [loading, setLoading] = useState(false)
     const [initialLoading, setInitialLoading] = useState(isEdit)
+
+    // Cargar parámetros de situación y gestión según empresaId
+    const loadParametros = useCallback(async (eid: number) => {
+        setLoadingParams(true)
+        try {
+            const [resSit, resGest] = await Promise.all([
+                api.get('/parametros', { params: { empresaId: eid, grupo: 'situacion', activo: 'true' } }),
+                api.get('/parametros', { params: { empresaId: eid, grupo: 'gestion', activo: 'true' } }),
+            ])
+            setParamsSituacion(resSit.data ?? [])
+            setParamsGestion(resGest.data ?? [])
+        } catch {
+            setParamsSituacion([])
+            setParamsGestion([])
+        } finally {
+            setLoadingParams(false)
+        }
+    }, [])
 
     // Cargar datos cuando es edición
     const loadPlantilla = useCallback(async () => {
@@ -203,6 +236,8 @@ const PlantillaEditor: React.FC = () => {
             setFields(mappingJsonToFields(p.mappingJson))
             setBlocks(mappingJsonToBlocks(p.mappingJson))
             setEmpresaId(p.empresaId ?? null)
+            setDefaultEstadoSituacionId(p.defaultEstadoSituacionId ?? '')
+            setDefaultEstadoGestionId(p.defaultEstadoGestionId ?? '')
         } catch (err) {
             notify.error(err as Error)
             navigate('/plantillas')
@@ -215,7 +250,6 @@ const PlantillaEditor: React.FC = () => {
         if (isEdit) {
             loadPlantilla()
         } else {
-            // Intentar recuperar empresaId del sessionStorage si fue guardado por la lista
             const stored = sessionStorage.getItem('plantillas_empresaId')
             if (stored) setEmpresaId(Number(stored))
         }
@@ -228,6 +262,16 @@ const PlantillaEditor: React.FC = () => {
         }
     }, [empresaId, isEdit])
 
+    // Cuando cambia empresaId: en creación resetea selects, en ambos modos recarga parámetros
+    useEffect(() => {
+        if (!empresaId) return
+        if (!isEdit) {
+            setDefaultEstadoSituacionId('')
+            setDefaultEstadoGestionId('')
+        }
+        loadParametros(empresaId)
+    }, [empresaId, isEdit, loadParametros])
+
     const handleSave = async () => {
         if (!nombre.trim()) {
             notify.error('El nombre es obligatorio')
@@ -235,6 +279,14 @@ const PlantillaEditor: React.FC = () => {
         }
         if (fields.filter((f) => f.destField).length === 0) {
             notify.error('Agregá al menos un campo de mapeo')
+            return
+        }
+        if (!defaultEstadoSituacionId) {
+            notify.error('Seleccioná el estado de situación inicial')
+            return
+        }
+        if (!defaultEstadoGestionId) {
+            notify.error('Seleccioná el estado de gestión inicial')
             return
         }
 
@@ -256,6 +308,8 @@ const PlantillaEditor: React.FC = () => {
                     separador,
                     tieneHeader,
                     mappingJson,
+                    defaultEstadoSituacionId: Number(defaultEstadoSituacionId),
+                    defaultEstadoGestionId: Number(defaultEstadoGestionId),
                 })
                 notify.success('Plantilla actualizada correctamente')
             } else {
@@ -272,6 +326,8 @@ const PlantillaEditor: React.FC = () => {
                     separador,
                     tieneHeader,
                     mappingJson,
+                    defaultEstadoSituacionId: Number(defaultEstadoSituacionId),
+                    defaultEstadoGestionId: Number(defaultEstadoGestionId),
                 })
                 notify.success('Plantilla creada correctamente')
             }
@@ -403,6 +459,64 @@ const PlantillaEditor: React.FC = () => {
                         helperText="Campos para identificar duplicados"
                         sx={{ flex: '1 1 240px' }}
                     />
+                </Stack>
+
+                <Divider sx={{ my: 3 }} />
+
+                {/* Estados iniciales */}
+                <Typography variant="h6" sx={{ fontWeight: 600, mb: 2 }}>
+                    Estados iniciales al importar
+                </Typography>
+
+                <Stack
+                    direction={{ xs: 'column', sm: 'row' }}
+                    flexWrap="wrap"
+                    gap={2}
+                    sx={{ mb: 3 }}
+                >
+                    {paramsSituacion.length === 0 && !loadingParams ? (
+                        <Alert severity="warning" sx={{ flex: '1 1 100%' }}>
+                            Esta empresa no tiene códigos de situación cargados. Cargá al menos uno en Parámetros antes de continuar.
+                        </Alert>
+                    ) : (
+                        <FormControl sx={{ flex: '1 1 280px' }} required>
+                            <InputLabel>Estado situación inicial</InputLabel>
+                            <Select
+                                value={defaultEstadoSituacionId}
+                                label="Estado situación inicial"
+                                onChange={(e) => setDefaultEstadoSituacionId(e.target.value as number)}
+                                disabled={loadingParams}
+                            >
+                                {paramsSituacion.map((p) => (
+                                    <MenuItem key={p.id} value={p.id}>
+                                        {p.descripcion} ({p.clave})
+                                    </MenuItem>
+                                ))}
+                            </Select>
+                        </FormControl>
+                    )}
+
+                    {paramsGestion.length === 0 && !loadingParams ? (
+                        <Alert severity="warning" sx={{ flex: '1 1 100%' }}>
+                            Esta empresa no tiene códigos de gestión cargados. Cargá al menos uno en Parámetros antes de continuar.
+                        </Alert>
+                    ) : (
+                        <FormControl sx={{ flex: '1 1 280px' }} required>
+                            <InputLabel>Estado gestión inicial</InputLabel>
+                            <Select
+                                value={defaultEstadoGestionId}
+                                label="Estado gestión inicial"
+                                onChange={(e) => setDefaultEstadoGestionId(e.target.value as number)}
+                                disabled={loadingParams}
+                            >
+                                {paramsGestion.map((p) => (
+                                    <MenuItem key={p.id} value={p.id}>
+                                        {p.descripcion} ({p.clave})
+                                    </MenuItem>
+                                ))}
+                            </Select>
+                        </FormControl>
+                    )}
                 </Stack>
 
                 <Divider sx={{ my: 3 }} />

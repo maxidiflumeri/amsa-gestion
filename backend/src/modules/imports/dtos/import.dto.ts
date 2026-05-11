@@ -8,9 +8,11 @@ export class CreatePlantillaDto {
     nombre!: string;
     categoria!: ImportCategoria;
     version?: number;
-    separador?: string;       // default "|"
-    tieneHeader?: boolean;    // default false
+    separador?: string;
+    tieneHeader?: boolean;
     mappingJson!: any;        // MappingJson
+    defaultEstadoSituacionId?: number | null;
+    defaultEstadoGestionId?: number | null;
 }
 
 export class CreateRemesaDto {

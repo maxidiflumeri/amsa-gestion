@@ -14,6 +14,8 @@ const TODAS_LAS_KEYS: string[] = [
     'convenios.registrar_pago',
     'importacion.ejecutar',
     'importacion.ver_historial',
+    'importacion.ver_progreso_otros',
+    'importacion.eliminar',
     'plantillas_import.ver',
     'plantillas_import.crear',
     'plantillas_import.editar',

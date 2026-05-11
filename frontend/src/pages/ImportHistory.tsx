@@ -2,6 +2,12 @@ import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
     Box,
+    Dialog,
+    DialogActions,
+    DialogContent,
+    DialogContentText,
+    DialogTitle,
+    Button,
     IconButton,
     LinearProgress,
     MenuItem,
@@ -13,10 +19,12 @@ import {
 } from '@mui/material';
 import RefreshIcon from '@mui/icons-material/Refresh';
 import VisibilityIcon from '@mui/icons-material/Visibility';
+import DeleteIcon from '@mui/icons-material/Delete';
 import InboxIcon from '@mui/icons-material/Inbox';
 import api from '../api/axios';
 import { useEmpresas } from '../hooks/useEmpresas';
 import { useNotify } from '../hooks/useNotify';
+import { useAuth } from '../context/AuthContext';
 import {
     PageHeader,
     SectionCard,
@@ -58,14 +66,26 @@ const estadoToStatus: Record<string, StatusValue> = {
     VALIDANDO: 'pending',
 };
 
+const ESTADOS_EN_CURSO = ['VALIDANDO', 'PROCESANDO'];
+
+function esEliminable(row: { estadoProceso?: unknown; okFilas?: unknown }): boolean {
+    const estado = String(row.estadoProceso ?? '');
+    if (estado === 'PENDIENTE' || estado === 'FALLIDA') return true;
+    if (estado === 'FINALIZADA' && Number(row.okFilas ?? 0) === 0) return true;
+    return false;
+}
+
 export default function ImportHistory() {
     const navigate = useNavigate();
     const notify = useNotify();
+    const { tienePermiso } = useAuth();
     const { empresas, loading: loadingEmpresas } = useEmpresas();
     const [empresaId, setEmpresaId] = useState<number | ''>(1);
     const [remesas, setRemesas] = useState<Remesa[]>([]);
     const [loading, setLoading] = useState(true);
     const [politicas, setPoliticas] = useState<Politica[]>([]);
+    const [confirmDeleteId, setConfirmDeleteId] = useState<number | null>(null);
+    const [deleting, setDeleting] = useState(false);
 
     const loadHistory = async () => {
         if (!empresaId) return;
@@ -95,6 +115,21 @@ export default function ImportHistory() {
             setRemesas(prev => prev.map(r => r.id === remesaId ? { ...r, politicaId } : r));
         } catch (err: any) {
             notify.error(err);
+        }
+    };
+
+    const handleDeleteConfirmed = async () => {
+        if (!confirmDeleteId) return;
+        setDeleting(true);
+        try {
+            await api.delete(`/import/remesas/${confirmDeleteId}`);
+            setRemesas(prev => prev.filter(r => r.id !== confirmDeleteId));
+            notify.success('Importación eliminada correctamente');
+        } catch (err: any) {
+            notify.error(err);
+        } finally {
+            setDeleting(false);
+            setConfirmDeleteId(null);
         }
     };
 
@@ -213,22 +248,75 @@ export default function ImportHistory() {
             key: 'acciones',
             label: 'Acciones',
             align: 'center',
-            render: (row) => (
-                <Tooltip title={Number(row.errFilas) > 0 ? 'Ver Detalles y Errores' : 'Ver Progreso/Detalles'}>
-                    <IconButton
-                        color="primary"
-                        size="small"
-                        onClick={() => navigate(`/historial-importaciones/${row.id}`)}
-                    >
-                        <VisibilityIcon />
-                    </IconButton>
-                </Tooltip>
-            ),
+            render: (row) => {
+                const estado = String(row.estadoProceso ?? '');
+                const enCurso = ESTADOS_EN_CURSO.includes(estado);
+                const eliminable = esEliminable(row);
+                const puedeEliminar = tienePermiso('importacion.eliminar');
+                const tooltipEliminar = enCurso
+                    ? 'No se puede eliminar mientras está en curso'
+                    : eliminable
+                        ? 'Eliminar importación'
+                        : 'Solo se pueden eliminar importaciones pendientes o totalmente fallidas';
+
+                return (
+                    <Box display="flex" justifyContent="center" gap={0.5}>
+                        <Tooltip title={Number(row.errFilas) > 0 ? 'Ver Detalles y Errores' : 'Ver Progreso/Detalles'}>
+                            <IconButton
+                                color="primary"
+                                size="small"
+                                onClick={() => navigate(`/historial-importaciones/${row.id}`)}
+                            >
+                                <VisibilityIcon />
+                            </IconButton>
+                        </Tooltip>
+
+                        {puedeEliminar && (
+                            <Tooltip title={tooltipEliminar}>
+                                <span>
+                                    <IconButton
+                                        color="error"
+                                        size="small"
+                                        disabled={!eliminable}
+                                        onClick={() => setConfirmDeleteId(row.id as number)}
+                                    >
+                                        <DeleteIcon />
+                                    </IconButton>
+                                </span>
+                            </Tooltip>
+                        )}
+                    </Box>
+                );
+            },
         },
     ];
 
     return (
         <Box sx={{ px: { xs: 2, md: 3 }, py: 3 }}>
+            <Dialog
+                open={confirmDeleteId !== null}
+                onClose={() => !deleting && setConfirmDeleteId(null)}
+            >
+                <DialogTitle>Confirmar eliminación</DialogTitle>
+                <DialogContent>
+                    <DialogContentText>
+                        Esta acción eliminará la importación y todos sus registros de errores y jobs asociados. Esta operación no se puede deshacer.
+                    </DialogContentText>
+                </DialogContent>
+                <DialogActions>
+                    <Button onClick={() => setConfirmDeleteId(null)} disabled={deleting}>
+                        Cancelar
+                    </Button>
+                    <Button
+                        onClick={handleDeleteConfirmed}
+                        color="error"
+                        variant="contained"
+                        disabled={deleting}
+                    >
+                        {deleting ? 'Eliminando...' : 'Eliminar'}
+                    </Button>
+                </DialogActions>
+            </Dialog>
             <PageHeader
                 title="Historial de importaciones"
                 actions={[

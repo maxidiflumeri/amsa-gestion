@@ -1,5 +1,5 @@
 // src/import/import.service.ts
-import { Injectable, NotFoundException, BadRequestException, Logger } from '@nestjs/common';
+import { Injectable, NotFoundException, BadRequestException, ConflictException, ForbiddenException, Logger } from '@nestjs/common';
 import { InjectQueue } from '@nestjs/bullmq';
 import { Queue, Job } from 'bullmq';
 import { applyTransforms } from './transforms';
@@ -12,6 +12,9 @@ import { CreatePlantillaDto, CreateRemesaDto } from './dtos/import.dto';
 import { MappingJson } from './mapping-types';
 import { getProcessor, getSupportedCategories } from './processors/processor-registry';
 import { ProcessContext, MappedRow } from './processors/processor.interface';
+import { RealtimeService } from '../realtime/realtime.service';
+import { NotificacionesService } from '../notificaciones/notificaciones.service';
+import { ProgressEmitter } from './utils/progress-emitter';
 
 @Injectable()
 export class ImportService {
@@ -21,6 +24,8 @@ export class ImportService {
         private prisma: PrismaService,
         private files: FileStorageService,
         @InjectQueue('import-queue') private importQueue: Queue,
+        private readonly realtimeService: RealtimeService,
+        private readonly notificacionesService: NotificacionesService,
     ) { }
 
     // --- PLANTILLAS ---
@@ -34,6 +39,8 @@ export class ImportService {
                 separador: dto.separador ?? '|',
                 tieneHeader: dto.tieneHeader ?? false,
                 mappingJson: dto.mappingJson,
+                defaultEstadoSituacionId: dto.defaultEstadoSituacionId ?? null,
+                defaultEstadoGestionId: dto.defaultEstadoGestionId ?? null,
             },
         });
     }
@@ -64,6 +71,8 @@ export class ImportService {
                 ...(data.separador !== undefined ? { separador: data.separador } : {}),
                 ...(data.tieneHeader !== undefined ? { tieneHeader: data.tieneHeader } : {}),
                 ...(data.mappingJson !== undefined ? { mappingJson: data.mappingJson } : {}),
+                ...('defaultEstadoSituacionId' in data ? { defaultEstadoSituacionId: data.defaultEstadoSituacionId ?? null } : {}),
+                ...('defaultEstadoGestionId' in data ? { defaultEstadoGestionId: data.defaultEstadoGestionId ?? null } : {}),
             },
         });
     }
@@ -147,7 +156,7 @@ export class ImportService {
     }
 
     // --- REMESA / ARCHIVO ---
-    async createRemesa(dto: CreateRemesaDto, file: any) {
+    async createRemesa(dto: CreateRemesaDto, file: any, usuarioCreadorId?: number) {
 
         const plantilla = await this.prisma.plantillaimport.findUnique({ where: { id: dto.plantillaId } });
         if (!plantilla) throw new NotFoundException('Plantilla no encontrada');
@@ -165,6 +174,7 @@ export class ImportService {
                 hoja: dto.hoja,
                 fechaVencimiento: dto.fechaVencimiento ? new Date(dto.fechaVencimiento) : null,
                 estadoProceso: 'PENDIENTE',
+                usuarioCreadorId: usuarioCreadorId ?? null,
             },
         });
         return { remesaId: remesa.id };
@@ -340,7 +350,7 @@ export class ImportService {
     }
 
     // --- EJECUTAR (Encuela el trabajo en BullMQ) ---
-    async executeRemesa(remesaId: number, remesaOrigenId?: number) {
+    async executeRemesa(remesaId: number, usuarioId?: number, remesaOrigenId?: number) {
 
         const remesa = await this.prisma.remesa.findUnique({
             where: { id: remesaId },
@@ -354,27 +364,84 @@ export class ImportService {
             throw new BadRequestException('La remesa no tiene categoría definida');
         }
 
-        // Marcar como PENDIENTE (o equivalente a en cola)
-        await this.prisma.remesa.update({
-            where: { id: remesaId },
-            data: { estadoProceso: 'PENDIENTE' }
-        });
+        // Validación "una importación activa por usuario" con SELECT FOR UPDATE
+        if (usuarioId) {
+            await this.prisma.$transaction(async (tx) => {
+                const enCurso = await tx.$queryRaw<{ id: number }[]>`
+                    SELECT id FROM remesa
+                    WHERE usuarioCreadorId = ${usuarioId}
+                    AND estadoProceso IN ('PENDIENTE', 'VALIDANDO', 'PROCESANDO')
+                    FOR UPDATE
+                `;
+                if (enCurso.length > 0) {
+                    throw new ConflictException(
+                        'Ya tenés una importación en curso. Esperá a que termine antes de iniciar otra.',
+                    );
+                }
+
+                // Marcar como PENDIENTE dentro de la transacción para evitar race condition
+                await tx.remesa.update({
+                    where: { id: remesaId },
+                    data: {
+                        estadoProceso: 'PENDIENTE',
+                        usuarioCreadorId: usuarioId,
+                    },
+                });
+            });
+        } else {
+            await this.prisma.remesa.update({
+                where: { id: remesaId },
+                data: { estadoProceso: 'PENDIENTE' },
+            });
+        }
 
         // Encolar el trabajo
         await this.importQueue.add('process-import', {
             remesaId,
             remesaOrigenId,
+            usuarioId,
         });
 
         return { message: 'Importación encolada correctamente', remesaId };
     }
 
+    // --- EN CURSO ---
+    async listarEnCurso(user: { sub: number; permisos: string[] }) {
+        const estadosActivos = ['PENDIENTE', 'VALIDANDO', 'PROCESANDO'] as const;
+
+        const where = user.permisos.includes('importacion.ver_progreso_otros')
+            ? { estadoProceso: { in: estadosActivos as any } }
+            : {
+                  estadoProceso: { in: estadosActivos as any },
+                  usuarioCreadorId: user.sub,
+              };
+
+        return this.prisma.remesa.findMany({
+            where,
+            orderBy: { createdAt: 'desc' },
+            include: {
+                empresa: { select: { nombre: true } },
+                usuarioCreador: { select: { id: true, nombre: true, email: true } },
+                jobimport: {
+                    orderBy: { createdAt: 'desc' },
+                    take: 1,
+                    select: { progreso: true, estado: true, createdAt: true },
+                },
+            },
+        });
+    }
+
     // --- WORKER DE IMPORTACIÓN LÓGICA PESADA ---
     async processImportJob(job: Job, remesaId: number, remesaOrigenId?: number) {
-        
+        const usuarioId: number | undefined = job.data?.usuarioId;
+        const startedAt = new Date();
+
         const remesa = await this.prisma.remesa.findUnique({
             where: { id: remesaId },
-            include: { plantilla: true }
+            include: {
+                plantilla: true,
+                usuarioCreador: { select: { id: true, nombre: true } },
+            },
         });
 
         if (!remesa || !remesa.archivo || !remesa.plantilla) {
@@ -385,22 +452,24 @@ export class ImportService {
             throw new Error('La remesa no tiene categoría definida');
         }
 
+        const usuarioNombre = remesa.usuarioCreador?.nombre ?? 'Sistema';
+        const ownerId = remesa.usuarioCreadorId ?? usuarioId;
+
+        let ok = 0;
+        let err = 0;
+        let total = 0;
+
+        try {
         // Obtener procesador para la categoría
         const processor = getProcessor(remesa.categoria);
 
-        // Obtener estados por defecto asignados a la empresa
-        const estadoSituacionDefault = await this.prisma.parametro.findFirst({
-            where: { grupo: 'estadoSituacion', clave: 'ACTIVO', empresas: { some: { empresaId: remesa.empresaId } } },
-            select: { id: true },
-        });
-
-        const estadoGestionDefault = await this.prisma.parametro.findFirst({
-            where: { grupo: 'estadoGestion', clave: 'PENDIENTE', empresas: { some: { empresaId: remesa.empresaId } } },
-            select: { id: true },
-        });
-
-        if (!estadoSituacionDefault || !estadoGestionDefault) {
-            throw new Error("No se encontraron códigos por defecto para estado_situacion o estado_gestion");
+        // Usar los defaults configurados en la plantilla
+        const { defaultEstadoSituacionId, defaultEstadoGestionId } = remesa.plantilla;
+        if (!defaultEstadoSituacionId || !defaultEstadoGestionId) {
+            throw new BadRequestException(
+                'La plantilla no tiene configurado el estado inicial de situación/gestión. ' +
+                'Edita la plantilla y completá los campos.',
+            );
         }
 
         const ctx: ProcessContext = {
@@ -409,8 +478,8 @@ export class ImportService {
             empresaId: remesa.empresaId,
             remesaOrigenId,
             defaults: {
-                estadoSituacionId: estadoSituacionDefault.id,
-                estadoGestionId: estadoGestionDefault.id,
+                estadoSituacionId: defaultEstadoSituacionId,
+                estadoGestionId: defaultEstadoGestionId,
             },
         };
 
@@ -418,7 +487,6 @@ export class ImportService {
         const sep = remesa.plantilla.separador ?? '|';
         const hasHeader = !!remesa.plantilla.tieneHeader;
 
-        let ok = 0, err = 0, total = 0;
         const BATCH_SIZE = 200;
         const batch: Array<{ row: any; idx: number }> = [];
 
@@ -426,6 +494,45 @@ export class ImportService {
             where: { id: remesaId },
             data: { estadoProceso: 'PROCESANDO' }
         });
+
+        // Emitir evento de inicio
+        if (ownerId) {
+            try {
+                this.realtimeService.emitImportIniciada({
+                    remesaId,
+                    tipo: remesa.categoria as string,
+                    totalFilas: remesa.totalFilas,
+                    usuarioId: ownerId,
+                    usuarioNombre,
+                    startedAt,
+                });
+            } catch (emitErr: any) {
+                this.logger.warn(`Error emitiendo import:iniciada: ${emitErr?.message}`);
+            }
+        }
+
+        // ProgressEmitter para throttle de progreso
+        const progressEmitter = new ProgressEmitter(
+            (progreso, okFilas, errFilas) => {
+                if (!ownerId) return;
+                try {
+                    this.realtimeService.emitImportProgreso({
+                        remesaId,
+                        progreso,
+                        okFilas,
+                        errFilas,
+                        totalFilas: remesa.totalFilas ?? total,
+                        estadoProceso: 'PROCESANDO',
+                        usuarioId: ownerId,
+                        usuarioNombre,
+                    });
+                } catch (emitErr: any) {
+                    this.logger.warn(`Error emitiendo import:progreso: ${emitErr?.message}`);
+                }
+            },
+            2000,
+            5,
+        );
 
         // Limpiar errores previos de esta remesa
         await this.prisma.importerror.deleteMany({
@@ -469,10 +576,14 @@ export class ImportService {
                 where: { id: remesaId },
                 data: { totalFilas: total, okFilas: ok, errFilas: err }
             });
-            
-            if (total > 0 && total % 1000 === 0) {
-                await job.updateProgress({ total, ok, err });
-            }
+
+            await job.updateProgress({ total, ok, err });
+
+            const totalEsperado = remesa.totalFilas ?? 0;
+            const progreso = totalEsperado > 0
+                ? Math.min(100, Math.floor((ok + err) / totalEsperado * 100))
+                : 0;
+            progressEmitter.tick(progreso, ok, err);
         };
 
         const isExcel = remesa.archivo.match(/\.(xls|xlsx)$/i);
@@ -548,14 +659,159 @@ export class ImportService {
         });
 
         await job.updateProgress({ total, ok, err });
+
+        const durationMs = Date.now() - startedAt.getTime();
+
+        // Emitir finalización via socket (forzado)
+        if (ownerId) {
+            progressEmitter.tick(100, ok, err, true);
+
+            try {
+                this.realtimeService.emitImportFinalizada({
+                    remesaId,
+                    okFilas: ok,
+                    errFilas: err,
+                    totalFilas: total,
+                    durationMs,
+                    estadoProceso: 'FINALIZADA',
+                    usuarioId: ownerId,
+                    usuarioNombre,
+                });
+            } catch (emitErr: any) {
+                this.logger.warn(`Error emitiendo import:finalizada: ${emitErr?.message}`);
+            }
+
+            // Notificación persistente (sin lanzar si falla)
+            try {
+                await this.notificacionesService.crear({
+                    tipo: err > 0 && ok === 0 ? 'IMPORTACION_ERROR' : 'IMPORTACION_FINALIZADA',
+                    entidadTipo: 'REMESA',
+                    entidadId: remesaId,
+                    titulo: err > 0 && ok === 0
+                        ? 'Importación fallida'
+                        : `Importación finalizada`,
+                    mensaje: err > 0 && ok === 0
+                        ? `La importación de ${total} filas falló completamente (${err} errores).`
+                        : `Se procesaron ${ok} filas correctamente${err > 0 ? ` con ${err} errores` : ''}.`,
+                    payload: {
+                        okFilas: ok,
+                        errFilas: err,
+                        totalFilas: total,
+                        durationMs,
+                        tipoImport: remesa.categoria,
+                    },
+                    rutaAccion: `/historial-importaciones/${remesaId}`,
+                    destinatarioPrincipalId: ownerId,
+                    incluirUsuariosConPermiso: 'importacion.ver_progreso_otros',
+                });
+            } catch (notifErr: any) {
+                this.logger.warn(`Error creando notificacion de importacion: ${notifErr?.message}`);
+            }
+        }
+
         return { total, ok, err };
+
+        } catch (error: any) {
+            const durationMs = Date.now() - startedAt.getTime();
+
+            try {
+                await this.prisma.remesa.update({
+                    where: { id: remesaId },
+                    data: { estadoProceso: 'FALLIDA' },
+                });
+            } catch (updateErr: any) {
+                this.logger.error(`Error marcando remesa ${remesaId} como FALLIDA: ${updateErr?.message}`);
+            }
+
+            if (ownerId) {
+                try {
+                    this.realtimeService.emitImportFinalizada({
+                        remesaId,
+                        okFilas: ok,
+                        errFilas: err,
+                        totalFilas: total,
+                        durationMs,
+                        estadoProceso: 'FALLIDA',
+                        usuarioId: ownerId,
+                        usuarioNombre,
+                    });
+                } catch (emitErr: any) {
+                    this.logger.warn(`Error emitiendo import:finalizada (FALLIDA): ${emitErr?.message}`);
+                }
+
+                try {
+                    await this.notificacionesService.crear({
+                        tipo: 'IMPORTACION_ERROR',
+                        entidadTipo: 'REMESA',
+                        entidadId: remesaId,
+                        titulo: 'Importación fallida',
+                        mensaje: error.message ?? 'Error desconocido',
+                        payload: { okFilas: ok, errFilas: err, totalFilas: total, durationMs },
+                        rutaAccion: `/historial-importaciones/${remesaId}`,
+                        destinatarioPrincipalId: ownerId,
+                        incluirUsuariosConPermiso: 'importacion.ver_progreso_otros',
+                    });
+                } catch (notifErr: any) {
+                    this.logger.warn(`Error creando notificacion de importacion fallida: ${notifErr?.message}`);
+                }
+            }
+
+            throw error;
+        }
     }
 
     // --- ESTADO ---
     async status(remesaId: number) {
-        const r = await this.prisma.remesa.findUnique({ where: { id: remesaId } });
+        const r = await this.prisma.remesa.findUnique({
+            where: { id: remesaId },
+            include: {
+                empresa: { select: { id: true, nombre: true } },
+                plantilla: { select: { id: true, nombre: true, categoria: true } },
+                usuarioCreador: { select: { id: true, nombre: true, email: true } },
+                politica: { select: { id: true, nombre: true } },
+                jobimport: {
+                    orderBy: { createdAt: 'desc' },
+                    take: 1,
+                    select: { id: true, estado: true, progreso: true, createdAt: true, finishedAt: true },
+                },
+            },
+        });
+
         if (!r) throw new NotFoundException();
-        return r;
+
+        const job = r.jobimport[0] ?? null;
+
+        const terminada = r.estadoProceso === 'FINALIZADA' || r.estadoProceso === 'FALLIDA';
+        let duracionMs: number | null = null;
+        if (terminada && job) {
+            const fin = job.finishedAt ?? r.updatedAt;
+            duracionMs = fin.getTime() - job.createdAt.getTime();
+        }
+
+        const tasaExitoPct = r.totalFilas > 0
+            ? Math.round((r.okFilas / r.totalFilas) * 100)
+            : null;
+
+        return {
+            id: r.id,
+            numeroRemesa: r.numeroRemesa,
+            nombre: r.nombre,
+            categoria: r.categoria,
+            estadoProceso: r.estadoProceso,
+            totalFilas: r.totalFilas,
+            okFilas: r.okFilas,
+            errFilas: r.errFilas,
+            fechaVencimiento: r.fechaVencimiento,
+            createdAt: r.createdAt,
+            updatedAt: r.updatedAt,
+            empresa: r.empresa,
+            plantilla: r.plantilla,
+            usuarioCreador: r.usuarioCreador,
+            politica: r.politica,
+            jobimport: job,
+            duracionMs,
+            tasaExitoPct,
+        };
     }
 
     // --- ERRORES POR REMESA ---
@@ -604,5 +860,38 @@ export class ImportService {
             where: { id: remesaId },
             data: { politicaId: politicaId ?? null },
         });
+    }
+
+    // --- ELIMINAR REMESA ---
+    async deleteRemesa(remesaId: number, user: { sub: number; permisos: string[] }) {
+        const remesa = await this.prisma.remesa.findUnique({ where: { id: remesaId } });
+        if (!remesa) throw new NotFoundException(`Remesa ${remesaId} no encontrada`);
+
+        const estadosEnCurso: string[] = ['VALIDANDO', 'PROCESANDO'];
+        if (estadosEnCurso.includes(remesa.estadoProceso)) {
+            throw new BadRequestException('No se puede eliminar una importación en curso');
+        }
+
+        const totalmenteFallida =
+            remesa.estadoProceso === 'FALLIDA' ||
+            (remesa.estadoProceso === 'FINALIZADA' && (remesa.okFilas ?? 0) === 0);
+        const eliminable = remesa.estadoProceso === 'PENDIENTE' || totalmenteFallida;
+        if (!eliminable) {
+            throw new BadRequestException(
+                'Solo se pueden eliminar importaciones pendientes o que fallaron completamente',
+            );
+        }
+
+        const puedeVerOtros = user.permisos.includes('importacion.ver_progreso_otros');
+        if (!puedeVerOtros && remesa.usuarioCreadorId !== user.sub) {
+            throw new ForbiddenException('No tenés permiso para eliminar esta importación');
+        }
+
+        await this.prisma.jobimport.deleteMany({ where: { remesaId } });
+        await this.prisma.importerror.deleteMany({ where: { remesaId } });
+        await this.prisma.remesa.delete({ where: { id: remesaId } });
+
+        this.logger.log(`Remesa ${remesaId} eliminada por usuario ${user.sub}`);
+        return { deleted: true };
     }
 }

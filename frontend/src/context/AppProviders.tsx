@@ -7,6 +7,8 @@ import { ColorModeProvider } from './ColorModeContext';
 import { ConfirmProvider } from './ConfirmContext';
 import { PageMetaProvider } from './PageMetaContext';
 import { AuthProvider } from './AuthContext';
+import { SocketProvider } from './SocketContext';
+import { NotificacionesProvider } from './NotificacionesContext';
 import { setupAxiosInterceptors } from '../api/setupAxiosInterceptors';
 import { useNotify } from '../hooks/useNotify';
 
@@ -41,9 +43,13 @@ export const AppProviders: React.FC<{ children: React.ReactNode }> = ({ children
                         <PageMetaProvider>
                             <BrowserRouter>
                                 <AuthProvider>
-                                    <AxiosInterceptorSetup>
-                                        {children}
-                                    </AxiosInterceptorSetup>
+                                    <SocketProvider>
+                                        <NotificacionesProvider>
+                                            <AxiosInterceptorSetup>
+                                                {children}
+                                            </AxiosInterceptorSetup>
+                                        </NotificacionesProvider>
+                                    </SocketProvider>
                                 </AuthProvider>
                             </BrowserRouter>
                         </PageMetaProvider>

@@ -40,6 +40,8 @@ export const TODOS_LOS_PERMISOS: PermisoSeccion[] = [
         permisos: [
             { key: 'importacion.ejecutar', label: 'Ejecutar importaciones' },
             { key: 'importacion.ver_historial', label: 'Ver historial de importaciones' },
+            { key: 'importacion.ver_progreso_otros', label: 'Ver importaciones de otros usuarios' },
+            { key: 'importacion.eliminar', label: 'Eliminar importaciones', descripcion: 'Permite eliminar remesas en estado PENDIENTE, FALLIDA o FINALIZADA' },
         ],
     },
     {

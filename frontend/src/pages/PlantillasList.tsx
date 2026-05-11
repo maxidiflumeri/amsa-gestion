@@ -213,7 +213,11 @@ const PlantillasList: React.FC = () => {
                 actions={[
                     {
                         label: 'Nueva plantilla',
-                        onClick: () => navigate('/plantillas/nueva'),
+                        onClick: () => {
+                            if (!empresaId) return
+                            sessionStorage.setItem('plantillas_empresaId', String(empresaId))
+                            navigate('/plantillas/nueva')
+                        },
                         startIcon: <AddIcon />,
                         variant: 'contained',
                         disabled: !empresaId,
@@ -270,7 +274,11 @@ const PlantillasList: React.FC = () => {
                             icon={<ListAltIcon />}
                             action={{
                                 label: 'Nueva plantilla',
-                                onClick: () => navigate('/plantillas/nueva'),
+                                onClick: () => {
+                                    if (!empresaId) return
+                                    sessionStorage.setItem('plantillas_empresaId', String(empresaId))
+                                    navigate('/plantillas/nueva')
+                                },
                             }}
                         />
                     )}
