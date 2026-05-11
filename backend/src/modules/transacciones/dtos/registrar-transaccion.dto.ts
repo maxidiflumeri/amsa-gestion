@@ -1,13 +1,16 @@
-// src/transacciones/dto/registrar-transaccion.dto.ts
-import { IsInt, IsOptional, IsString, IsIP } from 'class-validator';
+import { IsInt, IsOptional, IsString } from 'class-validator';
 
 export class RegistrarTransaccionDto {
+    @IsOptional()
     @IsInt()
-    usuarioId: number;
+    usuarioId?: number | null;
 
     @IsOptional()
     @IsInt()
-    deudorId?: number;
+    empresaId?: number | null;
+
+    @IsString()
+    modulo: string;
 
     @IsString()
     entidad: string;
@@ -21,6 +24,22 @@ export class RegistrarTransaccionDto {
 
     @IsOptional()
     @IsString()
+    severidad?: string;
+
+    @IsOptional()
+    @IsString()
+    estado?: string;
+
+    @IsOptional()
+    @IsInt()
+    deudorId?: number;
+
+    @IsOptional()
+    @IsString()
+    recursoTexto?: string;
+
+    @IsOptional()
+    @IsString()
     resumen?: string;
 
     @IsOptional()
@@ -28,7 +47,6 @@ export class RegistrarTransaccionDto {
 
     @IsOptional()
     @IsString()
-    @IsIP(4, { message: 'ip debe ser IPv4 válida' })
     ip?: string;
 
     @IsOptional()

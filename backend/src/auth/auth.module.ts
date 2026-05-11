@@ -6,6 +6,7 @@ import { AuthService } from './auth.service';
 import { AuthController } from './auth.controller';
 import { JwtAuthGuard } from './jwt-auth.guard';
 import { PermisosGuard } from './permisos.guard';
+import { TransaccionesModule } from '../modules/transacciones/transacciones.module';
 
 @Module({
     imports: [
@@ -15,6 +16,7 @@ import { PermisosGuard } from './permisos.guard';
                 expiresIn: (process.env.JWT_EXPIRES_IN || '1d') as StringValue,
             },
         }),
+        TransaccionesModule,
     ],
     controllers: [AuthController],
     providers: [

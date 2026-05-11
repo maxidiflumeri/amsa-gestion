@@ -99,6 +99,14 @@ export const TODOS_LOS_PERMISOS: PermisoSeccion[] = [
             { key: 'admin.gestionar_usuarios', label: 'Gestionar usuarios' },
         ],
     },
+    {
+        seccion: 'Auditoría',
+        permisos: [
+            { key: 'auditoria.ver', label: 'Ver auditoría', descripcion: 'Ve sus propias acciones registradas' },
+            { key: 'auditoria.ver_todos', label: 'Ver auditoría de todos', descripcion: 'Ve registros de todos los usuarios' },
+            { key: 'auditoria.exportar', label: 'Exportar auditoría' },
+        ],
+    },
 ];
 
 export const TODAS_LAS_KEYS: string[] = TODOS_LOS_PERMISOS.flatMap((s) =>

@@ -7,6 +7,8 @@ import {
 import { JwtService } from '@nestjs/jwt';
 import { OAuth2Client } from 'google-auth-library';
 import { PrismaService } from '../prisma/prisma.service';
+import { AuditoriaHelper } from '../modules/transacciones/auditoria.helper';
+import { AuditEstado, AuditModulo, AuditSeveridad, AuditTipo } from '../modules/transacciones/audit.enums';
 
 const client = new OAuth2Client(process.env.GOOGLE_CLIENT_ID);
 
@@ -17,9 +19,10 @@ export class AuthService {
     constructor(
         private readonly jwtService: JwtService,
         private readonly prisma: PrismaService,
+        private readonly auditoria: AuditoriaHelper,
     ) {}
 
-    async loginWithGoogle(idToken: string) {
+    async loginWithGoogle(idToken: string, ctx?: { ip?: string; userAgent?: string }) {
         const ticket = await client.verifyIdToken({
             idToken,
             audience: process.env.GOOGLE_CLIENT_ID,
@@ -40,6 +43,17 @@ export class AuthService {
 
         if (!usuarioExistente) {
             this.logger.warn(`Login rechazado — usuario no dado de alta: ${email}`);
+            await this.auditoria.log({
+                modulo: AuditModulo.AUTH,
+                entidad: 'Sesion',
+                tipo: AuditTipo.LOGIN_FAIL,
+                severidad: AuditSeveridad.WARN,
+                estado: AuditEstado.FALLIDO,
+                resumen: `Login rechazado — usuario no dado de alta`,
+                data: { params: { email }, contexto: { motivo: 'no_existe' } },
+                ip: ctx?.ip ?? null,
+                userAgent: ctx?.userAgent ?? null,
+            });
             throw new ForbiddenException(
                 'No tenés acceso al sistema. Pedile al administrador que te dé de alta.',
             );
@@ -47,6 +61,18 @@ export class AuthService {
 
         if (!usuarioExistente.activo) {
             this.logger.warn(`Login rechazado — usuario inactivo: ${email}`);
+            await this.auditoria.log({
+                modulo: AuditModulo.AUTH,
+                entidad: 'Sesion',
+                tipo: AuditTipo.LOGIN_FAIL,
+                severidad: AuditSeveridad.WARN,
+                estado: AuditEstado.FALLIDO,
+                usuarioId: usuarioExistente.id,
+                resumen: `Login rechazado — usuario inactivo`,
+                data: { params: { email }, contexto: { motivo: 'inactivo' } },
+                ip: ctx?.ip ?? null,
+                userAgent: ctx?.userAgent ?? null,
+            });
             throw new ForbiddenException('Tu cuenta está suspendida. Contactá al administrador.');
         }
 
@@ -70,6 +96,16 @@ export class AuthService {
         );
 
         this.logger.log(`Login exitoso: ${email} (rol: ${usuario.rolObj?.nombre ?? usuario.rol})`);
+
+        await this.auditoria.log({
+            modulo: AuditModulo.AUTH,
+            entidad: 'Sesion',
+            tipo: AuditTipo.LOGIN_OK,
+            usuarioId: usuario.id,
+            resumen: `Login exitoso (${usuario.rolObj?.nombre ?? usuario.rol})`,
+            ip: ctx?.ip ?? null,
+            userAgent: ctx?.userAgent ?? null,
+        });
 
         return {
             token,

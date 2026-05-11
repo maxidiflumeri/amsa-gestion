@@ -10,6 +10,7 @@ export enum FormatoSalida {
 
 export enum Raiz {
   DEUDOR = 'deudor',
+  TRANSACCION = 'transaccion',
 }
 
 export class ColumnaDto {

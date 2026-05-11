@@ -8,6 +8,7 @@ import { PrismaService } from 'src/prisma/prisma.service';
 import { ImportsProcessor } from './bullmq/imports.processor';
 import { RealtimeModule } from '../realtime/realtime.module';
 import { NotificacionesModule } from '../notificaciones/notificaciones.module';
+import { TransaccionesModule } from '../transacciones/transacciones.module';
 
 @Module({
   imports: [
@@ -16,6 +17,7 @@ import { NotificacionesModule } from '../notificaciones/notificaciones.module';
     }),
     RealtimeModule,
     NotificacionesModule,
+    TransaccionesModule,
   ],
   controllers: [ImportController],
   providers: [ImportService, PrismaService, FileStorageService, ImportsProcessor],

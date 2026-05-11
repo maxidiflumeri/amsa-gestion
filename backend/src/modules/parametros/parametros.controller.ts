@@ -1,6 +1,8 @@
 import { Controller, Get, Post, Body, Patch, Param, Delete, Query, ParseIntPipe } from '@nestjs/common';
 import { ParametrosService } from './parametros.service';
 import { Permisos } from '../../auth/decorators';
+import { Audit } from '../transacciones/audit.decorator';
+import { AuditModulo, AuditTipo } from '../transacciones/audit.enums';
 
 @Controller('parametros')
 @Permisos('parametros.ver')
@@ -33,18 +35,42 @@ export class ParametrosController {
 
     @Post()
     @Permisos('parametros.crear')
+    @Audit({
+        modulo: AuditModulo.ADMIN,
+        entidad: 'Parametro',
+        tipo: AuditTipo.CREATE,
+        entidadIdFromResponse: 'id',
+        resumen: (res) => `Creó parámetro ${res?.grupo}.${res?.clave}`,
+        data: (res, req) => ({ params: req.body, after: res }),
+    })
     create(@Body() data: { grupo: string; clave: string; descripcion: string; padreId?: number; categoria?: string; esGlobal?: boolean; activo?: boolean }) {
         return this.parametrosService.create(data);
     }
 
     @Patch(':id/activo')
     @Permisos('parametros.editar')
+    @Audit({
+        modulo: AuditModulo.ADMIN,
+        entidad: 'Parametro',
+        tipo: 'TOGGLE_ACTIVO',
+        entidadIdParam: 'id',
+        resumen: (res, req) => `Cambió activo de parámetro ${req.params.id}`,
+        data: (res) => ({ after: { activo: res?.activo } }),
+    })
     toggleActivo(@Param('id', ParseIntPipe) id: number) {
         return this.parametrosService.toggleActivo(id);
     }
 
     @Patch(':id')
     @Permisos('parametros.editar')
+    @Audit({
+        modulo: AuditModulo.ADMIN,
+        entidad: 'Parametro',
+        tipo: AuditTipo.UPDATE,
+        entidadIdParam: 'id',
+        resumen: (res, req) => `Actualizó parámetro ${req.params.id}`,
+        data: (res, req) => ({ params: req.body, after: res }),
+    })
     update(
         @Param('id', ParseIntPipe) id: number,
         @Body() data: { grupo?: string; clave?: string; descripcion?: string; padreId?: number; categoria?: string; esGlobal?: boolean; activo?: boolean },
@@ -54,13 +80,28 @@ export class ParametrosController {
 
     @Delete(':id')
     @Permisos('parametros.eliminar')
+    @Audit({
+        modulo: AuditModulo.ADMIN,
+        entidad: 'Parametro',
+        tipo: AuditTipo.DELETE,
+        entidadIdParam: 'id',
+        resumen: (res, req) => `Eliminó parámetro ${req.params.id}`,
+    })
     remove(@Param('id', ParseIntPipe) id: number) {
         return this.parametrosService.remove(id);
     }
 
     @Post(':id/empresas')
     @Permisos('parametros.editar')
+    @Audit({
+        modulo: AuditModulo.ADMIN,
+        entidad: 'ParametroEmpresas',
+        tipo: AuditTipo.UPDATE,
+        entidadIdParam: 'id',
+        resumen: (res, req) => `Asignó empresas a parámetro ${req.params.id}`,
+        data: (res, req) => ({ params: req.body }),
+    })
     setEmpresas(@Param('id', ParseIntPipe) id: number, @Body() body: { empresaIds: number[] }) {
         return this.parametrosService.setEmpresasForParametro(id, body.empresaIds);
     }
-}
+}

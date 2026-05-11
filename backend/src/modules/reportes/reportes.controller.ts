@@ -32,6 +32,8 @@ import {
 } from './dto/ejecuciones.dto';
 import { EjecucionesService } from './ejecuciones/ejecuciones.service';
 import { Permisos } from '../../auth/decorators';
+import { Audit } from '../transacciones/audit.decorator';
+import { AuditModulo, AuditTipo } from '../transacciones/audit.enums';
 
 function resolverUsuarioId(req: Request): number {
   const usuario = (req as any)['usuario'];
@@ -125,6 +127,15 @@ export class ReportesController {
 
   @Post('plantillas')
   @Permisos('reportes.crear')
+  @Audit({
+    modulo: AuditModulo.REPORTES,
+    entidad: 'PlantillaReporte',
+    tipo: AuditTipo.CREATE,
+    entidadIdFromResponse: 'id',
+    empresaId: (res) => res?.empresaId,
+    resumen: (res) => `Creó plantilla reporte "${res?.nombre}"`,
+    data: (res, req) => ({ params: req.body, after: { id: res?.id, nombre: res?.nombre } }),
+  })
   async create(@Body() dto: CreatePlantillaDto) {
     this.logger.log(`POST /reportes/plantillas`);
     return this.reportesService.create(dto);
@@ -132,6 +143,14 @@ export class ReportesController {
 
   @Patch('plantillas/:id')
   @Permisos('reportes.editar')
+  @Audit({
+    modulo: AuditModulo.REPORTES,
+    entidad: 'PlantillaReporte',
+    tipo: AuditTipo.UPDATE,
+    entidadIdParam: 'id',
+    resumen: (res, req) => `Actualizó plantilla reporte ${req.params.id}`,
+    data: (res, req) => ({ params: req.body }),
+  })
   async update(
     @Param('id', ParseIntPipe) id: number,
     @Body() dto: UpdatePlantillaDto,
@@ -142,6 +161,13 @@ export class ReportesController {
 
   @Delete('plantillas/:id')
   @Permisos('reportes.eliminar')
+  @Audit({
+    modulo: AuditModulo.REPORTES,
+    entidad: 'PlantillaReporte',
+    tipo: AuditTipo.DELETE,
+    entidadIdParam: 'id',
+    resumen: (res, req) => `Eliminó plantilla reporte ${req.params.id}`,
+  })
   async remove(@Param('id', ParseIntPipe) id: number) {
     this.logger.log(`DELETE /reportes/plantillas/${id}`);
     return this.reportesService.remove(id);
@@ -164,6 +190,14 @@ export class ReportesController {
 
   @Post('plantillas/:id/ejecutar')
   @Permisos('reportes.ejecutar')
+  @Audit({
+    modulo: AuditModulo.REPORTES,
+    entidad: 'EjecucionReporte',
+    tipo: AuditTipo.REPORTE_EJECUTAR,
+    entidadIdParam: 'id',
+    resumen: (res, req) => `Ejecutó reporte ${req.params.id}`,
+    data: (res, req) => ({ params: req.body }),
+  })
   async ejecutar(
     @Param('id', ParseIntPipe) id: number,
     @Body() dto: EjecutarDto,
@@ -249,6 +283,13 @@ export class ReportesController {
   }
 
   @Get('ejecuciones/:id/descargar')
+  @Audit({
+    modulo: AuditModulo.REPORTES,
+    entidad: 'EjecucionReporte',
+    tipo: AuditTipo.REPORTE_DESCARGAR,
+    entidadIdParam: 'id',
+    resumen: (res, req) => `Descargó ejecución ${req.params.id}`,
+  })
   async descargarEjecucion(
     @Param('id', ParseIntPipe) id: number,
     @Req() req: Request,

@@ -18,6 +18,7 @@ import ReportesEjecutar from '../pages/reportes/ReportesEjecutar';
 import ReportesEjecuciones from '../pages/reportes/ReportesEjecuciones';
 import RolesPage from '../pages/admin/RolesPage';
 import UsuariosPage from '../pages/admin/UsuariosPage';
+import AuditoriaPage from '../pages/auditoria/AuditoriaPage';
 
 const AppRoutes = () => {
     return (
@@ -43,6 +44,7 @@ const AppRoutes = () => {
                 <Route path="reportes/:id/ejecutar" element={<ReportesEjecutar />} />
                 <Route path="admin/roles" element={<RolesPage />} />
                 <Route path="admin/usuarios" element={<UsuariosPage />} />
+                <Route path="auditoria" element={<AuditoriaPage />} />
             </Route>
         </Routes>
     );

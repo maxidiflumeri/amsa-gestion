@@ -4,6 +4,8 @@ import { FileInterceptor } from '@nestjs/platform-express';
 import { ImportService } from './imports.service';
 import { CreatePlantillaDto, CreateRemesaDto } from './dtos/import.dto';
 import { Permisos, UsuarioActual } from '../../auth/decorators';
+import { Audit } from '../transacciones/audit.decorator';
+import { AuditModulo, AuditTipo } from '../transacciones/audit.enums';
 
 interface UsuarioJwt {
     sub: number;
@@ -31,6 +33,15 @@ export class ImportController {
     // --- PLANTILLAS ---
     @Post('plantillas')
     @Permisos('plantillas_import.crear')
+    @Audit({
+        modulo: AuditModulo.IMPORT,
+        entidad: 'PlantillaImport',
+        tipo: AuditTipo.CREATE,
+        entidadIdFromResponse: 'id',
+        empresaId: (res) => res?.empresaId,
+        resumen: (res) => `Creó plantilla import "${res?.nombre}"`,
+        data: (res, req) => ({ params: req.body, after: res }),
+    })
     createPlantilla(@Body() dto: CreatePlantillaDto) {
         return this.service.createPlantilla(dto);
     }
@@ -66,6 +77,16 @@ export class ImportController {
     }
 
     @Post('plantillas/:id')
+    @Permisos('plantillas_import.editar')
+    @Audit({
+        modulo: AuditModulo.IMPORT,
+        entidad: 'PlantillaImport',
+        tipo: AuditTipo.UPDATE,
+        entidadIdParam: 'id',
+        empresaId: (res) => res?.empresaId,
+        resumen: (res, req) => `Actualizó plantilla import ${req.params.id}`,
+        data: (res, req) => ({ params: req.body, after: res }),
+    })
     updatePlantilla(
         @Param('id', ParseIntPipe) id: number,
         @Body() dto: Partial<CreatePlantillaDto>,
@@ -74,6 +95,14 @@ export class ImportController {
     }
 
     @Post('plantillas/:id/delete')
+    @Permisos('plantillas_import.eliminar')
+    @Audit({
+        modulo: AuditModulo.IMPORT,
+        entidad: 'PlantillaImport',
+        tipo: AuditTipo.DELETE,
+        entidadIdParam: 'id',
+        resumen: (res, req) => `Eliminó plantilla import ${req.params.id}`,
+    })
     deletePlantilla(@Param('id', ParseIntPipe) id: number) {
         return this.service.deletePlantilla(id);
     }
@@ -81,6 +110,15 @@ export class ImportController {
     // --- REMESAS ---
     @Post('remesas')
     @UseInterceptors(FileInterceptor('file'))
+    @Audit({
+        modulo: AuditModulo.IMPORT,
+        entidad: 'Remesa',
+        tipo: AuditTipo.CREATE,
+        entidadIdFromResponse: 'id',
+        empresaId: (res, req) => Number(req.body?.empresaId) || undefined,
+        resumen: (res, req) => `Creó remesa para empresa ${req.body?.empresaId}`,
+        data: (res, req) => ({ params: { ...req.body, file: undefined }, after: res }),
+    })
     createRemesa(@Body() dto: CreateRemesaDto, @UploadedFile() file: any) {
         return this.service.createRemesa(dto, file);
     }
@@ -95,12 +133,27 @@ export class ImportController {
 
     @Post('validar/:id')
     @Permisos('importacion.ejecutar')
+    @Audit({
+        modulo: AuditModulo.IMPORT,
+        entidad: 'Remesa',
+        tipo: 'VALIDAR',
+        entidadIdParam: 'id',
+        resumen: (res, req) => `Validó remesa ${req.params.id}`,
+    })
     validate(@Param('id', ParseIntPipe) id: number) {
         return this.service.validateRemesa(id);
     }
 
     @Post('ejecutar/:id')
     @Permisos('importacion.ejecutar')
+    @Audit({
+        modulo: AuditModulo.IMPORT,
+        entidad: 'Remesa',
+        tipo: AuditTipo.IMPORT_START,
+        entidadIdParam: 'id',
+        resumen: (res, req) => `Inició ejecución remesa ${req.params.id}`,
+        data: (res, req) => ({ params: req.body }),
+    })
     run(
         @Param('id', ParseIntPipe) id: number,
         @UsuarioActual() user: UsuarioJwt,
@@ -136,6 +189,14 @@ export class ImportController {
 
     // --- POLÍTICA ---
     @Put('remesas/:id/politica')
+    @Audit({
+        modulo: AuditModulo.IMPORT,
+        entidad: 'Remesa',
+        tipo: AuditTipo.UPDATE,
+        entidadIdParam: 'id',
+        resumen: (res, req) => `Cambió política de remesa ${req.params.id}`,
+        data: (res, req) => ({ params: req.body }),
+    })
     updatePolitica(
         @Param('id', ParseIntPipe) id: number,
         @Body('politicaId') politicaId: number | null,
@@ -146,6 +207,13 @@ export class ImportController {
     // --- ELIMINAR REMESA ---
     @Delete('remesas/:id')
     @Permisos('importacion.eliminar')
+    @Audit({
+        modulo: AuditModulo.IMPORT,
+        entidad: 'Remesa',
+        tipo: AuditTipo.DELETE,
+        entidadIdParam: 'id',
+        resumen: (res, req) => `Eliminó remesa ${req.params.id}`,
+    })
     deleteRemesa(
         @Param('id', ParseIntPipe) id: number,
         @UsuarioActual() user: UsuarioJwt,

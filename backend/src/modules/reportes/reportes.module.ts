@@ -44,6 +44,6 @@ import { EjecucionesCleanupService } from './ejecuciones/ejecuciones.cleanup';
     EjecucionesService,
     EjecucionesCleanupService,
   ],
-  exports: [ReportesService, EjecucionesService],
+  exports: [ReportesService, EjecucionesService, XlsxExportador, CsvExportador, PdfExportador],
 })
 export class ReportesModule {}

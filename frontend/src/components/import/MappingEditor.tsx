@@ -44,7 +44,7 @@ const DEST_FIELDS_BY_CATEGORY: Record<string, { value: string; label: string }[]
     FACTURAS: [
         { value: "nroFactura", label: "Nro. Factura" },
         { value: "importe", label: "Importe" },
-        { value: "fechaEmision", label: "Fecha emisi\u00f3n" },
+        { value: "fechaEmision", label: "Fecha emisión" },
         { value: "vencimiento", label: "Vencimiento" },
         { value: "nro_cliente", label: "Nro. Cliente (match)" },
     ],
@@ -62,7 +62,7 @@ const DEST_FIELDS_BY_CATEGORY: Record<string, { value: string; label: string }[]
         { value: "monto", label: "Monto" },
         { value: "fechaPago", label: "Fecha pago" },
         { value: "medioPago", label: "Medio de pago" },
-        { value: "observacion", label: "Observaci\u00f3n" },
+        { value: "observacion", label: "Observación" },
     ],
     ENRIQUECIMIENTO: [
         { value: "nro_cliente", label: "Nro. Cliente (match)" },
@@ -78,7 +78,7 @@ const DEST_FIELDS_BY_CATEGORY: Record<string, { value: string; label: string }[]
         { value: "fechaVencimiento", label: "Vencimiento (Deudor)" },
         { value: "nroFactura", label: "Nro. Factura (Factura)" },
         { value: "importe", label: "Importe (Factura)" },
-        { value: "fechaEmision", label: "Fecha emisi\u00f3n (Factura)" },
+        { value: "fechaEmision", label: "Fecha emisión (Factura)" },
         { value: "vencimiento", label: "Vencimiento (Factura)" },
     ],
     ACTUALIZACIONES: [
@@ -95,9 +95,9 @@ const AVAILABLE_TRANSFORMS = [
     { value: "trim", label: "Quitar espacios de los extremos" },
     { value: "removeSpaces", label: "Quitar todos los espacios" },
     { value: "removePrefix:CUIL ", label: 'Quitar prefijo "CUIL "' },
-    { value: "upper", label: "MAY\u00daSCULAS" },
-    { value: "title", label: "T\u00edtulo (Primera Letra)" },
-    { value: "toNumber:es-AR", label: "N\u00famero (coma decimal)" },
+    { value: "upper", label: "MAYÚSCULAS" },
+    { value: "title", label: "Título (Primera Letra)" },
+    { value: "toNumber:es-AR", label: "Número (coma decimal)" },
     { value: "toDate:auto", label: "Fecha (auto text)" },
     { value: "toDate:excel", label: "Fecha (serial nativo de Excel)" },
     { value: "splitComma:0", label: "Separar por coma (parte 1)" },
@@ -157,7 +157,7 @@ function DestFieldCell({ field, destFields, onChange }: DestFieldCellProps) {
                 displayEmpty
             >
                 <MenuItem value="" disabled>
-                    Seleccion\u00e1 un campo
+                    Seleccioná un campo
                 </MenuItem>
                 {destFields.map((df) => (
                     <MenuItem key={df.value} value={df.value}>
@@ -192,7 +192,7 @@ function SourceColCell({ field, totalColumns, previewRows, onChange }: SourceCol
                     </MenuItem>
                 ))}
                 <MenuItem value={-1} sx={{ fontWeight: "bold", color: "primary.main" }}>
-                    Valor Fijo / Est\u00e1tico
+                    Valor Fijo / Estático
                 </MenuItem>
             </Select>
         </FormControl>
@@ -217,9 +217,9 @@ function TransformCell({ field, onChange, isContactoTipo }: TransformCellProps) 
                         displayEmpty
                     >
                         <MenuItem value="" disabled>Elegir tipo...</MenuItem>
-                        <MenuItem value="TELEFONO">Tel\u00e9fono</MenuItem>
+                        <MenuItem value="TELEFONO">Teléfono</MenuItem>
                         <MenuItem value="EMAIL">Email</MenuItem>
-                        <MenuItem value="DIRECCION">Direcci\u00f3n</MenuItem>
+                        <MenuItem value="DIRECCION">Dirección</MenuItem>
                         <MenuItem value="RED_SOCIAL">Red Social</MenuItem>
                         <MenuItem value="OTRO">Otro</MenuItem>
                     </Select>
@@ -705,7 +705,7 @@ export default function MappingEditor({
                         ? "Procesando archivo..."
                         : previewFile
                         ? `${previewFile.name} (${totalColumns} columnas detectadas)`
-                        : "Sub\u00ed un archivo de muestra para ver las columnas"}
+                        : "Subí un archivo de muestra para ver las columnas"}
                 </Typography>
             </Paper>
 
@@ -783,7 +783,7 @@ export default function MappingEditor({
 
             {/* Extra fields (camposAdicionales) */}
             <SectionCard
-                title="Campos extras (\u2192 camposAdicionales JSON)"
+                title="Campos extras (→ camposAdicionales JSON)"
                 action={
                     <Button
                         startIcon={<AddIcon />}
@@ -805,8 +805,8 @@ export default function MappingEditor({
 
             {/* Repetitive Blocks */}
             <SectionCard
-                title="Bloques repetitivos (Mapeo M\u00FAltiple N-1)"
-                subtitle="\u00BFTu archivo tiene facturas en columnas horizontales repetidas (ej. Cuota 1, Cuota 2, etc.)? Pod\u00E9s crear un bloque nuevo por cada iteraci\u00F3n."
+                title="Bloques repetitivos (Mapeo Múltiple N-1)"
+                subtitle="¿Tu archivo tiene facturas en columnas horizontales repetidas (ej. Cuota 1, Cuota 2, etc.)? Podés crear un bloque nuevo por cada iteración."
                 action={
                     <Button
                         variant="outlined"
@@ -842,7 +842,7 @@ export default function MappingEditor({
                                         variant="subtitle2"
                                         sx={{ fontWeight: 600, color: "primary.main" }}
                                     >
-                                        Iteraci\u00f3n {bIdx + 1}
+                                        Iteración {bIdx + 1}
                                     </Typography>
                                     <FormControl size="small" sx={{ minWidth: 150 }}>
                                         <Select
@@ -860,7 +860,7 @@ export default function MappingEditor({
                                     onClick={() => handleRemoveBlock(bIdx)}
                                     disabled={disabled}
                                 >
-                                    Eliminar iteraci\u00f3n
+                                    Eliminar iteración
                                 </Button>
                             </Box>
 
@@ -871,7 +871,7 @@ export default function MappingEditor({
                                     )}
                                     {block.fields.length === 0 && (
                                         <Typography variant="body2" color="text.secondary" sx={{ py: 1 }}>
-                                            Sin campos en esta iteraci\u00f3n.
+                                            Sin campos en esta iteración.
                                         </Typography>
                                     )}
                                 </Stack>
@@ -901,7 +901,7 @@ export default function MappingEditor({
                                 onClick={() => handleAddBlockField(bIdx)}
                                 disabled={disabled}
                             >
-                                Agregar campo a iteraci\u00f3n
+                                Agregar campo a iteración
                             </Button>
                         </Paper>
                     ))}

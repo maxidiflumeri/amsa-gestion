@@ -96,6 +96,8 @@ export const NotificacionesProvider: React.FC<{ children: React.ReactNode }> = (
     const hidratadoRef = useRef(false);
 
     const hidratar = useCallback(async () => {
+        const hayToken = !!localStorage.getItem('amsa_token');
+        if (!hayToken) return;
         try {
             const [notifs, contador, imports] = await Promise.all([
                 listarNotificaciones({ limit: 50 }),

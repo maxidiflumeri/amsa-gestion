@@ -75,6 +75,25 @@ export const LABELS_CUSTOM: Record<string, string> = {
   'convenios.cuotas.importe': 'Importe Cuota',
   'convenios.cuotas.estado': 'Estado Cuota',
   'convenios.cuotas.fechaPago': 'Fecha Pago Cuota',
+
+  // Transacción (auditoría) — raíz
+  'createdAt': 'Fecha',
+  'modulo': 'Módulo',
+  'entidad': 'Entidad',
+  'tipo': 'Tipo de Acción',
+  'severidad': 'Severidad',
+  'estado': 'Estado',
+  'resumen': 'Resumen',
+  'recursoTexto': 'Recurso',
+  'ip': 'IP',
+  'userAgent': 'User-Agent',
+  'usuario': 'Usuario',
+  'usuario.nombre': 'Nombre Usuario',
+  'usuario.email': 'Email Usuario',
+  'deudor': 'Deudor',
+  'deudor.documento': 'Documento Deudor',
+  'deudor.nombre': 'Nombre Deudor',
+  'deudor.apellido': 'Apellido Deudor',
 };
 
 /**
@@ -88,10 +107,8 @@ export const MODELOS_OCULTOS = new Set<string>([
   'ejecucion_reporte',
   'jobimport',
   'importerror',
-  'transaccion',
   'politica',
   'formato_telefono',
-  'usuario',
   'campoextra',
 ]);
 

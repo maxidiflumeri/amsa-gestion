@@ -23,7 +23,9 @@ api.interceptors.response.use(
         if (status === 401) {
             localStorage.removeItem('amsa_token');
             localStorage.removeItem('amsa_usuario');
-            window.location.href = '/login';
+            if (window.location.pathname !== '/login') {
+                window.location.href = '/login';
+            }
         }
         return Promise.reject(error);
     },

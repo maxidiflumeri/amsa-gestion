@@ -84,18 +84,19 @@ model deudor {
 }
 
 model empresa {
-  id              Int                    @id @default(autoincrement())
-  nombre          String                 @unique(map: "Empresa_nombre_key")
+  id              Int                 @id @default(autoincrement())
+  nombre          String              @unique(map: "Empresa_nombre_key")
   cuit            String?
   configuracion   Json?
-  createdAt       DateTime               @default(now())
-  updatedAt       DateTime               @updatedAt
+  createdAt       DateTime            @default(now())
+  updatedAt       DateTime            @updatedAt
   deudor          deudor[]
   parametro       empresa_parametro[]
   plantillaimport plantillaimport[]
   remesa          remesa[]
   politicas       politica[]
-  plantillas    plantilla_reporte[] @relation("PlantillaEmpresa")
+  plantillas      plantilla_reporte[] @relation("PlantillaEmpresa")
+  transaccion     transaccion[]
 }
 
 model factura {
@@ -182,23 +183,23 @@ model empresa_parametro {
 }
 
 model plantillaimport {
-  id                      Int                       @id @default(autoincrement())
-  empresaId               Int
-  nombre                  String
-  categoria               plantillaimport_categoria
-  version                 Int                       @default(1)
-  activo                  Boolean                   @default(true)
-  separador               String                    @default("|")
-  tieneHeader             Boolean                   @default(false)
-  mappingJson             Json
+  id                       Int                       @id @default(autoincrement())
+  empresaId                Int
+  nombre                   String
+  categoria                plantillaimport_categoria
+  version                  Int                       @default(1)
+  activo                   Boolean                   @default(true)
+  separador                String                    @default("|")
+  tieneHeader              Boolean                   @default(false)
+  mappingJson              Json
   defaultEstadoSituacionId Int?
   defaultEstadoGestionId   Int?
-  createdAt               DateTime                  @default(now())
-  updatedAt               DateTime                  @updatedAt
-  empresa                 empresa                   @relation(fields: [empresaId], references: [id], map: "PlantillaImport_empresaId_fkey")
-  defaultEstadoSituacion  parametro?                @relation("PlantillaDefaultSituacion", fields: [defaultEstadoSituacionId], references: [id], onDelete: SetNull)
-  defaultEstadoGestion    parametro?                @relation("PlantillaDefaultGestion", fields: [defaultEstadoGestionId], references: [id], onDelete: SetNull)
-  remesa                  remesa[]
+  createdAt                DateTime                  @default(now())
+  updatedAt                DateTime                  @updatedAt
+  empresa                  empresa                   @relation(fields: [empresaId], references: [id], map: "PlantillaImport_empresaId_fkey")
+  defaultEstadoSituacion   parametro?                @relation("PlantillaDefaultSituacion", fields: [defaultEstadoSituacionId], references: [id], onDelete: SetNull)
+  defaultEstadoGestion     parametro?                @relation("PlantillaDefaultGestion", fields: [defaultEstadoGestionId], references: [id], onDelete: SetNull)
+  remesa                   remesa[]
 
   @@unique([empresaId, nombre, version], map: "unique_empresa_nombre_version")
   @@index([empresaId, categoria], map: "PlantillaImport_empresaId_categoria_idx")
@@ -245,22 +246,38 @@ model remesa {
 model transaccion {
   id        Int      @id @default(autoincrement())
   createdAt DateTime @default(now())
-  usuarioId Int
-  deudorId  Int?
+
+  usuarioId Int?
+  empresaId Int?
+
+  modulo    String  @default("SISTEMA")
   entidad   String
   entidadId String?
   tipo      String
-  resumen   String?
-  data      Json?
+  severidad String  @default("INFO")
+  estado    String  @default("OK")
+
+  deudorId     Int?
+  recursoTexto String?
+  resumen      String?
+  data         Json?
+
   ip        String?
   userAgent String?
-  deudor    deudor?  @relation(fields: [deudorId], references: [id], map: "Transaccion_deudorId_fkey")
-  usuario   usuario  @relation(fields: [usuarioId], references: [id], map: "Transaccion_usuarioId_fkey")
 
+  deudor  deudor?  @relation(fields: [deudorId], references: [id], map: "Transaccion_deudorId_fkey")
+  usuario usuario? @relation(fields: [usuarioId], references: [id], map: "Transaccion_usuarioId_fkey")
+  empresa empresa? @relation(fields: [empresaId], references: [id], map: "Transaccion_empresaId_fkey")
+
+  @@index([createdAt])
+  @@index([modulo, createdAt])
+  @@index([empresaId, createdAt])
   @@index([deudorId, createdAt], map: "Transaccion_deudorId_createdAt_idx")
   @@index([entidad, entidadId], map: "Transaccion_entidad_entidadId_idx")
   @@index([tipo, createdAt], map: "Transaccion_tipo_createdAt_idx")
   @@index([usuarioId, createdAt], map: "Transaccion_usuarioId_createdAt_idx")
+  @@index([severidad, createdAt])
+  @@index([estado, createdAt])
 }
 
 model rol {
@@ -274,24 +291,24 @@ model rol {
 }
 
 model usuario {
-  id              Int                    @id @default(autoincrement())
-  googleId        String?                @unique(map: "Usuario_googleId_key")
-  nombre          String
-  email           String                 @unique(map: "Usuario_email_key")
-  avatarUrl       String?
-  rol             String                 @default("usuario")
-  rolId           Int?
-  activo          Boolean                @default(true)
-  createdAt       DateTime               @default(now())
-  updatedAt       DateTime
-  rolObj          rol?                   @relation(fields: [rolId], references: [id])
-  comentario      comentario[]
-  transaccion     transaccion[]
-  convenios       convenio[]
-  plantillas    plantilla_reporte[] @relation("PlantillaCreadoPor")
-  ejecuciones   ejecucion_reporte[] @relation("EjecucionUsuario")
-  notificaciones  Notificacion[]
-  remesasCreadas  remesa[]               @relation("RemesaUsuarioCreador")
+  id             Int                 @id @default(autoincrement())
+  googleId       String?             @unique(map: "Usuario_googleId_key")
+  nombre         String
+  email          String              @unique(map: "Usuario_email_key")
+  avatarUrl      String?
+  rol            String              @default("usuario")
+  rolId          Int?
+  activo         Boolean             @default(true)
+  createdAt      DateTime            @default(now())
+  updatedAt      DateTime
+  rolObj         rol?                @relation(fields: [rolId], references: [id])
+  comentario     comentario[]
+  transaccion    transaccion[]
+  convenios      convenio[]
+  plantillas     plantilla_reporte[] @relation("PlantillaCreadoPor")
+  ejecuciones    ejecucion_reporte[] @relation("EjecucionUsuario")
+  notificaciones Notificacion[]
+  remesasCreadas remesa[]            @relation("RemesaUsuarioCreador")
 
   @@index([rolId])
 }
@@ -392,20 +409,20 @@ model formato_telefono {
 }
 
 model plantilla_reporte {
-  id              Int                    @id @default(autoincrement())
+  id              Int                 @id @default(autoincrement())
   nombre          String
-  descripcion     String?                @db.Text
-  raiz            String                 @default("deudor")
+  descripcion     String?             @db.Text
+  raiz            String              @default("deudor")
   empresaId       Int?
-  activo          Boolean                @default(true)
+  activo          Boolean             @default(true)
   definicion      Json
   formatoSalida   String
   opcionesFormato Json?
   creadoPorId     Int?
-  createdAt       DateTime               @default(now())
-  updatedAt       DateTime               @updatedAt
-  empresa         empresa?               @relation("PlantillaEmpresa", fields: [empresaId], references: [id])
-  creadoPor       usuario?               @relation("PlantillaCreadoPor", fields: [creadoPorId], references: [id])
+  createdAt       DateTime            @default(now())
+  updatedAt       DateTime            @updatedAt
+  empresa         empresa?            @relation("PlantillaEmpresa", fields: [empresaId], references: [id])
+  creadoPor       usuario?            @relation("PlantillaCreadoPor", fields: [creadoPorId], references: [id])
   ejecuciones     ejecucion_reporte[]
 
   @@index([empresaId])
@@ -414,28 +431,28 @@ model plantilla_reporte {
 }
 
 model ejecucion_reporte {
-  id              Int                  @id @default(autoincrement())
+  id              Int               @id @default(autoincrement())
   plantillaId     Int
   usuarioId       Int
   empresaId       Int?
   filtrosUsados   Json
   totalFilas      Int?
-  filasProcesadas Int                  @default(0)
-  progreso        Int                  @default(0)
-  estado          String               @default("PENDIENTE")
-  modo            String               @default("SYNC")
+  filasProcesadas Int               @default(0)
+  progreso        Int               @default(0)
+  estado          String            @default("PENDIENTE")
+  modo            String            @default("SYNC")
   formato         String?
   archivoPath     String?
   archivoTamano   Int?
-  errorMsg        String?              @db.Text
-  cancelado       Boolean              @default(false)
+  errorMsg        String?           @db.Text
+  cancelado       Boolean           @default(false)
   duracionMs      Int?
   jobId           String?
-  createdAt       DateTime             @default(now())
+  createdAt       DateTime          @default(now())
   iniciadoEn      DateTime?
   finishedAt      DateTime?
   plantilla       plantilla_reporte @relation(fields: [plantillaId], references: [id], onDelete: Cascade)
-  usuario         usuario              @relation("EjecucionUsuario", fields: [usuarioId], references: [id])
+  usuario         usuario           @relation("EjecucionUsuario", fields: [usuarioId], references: [id])
 
   @@index([plantillaId])
   @@index([usuarioId, createdAt])
@@ -461,20 +478,20 @@ enum EntidadTipo {
 }
 
 model Notificacion {
-  id            Int               @id @default(autoincrement())
+  id            Int              @id @default(autoincrement())
   usuarioId     Int
   tipo          TipoNotificacion
   entidadTipo   EntidadTipo?
   entidadId     Int?
-  titulo        String            @db.VarChar(200)
-  mensaje       String            @db.VarChar(1000)
+  titulo        String           @db.VarChar(200)
+  mensaje       String           @db.VarChar(1000)
   payload       Json?
-  leida         Boolean           @default(false)
+  leida         Boolean          @default(false)
   leidaEn       DateTime?
-  rutaAccion    String?           @db.VarChar(500)
-  creadoEn      DateTime          @default(now())
-  actualizadoEn DateTime          @updatedAt
-  usuario       usuario           @relation(fields: [usuarioId], references: [id], onDelete: Cascade)
+  rutaAccion    String?          @db.VarChar(500)
+  creadoEn      DateTime         @default(now())
+  actualizadoEn DateTime         @updatedAt
+  usuario       usuario          @relation(fields: [usuarioId], references: [id], onDelete: Cascade)
 
   @@index([usuarioId, leida, creadoEn(sort: Desc)])
   @@index([entidadTipo, entidadId])

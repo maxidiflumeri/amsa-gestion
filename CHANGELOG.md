@@ -6,6 +6,74 @@
 
 ---
 
+## [2026-05-11] — Auditoría 100%: `transaccion` como SOR + frontend `/auditoria`
+
+### Decisión
+
+`transaccion` pasa a ser el **System-of-Record** único para toda acción del sistema (escrituras de gestión, importaciones, reportes, AUTH, denegaciones de permiso, eventos de sistema). El log de Pino sigue existiendo para diagnóstico técnico pero no es fuente de verdad.
+
+### Cambios — Backend
+
+**Schema (`prisma/schema.prisma`)**
+- `transaccion`: nuevos campos `empresaId` (FK a `empresa`, nullable), `modulo` (`GESTION` | `IMPORT` | `REPORTES` | `ADMIN` | `AUTH` | `SISTEMA`), `severidad` (`INFO` | `WARN` | `ERROR`), `estado` (`OK` | `FALLIDO`), `recursoTexto` (descripción legible del recurso afectado).
+- `transaccion.usuarioId` ahora **nullable** (eventos de sistema / workers sin usuario humano).
+- Índices nuevos: `(empresaId, createdAt)`, `(modulo, createdAt)`, `(estado, createdAt)`, `(severidad, createdAt)`, `(usuarioId, createdAt)`.
+- `npx prisma db push`.
+
+**Decorador + interceptor (`modules/transacciones/audit.*`)**
+- `@Audit({ modulo?, entidad, tipo, severidad?, estado?, recursoTexto?, empresaId?, entidadIdParam?, before? })`.
+- `AuditInterceptor` ahora: (a) lee `req.usuario.sub` correctamente (bug previo `req.user?.id ?? 1` → falsificaba autoría), (b) ejecuta hook `before(req)` para snapshot antes del cambio, (c) usa `rxjs.catchError` para registrar `estado: 'FALLIDO'` cuando el handler tira excepción, (d) redacta automáticamente `password`/`token`/`secret`/`apiKey` en `data.before/after/params`.
+- `AuditoriaHelper` (servicio inyectable) para flujos no-HTTP: workers BullMQ, seeds, cron jobs.
+
+**Endpoints (`/transacciones`)**
+- `GET /transacciones` — listado con filtros: `desde/hasta`, `modulo`, `entidad`, `entidadId`, `tipo`, `severidad`, `estado`, `usuarioId`, `empresaId`, `deudorId`, `q` (búsqueda libre), paginación `limit/offset`, `orderDir`.
+- `GET /transacciones/stats` — KPIs (hoy/semana/mes/fallidos 24h), serie 30d, top tipos, top usuarios, distribución por módulo.
+- `GET /transacciones/:id` — detalle con relaciones (usuario, empresa, deudor).
+- `POST /transacciones/export?formato=xlsx|csv|pdf` — reutiliza `XlsxExportador`/`CsvExportador`/`PdfExportador` de `reportes/exportadores/`. Devuelve Buffer + headers `Content-Disposition`. Requiere permiso `auditoria.exportar`.
+
+**Permisos (`auth/permisos-catalogo.ts` + `seed.ts`)**
+- Sección "Auditoría" con `auditoria.ver`, `auditoria.ver_todos`, `auditoria.exportar`. Sin `auditoria.ver_todos`, el usuario solo ve sus propias transacciones (filtrado por `usuarioId` en el service).
+
+**Eventos AUTH (`auth/auth.service.ts` + `auth.controller.ts` + `permisos.guard.ts`)**
+- `LOGIN_OK` / `LOGIN_FAIL` (motivos `no_existe`, `inactivo`) con `ip`/`userAgent`/`empresaId`.
+- `LOGOUT` vía nuevo `POST /auth/logout`.
+- `PERMISO_DENEGADO` desde `PermisosGuard` (asíncrono).
+
+**Cobertura 100% (`@Audit` en write endpoints)**
+- `convenios.controller`, `empresas.controller`, `politicas.controller`, `parametros.controller`, `roles.controller`, `usuarios.controller`, `imports.controller`, `reportes.controller` (create/update/delete/ejecutar/descargar), `comentarios.controller`, `contactos.controller` y `deudores.controller` (ya tenían `@Audit`, ajustados al nuevo shape).
+- `imports.processor` (BullMQ) registra `IMPORT_OK`/`IMPORT_FAIL` vía `AuditoriaHelper` con `usuarioId` del job.
+
+**Catálogo de reportes (`reportes/catalogo/metadata.ts` + `dto/plantilla.dto.ts`)**
+- `transaccion` y `usuario` removidos de `MODELOS_OCULTOS` para que puedan ser raíz/relación en plantillas de reportes.
+- `Raiz` enum gana `TRANSACCION = 'transaccion'` (permite generar reportes nativos sobre el log).
+- Labels nuevos para campos de transacción (Fecha, Usuario, Módulo, Entidad, Tipo, Severidad, Estado, Resumen, Recurso, IP).
+
+### Cambios — Frontend
+
+**Nueva sección `/auditoria` (`pages/auditoria/*`)**
+- Tres tabs: **Dashboard** (KPIs + LineChart actividad 30d + PieChart por módulo + BarChart top tipos/usuarios, auto-refresh 60s), **Stream** (timeline tiempo real, auto-refresh 30s), **Búsqueda** (filtros completos + tabla paginada + drawer detalle con diff antes/después).
+- `AuditDiffView`: aplana objetos anidados (`flat()`) y pinta cambios con chips `nuevo`/`cambiado`/`eliminado`.
+- Botón **Exportar** (menú: Excel/CSV/PDF server-side + CSV cliente para la página actual). Solo visible con permiso `auditoria.exportar`.
+
+**Routing / nav (`AppRoutes.tsx`, `navConfig.ts`, `SideNav.tsx`)**
+- Ruta `/auditoria` registrada.
+- Entrada "Auditoría" (icono `FactCheck`) bajo "Administración", visible con `auditoria.ver`.
+
+**API client (`api/auditoria.ts`, `types/auditoria.ts`)**
+- `auditoriaApi.listar/stats/obtener/exportar` con tipos `Transaccion`, `AuditoriaStats`, `QueryAuditoria`.
+
+### Migración de roles
+
+- Asignar `auditoria.ver` (y opcionalmente `auditoria.ver_todos`, `auditoria.exportar`) a los roles que correspondan vía UI `/admin/roles`. Por defecto los roles existentes no tienen estos permisos.
+
+### Pendientes / fuera de scope de esta entrega
+
+- F5 (retención + archivado): retención indefinida confirmada por producto, no se implementa cron de archivado por ahora.
+- Tests unitarios del `AuditInterceptor`: pendientes (caso `before`/`after`, FALLIDO path, usuario nulo).
+- Link "Historial de cambios" desde `FichaDeudor` a `/auditoria?deudorId=X`: pendiente.
+
+---
+
 ## [2026-05-11] — Eliminación de reportes v1 + rename de v2 → versión oficial
 
 ### Decisión

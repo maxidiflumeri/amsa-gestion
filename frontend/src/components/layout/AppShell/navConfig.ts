@@ -45,10 +45,11 @@ export const navConfig: NavItem[] = [
     {
         label: 'Administración',
         icon: 'AdminPanelSettings',
-        requiredPermissions: ['admin.gestionar_roles', 'admin.gestionar_usuarios'],
+        requiredPermissions: ['admin.gestionar_roles', 'admin.gestionar_usuarios', 'auditoria.ver'],
         children: [
             { label: 'Roles', icon: 'Shield', path: '/admin/roles', requiredPermissions: ['admin.gestionar_roles'] },
             { label: 'Usuarios', icon: 'People', path: '/admin/usuarios', requiredPermissions: ['admin.gestionar_usuarios'] },
+            { label: 'Auditoría', icon: 'FactCheck', path: '/auditoria', requiredPermissions: ['auditoria.ver'] },
         ],
     },
 ];

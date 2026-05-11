@@ -1,17 +1,18 @@
-// src/transacciones/dto/query-transacciones.dto.ts
-import { IsInt, IsOptional, IsString } from 'class-validator';
+import { IsInt, IsOptional, IsString, IsIn } from 'class-validator';
 import { Type } from 'class-transformer';
 
 export class QueryTransaccionesDto {
     @IsOptional()
-    @Type(() => Number)
-    @IsInt()
-    deudorId?: number;
+    @IsString()
+    desde?: string;
 
     @IsOptional()
-    @Type(() => Number)
-    @IsInt()
-    usuarioId?: number;
+    @IsString()
+    hasta?: string;
+
+    @IsOptional()
+    @IsString()
+    modulo?: string;
 
     @IsOptional()
     @IsString()
@@ -26,6 +27,33 @@ export class QueryTransaccionesDto {
     tipo?: string;
 
     @IsOptional()
+    @IsString()
+    severidad?: string;
+
+    @IsOptional()
+    @IsString()
+    estado?: string;
+
+    @IsOptional()
+    @Type(() => Number)
+    @IsInt()
+    usuarioId?: number;
+
+    @IsOptional()
+    @Type(() => Number)
+    @IsInt()
+    empresaId?: number;
+
+    @IsOptional()
+    @Type(() => Number)
+    @IsInt()
+    deudorId?: number;
+
+    @IsOptional()
+    @IsString()
+    q?: string;
+
+    @IsOptional()
     @Type(() => Number)
     @IsInt()
     limit?: number;
@@ -34,4 +62,8 @@ export class QueryTransaccionesDto {
     @Type(() => Number)
     @IsInt()
     offset?: number;
+
+    @IsOptional()
+    @IsIn(['asc', 'desc'])
+    orderDir?: 'asc' | 'desc';
 }
