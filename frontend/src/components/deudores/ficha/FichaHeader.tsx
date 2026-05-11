@@ -20,7 +20,7 @@ interface Props {
 }
 
 const FichaHeader: React.FC<Props> = ({ deudor, deudaActualizada, totalPagadoConvenios, tieneConveniosPagados }) => {
-    const { nombre, apellido, documento, remesa, empresa, montoTotal, fechaVencimiento } = deudor;
+    const { id, nombre, apellido, documento, remesa, empresa, montoTotal, fechaVencimiento } = deudor;
 
     return (
         <Card elevation={3} sx={{ mb: 3, borderRadius: 3 }}>
@@ -35,6 +35,7 @@ const FichaHeader: React.FC<Props> = ({ deudor, deudaActualizada, totalPagadoCon
                                 </Typography>
                                 <Typography variant="body2" color="text.secondary">
                                     DNI/CUIL: <strong>{documento}</strong>
+                                    {' · '}ID deudor: <strong>{id}</strong>
                                 </Typography>
                             </Box>
                         </Stack>

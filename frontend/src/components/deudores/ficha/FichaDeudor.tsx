@@ -181,6 +181,50 @@ const FichaDeudor: React.FC<Props> = ({ deudorId }) => {
         [confirm, deudorId, cargarInicial],
     );
 
+    const handleToggleWhatsapp = useCallback(
+        async (contacto: any) => {
+            const yaEsWhatsapp = contacto.whatsapp === true || contacto.tipo === 'whatsapp';
+            const ok = await confirm({
+                title: yaEsWhatsapp ? 'Quitar WhatsApp' : 'Marcar como WhatsApp',
+                description: yaEsWhatsapp
+                    ? `¿Quitar la marca de WhatsApp del número "${contacto.valor}"?`
+                    : `¿Marcar el número "${contacto.valor}" como WhatsApp?`,
+                confirmLabel: yaEsWhatsapp ? 'Quitar' : 'Marcar',
+            });
+            if (!ok) return;
+            try {
+                const payload: any = { whatsapp: !yaEsWhatsapp };
+                if (contacto.tipo === 'whatsapp') payload.tipo = 'telefono';
+                await api.put(`/contactos/${contacto.id}`, payload);
+                await cargarInicial();
+            } catch (err) {
+                notify.error(err as Error);
+            }
+        },
+        [cargarInicial, confirm, notify],
+    );
+
+    const handleMarcarPrincipal = useCallback(
+        async (contacto: any) => {
+            const yaEsPrincipal = contacto.prioridad === 1;
+            const ok = await confirm({
+                title: yaEsPrincipal ? 'Quitar como principal' : 'Marcar como principal',
+                description: yaEsPrincipal
+                    ? `¿Quitar "${contacto.valor}" como teléfono principal?`
+                    : `¿Marcar "${contacto.valor}" como teléfono principal? Si otro teléfono estaba marcado, se desmarcará.`,
+                confirmLabel: yaEsPrincipal ? 'Quitar' : 'Marcar',
+            });
+            if (!ok) return;
+            try {
+                await api.put(`/contactos/${contacto.id}`, { prioridad: yaEsPrincipal ? null : 1 });
+                await cargarInicial();
+            } catch (err) {
+                notify.error(err as Error);
+            }
+        },
+        [cargarInicial, confirm, notify],
+    );
+
     const handleAnularConvenio = useCallback(
         async (convenioId: number) => {
             try {
@@ -334,6 +378,8 @@ const FichaDeudor: React.FC<Props> = ({ deudorId }) => {
                         camposAdicionales={camposAdicionales || {}}
                         onAgregar={handleOpenModalAgregar}
                         onEliminar={handleEliminarContacto}
+                        onToggleWhatsapp={handleToggleWhatsapp}
+                        onMarcarPrincipal={handleMarcarPrincipal}
                     />
                 </Grid>
             </Grid>

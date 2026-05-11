@@ -28,19 +28,45 @@ const Pill: React.FC<{ kind: 'added' | 'removed' | 'changed' | 'same'; children?
     return <Chip size="small" color={color as any} label={children ?? label} sx={{ ml: 1 }} />;
 };
 
+function limpiarExtra(extra: Record<string, any> | null | undefined): Record<string, any> | null {
+    if (!extra) return null;
+    const out: Record<string, any> = {};
+    for (const [k, v] of Object.entries(extra)) {
+        if (v === undefined || v === null) continue;
+        if (isObject(v) && Object.keys(v).length === 0) continue;
+        if (Array.isArray(v) && v.length === 0) continue;
+        out[k] = v;
+    }
+    return Object.keys(out).length ? out : null;
+}
+
 const AuditDiffView: React.FC<Props> = ({ before, after, extra }) => {
     const fb = flat(before);
     const fa = flat(after);
     const keys = Array.from(new Set([...Object.keys(fb), ...Object.keys(fa)])).sort();
+    const extraLimpio = limpiarExtra(extra);
 
     return (
         <Box>
-            {extra && Object.keys(extra).length > 0 && (
+            {extraLimpio && (
                 <Box mb={2}>
                     <Typography variant="subtitle2" gutterBottom>Contexto / parámetros</Typography>
-                    <pre style={{ background: '#f5f5f5', padding: 8, borderRadius: 4, fontSize: 12, overflowX: 'auto' }}>
-                        {JSON.stringify(extra, null, 2)}
-                    </pre>
+                    <Box
+                        component="pre"
+                        sx={(theme) => ({
+                            bgcolor: theme.palette.mode === 'dark' ? 'grey.900' : 'grey.100',
+                            color: 'text.primary',
+                            border: 1,
+                            borderColor: 'divider',
+                            p: 1,
+                            borderRadius: 1,
+                            fontSize: 12,
+                            overflowX: 'auto',
+                            m: 0,
+                        })}
+                    >
+                        {JSON.stringify(extraLimpio, null, 2)}
+                    </Box>
                 </Box>
             )}
 

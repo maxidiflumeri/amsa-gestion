@@ -1,4 +1,4 @@
-import { IsInt, IsString, IsNotEmpty } from 'class-validator';
+import { IsInt, IsString, IsNotEmpty, IsOptional, IsBoolean } from 'class-validator';
 
 export class CreateContactoDto {
     @IsString()
@@ -11,4 +11,24 @@ export class CreateContactoDto {
 
     @IsInt()
     deudorId: number;
+
+    @IsOptional()
+    @IsBoolean()
+    whatsapp?: boolean;
+
+    @IsOptional()
+    @IsInt()
+    prioridad?: number | null;
+
+    @IsOptional()
+    @IsBoolean()
+    validado?: boolean;
+
+    @IsOptional()
+    @IsString()
+    direccionLocalidad?: string;
+
+    @IsOptional()
+    @IsString()
+    direccionProvincia?: string;
 }

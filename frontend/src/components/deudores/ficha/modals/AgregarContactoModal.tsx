@@ -3,12 +3,15 @@ import {
     Alert,
     Box,
     Button,
+    Checkbox,
     CircularProgress,
     Dialog,
     DialogActions,
     DialogContent,
     DialogTitle,
+    FormControlLabel,
     Grid,
+    Stack,
     TextField,
     useMediaQuery,
     useTheme,
@@ -44,6 +47,8 @@ const AgregarContactoModal: React.FC<Props> = ({ open, tipoSeleccionado, deudorI
     const [previewEmail, setPreviewEmail] = useState<{ valido: boolean; normalizado?: string } | null>(null);
     const [previewDir, setPreviewDir] = useState<DireccionPreview | null>(null);
     const [validandoDir, setValidandoDir] = useState(false);
+    const [esWhatsapp, setEsWhatsapp] = useState(false);
+    const [esPrincipal, setEsPrincipal] = useState(false);
     const [nuevaDireccion, setNuevaDireccion] = useState({
         calle: '',
         numero: '',
@@ -61,6 +66,8 @@ const AgregarContactoModal: React.FC<Props> = ({ open, tipoSeleccionado, deudorI
             setPreviewEmail(null);
             setPreviewDir(null);
             setValidandoDir(false);
+            setEsWhatsapp(false);
+            setEsPrincipal(false);
         }
     }, [open, tipoSeleccionado]);
 
@@ -71,23 +78,33 @@ const AgregarContactoModal: React.FC<Props> = ({ open, tipoSeleccionado, deudorI
 
     const handleValidarDireccion = async () => {
         setValidandoDir(true);
-        const textoBusqueda = `${nuevaDireccion.calle} ${nuevaDireccion.numero}, ${nuevaDireccion.localidad}, ${nuevaDireccion.provincia}`;
-        const res = await validarDireccionArgentinaFront(textoBusqueda);
+        const textoBusqueda = `${nuevaDireccion.calle} ${nuevaDireccion.numero}`;
+        const res = await validarDireccionArgentinaFront(textoBusqueda, {
+            localidad: nuevaDireccion.localidad,
+            provincia: nuevaDireccion.provincia,
+        });
         setPreviewDir(res);
         setValidandoDir(false);
     };
 
     const handleAgregarContacto = async () => {
         try {
-            let payload: any = { ...nuevoContacto, tipo: tipoSeleccionado, deudorId };
+            // Unificación: agregar siempre como tipo='telefono' (con flag whatsapp si corresponde).
+            const tipoFinal = tipoSeleccionado === 'whatsapp' ? 'telefono' : tipoSeleccionado;
+            let payload: any = { ...nuevoContacto, tipo: tipoFinal, deudorId };
 
-            if (tipoSeleccionado === 'telefono' || tipoSeleccionado === 'whatsapp') {
+            if (tipoFinal === 'telefono') {
                 const res = validarTelefonoArgentinoFront(nuevoContacto.valor);
                 if (!res.valido || !res.e164) {
                     notify.error('Número inválido para Argentina');
                     return;
                 }
-                payload = { ...payload, valor: res.e164 };
+                payload = {
+                    ...payload,
+                    valor: res.e164,
+                    whatsapp: esWhatsapp,
+                    prioridad: esPrincipal ? 1 : null,
+                };
             }
 
             await api.post('/contactos', payload);
@@ -109,7 +126,13 @@ const AgregarContactoModal: React.FC<Props> = ({ open, tipoSeleccionado, deudorI
                 ? `${previewDir.normalizada}, ${previewDir.localidad || nuevaDireccion.localidad}, ${previewDir.provincia || nuevaDireccion.provincia} (CP ${nuevaDireccion.cp || '-'})`
                 : `${nuevaDireccion.calle} ${nuevaDireccion.numero}, ${nuevaDireccion.localidad}, ${nuevaDireccion.provincia} (CP ${nuevaDireccion.cp || '-'})`;
 
-            await api.post('/contactos', { tipo: 'direccion', valor: dirFormateada, deudorId });
+            await api.post('/contactos', {
+                tipo: 'direccion',
+                valor: dirFormateada,
+                deudorId,
+                direccionLocalidad: nuevaDireccion.localidad,
+                direccionProvincia: nuevaDireccion.provincia,
+            });
             notify.success(previewDir?.valido ? 'Dirección validada y guardada correctamente' : 'Dirección guardada manualmente');
             onSaved();
             onClose();
@@ -196,9 +219,19 @@ const AgregarContactoModal: React.FC<Props> = ({ open, tipoSeleccionado, deudorI
                                     severity={previewDir.valido ? 'success' : 'warning'}
                                     icon={previewDir.valido ? <CheckCircleIcon /> : <ReportProblemIcon />}
                                 >
-                                    {previewDir.valido
-                                        ? `Ubicación encontrada: ${previewDir.normalizada} (${previewDir.localidad}, ${previewDir.provincia})`
-                                        : `No encontrada en Georef. Podés guardarla igual bajo tu confirmación manual.`}
+                                    {previewDir.valido ? (
+                                        `Ubicación encontrada: ${previewDir.normalizada} (${previewDir.localidad}, ${previewDir.provincia})`
+                                    ) : previewDir.sugerencia ? (
+                                        <>
+                                            {previewDir.motivoInvalido}
+                                            <br />
+                                            ¿Querés decir <strong>{previewDir.sugerencia.normalizada}</strong> en{' '}
+                                            <strong>{previewDir.sugerencia.localidad}, {previewDir.sugerencia.provincia}</strong>?
+                                            Revisá la localidad ingresada.
+                                        </>
+                                    ) : (
+                                        `${previewDir.motivoInvalido || 'No encontrada en Georef'}. Podés guardarla igual como no validada.`
+                                    )}
                                 </Alert>
                             )}
                         </Box>
@@ -245,6 +278,19 @@ const AgregarContactoModal: React.FC<Props> = ({ open, tipoSeleccionado, deudorI
                                   : false
                         }
                     />
+                )}
+
+                {(tipoSeleccionado === 'telefono' || tipoSeleccionado === 'whatsapp') && (
+                    <Stack direction="row" spacing={2} sx={{ mt: 1 }}>
+                        <FormControlLabel
+                            control={<Checkbox checked={esWhatsapp} onChange={(e) => setEsWhatsapp(e.target.checked)} />}
+                            label="Tiene WhatsApp"
+                        />
+                        <FormControlLabel
+                            control={<Checkbox checked={esPrincipal} onChange={(e) => setEsPrincipal(e.target.checked)} />}
+                            label="Marcar como principal"
+                        />
+                    </Stack>
                 )}
             </DialogContent>
             <DialogActions>

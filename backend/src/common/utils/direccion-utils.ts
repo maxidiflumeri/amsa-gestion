@@ -28,12 +28,39 @@ function limpiarDireccion(input: string): string {
     return clean.replace(/\s+/g, ' ').trim();
 }
 
+export type DireccionFiltros = { provincia?: string; localidad?: string };
+
+const ALIAS_CABA = ['capital federal', 'caba', 'ciudad autonoma de buenos aires', 'ciudad de buenos aires'];
+function normalizarParaComparar(s: string | undefined | null): string {
+    return (s || '')
+        .toLowerCase()
+        .normalize('NFD')
+        .replace(/[\u0300-\u036f]/g, '')
+        .replace(/\s+/g, ' ')
+        .trim();
+}
+function esCaba(s: string | undefined | null) {
+    return ALIAS_CABA.includes(normalizarParaComparar(s));
+}
+function coincideLocalidad(esperado: string | undefined, devuelto: string | undefined): boolean {
+    if (!esperado) return true;
+    if (!devuelto) return false;
+    const e = normalizarParaComparar(esperado);
+    const d = normalizarParaComparar(devuelto);
+    if (e === d) return true;
+    if (esCaba(esperado) && esCaba(devuelto)) return true;
+    return d.includes(e) || e.includes(d);
+}
+
 /**
  * Llamada base a la API de Georef
  */
-async function callGeoref(direccionStr: string): Promise<DireccionNormalizada | null> {
+async function callGeoref(direccionStr: string, filtros?: DireccionFiltros): Promise<DireccionNormalizada | null> {
     try {
-        const url = `https://apis.datos.gob.ar/georef/api/direcciones?direccion=${encodeURIComponent(direccionStr)}&max=1`;
+        const params = new URLSearchParams({ direccion: direccionStr, max: '1' });
+        if (filtros?.provincia) params.set('provincia', filtros.provincia);
+        if (filtros?.localidad) params.set('localidad', filtros.localidad);
+        const url = `https://apis.datos.gob.ar/georef/api/direcciones?${params.toString()}`;
         const { data } = await axios.get(url, { timeout: 4000 }); // timeout razonable
 
         if (!data.direcciones?.length) {
@@ -63,45 +90,62 @@ async function callGeoref(direccionStr: string): Promise<DireccionNormalizada | 
  * 🔎 Normaliza una dirección usando la API pública Georef Argentina
  * Incluye lógica de reintentos e inteligencia sobre comas.
  */
-export async function normalizarDireccionArgentina(input: string): Promise<DireccionNormalizada> {
+async function intentarVariantes(direccion: string, filtros?: DireccionFiltros): Promise<DireccionNormalizada | null> {
+    const direccionInicial = direccion.trim();
+
+    let res = await callGeoref(direccionInicial, filtros);
+    if (res && res.valido) return res;
+
+    const partesComa = direccionInicial.split(/,|-/);
+    if (partesComa.length > 1) {
+        const supuestaCalle = partesComa[0].trim();
+        if (supuestaCalle.length >= 3) {
+            res = await callGeoref(supuestaCalle, filtros);
+            if (res && res.valido) return res;
+        }
+    }
+
+    const direccionLimpia = limpiarDireccion(direccionInicial);
+    if (direccionLimpia !== direccionInicial && direccionLimpia.length >= 3) {
+        res = await callGeoref(direccionLimpia, filtros);
+        if (res && res.valido) return res;
+
+        const limpiaPartes = direccionLimpia.split(/,|-/);
+        if (limpiaPartes.length > 1) {
+            const limpiaCalle = limpiaPartes[0].trim();
+            if (limpiaCalle.length >= 3) {
+                res = await callGeoref(limpiaCalle, filtros);
+                if (res && res.valido) return res;
+            }
+        }
+    }
+    return null;
+}
+
+export async function normalizarDireccionArgentina(
+    input: string,
+    filtros?: DireccionFiltros,
+): Promise<DireccionNormalizada> {
     if (!input || typeof input !== 'string' || input.trim().length < 3) {
         return { valido: false, motivoInvalido: 'Entrada vacía o muy corta', input };
     }
 
     const direccionInicial = input.trim();
 
-    // ---- INTENTO 1: Original ----
-    let res = await callGeoref(direccionInicial);
-    if (res && res.valido) return { ...res, input: direccionInicial };
-
-    // ---- INTENTO 2: Cortar por coma (o guion) ----
-    // Muchos usuarios escriben "San Martin 123, Rosario"
-    // Georef solo quiere "San Martin 123" en su input de "direccion"
-    const partesComa = direccionInicial.split(/,|-/);
-    if (partesComa.length > 1) {
-        const supuestaCalle = partesComa[0].trim();
-        if (supuestaCalle.length >= 3) {
-            res = await callGeoref(supuestaCalle);
-            if (res && res.valido) return { ...res, input: direccionInicial };
+    if (filtros?.localidad || filtros?.provincia) {
+        const conFiltros = await intentarVariantes(direccionInicial, filtros);
+        if (conFiltros && coincideLocalidad(filtros.localidad, conFiltros.localidad)) {
+            return { ...conFiltros, input: direccionInicial };
         }
+        return {
+            valido: false,
+            motivoInvalido: `Georef no encontró esta dirección en ${filtros.localidad || filtros.provincia}`,
+            input: direccionInicial,
+        };
     }
 
-    // ---- INTENTO 3: Limpieza intensiva sobre el string base ----
-    const direccionLimpia = limpiarDireccion(direccionInicial);
-    if (direccionLimpia !== direccionInicial && direccionLimpia.length >= 3) {
-        res = await callGeoref(direccionLimpia);
-        if (res && res.valido) return { ...res, input: direccionInicial };
-        
-        // ---- INTENTO 4: Limpieza intensiva + corte por coma ----
-        const limpiaPartes = direccionLimpia.split(/,|-/);
-        if (limpiaPartes.length > 1) {
-            const limpiaCalle = limpiaPartes[0].trim();
-            if (limpiaCalle.length >= 3) {
-                res = await callGeoref(limpiaCalle);
-                if (res && res.valido) return { ...res, input: direccionInicial };
-            }
-        }
-    }
+    const res = await intentarVariantes(direccionInicial);
+    if (res) return { ...res, input: direccionInicial };
 
     return { valido: false, motivoInvalido: 'No se encontró una dirección válida en Georef', input };
 }

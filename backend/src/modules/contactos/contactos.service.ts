@@ -18,31 +18,57 @@ export class ContactosService {
             if (!res.valido || !res.e164) {
                 throw new BadRequestException('Número de teléfono inválido para Argentina');
             }
-            data.valor = res.e164;      // guardar E.164
+            data.valor = res.e164;
             data.subtipo = res.tipo ?? null;
+            data.validado = true;
         }
 
-        // 🔹 Validación específica por tipo
         if (data.tipo === 'email') {
             const res = await validarEmail(data.valor);
             if (!res.valido) {
                 throw new BadRequestException(`Correo inválido: ${res.motivoInvalido}`);
             }
             data.valor = res.normalizado;
+            data.validado = true;
         }
 
         if (data.tipo === 'direccion') {
-            const res = await normalizarDireccionArgentina(data.valor);
-            if (!res.valido) throw new BadRequestException(res.motivoInvalido || 'Dirección inválida');
-            // Guardamos nomenclatura completa
-            data.valor = res.nomenclatura || data.valor.trim();
-            data.localidad = res.localidad;
-            data.provincia = res.provincia;
-            data.lat = res.lat;
-            data.lon = res.lon;
+            const res = await normalizarDireccionArgentina(data.valor, {
+                localidad: data.direccionLocalidad,
+                provincia: data.direccionProvincia,
+            });
+            if (res.valido) {
+                data.valor = res.nomenclatura || data.valor.trim();
+                data.validado = true;
+            } else {
+                data.valor = data.valor.trim();
+                data.validado = false;
+            }
         }
 
-        return this.prisma.contacto.create({ data: dto });
+        const payload = this.pickContactoFields(data);
+
+        const esTelefono = payload.tipo === 'telefono' || payload.tipo === 'whatsapp';
+        if (esTelefono && payload.prioridad === 1) {
+            return this.prisma.$transaction(async (tx) => {
+                await tx.contacto.updateMany({
+                    where: {
+                        deudorId: payload.deudorId,
+                        tipo: { in: ['telefono', 'whatsapp'] },
+                        prioridad: 1,
+                    },
+                    data: { prioridad: null },
+                });
+                return tx.contacto.create({ data: payload });
+            });
+        }
+
+        return this.prisma.contacto.create({ data: payload });
+    }
+
+    private pickContactoFields(data: any) {
+        const { tipo, valor, deudorId, prioridad, validado, subtipo, whatsapp } = data;
+        return { tipo, valor, deudorId, prioridad, validado, subtipo, whatsapp };
     }
 
     async update(id: number, dto: UpdateContactoDto) {
@@ -58,6 +84,7 @@ export class ContactosService {
             }
             data.valor = res.e164;
             data.subtipo = res.tipo ?? null;
+            data.validado = true;
         }
 
         if (contacto.tipo === 'email' && dto.valor) {
@@ -66,23 +93,48 @@ export class ContactosService {
                 throw new BadRequestException(`Correo inválido: ${res.motivoInvalido}`);
             }
             data.valor = res.normalizado;
+            data.validado = true;
         }
 
-        if (data.tipo === 'direccion') {
-            const res = await normalizarDireccionArgentina(data.valor);
-            if (!res.valido) throw new BadRequestException(res.motivoInvalido || 'Dirección inválida');
-            // Guardamos nomenclatura completa
-            data.valor = res.nomenclatura || data.valor.trim();
-            data.localidad = res.localidad;
-            data.provincia = res.provincia;
-            data.lat = res.lat;
-            data.lon = res.lon;
+        if (contacto.tipo === 'direccion' && dto.valor) {
+            const res = await normalizarDireccionArgentina(dto.valor, {
+                localidad: (dto as any).direccionLocalidad,
+                provincia: (dto as any).direccionProvincia,
+            });
+            if (res.valido) {
+                data.valor = res.nomenclatura || dto.valor.trim();
+                data.validado = true;
+            } else {
+                data.valor = dto.valor.trim();
+                data.validado = false;
+            }
         }
 
-        return this.prisma.contacto.update({
+        const payload = this.pickContactoFields(data);
+
+        // Si se marca como principal (prioridad=1), resetear los otros teléfonos del deudor.
+        const esTelefono = contacto.tipo === 'telefono' || contacto.tipo === 'whatsapp';
+        if (esTelefono && payload.prioridad === 1) {
+            const after = await this.prisma.$transaction(async (tx) => {
+                await tx.contacto.updateMany({
+                    where: {
+                        deudorId: contacto.deudorId,
+                        tipo: { in: ['telefono', 'whatsapp'] },
+                        id: { not: id },
+                        prioridad: 1,
+                    },
+                    data: { prioridad: null },
+                });
+                return tx.contacto.update({ where: { id }, data: payload });
+            });
+            return { before: contacto, after, deudorId: after.deudorId };
+        }
+
+        const after = await this.prisma.contacto.update({
             where: { id },
-            data: dto,
+            data: payload,
         });
+        return { before: contacto, after, deudorId: after.deudorId };
     }
 
     async remove(id: number) {

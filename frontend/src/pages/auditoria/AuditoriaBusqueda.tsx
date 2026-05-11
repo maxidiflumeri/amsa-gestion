@@ -251,8 +251,14 @@ const AuditoriaBusqueda: React.FC = () => {
                             {selected.resumen && <Typography variant="body2"><strong>Resumen:</strong> {selected.resumen}</Typography>}
                             {selected.ip && <Typography variant="body2"><strong>IP:</strong> {selected.ip}</Typography>}
                         </Stack>
-                        <AuditDiffView before={selected.data?.before} after={selected.data?.after}
-                            extra={{ params: selected.data?.params, contexto: selected.data?.contexto }} />
+                        <AuditDiffView
+                            before={selected.data?.before}
+                            after={selected.data?.after}
+                            extra={(() => {
+                                const { before: _b, after: _a, ...rest } = selected.data ?? {};
+                                return rest;
+                            })()}
+                        />
                     </Box>
                 )}
             </Drawer>

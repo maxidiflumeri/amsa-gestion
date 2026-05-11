@@ -9,6 +9,7 @@ import {
     Grid,
     IconButton,
     Stack,
+    Tooltip,
     Typography,
 } from '@mui/material';
 import EmailIcon from '@mui/icons-material/Email';
@@ -20,7 +21,11 @@ import InfoIcon from '@mui/icons-material/Info';
 import AddCircleOutlineIcon from '@mui/icons-material/AddCircleOutline';
 import CheckCircleIcon from '@mui/icons-material/CheckCircle';
 import ErrorOutlineIcon from '@mui/icons-material/ErrorOutline';
+import StarIcon from '@mui/icons-material/Star';
+import StarBorderIcon from '@mui/icons-material/StarBorder';
+import ContentCopyIcon from '@mui/icons-material/ContentCopy';
 import { formatearTelefonoParaUI } from '../../../utils/phone';
+import { useNotify } from '../../../hooks/useNotify';
 
 interface Props {
     contactos: any[];
@@ -28,6 +33,8 @@ interface Props {
     camposAdicionales: Record<string, any>;
     onAgregar: (tipo: string) => void;
     onEliminar: (contacto: any) => void;
+    onToggleWhatsapp?: (contacto: any) => void;
+    onMarcarPrincipal?: (contacto: any) => void;
 }
 
 const FichaContactosPanel: React.FC<Props> = ({
@@ -36,7 +43,20 @@ const FichaContactosPanel: React.FC<Props> = ({
     camposAdicionales,
     onAgregar,
     onEliminar,
+    onToggleWhatsapp,
+    onMarcarPrincipal,
 }) => {
+    const notify = useNotify();
+
+    const handleCopy = async (texto: string) => {
+        try {
+            await navigator.clipboard.writeText(texto);
+            notify.success('Copiado al portapapeles');
+        } catch {
+            notify.error('No se pudo copiar');
+        }
+    };
+
     const hasExtras = useMemo(
         () =>
             (campoExtras && campoExtras.length > 0) ||
@@ -75,33 +95,143 @@ const FichaContactosPanel: React.FC<Props> = ({
                             No hay registros
                         </Typography>
                     ) : (
-                        contactosFiltrados.map((c: any) => {
-                            const isPhone = tipo === 'telefono' || tipo === 'whatsapp' || tipo === 'celular';
-                            const label = isPhone ? formatearTelefonoParaUI(c.valor) : c.valor;
-
-                            let chipColor = color;
-                            let icon: React.ReactElement | undefined = undefined;
-                            let tooltipTitle = '';
-
-                            if (isPhone) {
-                                if (c.validado) {
-                                    icon = <CheckCircleIcon fontSize="small" />;
-                                    tooltipTitle = 'Número verificado';
-                                } else {
-                                    icon = <ErrorOutlineIcon fontSize="small" />;
-                                    chipColor = 'error';
-                                    tooltipTitle = 'Formato inválido o dudoso';
+                        contactosFiltrados.map((c: any) => (
+                            <Chip
+                                key={c.id}
+                                label={
+                                    <Stack direction="row" alignItems="center" spacing={0.25}>
+                                        <Box component="span" sx={{ mr: 0.5 }}>{c.valor}</Box>
+                                        <Tooltip title="Copiar al portapapeles">
+                                            <IconButton
+                                                size="small"
+                                                onClick={(e) => {
+                                                    e.stopPropagation();
+                                                    handleCopy(c.valor);
+                                                }}
+                                                sx={{ p: 0.25 }}
+                                            >
+                                                <ContentCopyIcon sx={{ fontSize: 16 }} />
+                                            </IconButton>
+                                        </Tooltip>
+                                    </Stack>
                                 }
-                            }
+                                color={color}
+                                variant="outlined"
+                                onDelete={() => onEliminar(c)}
+                                size="small"
+                                sx={{
+                                    mr: 1,
+                                    mb: 1,
+                                    fontWeight: 500,
+                                    height: 'auto',
+                                    maxWidth: '100%',
+                                    '& .MuiChip-label': {
+                                        display: 'block',
+                                        whiteSpace: 'normal',
+                                        paddingY: 0.5,
+                                        wordBreak: 'break-word',
+                                    },
+                                }}
+                            />
+                        ))
+                    )}
+                </Box>
+            </Box>
+        );
+    };
+
+    const renderTelefonos = () => {
+        const telefonos = (contactos?.filter((c: any) => c.tipo === 'telefono' || c.tipo === 'whatsapp') || [])
+            .slice()
+            .sort((a: any, b: any) => {
+                const pa = a.prioridad === 1 ? 0 : 1;
+                const pb = b.prioridad === 1 ? 0 : 1;
+                if (pa !== pb) return pa - pb;
+                return (a.id ?? 0) - (b.id ?? 0);
+            });
+
+        return (
+            <Box mb={2}>
+                <Stack direction="row" alignItems="center" spacing={1} mb={1}>
+                    <PhoneIcon color="action" fontSize="small" />
+                    <Typography
+                        variant="subtitle2"
+                        sx={{ fontWeight: 'bold', color: 'text.secondary' }}
+                    >
+                        Teléfonos
+                    </Typography>
+                    <IconButton size="small" color="primary" onClick={() => onAgregar('telefono')} sx={{ ml: 'auto' }}>
+                        <AddCircleOutlineIcon fontSize="small" />
+                    </IconButton>
+                </Stack>
+                <Box>
+                    {telefonos.length === 0 ? (
+                        <Typography variant="body2" color="text.disabled" fontStyle="italic">
+                            No hay registros
+                        </Typography>
+                    ) : (
+                        telefonos.map((c: any) => {
+                            const label = formatearTelefonoParaUI(c.valor);
+                            const esWhatsapp = c.whatsapp === true || c.tipo === 'whatsapp';
+                            const esPrincipal = c.prioridad === 1;
+                            const validado = c.validado;
+                            const chipColor: any = esPrincipal
+                                ? 'warning'
+                                : esWhatsapp
+                                  ? 'success'
+                                  : validado
+                                    ? 'primary'
+                                    : 'error';
+                            const chipVariant: 'outlined' | 'filled' =
+                                esPrincipal || esWhatsapp || !validado ? 'filled' : 'outlined';
+                            const iconBtnColor = esPrincipal || esWhatsapp ? 'common.white' : undefined;
+                            const validIcon = validado
+                                ? <CheckCircleIcon fontSize="small" />
+                                : <ErrorOutlineIcon fontSize="small" />;
+                            const validTooltip = validado ? 'Número verificado' : 'Formato inválido o dudoso';
+
+                            const stopAnd = (fn: () => void) => (e: React.MouseEvent) => {
+                                e.stopPropagation();
+                                fn();
+                            };
 
                             return (
                                 <Chip
                                     key={c.id}
-                                    icon={icon}
-                                    label={label}
+                                    icon={validIcon}
+                                    label={
+                                        <Stack direction="row" alignItems="center" spacing={0.25}>
+                                            <Box component="span" sx={{ mr: 0.5 }}>{label}</Box>
+                                            <Tooltip title={esPrincipal ? 'Quitar como principal' : 'Marcar como principal'}>
+                                                <IconButton
+                                                    size="small"
+                                                    onClick={stopAnd(() => onMarcarPrincipal?.(c))}
+                                                    sx={{ p: 0.25, color: iconBtnColor ?? 'warning.main' }}
+                                                >
+                                                    {esPrincipal
+                                                        ? <StarIcon sx={{ fontSize: 16 }} />
+                                                        : <StarBorderIcon sx={{ fontSize: 16 }} />}
+                                                </IconButton>
+                                            </Tooltip>
+                                            <Tooltip title={esWhatsapp ? 'Quitar WhatsApp' : 'Marcar como WhatsApp'}>
+                                                <IconButton
+                                                    size="small"
+                                                    onClick={stopAnd(() => onToggleWhatsapp?.(c))}
+                                                    sx={{ p: 0.25, color: iconBtnColor ?? 'success.main' }}
+                                                >
+                                                    <WhatsAppIcon sx={{ fontSize: 16 }} />
+                                                </IconButton>
+                                            </Tooltip>
+                                            <Tooltip title="Copiar al portapapeles">
+                                                <IconButton size="small" onClick={stopAnd(() => handleCopy(c.valor))} sx={{ p: 0.25, color: iconBtnColor }}>
+                                                    <ContentCopyIcon sx={{ fontSize: 16 }} />
+                                                </IconButton>
+                                            </Tooltip>
+                                        </Stack>
+                                    }
                                     color={chipColor}
-                                    variant={isPhone && !c.validado ? 'filled' : 'outlined'}
-                                    title={tooltipTitle}
+                                    variant={chipVariant}
+                                    title={validTooltip}
                                     onDelete={() => onEliminar(c)}
                                     size="small"
                                     sx={{
@@ -110,11 +240,20 @@ const FichaContactosPanel: React.FC<Props> = ({
                                         fontWeight: 500,
                                         height: 'auto',
                                         maxWidth: '100%',
+                                        ...(iconBtnColor && {
+                                            color: 'common.white',
+                                            '& .MuiChip-icon': { color: 'common.white' },
+                                            '& .MuiChip-deleteIcon': {
+                                                color: 'common.white',
+                                                '&:hover': { color: 'rgba(255,255,255,0.85)' },
+                                            },
+                                        }),
                                         '& .MuiChip-label': {
                                             display: 'block',
                                             whiteSpace: 'normal',
                                             paddingY: 0.5,
                                             wordBreak: 'break-word',
+                                            ...(iconBtnColor && { color: 'common.white' }),
                                         },
                                     }}
                                 />
@@ -135,8 +274,7 @@ const FichaContactosPanel: React.FC<Props> = ({
                 />
                 <Divider sx={{ mb: 2 }} />
                 <CardContent sx={{ pt: 0 }}>
-                    {renderContactosList('telefono', <PhoneIcon />, 'primary')}
-                    {renderContactosList('whatsapp', <WhatsAppIcon />, 'success')}
+                    {renderTelefonos()}
                     {renderContactosList('email', <EmailIcon />, 'default')}
                     {renderContactosList('direccion', <HomeIcon />, 'default')}
                     {renderContactosList('red_social', <LanguageIcon />, 'info')}

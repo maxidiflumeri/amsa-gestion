@@ -97,7 +97,10 @@ const AuditoriaStream: React.FC = () => {
                         <AuditDiffView
                             before={selected.data?.before}
                             after={selected.data?.after}
-                            extra={{ params: selected.data?.params, contexto: selected.data?.contexto }}
+                            extra={(() => {
+                                const { before: _b, after: _a, ...rest } = selected.data ?? {};
+                                return rest;
+                            })()}
                         />
                     </Box>
                 )}
