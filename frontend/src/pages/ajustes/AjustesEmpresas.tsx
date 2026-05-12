@@ -7,6 +7,7 @@ import {
     DialogContent,
     DialogActions,
     IconButton,
+    MenuItem,
     Paper,
     Stack,
     TextField,
@@ -19,6 +20,8 @@ import DeleteIcon from '@mui/icons-material/Delete'
 import AddIcon from '@mui/icons-material/Add'
 import BusinessIcon from '@mui/icons-material/Business'
 import api from '../../api/axios'
+import { emailApi } from '../../api/email'
+import type { SmtpAccount } from '../../types/email'
 import {
     PageHeader,
     DataTableResponsive,
@@ -28,11 +31,13 @@ import {
 import type { DataTableColumn } from '../../components/ui'
 import { useNotify } from '../../hooks/useNotify'
 import { useConfirm } from '../../context/ConfirmContext'
+import { useAuth } from '../../context/AuthContext'
 
 interface Empresa {
     id: number
     nombre: string
     cuit: string
+    cuentaSmtpId?: number | null
 }
 
 type EmpresaRow = Empresa & Record<string, unknown>
@@ -42,13 +47,17 @@ const AjustesEmpresas: React.FC = () => {
     const isMobile = useMediaQuery(theme.breakpoints.down('md'))
     const notify = useNotify()
     const confirm = useConfirm()
+    const { tienePermiso } = useAuth()
+    const puedeAdministrarEmail = tienePermiso('email.administrar')
 
     const [empresas, setEmpresas] = useState<Empresa[]>([])
     const [loading, setLoading] = useState(true)
     const [open, setOpen] = useState(false)
     const [editing, setEditing] = useState<Empresa | null>(null)
     const [saving, setSaving] = useState(false)
-    const [formData, setFormData] = useState({ nombre: '', cuit: '' })
+    const [formData, setFormData] = useState<{ nombre: string; cuit: string; cuentaSmtpId: number | null }>({ nombre: '', cuit: '', cuentaSmtpId: null })
+    const [smtps, setSmtps] = useState<SmtpAccount[]>([])
+    const [smtpsLoaded, setSmtpsLoaded] = useState(false)
 
     const fetchEmpresas = async () => {
         try {
@@ -65,15 +74,24 @@ const AjustesEmpresas: React.FC = () => {
         fetchEmpresas()
     }, [])
 
-    const handleOpen = (empresa?: Empresa) => {
+    const handleOpen = async (empresa?: Empresa) => {
         if (empresa) {
             setEditing(empresa)
-            setFormData({ nombre: empresa.nombre, cuit: empresa.cuit || '' })
+            setFormData({ nombre: empresa.nombre, cuit: empresa.cuit || '', cuentaSmtpId: empresa.cuentaSmtpId ?? null })
         } else {
             setEditing(null)
-            setFormData({ nombre: '', cuit: '' })
+            setFormData({ nombre: '', cuit: '', cuentaSmtpId: null })
         }
         setOpen(true)
+        if (puedeAdministrarEmail && !smtpsLoaded) {
+            try {
+                const list = await emailApi.listarSmtps()
+                setSmtps(list)
+                setSmtpsLoaded(true)
+            } catch (error) {
+                notify.error(error as Error)
+            }
+        }
     }
 
     const handleClose = () => {
@@ -83,12 +101,22 @@ const AjustesEmpresas: React.FC = () => {
     const handleSave = async () => {
         setSaving(true)
         try {
+            const datosEmpresa = { nombre: formData.nombre, cuit: formData.cuit }
+            let empresaId: number
             if (editing) {
-                await api.patch(`/empresas/${editing.id}`, formData)
+                await api.patch(`/empresas/${editing.id}`, datosEmpresa)
+                empresaId = editing.id
                 notify.success('Empresa actualizada correctamente')
             } else {
-                await api.post('/empresas', formData)
+                const { data } = await api.post('/empresas', datosEmpresa)
+                empresaId = data.id
                 notify.success('Empresa creada correctamente')
+            }
+            if (puedeAdministrarEmail) {
+                const previo = editing?.cuentaSmtpId ?? null
+                if (formData.cuentaSmtpId !== previo) {
+                    await emailApi.asignarSmtp(empresaId, formData.cuentaSmtpId)
+                }
             }
             setOpen(false)
             await fetchEmpresas()
@@ -240,6 +268,30 @@ const AjustesEmpresas: React.FC = () => {
                             }
                             placeholder="XX-XXXXXXXX-X"
                         />
+                        {puedeAdministrarEmail && (
+                            <TextField
+                                select
+                                label="Cuenta SMTP"
+                                fullWidth
+                                value={formData.cuentaSmtpId ?? ''}
+                                helperText="Cuenta de envío de Sender que usará esta empresa para emails"
+                                onChange={(e) =>
+                                    setFormData({
+                                        ...formData,
+                                        cuentaSmtpId: e.target.value === '' ? null : Number(e.target.value),
+                                    })
+                                }
+                            >
+                                <MenuItem value="">
+                                    <em>Sin asignar</em>
+                                </MenuItem>
+                                {smtps.map((s) => (
+                                    <MenuItem key={s.id} value={s.id}>
+                                        {s.nombre} — {s.emailFrom}
+                                    </MenuItem>
+                                ))}
+                            </TextField>
+                        )}
                     </Stack>
                 </DialogContent>
                 <DialogActions>

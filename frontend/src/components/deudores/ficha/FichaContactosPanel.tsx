@@ -24,6 +24,7 @@ import ErrorOutlineIcon from '@mui/icons-material/ErrorOutline';
 import StarIcon from '@mui/icons-material/Star';
 import StarBorderIcon from '@mui/icons-material/StarBorder';
 import ContentCopyIcon from '@mui/icons-material/ContentCopy';
+import SendIcon from '@mui/icons-material/Send';
 import { formatearTelefonoParaUI } from '../../../utils/phone';
 import { useNotify } from '../../../hooks/useNotify';
 
@@ -35,6 +36,8 @@ interface Props {
     onEliminar: (contacto: any) => void;
     onToggleWhatsapp?: (contacto: any) => void;
     onMarcarPrincipal?: (contacto: any) => void;
+    onEnviarEmail?: (contacto: any) => void;
+    puedeEnviarEmail?: boolean;
 }
 
 const FichaContactosPanel: React.FC<Props> = ({
@@ -45,6 +48,8 @@ const FichaContactosPanel: React.FC<Props> = ({
     onEliminar,
     onToggleWhatsapp,
     onMarcarPrincipal,
+    onEnviarEmail,
+    puedeEnviarEmail,
 }) => {
     const notify = useNotify();
 
@@ -113,6 +118,21 @@ const FichaContactosPanel: React.FC<Props> = ({
                                                 <ContentCopyIcon sx={{ fontSize: 16 }} />
                                             </IconButton>
                                         </Tooltip>
+                                        {tipo === 'email' && puedeEnviarEmail && onEnviarEmail && (
+                                            <Tooltip title="Enviar email">
+                                                <IconButton
+                                                    size="small"
+                                                    color="primary"
+                                                    onClick={(e) => {
+                                                        e.stopPropagation();
+                                                        onEnviarEmail(c);
+                                                    }}
+                                                    sx={{ p: 0.25 }}
+                                                >
+                                                    <SendIcon sx={{ fontSize: 16 }} />
+                                                </IconButton>
+                                            </Tooltip>
+                                        )}
                                     </Stack>
                                 }
                                 color={color}

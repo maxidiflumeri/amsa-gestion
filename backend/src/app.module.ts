@@ -21,6 +21,7 @@ import { UsuariosModule } from './modules/usuarios/usuarios.module';
 import { RealtimeModule } from './modules/realtime/realtime.module';
 import { NotificacionesModule } from './modules/notificaciones/notificaciones.module';
 import { DashboardsModule } from './modules/dashboards/dashboards.module';
+import { EmailSenderModule } from './modules/email-sender/email-sender.module';
 
 @Module({
   imports: [
@@ -49,6 +50,7 @@ import { DashboardsModule } from './modules/dashboards/dashboards.module';
     RealtimeModule,
     NotificacionesModule,
     DashboardsModule,
+    EmailSenderModule,
   ],
   controllers: [AppController],
   providers: [AppService],

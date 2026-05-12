@@ -115,6 +115,13 @@ export const TODOS_LOS_PERMISOS: PermisoSeccion[] = [
             { key: 'dashboards.exportar', label: 'Exportar tableros a PDF/XLS' },
         ],
     },
+    {
+        seccion: 'Email',
+        permisos: [
+            { key: 'email.enviar', label: 'Enviar emails a deudores', descripcion: 'Habilita el envío manual de mails vía AMSA Sender' },
+            { key: 'email.administrar', label: 'Administrar cuentas SMTP de empresas', descripcion: 'Asignar la cuenta SMTP de cada empresa' },
+        ],
+    },
 ];
 
 export const TODAS_LAS_KEYS: string[] = TODOS_LOS_PERMISOS.flatMap((s) =>

@@ -75,6 +75,7 @@ model deudor {
   pagos             pago[]
   transacciones     transaccion[]
   convenios         convenio[]
+  enviosEmail       envio_email[]
 
   @@unique([empresaId, documento, remesaId], map: "Deudor_empresaId_documento_remesaId_key")
   @@index([documento], map: "Deudor_documento_idx")
@@ -91,6 +92,7 @@ model empresa {
   nombre          String              @unique(map: "Empresa_nombre_key")
   cuit            String?
   configuracion   Json?
+  cuentaSmtpId    Int?
   createdAt       DateTime            @default(now())
   updatedAt       DateTime            @updatedAt
   deudor          deudor[]
@@ -100,6 +102,7 @@ model empresa {
   politicas       politica[]
   plantillas      plantilla_reporte[] @relation("PlantillaEmpresa")
   transaccion     transaccion[]
+  enviosEmail     envio_email[]
 }
 
 model factura {
@@ -314,6 +317,8 @@ model usuario {
   ejecuciones    ejecucion_reporte[] @relation("EjecucionUsuario")
   notificaciones Notificacion[]
   remesasCreadas remesa[]            @relation("RemesaUsuarioCreador")
+  enviosEmail    envio_email[]
+  mapeosEmail    email_template_variable_mapeo[]
 
   @@index([rolId])
 }
@@ -502,4 +507,44 @@ model Notificacion {
   @@index([entidadTipo, entidadId])
   @@index([creadoEn])
   @@map("notificacion")
+}
+
+model envio_email {
+  id               Int      @id @default(autoincrement())
+  deudorId         Int
+  empresaId        Int
+  usuarioId        Int
+  smtpId           Int
+  templateId       Int
+  destinatarios    String   @db.Text
+  asunto           String   @db.VarChar(500)
+  variables        Json
+  archivosNombres  Json
+  senderReporteIds Json
+  estado           String   @default("ENVIADO") @db.VarChar(32)
+  error            String?  @db.Text
+  creadoAt         DateTime @default(now())
+  deudor           deudor   @relation(fields: [deudorId], references: [id], onDelete: Cascade)
+  empresa          empresa  @relation(fields: [empresaId], references: [id], onDelete: Cascade)
+  usuario          usuario  @relation(fields: [usuarioId], references: [id])
+
+  @@index([deudorId, creadoAt])
+  @@index([empresaId, creadoAt])
+  @@map("envio_email")
+}
+
+model email_template_variable_mapeo {
+  id            Int      @id @default(autoincrement())
+  templateId    Int
+  variable      String   @db.VarChar(120)
+  fuenteTipo    String   @db.VarChar(32)
+  fuenteClave   String   @db.VarChar(180)
+  usuarioId     Int?
+  creadoAt      DateTime @default(now())
+  actualizadoAt DateTime @updatedAt
+  usuario       usuario? @relation(fields: [usuarioId], references: [id])
+
+  @@unique([templateId, variable], map: "email_tpl_var_mapeo_template_variable_key")
+  @@index([templateId])
+  @@map("email_template_variable_mapeo")
 }
