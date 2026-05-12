@@ -51,10 +51,15 @@ const DEST_FIELDS_BY_CATEGORY: Record<string, { value: string; label: string }[]
     CONTACTOS: [
         { value: "nro_cliente", label: "Nro. Cliente (match)" },
         { value: "documento", label: "Documento (match)" },
-        { value: "valor", label: "Valor (tel/email)" },
+        { value: "valor", label: "Valor (tel/email/dirección monolítica)" },
         { value: "tipo", label: "Tipo" },
         { value: "subtipo", label: "Subtipo" },
         { value: "prioridad", label: "Prioridad" },
+        { value: "direccion_calle", label: "Dirección — Calle" },
+        { value: "direccion_numero", label: "Dirección — Número" },
+        { value: "direccion_cp", label: "Dirección — CP" },
+        { value: "direccion_localidad", label: "Dirección — Localidad" },
+        { value: "direccion_provincia", label: "Dirección — Provincia" },
     ],
     PAGOS: [
         { value: "nro_cliente", label: "Nro. Cliente (match)" },
@@ -67,8 +72,13 @@ const DEST_FIELDS_BY_CATEGORY: Record<string, { value: string; label: string }[]
     ENRIQUECIMIENTO: [
         { value: "nro_cliente", label: "Nro. Cliente (match)" },
         { value: "documento", label: "Documento (match)" },
-        { value: "valor", label: "Valor" },
+        { value: "valor", label: "Valor (tel/email/dirección monolítica)" },
         { value: "tipo", label: "Tipo" },
+        { value: "direccion_calle", label: "Dirección — Calle" },
+        { value: "direccion_numero", label: "Dirección — Número" },
+        { value: "direccion_cp", label: "Dirección — CP" },
+        { value: "direccion_localidad", label: "Dirección — Localidad" },
+        { value: "direccion_provincia", label: "Dirección — Provincia" },
     ],
     DEUDORES_Y_FACTURAS: [
         { value: "documento", label: "Documento (Deudor)" },

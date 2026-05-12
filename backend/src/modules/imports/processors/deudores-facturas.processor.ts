@@ -1,6 +1,6 @@
 import { ICategoryProcessor, MappedRow, ProcessContext, RowValidationResult } from './processor.interface';
 import { Prisma } from '@prisma/client';
-import { normalizarTelefonoArgentino } from '../../../common/utils/phone-utils';
+import { clearContactoImportCaches, prepararContactoImport } from '../utils/contacto-import';
 
 export class DeudoresYFacturasProcessor implements ICategoryProcessor {
     readonly category = 'DEUDORES_Y_FACTURAS';
@@ -182,46 +182,50 @@ export class DeudoresYFacturasProcessor implements ICategoryProcessor {
             for (const b of row._blocks) {
                 if ((b.entity === 'FACTURA' || b.entity === 'MIXTO' || b.entity === 'DEUDORES_Y_FACTURAS') && b.data.nroFactura) {
                     await this.upsertFactura(deudorId, b.data, ctx);
-                } else if (b.entity === 'CONTACTO' && b.data.valor) {
-                    await this.upsertContacto(deudorId, b.data, ctx);
+                } else if (b.entity === 'CONTACTO') {
+                    const tieneValor = !!b.data.valor;
+                    const tieneDireccion = !!(b.data.direccion_calle || b.data.direccion_numero || b.data.direccion_localidad || b.data.direccion_provincia);
+                    if (tieneValor || tieneDireccion) {
+                        await this.upsertContacto(deudorId, b.data, ctx);
+                    }
                 }
             }
         }
     }
 
     private async upsertContacto(deudorId: number, data: any, ctx: ProcessContext) {
-        const tipoContacto = String(data.tipo || 'telefono').trim().toLowerCase();
-        let valorFinal = String(data.valor).trim();
-        let isValidado = false;
+        const prep = await prepararContactoImport({
+            tipo: data.tipo,
+            valor: data.valor,
+            direccion_calle: data.direccion_calle,
+            direccion_numero: data.direccion_numero,
+            direccion_cp: data.direccion_cp,
+            direccion_localidad: data.direccion_localidad,
+            direccion_provincia: data.direccion_provincia,
+        });
 
-        if (tipoContacto === 'telefono' || tipoContacto === 'celular' || tipoContacto === 'whatsapp') {
-            const val = normalizarTelefonoArgentino(valorFinal);
-            if (val.valido && val.e164) {
-                valorFinal = val.e164;
-                isValidado = true;
-            }
-        }
+        if (!prep) return;
 
         await ctx.prisma.contacto.upsert({
             where: {
                 deudorId_tipo_valor: {
                     deudorId: deudorId,
-                    tipo: tipoContacto,
-                    valor: valorFinal,
+                    tipo: prep.tipo,
+                    valor: prep.valor,
                 },
             },
             create: {
                 deudorId: deudorId,
-                tipo: tipoContacto,
-                valor: valorFinal,
+                tipo: prep.tipo,
+                valor: prep.valor,
                 subtipo: data.subtipo ?? null,
                 prioridad: this.parseIntSafe(data.prioridad) ?? 0,
-                validado: isValidado,
+                validado: prep.validado,
             },
             update: {
                 subtipo: data.subtipo ?? undefined,
                 prioridad: this.parseIntSafe(data.prioridad) ?? undefined,
-                validado: isValidado,
+                validado: prep.validado,
             },
         });
     }
@@ -249,5 +253,10 @@ export class DeudoresYFacturasProcessor implements ICategoryProcessor {
                 estado: data.estado ?? undefined
             },
         });
+    }
+
+    async afterAll(_ctx: ProcessContext): Promise<void> {
+        clearContactoImportCaches();
+        this.debtorCache.clear();
     }
 }

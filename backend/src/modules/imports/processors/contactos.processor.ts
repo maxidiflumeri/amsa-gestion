@@ -1,7 +1,7 @@
 // processors/contactos.processor.ts
 import { ICategoryProcessor, MappedRow, ProcessContext, RowValidationResult } from './processor.interface';
 import { Prisma } from '@prisma/client';
-import { normalizarTelefonoArgentino } from '../../../common/utils/phone-utils';
+import { clearContactoImportCaches, prepararContactoImport } from '../utils/contacto-import';
 
 export class ContactosProcessor implements ICategoryProcessor {
     readonly category = 'CONTACTOS';
@@ -10,16 +10,17 @@ export class ContactosProcessor implements ICategoryProcessor {
         if (!row.nro_cliente && !row.documento) {
             return { valid: false, error: 'nro_cliente o documento es requerido para contactos' };
         }
-        if (!row.valor) {
-            return { valid: false, error: 'Campo requerido faltante: valor' };
-        }
 
         const tipoContacto = String(row.tipo || 'telefono').trim().toLowerCase();
-        if (tipoContacto === 'telefono' || tipoContacto === 'whatsapp') {
-            const val = normalizarTelefonoArgentino(String(row.valor));
-            if (!val.valido) {
-                return { valid: false, error: `Número de teléfono inválido: ${row.valor}` };
+        const tieneEstructurada =
+            !!(row.direccion_calle || row.direccion_numero || row.direccion_localidad || row.direccion_provincia);
+
+        if (tipoContacto === 'direccion') {
+            if (!row.valor && !tieneEstructurada) {
+                return { valid: false, error: 'Campo requerido faltante: valor o columnas de dirección' };
             }
+        } else if (!row.valor) {
+            return { valid: false, error: 'Campo requerido faltante: valor' };
         }
 
         return { valid: true };
@@ -28,7 +29,7 @@ export class ContactosProcessor implements ICategoryProcessor {
     async processRow(row: MappedRow, ctx: ProcessContext): Promise<void> {
         const nroCliente = String(row.nro_cliente ?? '').trim();
         const documento = String(row.documento ?? '').trim();
-        
+
         const targetRemesaId = ctx.remesaOrigenId ?? ctx.remesaId;
 
         let deudorRows: { id: number }[] = [];
@@ -36,10 +37,10 @@ export class ContactosProcessor implements ICategoryProcessor {
         if (documento) {
             deudorRows = await ctx.prisma.$queryRaw<{ id: number }[]>(
                 Prisma.sql`
-                    SELECT id 
-                    FROM deudor 
-                    WHERE empresaId = ${ctx.empresaId} 
-                      AND remesaId = ${targetRemesaId} 
+                    SELECT id
+                    FROM deudor
+                    WHERE empresaId = ${ctx.empresaId}
+                      AND remesaId = ${targetRemesaId}
                       AND documento = ${documento}
                     LIMIT 1
                 `,
@@ -66,37 +67,43 @@ export class ContactosProcessor implements ICategoryProcessor {
 
         const deudor = deudorRows[0];
 
-        const tipoContacto = String(row.tipo || 'telefono').trim().toLowerCase();
-        let valorFinal = String(row.valor).trim();
-        
-        if (tipoContacto === 'telefono' || tipoContacto === 'whatsapp') {
-            const val = normalizarTelefonoArgentino(valorFinal);
-            if (val.valido && val.e164) {
-                valorFinal = val.e164;
-            }
-        }
+        const prep = await prepararContactoImport({
+            tipo: row.tipo,
+            valor: row.valor,
+            direccion_calle: row.direccion_calle,
+            direccion_numero: row.direccion_numero,
+            direccion_cp: row.direccion_cp,
+            direccion_localidad: row.direccion_localidad,
+            direccion_provincia: row.direccion_provincia,
+        });
 
-        // Upsert con clave compuesta (deudorId + tipo + valor)
+        if (!prep) return;
+
         await ctx.prisma.contacto.upsert({
             where: {
                 deudorId_tipo_valor: {
                     deudorId: deudor.id,
-                    tipo: tipoContacto,
-                    valor: valorFinal,
+                    tipo: prep.tipo,
+                    valor: prep.valor,
                 },
             },
             create: {
                 deudorId: deudor.id,
-                tipo: tipoContacto,
-                valor: valorFinal,
+                tipo: prep.tipo,
+                valor: prep.valor,
                 subtipo: row.subtipo ?? null,
                 prioridad: row.prioridad ?? null,
-                validado: false,
+                validado: prep.validado,
             },
             update: {
                 subtipo: row.subtipo ?? undefined,
                 prioridad: row.prioridad ?? undefined,
+                validado: prep.validado,
             },
         });
+    }
+
+    async afterAll(_ctx: ProcessContext): Promise<void> {
+        clearContactoImportCaches();
     }
 }
