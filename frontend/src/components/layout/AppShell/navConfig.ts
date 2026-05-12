@@ -14,6 +14,12 @@ export const navConfig: NavItem[] = [
         requiredPermissions: ['deudores.ver'],
     },
     {
+        label: 'Tableros',
+        icon: 'Dashboard',
+        path: '/dashboards',
+        requiredPermissions: ['dashboards.ver'],
+    },
+    {
         label: 'Importación de Datos',
         icon: 'UploadFile',
         requiredPermissions: ['importacion.ver_historial', 'importacion.ejecutar', 'plantillas_import.ver'],

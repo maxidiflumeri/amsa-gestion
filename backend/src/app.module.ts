@@ -20,6 +20,7 @@ import { RolesModule } from './modules/roles/roles.module';
 import { UsuariosModule } from './modules/usuarios/usuarios.module';
 import { RealtimeModule } from './modules/realtime/realtime.module';
 import { NotificacionesModule } from './modules/notificaciones/notificaciones.module';
+import { DashboardsModule } from './modules/dashboards/dashboards.module';
 
 @Module({
   imports: [
@@ -47,6 +48,7 @@ import { NotificacionesModule } from './modules/notificaciones/notificaciones.mo
     ReportesModule,
     RealtimeModule,
     NotificacionesModule,
+    DashboardsModule,
   ],
   controllers: [AppController],
   providers: [AppService],

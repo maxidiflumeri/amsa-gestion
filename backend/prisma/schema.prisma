@@ -29,6 +29,8 @@ model comentario {
 
   @@index([deudorId], map: "Comentario_deudorId_fkey")
   @@index([usuarioId], map: "Comentario_usuarioId_fkey")
+  @@index([fecha], map: "Comentario_fecha_idx")
+  @@index([deudorId, fecha], map: "Comentario_deudorId_fecha_idx")
 }
 
 model contacto {
@@ -77,6 +79,7 @@ model deudor {
   @@unique([empresaId, documento, remesaId], map: "Deudor_empresaId_documento_remesaId_key")
   @@index([documento], map: "Deudor_documento_idx")
   @@index([empresaId, remesaId], map: "Deudor_empresaId_remesaId_idx")
+  @@index([fechaVencimiento], map: "Deudor_fechaVencimiento_idx")
   @@index([estadoGestionId], map: "Deudor_estadoGestionId_fkey")
   @@index([estadoSituacionId], map: "Deudor_estadoSituacionId_fkey")
   @@index([motivoNoPagoId], map: "Deudor_motivoNoPagoId_fkey")
@@ -148,6 +151,8 @@ model pago {
   deudor        deudor   @relation(fields: [deudorId], references: [id], map: "Pago_deudorId_fkey")
 
   @@index([deudorId], map: "Pago_deudorId_fkey")
+  @@index([fecha], map: "Pago_fecha_idx")
+  @@index([deudorId, fecha], map: "Pago_deudorId_fecha_idx")
 }
 
 model parametro {

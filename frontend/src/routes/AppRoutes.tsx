@@ -19,6 +19,7 @@ import ReportesEjecuciones from '../pages/reportes/ReportesEjecuciones';
 import RolesPage from '../pages/admin/RolesPage';
 import UsuariosPage from '../pages/admin/UsuariosPage';
 import AuditoriaPage from '../pages/auditoria/AuditoriaPage';
+import DashboardsPage from '../pages/dashboards/DashboardsPage';
 
 const AppRoutes = () => {
     return (
@@ -45,6 +46,7 @@ const AppRoutes = () => {
                 <Route path="admin/roles" element={<RolesPage />} />
                 <Route path="admin/usuarios" element={<UsuariosPage />} />
                 <Route path="auditoria" element={<AuditoriaPage />} />
+                <Route path="dashboards" element={<DashboardsPage />} />
             </Route>
         </Routes>
     );

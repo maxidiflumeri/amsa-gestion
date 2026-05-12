@@ -3,7 +3,7 @@ import { TDocumentDefinitions, Content } from 'pdfmake/interfaces';
 import { FilaConSubtotales } from '../executor/grouping.service';
 import * as path from 'path';
 
-const PdfPrinter = require('pdfmake');
+const pdfMake = require('pdfmake');
 
 const fontsDir = path.dirname(require.resolve('pdfmake/build/fonts/Roboto/Roboto-Regular.ttf'));
 
@@ -123,22 +123,15 @@ export class PdfExportador {
       };
     }
 
-    return new Promise((resolve, reject) => {
-      try {
-        const printer = new PdfPrinter(this.fonts);
-        const pdfDoc = printer.createPdfKitDocument(docDefinition);
-
-        const chunks: Buffer[] = [];
-        pdfDoc.on('data', (chunk: Buffer) => chunks.push(chunk));
-        pdfDoc.on('end', () => resolve(Buffer.concat(chunks)));
-        pdfDoc.on('error', reject);
-
-        pdfDoc.end();
-      } catch (error) {
-        this.logger.error('Error generando PDF', error);
-        reject(error);
-      }
-    });
+    try {
+      pdfMake.setFonts(this.fonts);
+      const output = pdfMake.createPdf(docDefinition);
+      const buffer = await output.getBuffer();
+      return Buffer.isBuffer(buffer) ? buffer : Buffer.from(buffer);
+    } catch (error) {
+      this.logger.error('Error generando PDF', error);
+      throw error;
+    }
   }
 
   private generarBranding(branding: NonNullable<OpcionesPdf['brandingEmpresa']>): Content[] {
