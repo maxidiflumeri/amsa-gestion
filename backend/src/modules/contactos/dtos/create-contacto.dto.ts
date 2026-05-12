@@ -31,4 +31,8 @@ export class CreateContactoDto {
     @IsOptional()
     @IsString()
     direccionProvincia?: string;
+
+    @IsOptional()
+    @IsString()
+    direccionCp?: string;
 }

@@ -6,6 +6,118 @@
 
 ---
 
+## [2026-05-11] — Contactos: UX de chips, validación de direcciones (Georef) y normalización en imports
+
+### Decisión
+
+Unificar el ciclo de vida de un contacto (alta manual + import + auditoría) bajo un único pipeline de normalización: teléfono → E.164, email → MX, dirección → nomenclatura canónica de Georef Argentina con filtros por localidad/provincia. La nomenclatura canónica (`MUÑIZ 683, Comuna 5, Ciudad Autónoma de Buenos Aires (CP 1182)`) pasa a ser la forma de almacenamiento estándar tanto en cargas manuales como en imports.
+
+### Cambios — Frontend (ficha del deudor)
+
+**`FichaContactosPanel.tsx` — sistema de chips tri-estado**
+- Esquema de color por estado: `warning` (principal/dorado), `success` (WhatsApp/verde), `primary` (validado), `error` (no validado). `variant=filled` cuando hay estado distintivo o no validado, `outlined` cuando es validado neutro.
+- En chips filled (principal/whatsapp), el label/iconos/delete-icon se fuerzan a `common.white` para evitar contraste roto en modo oscuro (sobreescribe `.MuiChip-label`/`.MuiChip-deleteIcon`/`.MuiChip-icon`).
+- Iconos de estrella/whatsapp siempre coloreados (`warning.main`/`success.main`) cuando no están filled — antes se veían gris por default.
+- Ordenamiento: `prioridad === 1` siempre se renderiza primero.
+- Botón "copiar al portapapeles" movido **dentro del chip** para email/direccion/red_social (antes vivía fuera del Stack). Ya no abre confirm modal — copia directa.
+
+**`AgregarContactoModal.tsx` — alta manual de direcciones**
+- Botón "Validar Dirección" llama a Georef con `{ localidad, provincia }` separados (antes concatenaba en el texto y producía falsos positivos cuando la calle existía en otra localidad).
+- Alert de resultado con JSX: muestra sugerencia con `<strong>{calle}</strong> en <strong>{loc}, {prov}</strong>` cuando Georef encontró match en otra localidad.
+- Permite guardar como "no validada" si el usuario insiste (se persiste con `validado=false`).
+- POST `/contactos` ahora envía `direccionLocalidad`, `direccionProvincia` y `direccionCp` para que el backend pueda validar con filtros y componer la forma canónica.
+
+### Cambios — Backend (contactos)
+
+**`contactos.service.ts`**
+- `create()` y `update()` para `tipo='direccion'`: llaman `normalizarDireccionArgentina(valor, { localidad, provincia })`. Si valida → guardan `nomenclatura + " (CP X)"` y `validado=true`. Si no → guardan el texto crudo recortado con `validado=false` (ya no tiran 400 BadRequest — el usuario decide).
+- `update()` cambia su shape de retorno a `{ before, after, deudorId }` para alimentar el snapshot del audit interceptor (igual patrón que `deudores.service`).
+- `create()` para teléfono con `prioridad=1`: corre en transacción que primero hace `updateMany prioridad=null` en los otros tel/wapp del mismo deudor.
+
+**`contactos.controller.ts` — resúmenes de auditoría humanos**
+- `etiquetaTipo()`, `flagsContacto()`, `resumenUpdateContacto()`: en lugar de "Actualizó contacto 11" ahora dice "Marcó WhatsApp el teléfono +5491124624268", "Quitó principal del email x@y.com", "Editó dirección de Deudor X", etc.
+- `@Audit` en update lee `before` para detectar diffs (whatsapp/prioridad/valor cambiados).
+
+**`dtos/create-contacto.dto.ts`**
+- Nuevos campos opcionales: `direccionLocalidad`, `direccionProvincia`, `direccionCp` (strings).
+
+### Cambios — Backend (utils de dirección y email)
+
+**`common/utils/direccion-utils.ts`**
+- `DireccionFiltros = { provincia?, localidad? }` exportado.
+- Aliases CABA (`capital federal`, `caba`, `ciudad autonoma de buenos aires`, `ciudad de buenos aires`) tratados como equivalentes vía `normalizarParaComparar()` (strip de acentos + minúsculas) y `coincideLocalidad()`.
+- `callGeoref(direccionStr, filtros)` ahora usa `URLSearchParams` con `provincia=`/`localidad=` (antes concatenaba en el texto y daba falsos positivos).
+- `intentarVariantes()` reintenta variaciones (sin abreviaturas, etc.) antes de declarar no encontrada.
+- `normalizarDireccionArgentina(input, filtros)` valida match real de localidad antes de devolver `valido=true`. Si Georef devuelve resultado en otra localidad, expone `sugerencia` para que el UI ofrezca corrección.
+
+### Cambios — Backend (imports)
+
+**Nuevo helper `modules/imports/utils/contacto-import.ts`**
+- `prepararContactoImport(data)` unifica la normalización de contactos entre los 3 processors (`contactos`, `enriquecimiento`, `deudores-facturas`).
+- Acepta input `{ tipo, valor, direccion_calle, direccion_numero, direccion_cp, direccion_localidad, direccion_provincia }`. Devuelve `{ tipo, valor, validado } | null`.
+- Cache in-memory (`Map`) por proceso para evitar llamar Georef/DNS-MX repetidas veces para el mismo dato dentro de una remesa grande.
+- `clearContactoImportCaches()` para limpiar en `afterAll` de cada processor.
+
+**Processors refactorizados**
+- `contactos.processor.ts`: usa `prepararContactoImport()`. `validateRow` acepta direcciones aún sin `valor` cuando llegan estructuradas. `afterAll` limpia caches.
+- `enriquecimiento.processor.ts`: mismo refactor.
+- `deudores-facturas.processor.ts`: `upsertContacto(deudorId, data, ctx)` ahora delega al helper. Bloques de tipo `CONTACTO` se aceptan también cuando traen solo columnas estructuradas (calle/numero/loc/prov) sin `valor`.
+
+**Comportamiento de almacenamiento**
+- Si Georef valida → se guarda la `nomenclatura` canónica + `(CP X)` cuando hay CP. Mismo formato que las altas manuales.
+- Si Georef no valida → se guarda texto compuesto (`calle numero, localidad, provincia (CP X)`) con `validado=false`. La fila no falla.
+
+### Cambios — Frontend (imports y preview)
+
+**`MappingEditor.tsx`**
+- Categorías `CONTACTOS` y `ENRIQUECIMIENTO` ganan dest fields nuevos: `direccion_calle`, `direccion_numero`, `direccion_cp`, `direccion_localidad`, `direccion_provincia`.
+- El usuario puede mapear direcciones de dos formas: (a) monolítica vía `valor`, (b) estructurada vía columnas separadas. Mezcla válida también (calle+numero+localidad+provincia con o sin CP).
+
+**`PreviewTable.tsx`**
+- Para bloques `CONTACTO` con `tipo=direccion`, el resumen se arma a partir de los campos estructurados: `calle numero, localidad, provincia (CP X)` cuando vienen mapeados; fallback al `valor` monolítico. Antes mostraba "DIRECCION: -" porque solo leía `data.valor`.
+
+### Cambios — Frontend (auditoría)
+
+**`AuditDiffView.tsx`**
+- Bloque "Contexto/parámetros" migrado de `<pre style={{background:'#f5f5f5'}}>` (hardcoded) a `Box component="pre"` con `sx` theme-aware (`grey.900` en dark, `grey.100` en light). Soluciona contraste roto en modo oscuro.
+- Nueva `limpiarExtra()`: filtra `undefined`/`null`/objetos vacíos/arrays vacíos antes de renderizar para no mostrar bloques con `{}`.
+
+**`AuditoriaStream.tsx` + `AuditoriaBusqueda.tsx`**
+- Drawer de detalle: en lugar de pasar solo `data.params` y `data.contexto` como `extra` (lo que dejaba la mayoría de las entradas vacías), pasa todas las claves de `data` excepto `before`/`after`:
+  ```tsx
+  extra={(() => {
+    const { before: _b, after: _a, ...rest } = selected.data ?? {};
+    return rest;
+  })()}
+  ```
+
+### Bug fixes y micro-ajustes
+
+- `AuditInterceptor.entidadIdFromResponse: 'after.id'` no funcionaba (el interceptor hace `result[opts.entidadIdFromResponse]` literal, sin resolver dot-paths). Workaround: usar `entidadIdParam: 'id'` desde el param de URL.
+- `result?.deudorId` se resuelve en top-level del shape devuelto → los servicios refactorizados (`deudores`, `contactos`) hacen spread `{ before, after, deudorId: after.deudorId }`.
+
+### Cómo retomar / verificar
+
+1. Backend: `npm run start:dev` desde `backend/`. No requiere migración (no hay cambios de schema).
+2. Frontend: `npm run dev` desde `frontend/`.
+3. Probar alta manual de dirección con `(CP 1182)` y verificar que queda en formato canónico.
+4. Probar import con bloque `CONTACTO` mapeando `direccion_calle/numero/cp/localidad/provincia` por separado: la preview debe mostrar el resumen compuesto, y al confirmar las direcciones deben guardarse normalizadas.
+5. Truncado para repruebas:
+   ```sql
+   SET FOREIGN_KEY_CHECKS = 0;
+   TRUNCATE `amsa-gestion`.`campoextra`;
+   TRUNCATE `amsa-gestion`.`comentario`;
+   TRUNCATE `amsa-gestion`.`contacto`;
+   TRUNCATE `amsa-gestion`.`factura`;
+   TRUNCATE `amsa-gestion`.`pago`;
+   TRUNCATE `amsa-gestion`.`convenio`;
+   UPDATE `amsa-gestion`.`transaccion` SET deudorId = NULL WHERE deudorId IS NOT NULL;
+   TRUNCATE `amsa-gestion`.`deudor`;
+   SET FOREIGN_KEY_CHECKS = 1;
+   ```
+
+---
+
 ## [2026-05-11] — Auditoría 100%: `transaccion` como SOR + frontend `/auditoria`
 
 ### Decisión

@@ -80,7 +80,20 @@ export default function PreviewTable({ preview, total, ok, err }: Props) {
                                 : "";
                             summary = `Fact. ${data.nroFactura || "-"} | ${imp} ${vto ? `| Vto: ${vto}` : ""}`;
                         } else if (b.entity === "CONTACTO") {
-                            summary = `${data.tipo || "Dato"}: ${data.valor || "-"}`;
+                            const tipoLower = String(data.tipo || "").toLowerCase();
+                            if (tipoLower === "direccion") {
+                                const partes = [
+                                    [data.direccion_calle, data.direccion_numero].filter(Boolean).join(" "),
+                                    data.direccion_localidad,
+                                    data.direccion_provincia,
+                                ].filter(Boolean);
+                                const compuesta = partes.join(", ");
+                                const cp = data.direccion_cp ? ` (CP ${data.direccion_cp})` : "";
+                                const valorDir = compuesta ? `${compuesta}${cp}` : data.valor || "-";
+                                summary = `${data.tipo || "DIRECCION"}: ${valorDir}`;
+                            } else {
+                                summary = `${data.tipo || "Dato"}: ${data.valor || "-"}`;
+                            }
                         } else {
                             summary = JSON.stringify(data);
                         }

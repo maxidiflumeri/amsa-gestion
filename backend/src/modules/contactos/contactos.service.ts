@@ -37,8 +37,10 @@ export class ContactosService {
                 localidad: data.direccionLocalidad,
                 provincia: data.direccionProvincia,
             });
+            const cp = String(data.direccionCp ?? '').trim();
+            const cpSuffix = cp ? ` (CP ${cp})` : '';
             if (res.valido) {
-                data.valor = res.nomenclatura || data.valor.trim();
+                data.valor = (res.nomenclatura || data.valor.trim()) + cpSuffix;
                 data.validado = true;
             } else {
                 data.valor = data.valor.trim();
@@ -101,8 +103,10 @@ export class ContactosService {
                 localidad: (dto as any).direccionLocalidad,
                 provincia: (dto as any).direccionProvincia,
             });
+            const cp = String((dto as any).direccionCp ?? '').trim();
+            const cpSuffix = cp ? ` (CP ${cp})` : '';
             if (res.valido) {
-                data.valor = res.nomenclatura || dto.valor.trim();
+                data.valor = (res.nomenclatura || dto.valor.trim()) + cpSuffix;
                 data.validado = true;
             } else {
                 data.valor = dto.valor.trim();

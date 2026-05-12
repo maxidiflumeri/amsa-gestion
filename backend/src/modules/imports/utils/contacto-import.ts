@@ -97,7 +97,8 @@ export async function prepararContactoImport(data: ContactoImportInput): Promise
         }
 
         if (cached.valido && cached.nomenclatura) {
-            return { tipo: 'direccion', valor: cached.nomenclatura, validado: true };
+            const cpSuffix = cp ? ` (CP ${cp})` : '';
+            return { tipo: 'direccion', valor: cached.nomenclatura + cpSuffix, validado: true };
         }
         return { tipo: 'direccion', valor: textoCrudo, validado: false };
     }

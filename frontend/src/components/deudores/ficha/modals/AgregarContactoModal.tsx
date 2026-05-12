@@ -132,6 +132,7 @@ const AgregarContactoModal: React.FC<Props> = ({ open, tipoSeleccionado, deudorI
                 deudorId,
                 direccionLocalidad: nuevaDireccion.localidad,
                 direccionProvincia: nuevaDireccion.provincia,
+                direccionCp: nuevaDireccion.cp,
             });
             notify.success(previewDir?.valido ? 'Dirección validada y guardada correctamente' : 'Dirección guardada manualmente');
             onSaved();
