@@ -11,7 +11,6 @@ import ReceiptIcon from '@mui/icons-material/Receipt';
 import AccountBalanceWalletIcon from '@mui/icons-material/AccountBalanceWallet';
 import HandshakeIcon from '@mui/icons-material/Handshake';
 import PeopleAltIcon from '@mui/icons-material/PeopleAlt';
-import MailOutlineIcon from '@mui/icons-material/MailOutline';
 
 import api from '../../../api/axios';
 import { useNotify } from '../../../hooks/useNotify';
@@ -28,7 +27,6 @@ import FichaFacturasTab from './tabs/FichaFacturasTab';
 import FichaPagosTab from './tabs/FichaPagosTab';
 import FichaConveniosTab from './tabs/FichaConveniosTab';
 import FichaOtrasCuentasTab from './tabs/FichaOtrasCuentasTab';
-import FichaEmailsTab from './tabs/FichaEmailsTab';
 import AgregarContactoModal from './modals/AgregarContactoModal';
 import NuevoConvenioModal from './modals/NuevoConvenioModal';
 import PagoCuotaModal from './modals/PagoCuotaModal';
@@ -72,7 +70,6 @@ const FichaDeudor: React.FC<Props> = ({ deudorId }) => {
     // Enviar email
     const [openEmailDialog, setOpenEmailDialog] = useState(false);
     const [destinatarioInicial, setDestinatarioInicial] = useState<string | undefined>(undefined);
-    const [emailsRefreshKey, setEmailsRefreshKey] = useState(0);
 
     // ── Fetches ──────────────────────────────────────────────────────────────────
 
@@ -267,10 +264,6 @@ const FichaDeudor: React.FC<Props> = ({ deudorId }) => {
         setOpenEmailDialog(true);
     }, []);
 
-    const handleEmailEnviado = useCallback(() => {
-        setEmailsRefreshKey((k) => k + 1);
-    }, []);
-
     // ── Render ────────────────────────────────────────────────────────────────────
 
     if (loading || !deudor) {
@@ -342,13 +335,6 @@ const FichaDeudor: React.FC<Props> = ({ deudorId }) => {
                                     iconPosition="start"
                                     label="Otras Cuentas"
                                 />
-                                {puedeEnviarEmail && (
-                                    <Tab
-                                        icon={<MailOutlineIcon fontSize="small" />}
-                                        iconPosition="start"
-                                        label="Emails"
-                                    />
-                                )}
                             </Tabs>
                         </Box>
 
@@ -394,12 +380,6 @@ const FichaDeudor: React.FC<Props> = ({ deudorId }) => {
                                 />
                             </Box>
                         </div>
-
-                        {puedeEnviarEmail && (
-                            <TabPanel value={tabVal} index={5}>
-                                <FichaEmailsTab deudorId={deudorId} refreshKey={emailsRefreshKey} />
-                            </TabPanel>
-                        )}
                     </Card>
                 </Grid>
 
@@ -449,7 +429,6 @@ const FichaDeudor: React.FC<Props> = ({ deudorId }) => {
                     empresaId={deudor.empresaId}
                     destinatarioInicial={destinatarioInicial}
                     onClose={() => setOpenEmailDialog(false)}
-                    onEnviado={handleEmailEnviado}
                 />
             )}
         </Box>

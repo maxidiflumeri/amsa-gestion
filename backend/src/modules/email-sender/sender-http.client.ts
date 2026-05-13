@@ -46,6 +46,48 @@ export interface SenderReporteEstado {
     rebote: { codigo: string | null; descripcion: string | null; fecha: string; correo: string | null } | null;
 }
 
+export interface SenderTimelineEntry {
+    id: string;
+    canal: 'whatsapp' | 'email' | 'wapi';
+    tipo: string;
+    fecha: string;
+    detalle: {
+        asunto?: string;
+        mensaje?: string;
+        templateNombre?: string;
+        estado: string;
+        error?: string;
+        urlDestino?: string;
+    };
+    campaniaId: number | null;
+    campaniaNombre: string | null;
+    contactoId: number;
+}
+
+export interface SenderTimelineResponse {
+    deudor: {
+        id: number;
+        idDeudor: number | null;
+        nombre: string | null;
+        documento: string | null;
+        empresa: string | null;
+        nroEmpresa: string | null;
+    } | null;
+    data: SenderTimelineEntry[];
+    total: number;
+    page: number;
+    size: number;
+    totalPages: number;
+}
+
+export interface SenderTimelineQuery {
+    page?: number;
+    size?: number;
+    canal?: 'whatsapp' | 'email' | 'wapi';
+    desde?: string;
+    hasta?: string;
+}
+
 @Injectable()
 export class SenderHttpClient implements OnModuleInit {
     private readonly logger = new Logger(SenderHttpClient.name);
@@ -100,6 +142,19 @@ export class SenderHttpClient implements OnModuleInit {
         return this.handle(this.http.get<SenderReporteEstado>(`/internal/email/reportes/${reporteId}`));
     }
 
+    timelinePorDocumento(documento: string, query: SenderTimelineQuery = {}): Promise<SenderTimelineResponse> {
+        const params: Record<string, any> = {};
+        if (query.page !== undefined) params.page = query.page;
+        if (query.size !== undefined) params.size = query.size;
+        if (query.canal) params.canal = query.canal;
+        if (query.desde) params.desde = query.desde;
+        if (query.hasta) params.hasta = query.hasta;
+        return this.handle(this.http.get<SenderTimelineResponse>(
+            `/internal/timeline/por-documento/${encodeURIComponent(documento)}`,
+            { params },
+        ));
+    }
+
     async enviarManual(params: {
         smtpId: number;
         templateId: number;
@@ -108,6 +163,7 @@ export class SenderHttpClient implements OnModuleInit {
         variables: Record<string, string>;
         toNombre?: string;
         archivos: Array<{ originalname: string; buffer: Buffer; mimetype: string }>;
+        deudorDocumento?: string;
     }): Promise<SenderEnvioResult> {
         const FormData = require('form-data');
         const form = new FormData();
@@ -116,6 +172,7 @@ export class SenderHttpClient implements OnModuleInit {
         for (const email of params.destinatarios) form.append('to', email);
         if (params.asunto) form.append('subject', params.asunto);
         if (params.toNombre) form.append('toNombre', params.toNombre);
+        if (params.deudorDocumento) form.append('deudorDocumento', params.deudorDocumento);
         form.append('variables', JSON.stringify(params.variables ?? {}));
         for (const f of params.archivos) {
             form.append('archivos', f.buffer, { filename: f.originalname, contentType: f.mimetype });

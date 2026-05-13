@@ -1,10 +1,12 @@
 import React, { useRef } from 'react'
 import { Tabs, Tab, Box, useMediaQuery, useTheme } from '@mui/material'
 import PolicyIcon from '@mui/icons-material/Policy'
+import HistoryIcon from '@mui/icons-material/History'
 import FichaDeudor from './ficha'
 import DeudoresTable from './DeudoresTable'
 import BuscadorAvanzadoModal from './BuscadorAvanzadoModal'
 import PoliticaTab from './PoliticaTab'
+import TimelineDeudorTab from './TimelineDeudorTab'
 
 interface Props {
     user: { nombre: string; rol: string }
@@ -53,6 +55,7 @@ const TabsPanel: React.FC<Props> = ({
                     <Tab label="Datos del deudor" sx={{ fontWeight: 'bold' }} />
                     <Tab label="Lista de deudores" sx={{ fontWeight: 'bold' }} />
                     <Tab icon={<PolicyIcon fontSize="small" />} iconPosition="start" label="Política" sx={{ fontWeight: 'bold' }} />
+                    <Tab icon={<HistoryIcon fontSize="small" />} iconPosition="start" label="Timeline" sx={{ fontWeight: 'bold' }} />
                 </Tabs>
             )}
 
@@ -71,6 +74,10 @@ const TabsPanel: React.FC<Props> = ({
 
                 {selectedTab === 2 && (
                     <PoliticaTab deudorId={selectedDeudorId} />
+                )}
+
+                {selectedTab === 3 && (
+                    <TimelineDeudorTab deudorId={selectedDeudorId} />
                 )}
             </Box>
 

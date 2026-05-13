@@ -7,6 +7,6 @@ import { SenderHttpClient } from './sender-http.client';
 @Module({
     controllers: [EmailSenderController],
     providers: [EmailSenderService, SenderHttpClient, PrismaService],
-    exports: [EmailSenderService],
+    exports: [EmailSenderService, SenderHttpClient],
 })
 export class EmailSenderModule { }

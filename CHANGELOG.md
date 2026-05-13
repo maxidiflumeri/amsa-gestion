@@ -6,6 +6,35 @@
 
 ---
 
+## [2026-05-12] — Timeline de deudor unificado (Gestión ↔ Sender)
+
+### Decisión
+
+Tab top-level **Timeline** en la sección de deudores que consume el internal-api de AMSA Sender y muestra cronológicamente todas las acciones salientes (emails, WhatsApp Web legacy, WhatsApp Meta/WAPI) con sus estados (entregado, abierto, click, fallido, rebote). Match Gestión ↔ Sender por `documento` (no por id — los sistemas conviven sin relación 1:1). Reemplaza el tab "Emails" interno de la ficha: como los envíos de Gestión van por Sender, quedan unificados en este timeline.
+
+### Cambios — Backend Gestión
+
+- **`modules/timeline/`** — nuevo módulo (DTO + controller). `GET /timeline/deudores/:id` protegido por `deudores.ver`. Si el deudor no tiene documento → devuelve vacío sin llamar a Sender.
+- **`email-sender/sender-http.client.ts`** — método `timelinePorDocumento(documento, query)` + tipos `SenderTimelineEntry/Response/Query`. El cliente HTTP ahora se exporta desde `EmailSenderModule` para reuso entre módulos.
+- **`email-sender/email-sender.service.ts`** — al enviar email pasa `deudorDocumento` para que Sender pueda linkear `ContactoEmail.deudorId` (sino el envío queda sin match y no aparece en el timeline).
+
+### Cambios — Frontend Gestión
+
+- **`components/deudores/TimelineDeudorTab.tsx`** — nuevo componente. Filtros canal/desde/hasta + selector "Por página" (5/10/20/50, default 5) para evitar scroll infinito en deudores con muchas acciones. Cards con borde izquierdo coloreado por canal, chip de estado, asunto/mensaje/URL/error/campaña según corresponda.
+- **`components/deudores/TabsPanel.tsx`** — tab top-level "Timeline" (índice 3) junto a Datos/Lista/Política. Solo monta el componente cuando `selectedTab === 3` (no necesita guard `active`).
+- **`components/deudores/ficha/FichaDeudor.tsx`** — removidos sub-tab "Emails" y sub-tab "Timeline" internos. El botón de enviar email del chip de contacto sigue funcionando vía `EnviarEmailDialog`.
+- Eliminado `FichaEmailsTab.tsx` (huérfano).
+- `api/timeline.ts` + `types/timeline.ts` nuevos.
+
+### Notas
+
+- Pagination ya existente (5/10/20/50 por página). Default 5 para que el tab no haga scroll infinito.
+- Spec completa: `docs/timeline-spec.md`.
+- Endpoint Sender: `GET /api/internal/timeline/por-documento/:documento` con scope `timeline:read` (ver changelog de Sender).
+- Conversaciones WAPI entrantes y llamadas Neotel quedan fuera de scope (siguiente fase).
+
+---
+
 ## [2026-05-11] — Contactos: UX de chips, validación de direcciones (Georef) y normalización en imports
 
 ### Decisión

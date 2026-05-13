@@ -22,6 +22,7 @@ import { RealtimeModule } from './modules/realtime/realtime.module';
 import { NotificacionesModule } from './modules/notificaciones/notificaciones.module';
 import { DashboardsModule } from './modules/dashboards/dashboards.module';
 import { EmailSenderModule } from './modules/email-sender/email-sender.module';
+import { TimelineModule } from './modules/timeline/timeline.module';
 
 @Module({
   imports: [
@@ -51,6 +52,7 @@ import { EmailSenderModule } from './modules/email-sender/email-sender.module';
     NotificacionesModule,
     DashboardsModule,
     EmailSenderModule,
+    TimelineModule,
   ],
   controllers: [AppController],
   providers: [AppService],

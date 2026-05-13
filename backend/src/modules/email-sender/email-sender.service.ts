@@ -206,6 +206,7 @@ export class EmailSenderService {
                 variables,
                 toNombre: `${deudor.nombre} ${deudor.apellido}`.trim() || undefined,
                 archivos: archivos.map(a => ({ originalname: a.originalname, buffer: a.buffer, mimetype: a.mimetype })),
+                deudorDocumento: (deudor as any).documento?.trim() || undefined,
             });
         } catch (err: any) {
             const envio = await this.prisma.envio_email.create({
