@@ -122,6 +122,15 @@ export const TODOS_LOS_PERMISOS: PermisoSeccion[] = [
             { key: 'email.administrar', label: 'Administrar cuentas SMTP de empresas', descripcion: 'Asignar la cuenta SMTP de cada empresa' },
         ],
     },
+    {
+        seccion: 'Telefonía',
+        permisos: [
+            { key: 'telefonia.usar', label: 'Usar softphone', descripcion: 'Habilita conectarse al softphone y operar llamadas' },
+            { key: 'telefonia.click_to_call', label: 'Click-to-call', descripcion: 'Permite iniciar llamadas salientes desde ficha de deudor' },
+            { key: 'telefonia.supervisar', label: 'Supervisar telefonía', descripcion: 'Acceso al panel de supervisor: ver estado de todos los agentes en vivo' },
+            { key: 'telefonia.admin', label: 'Administrar telefonía', descripcion: 'Configurar credenciales SIP, gestionar mapping campaña, motivos de pausa' },
+        ],
+    },
 ];
 
 export const TODAS_LAS_KEYS: string[] = TODOS_LOS_PERMISOS.flatMap((s) =>

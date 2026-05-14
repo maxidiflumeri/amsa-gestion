@@ -56,6 +56,7 @@ export const navConfig: NavItem[] = [
             { label: 'Roles', icon: 'Shield', path: '/admin/roles', requiredPermissions: ['admin.gestionar_roles'] },
             { label: 'Usuarios', icon: 'People', path: '/admin/usuarios', requiredPermissions: ['admin.gestionar_usuarios'] },
             { label: 'Auditoría', icon: 'FactCheck', path: '/auditoria', requiredPermissions: ['auditoria.ver'] },
+            { label: 'Neotel (test)', icon: 'Phone', path: '/admin/neotel-test', requiredPermissions: ['telefonia.usar'] },
         ],
     },
 ];

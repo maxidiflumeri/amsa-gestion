@@ -18,6 +18,7 @@ import ReportesEjecutar from '../pages/reportes/ReportesEjecutar';
 import ReportesEjecuciones from '../pages/reportes/ReportesEjecuciones';
 import RolesPage from '../pages/admin/RolesPage';
 import UsuariosPage from '../pages/admin/UsuariosPage';
+import NeotelTestPage from '../pages/admin/NeotelTestPage';
 import AuditoriaPage from '../pages/auditoria/AuditoriaPage';
 import DashboardsPage from '../pages/dashboards/DashboardsPage';
 
@@ -45,6 +46,7 @@ const AppRoutes = () => {
                 <Route path="reportes/:id/ejecutar" element={<ReportesEjecutar />} />
                 <Route path="admin/roles" element={<RolesPage />} />
                 <Route path="admin/usuarios" element={<UsuariosPage />} />
+                <Route path="admin/neotel-test" element={<NeotelTestPage />} />
                 <Route path="auditoria" element={<AuditoriaPage />} />
                 <Route path="dashboards" element={<DashboardsPage />} />
             </Route>

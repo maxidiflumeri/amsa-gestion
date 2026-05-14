@@ -23,6 +23,7 @@ import { NotificacionesModule } from './modules/notificaciones/notificaciones.mo
 import { DashboardsModule } from './modules/dashboards/dashboards.module';
 import { EmailSenderModule } from './modules/email-sender/email-sender.module';
 import { TimelineModule } from './modules/timeline/timeline.module';
+import { NeotelModule } from './modules/neotel/neotel.module';
 
 @Module({
   imports: [
@@ -53,6 +54,7 @@ import { TimelineModule } from './modules/timeline/timeline.module';
     DashboardsModule,
     EmailSenderModule,
     TimelineModule,
+    NeotelModule,
   ],
   controllers: [AppController],
   providers: [AppService],

@@ -39,7 +39,7 @@ export class UsuariosController {
         entidad: 'Usuario',
         tipo: AuditTipo.USUARIO_ALTA,
         entidadIdFromResponse: 'id',
-        resumen: (res) => `Alta de usuario ${res?.email}`,
+        resumen: (res) => `Alta de usuario ${res?.email}${res?.esAgente ? ' (con telefonía)' : ''}`,
         data: (res, req) => ({ params: req.body, after: res }),
     })
     create(@Body() dto: CreateUsuarioDto) {

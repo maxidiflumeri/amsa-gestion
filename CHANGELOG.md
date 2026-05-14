@@ -6,6 +6,121 @@
 
 ---
 
+## [2026-05-13] — Usuarios: legajo, DNI y telefonía integrada en ABM
+
+### Backend
+
+- **Schema Prisma**: campos `legajo String? @unique` y `dni String? @unique` en modelo `usuario`. Aplicado con `db push`.
+- **DTOs nuevos**: `CreateUsuarioDto` y `UpdateUsuarioDto` extienden con `legajo`, `dni` (validación DNI 7-8 dígitos o CUIL 11 dígitos con regex), `esAgente` y objeto `agente` con campos SIP. `UpdateUsuarioDto` usa `AgenteUpdateDto` (todos opcionales; passwords vacíos preservan los existentes en DB).
+- **UsuariosService**: inyecta `SipCryptoService`. `create()` y `update()` operan dentro de `$transaction`. Lógica de agente_telefonia: crear, actualizar o DELETE según `esAgente`. `findAll()` devuelve `esAgente` y `agente` (sin campos `*Enc`). Manejo de P2002 con `ConflictException` descriptivo por campo.
+- **UsuariosModule**: importa `NeotelModule` para acceder a `SipCryptoService`.
+- **neotel.controller.ts**: `NeotelAdminController` conserva solo `GET /admin/neotel/agentes` (debug). Se eliminaron `POST`, `PATCH` y `DELETE` de ese controller — el ABM de agentes ahora se gestiona desde `PATCH /usuarios/:id`.
+
+### Frontend
+
+- **`PasswordField`** (`frontend/src/components/ui/PasswordField.tsx`): componente reutilizable. En alta: input editable + toggle ojito. En edición: input disabled con placeholder `••••••••` + botón "Cambiar" para habilitarlo.
+- **`UsuariosPage.tsx`**: Dialog refactorizado a `maxWidth="md"` con 3 accordions (Datos personales / Acceso / Telefonía). Columna "Legajo" agregada en tabla. Chip "Agente" junto al nombre cuando `esAgente=true`. Validación client-side de DNI/CUIL con helperText de error en tiempo real. Lógica de payload que omite passwords vacíos en edición.
+- **Types**: interfaces `Usuario` y `AgenteTelefonia` actualizadas con campos nuevos.
+
+---
+
+## [2026-05-13] — Neotel T5: sesión, estado y campaña del agente
+
+### T5 — Sesión + Estado + Campaña del Agente (backend)
+
+Nuevos servicios y controller en `backend/src/modules/neotel/`:
+
+- **`neotel-redis.service.ts`** — capa de caché Redis para el estado del agente. Usa ioredis (dependencia transitiva de bullmq). Keys: `neotel:agente:{id}:sesion` (hash, TTL 8h) y `neotel:agente:{id}:estado` (hash, sin TTL — se borra al logout). Modo degradado: si Redis falla, los métodos loguean warn y retornan null sin lanzar excepción. Expone `ping()` y `getClient()` para uso interno.
+- **`sesion-agente.service.ts`** — `loginAgente(usuarioId, meta)`: valida sesión duplicada → llama `NeotelHttpClient.login` → crea `sesion_agente_neotel` + `estado_agente_evento` inicial (DISPONIBLE) → cachea en Redis. `logoutAgente(usuarioId)`: llama `NeotelHttpClient.logout` (tolera error de red) → cierra evento de estado abierto (calcula duracionSeg) → actualiza `logoutAt` + `causaCierre` en DB → elimina keys Redis. `getSesionActiva(usuarioId)`: Redis first, fallback a DB con re-hidratación.
+- **`estado-agente.service.ts`** — `setEstado(usuarioId, estado, motivoPausaId?)`: valida estado manual (DISPONIBLE/EN_PAUSA/ADMINISTRATIVO) → valida motivo si EN_PAUSA → llama API Neotel correspondiente (Unpause/Pause/Tiempo_Administrativo) → cierra evento anterior → crea nuevo `estado_agente_evento` → actualiza Redis. `getEstadoActual(usuarioId)`: Redis first, fallback DB. `listarMotivosPausa()`: desde tabla `motivo_pausa_neotel` (activos, ordenados por `orden`). TODO(T8): emitir socket `estado:cambio` al completar `setEstado`.
+- **`campaña-agente.service.ts`** — `asignarCampaña(usuarioId, campañaNeotelId)`: valida sesión activa → valida campaña activa → llama `loginCampaign` → cierra campaña anterior si la hay → crea `campaña_sesion_neotel` → actualiza Redis. `desasignarCampaña(usuarioId)`: llama `logoutCampaign` → cierra registro en DB → limpia Redis. `listarCampañasDisponibles()`: todas las activas de `campaña_neotel`.
+- **`neotel-sesion.controller.ts`** — controller dedicado `@Controller('neotel')` con todos los endpoints de sesión/estado/campaña (ver abajo). Todos con `@Audit`.
+- **`dto/neotel-api.dto.ts`** — extendido con `SetEstadoDto` (estado + motivoPausaId optional) y `AsignarCampañaDto`.
+- **`neotel.module.ts`** — registra `NeotelRedisService`, `SesionAgenteService`, `EstadoAgenteService`, `CampañaAgenteService`, `NeotelSesionController`.
+
+### Endpoints nuevos
+
+| Método | Ruta | Descripción | Permiso |
+|---|---|---|---|
+| `POST` | `/neotel/sesion/login` | Login en Neotel + crea sesión DB + Redis | `telefonia.usar` |
+| `POST` | `/neotel/sesion/logout` | Logout Neotel + cierra sesión + invalida Redis | `telefonia.usar` |
+| `GET` | `/neotel/sesion/actual` | Sesión activa (Redis → DB) | `telefonia.usar` |
+| `PUT` | `/neotel/estado` | Cambia estado (DISPONIBLE/EN_PAUSA/ADMINISTRATIVO) | `telefonia.usar` |
+| `GET` | `/neotel/estado/actual` | Estado actual (Redis → DB) | `telefonia.usar` |
+| `GET` | `/neotel/motivos-pausa` | Lista motivos de pausa activos | `telefonia.usar` |
+| `GET` | `/neotel/campañas` | Lista campañas activas | `telefonia.usar` |
+| `POST` | `/neotel/campaña/asignar` | Asigna a campaña + llama Login_Campaign2 | `telefonia.usar` |
+| `POST` | `/neotel/campaña/desasignar` | Desasigna de campaña + llama Logout_Campaign | `telefonia.usar` |
+
+### Variables de entorno
+
+No se requieren variables nuevas. Usa `REDIS_HOST` y `REDIS_PORT` ya declaradas por BullMQ.
+
+### Smoke test esperado
+
+- `POST /neotel/sesion/login` → error 502 "Position Externo6001 not found" si la extensión no está activa (comportamiento correcto, se registra el intento de login en logs). DB: NO crea sesion porque el error ocurre antes de `sesion_agente_neotel.create`.
+- `GET /neotel/motivos-pausa` → 4 motivos seedeados (Almuerzo/Baño/Capacitación/Reunión).
+- `GET /neotel/campañas` → campaña 115.
+
+### AuditTipo usados
+
+`TEL_LOGIN`, `TEL_LOGOUT`, `TEL_ESTADO_CAMBIAR`, `TEL_CAMPAÑA_ENTER`, `TEL_CAMPAÑA_LEAVE` (ya existían en audit.enums.ts desde T3/T4).
+
+---
+
+## [2026-05-13] — Neotel T3 + T4: cliente HTTP + credenciales SIP cifradas
+
+### T3 — NeotelHttpClient (backend)
+
+Módulo `neotel` nuevo en `backend/src/modules/neotel/`:
+
+- **`neotel-http.client.ts`** — cliente HTTP a la API ASMX de Neotel. Cubre todos los endpoints de §4.1 (auth/sesión), §4.2 (campañas), §4.3 (estados), §4.4 (llamadas), §4.6 (eventos), §4.7 (contactos CRM). Método core `call<T>()` con retry exponencial (3 intentos, 300ms/600ms de backoff), timeout configurable (default 8s), sanitización de campos sensibles en logs (CLAVE, DATA, XML_UPDATE). Usa `fetch` nativo de Node 18+.
+- **`parsers/xml-response.parser.ts`** — parser de respuestas XML mínimas de Neotel (`<string>`, `<boolean>`, void). Soporte de respuestas planas (sin wrapper XML).
+- **`errors/neotel.errors.ts`** — `NeotelApiError`, `NeotelTimeoutError`, `NeotelAuthError`, `NeotelInvalidResponseError`.
+- **`dto/neotel-http.dto.ts`** — interfaces tipadas para todos los parámetros de la API Neotel.
+- Config desde env: `NEOTEL_API_HOST`, `NEOTEL_API_USER`, `NEOTEL_API_PASS`, `NEOTEL_TIMEOUT_MS`, `NEOTEL_RETRY_ATTEMPTS`.
+
+Smoke test: `POST http://200.5.98.203/neoapi/webservice.asmx/Login` → HTTP 500 con body "Position Externo6001 not found" (API accesible, error de estado Neotel — la extensión no está activa en este momento).
+
+### T4 — Credenciales SIP cifradas (AES-256-GCM)
+
+- **`crypto/sip-crypto.service.ts`** — servicio AES-256-GCM. Formato: `<iv_base64>:<authTag_base64>:<ciphertext_base64>`. Acepta key como 64 hex chars o base64 de 32 bytes. Valida al boot (`OnModuleInit`) y falla rápido si no está configurada. Detecta tampering via authTag GCM. Método `isEncrypted()` para distinguir plain text de cifrado (soporta credenciales legacy).
+- **`crypto/sip-crypto.service.spec.ts`** — 19 tests unitarios: round-trip, IV aleatorio, tampering authTag, tampering ciphertext, formato inválido, key incorrecta, edge cases. Todos pasan.
+- **`prisma/scripts/encrypt-sip-passwords.ts`** — script idempotente de migración. Detecta plain text vs cifrado (por formato IV base64), cifra solo los que lo necesitan. Soporta `--dry-run`. Migrado agente 1 (6001): `Externo6001` y `10066001` → ciphertext AES-256-GCM.
+- **`agente-telefonia.service.ts`** — ABM completo: `listar()` (sin passwords), `crear()` (cifra al guardar), `actualizar()` (cifra si llega password), `eliminar()`. Soporta credenciales legacy en plain text (las descifra correctamente).
+- **`neotel.controller.ts`** — `GET /neotel/sip-credentials` (permiso `telefonia.usar`; descifra y devuelve `{extension, sipUri, authUser, password, wssUrl, displayName}`). ABM admin en `/admin/neotel/agentes` (permiso `telefonia.admin`).
+- **`neotel.module.ts`** — módulo registrado en AppModule. Importa TransaccionesModule para auditoría.
+
+### Configuración requerida
+
+Variables nuevas en `.env`:
+```
+NEOTEL_API_HOST=http://200.5.98.203
+NEOTEL_API_USER=6001
+NEOTEL_API_PASS=10066001
+NEOTEL_TIMEOUT_MS=8000
+NEOTEL_RETRY_ATTEMPTS=3
+NEOTEL_SIP_DOMAIN=200.5.98.203
+NEOTEL_WSS_URL=wss://200.5.98.203:8089/ws
+NEOTEL_SIP_ENCRYPTION_KEY=<64 hex chars — generar con: openssl rand -hex 32>
+```
+
+Para cifrar credenciales existentes en la DB:
+```bash
+npx ts-node --transpile-only prisma/scripts/encrypt-sip-passwords.ts --dry-run  # previsualizacion
+npx ts-node --transpile-only prisma/scripts/encrypt-sip-passwords.ts             # aplicar
+```
+
+### AuditTipo nuevos en audit.enums.ts
+
+`TEL_SIP_CREDENTIALS_OBTENIDAS`, `TEL_AGENTE_CREADO`, `TEL_AGENTE_ACTUALIZADO`, `TEL_AGENTE_ELIMINADO`, `TEL_AGENTE_LISTADO`.
+
+### Permisos nuevos en permisos-catalogo.ts
+
+Sección "Telefonía": `telefonia.usar`, `telefonia.click_to_call`, `telefonia.supervisar`, `telefonia.admin` (ya existían en la DB desde T2; ahora registrados también en el catálogo de permisos del frontend/admin).
+
+---
+
 ## [2026-05-12] — Timeline de deudor unificado (Gestión ↔ Sender)
 
 ### Decisión
