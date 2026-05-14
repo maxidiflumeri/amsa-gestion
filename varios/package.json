@@ -1,0 +1,8 @@
+{
+  "name": "poc-neotel",
+  "version": "1.0.0",
+  "private": true,
+  "dependencies": {
+    "jssip": "^3.13.8"
+  }
+}

@@ -1,0 +1,647 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>PoC Neotel — JsSIP WebRTC</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      background: #0f172a;
+      color: #e2e8f0;
+      min-height: 100vh;
+      padding: 24px;
+    }
+
+    h1 { font-size: 1.4rem; font-weight: 700; margin-bottom: 4px; color: #f1f5f9; }
+    .subtitle { font-size: 0.8rem; color: #64748b; margin-bottom: 24px; }
+
+    .grid {
+      display: grid;
+      grid-template-columns: 380px 1fr;
+      gap: 20px;
+      max-width: 1100px;
+    }
+
+    .panel {
+      background: #1e293b;
+      border: 1px solid #334155;
+      border-radius: 12px;
+      padding: 20px;
+    }
+
+    .panel h2 {
+      font-size: 0.85rem;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: #94a3b8;
+      margin-bottom: 14px;
+    }
+
+    label {
+      display: block;
+      font-size: 0.75rem;
+      color: #94a3b8;
+      margin-bottom: 4px;
+      margin-top: 10px;
+    }
+    label:first-of-type { margin-top: 0; }
+
+    input[type="text"], input[type="password"] {
+      width: 100%;
+      background: #0f172a;
+      border: 1px solid #334155;
+      border-radius: 6px;
+      color: #e2e8f0;
+      font-size: 0.85rem;
+      padding: 7px 10px;
+      outline: none;
+      transition: border-color 0.15s;
+    }
+    input:focus { border-color: #6366f1; }
+
+    .badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 0.78rem;
+      font-weight: 600;
+      padding: 4px 10px;
+      border-radius: 20px;
+      margin-bottom: 14px;
+    }
+    .badge.grey   { background: #1e293b; border: 1px solid #334155; color: #94a3b8; }
+    .badge.yellow { background: #422006; border: 1px solid #78350f; color: #fbbf24; }
+    .badge.green  { background: #052e16; border: 1px solid #166534; color: #4ade80; }
+    .badge.red    { background: #450a0a; border: 1px solid #7f1d1d; color: #f87171; }
+    .badge::before { content: ''; display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: currentColor; }
+
+    .badge-call {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 0.78rem;
+      font-weight: 600;
+      padding: 4px 10px;
+      border-radius: 20px;
+      margin-bottom: 14px;
+    }
+    .badge-call.idle  { background: #1e293b; border: 1px solid #334155; color: #94a3b8; }
+    .badge-call.ring  { background: #1c1917; border: 1px solid #78350f; color: #fb923c; }
+    .badge-call.active { background: #052e16; border: 1px solid #166534; color: #4ade80; }
+    .badge-call.ended { background: #1e293b; border: 1px solid #334155; color: #94a3b8; }
+
+    .btn-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin-top: 16px;
+    }
+
+    button {
+      padding: 8px 16px;
+      border-radius: 6px;
+      font-size: 0.8rem;
+      font-weight: 600;
+      cursor: pointer;
+      border: none;
+      transition: opacity 0.15s, background 0.15s;
+    }
+    button:disabled { opacity: 0.35; cursor: not-allowed; }
+
+    .btn-primary  { background: #4f46e5; color: #fff; }
+    .btn-danger   { background: #dc2626; color: #fff; }
+    .btn-success  { background: #16a34a; color: #fff; }
+    .btn-neutral  { background: #334155; color: #e2e8f0; }
+    .btn-warning  { background: #d97706; color: #fff; }
+
+    .btn-primary:not(:disabled):hover  { background: #4338ca; }
+    .btn-danger:not(:disabled):hover   { background: #b91c1c; }
+    .btn-success:not(:disabled):hover  { background: #15803d; }
+    .btn-neutral:not(:disabled):hover  { background: #475569; }
+    .btn-warning:not(:disabled):hover  { background: #b45309; }
+
+    .call-row {
+      display: flex;
+      gap: 8px;
+      margin-top: 14px;
+      align-items: center;
+    }
+    .call-row input { flex: 1; }
+    .call-row button { flex-shrink: 0; }
+
+    pre#log {
+      background: #020617;
+      border: 1px solid #1e293b;
+      border-radius: 8px;
+      padding: 14px;
+      font-family: 'Fira Code', 'Cascadia Code', monospace;
+      font-size: 0.72rem;
+      line-height: 1.5;
+      overflow-y: auto;
+      max-height: 520px;
+      color: #94a3b8;
+      white-space: pre-wrap;
+      word-break: break-all;
+    }
+
+    .timer {
+      font-size: 1.6rem;
+      font-weight: 700;
+      font-variant-numeric: tabular-nums;
+      color: #4ade80;
+      text-align: center;
+      margin: 10px 0;
+      display: none;
+    }
+
+    .warning-banner {
+      background: #431407;
+      border: 1px solid #7c2d12;
+      border-radius: 8px;
+      padding: 12px 16px;
+      font-size: 0.78rem;
+      color: #fdba74;
+      margin-bottom: 20px;
+      line-height: 1.5;
+    }
+    .warning-banner strong { color: #fb923c; }
+  </style>
+</head>
+<body>
+
+<h1>PoC Neotel — JsSIP WebRTC</h1>
+<p class="subtitle">Extensión 6001 · Campaña 115 · T1 Gate</p>
+
+<div class="warning-banner">
+  <strong>WebRTC requiere HTTPS o localhost.</strong>
+  No abrir como <code>file://</code> — <code>getUserMedia</code> fallará silenciosamente en Chrome.
+  Servir con: <code>cd amsa-gestion &amp;&amp; npx serve varios</code>
+  → abrir <strong>http://localhost:3000/poc-neotel.html</strong>
+</div>
+
+<div class="grid">
+  <!-- Panel izquierdo: config + controles -->
+  <div>
+    <div class="panel" style="margin-bottom:16px">
+      <h2>Estado</h2>
+      <div id="sip-badge" class="badge grey">Desconectado</div>
+      <div id="call-badge" class="badge-call idle">Sin llamada activa</div>
+      <div id="timer" class="timer">00:00</div>
+    </div>
+
+    <div class="panel" style="margin-bottom:16px">
+      <h2>Configuración SIP</h2>
+
+      <label>WSS URL</label>
+      <input id="cfg-wss" type="text" value="wss://200.5.98.203:8089/ws" />
+
+      <label>SIP URI (usuario@dominio)</label>
+      <input id="cfg-uri" type="text" value="Externo6001@200.5.98.203" />
+
+      <label>Auth User (extensión SIP)</label>
+      <input id="cfg-auth" type="text" value="Externo6001" />
+
+      <label>SIP Password</label>
+      <input id="cfg-pass" type="password" value="Externo6001" />
+
+      <label>Display Name</label>
+      <input id="cfg-display" type="text" value="Agente 6001" />
+
+      <div class="btn-row">
+        <button id="btn-connect"    class="btn-primary">Conectar</button>
+        <button id="btn-disconnect" class="btn-neutral" disabled>Desconectar</button>
+      </div>
+    </div>
+
+    <div class="panel">
+      <h2>Llamada</h2>
+
+      <div class="call-row">
+        <input id="dial-dest" type="text" placeholder="Número destino (ej. 1140404040)" value="" />
+        <button id="btn-call" class="btn-success" disabled>Llamar</button>
+      </div>
+
+      <div class="btn-row" style="margin-top:10px">
+        <button id="btn-hangup" class="btn-danger"  disabled>Colgar</button>
+        <button id="btn-answer" class="btn-success" disabled>Atender</button>
+        <button id="btn-mute"   class="btn-warning" disabled>Mute</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Panel derecho: log -->
+  <div class="panel">
+    <h2>Log de eventos</h2>
+    <pre id="log">--- PoC Neotel JsSIP listo ---
+Completar credenciales y hacer click en "Conectar".
+
+Nota: si el certificado TLS del WSS es self-signed, Chrome bloqueará
+la conexión. Solución: navegar primero a https://200.5.98.203:8089
+y aceptar la excepción de seguridad manualmente.
+
+</pre>
+  </div>
+</div>
+
+<!-- Audio oculto para el remote stream -->
+<audio id="remote-audio" autoplay style="display:none"></audio>
+
+<!-- JsSIP 3.13.8 bundleado localmente con esbuild (node_modules/jssip) -->
+<script src="jssip.bundle.js"></script>
+
+<script>
+  // ─── Refs DOM ───────────────────────────────────────────────────────────────
+  const logEl       = document.getElementById('log');
+  const sipBadge    = document.getElementById('sip-badge');
+  const callBadge   = document.getElementById('call-badge');
+  const timerEl     = document.getElementById('timer');
+  const remoteAudio = document.getElementById('remote-audio');
+
+  const btnConnect    = document.getElementById('btn-connect');
+  const btnDisconnect = document.getElementById('btn-disconnect');
+  const btnCall       = document.getElementById('btn-call');
+  const btnHangup     = document.getElementById('btn-hangup');
+  const btnAnswer     = document.getElementById('btn-answer');
+  const btnMute       = document.getElementById('btn-mute');
+  const dialDest      = document.getElementById('dial-dest');
+
+  // ─── Estado ─────────────────────────────────────────────────────────────────
+  let ua              = null;
+  let activeSession   = null;
+  let muted           = false;
+  let callStartTime   = null;
+  let timerInterval   = null;
+  let incomingSession = null;
+
+  // ─── Logger ─────────────────────────────────────────────────────────────────
+  function log(tag, msg, level = 'INFO') {
+    const ts    = new Date().toISOString().replace('T', ' ').slice(0, 23);
+    const color = { INFO: '#94a3b8', OK: '#4ade80', WARN: '#fbbf24', ERR: '#f87171', EVT: '#818cf8' }[level] || '#94a3b8';
+    const line  = `[${ts}] [${level.padEnd(4)}] [${tag}] ${msg}\n`;
+    logEl.textContent += line;
+    logEl.scrollTop = logEl.scrollHeight;
+    // Limitar a 400 líneas para no crecer indefinidamente
+    const lines = logEl.textContent.split('\n');
+    if (lines.length > 400) logEl.textContent = lines.slice(-380).join('\n');
+  }
+
+  // ─── Badges ─────────────────────────────────────────────────────────────────
+  function setSipBadge(cls, text) {
+    sipBadge.className = `badge ${cls}`;
+    sipBadge.textContent = text;
+  }
+
+  function setCallBadge(cls, text) {
+    callBadge.className = `badge-call ${cls}`;
+    callBadge.textContent = text;
+  }
+
+  // ─── Timer de llamada ────────────────────────────────────────────────────────
+  function startTimer() {
+    callStartTime   = Date.now();
+    timerEl.style.display = 'block';
+    timerInterval = setInterval(() => {
+      const secs  = Math.floor((Date.now() - callStartTime) / 1000);
+      const mm    = String(Math.floor(secs / 60)).padStart(2, '0');
+      const ss    = String(secs % 60).padStart(2, '0');
+      timerEl.textContent = `${mm}:${ss}`;
+    }, 1000);
+  }
+
+  function stopTimer() {
+    clearInterval(timerInterval);
+    timerEl.style.display = 'none';
+    timerEl.textContent   = '00:00';
+    callStartTime         = null;
+  }
+
+  // ─── Botones: estado ─────────────────────────────────────────────────────────
+  function updateButtons(registered, hasCall, hasIncoming) {
+    btnConnect.disabled    = registered;
+    btnDisconnect.disabled = !registered;
+    btnCall.disabled       = !registered || hasCall;
+    btnHangup.disabled     = !hasCall && !hasIncoming;
+    btnAnswer.disabled     = !hasIncoming;
+    btnMute.disabled       = !hasCall;
+  }
+
+  // ─── Attach remote stream ────────────────────────────────────────────────────
+  function attachRemoteStream(session) {
+    session.connection.addEventListener('track', (ev) => {
+      log('RTC', `Track recibido: kind=${ev.track.kind}`, 'EVT');
+      if (ev.streams && ev.streams[0]) {
+        remoteAudio.srcObject = ev.streams[0];
+        log('RTC', 'Remote stream adjunto al elemento <audio>', 'OK');
+      }
+    });
+
+    // Fallback: peerconnection directamente
+    session.on('peerconnection', (ev) => {
+      log('RTC', 'peerconnection creada', 'EVT');
+      ev.peerconnection.addEventListener('track', (trackEv) => {
+        log('RTC', `Track via peerconnection: kind=${trackEv.track.kind}`, 'EVT');
+        if (trackEv.streams && trackEv.streams[0]) {
+          remoteAudio.srcObject = trackEv.streams[0];
+          log('RTC', 'Remote stream adjunto (fallback)', 'OK');
+        }
+      });
+
+      // Log ICE candidates
+      ev.peerconnection.addEventListener('icecandidate', (iceEv) => {
+        if (iceEv.candidate) {
+          log('ICE', `Candidate: ${iceEv.candidate.candidate.substring(0, 80)}…`, 'INFO');
+        } else {
+          log('ICE', 'Gathering complete (null candidate)', 'OK');
+        }
+      });
+
+      ev.peerconnection.addEventListener('iceconnectionstatechange', () => {
+        log('ICE', `Connection state: ${ev.peerconnection.iceConnectionState}`, 'EVT');
+      });
+
+      ev.peerconnection.addEventListener('connectionstatechange', () => {
+        log('RTC', `PC connection state: ${ev.peerconnection.connectionState}`, 'EVT');
+      });
+    });
+  }
+
+  // ─── Manejar una RTCSession (incoming o outgoing) ───────────────────────────
+  function handleSession(session, direction) {
+    activeSession   = session;
+    incomingSession = direction === 'incoming' ? session : null;
+
+    log('SESSION', `Nueva sesión: direction=${direction} remote=${session.remote_identity?.uri || 'N/A'}`, 'EVT');
+
+    attachRemoteStream(session);
+
+    if (direction === 'incoming') {
+      setCallBadge('ring', `Entrante: ${session.remote_identity?.uri || '?'}`);
+      updateButtons(true, false, true);
+    } else {
+      setCallBadge('ring', `Llamando a ${session.remote_identity?.uri || dialDest.value}…`);
+      updateButtons(true, true, false);
+    }
+
+    session.on('progress', (ev) => {
+      log('SESSION', `progress: ${ev.originator}`, 'EVT');
+      setCallBadge('ring', 'Repicando…');
+    });
+
+    session.on('accepted', (ev) => {
+      log('SESSION', `accepted: ${ev.originator}`, 'OK');
+      incomingSession = null;
+      setCallBadge('active', 'En llamada');
+      updateButtons(true, true, false);
+      startTimer();
+    });
+
+    session.on('confirmed', (ev) => {
+      log('SESSION', `confirmed: ${ev.originator}`, 'OK');
+      incomingSession = null;
+      setCallBadge('active', 'En llamada');
+      updateButtons(true, true, false);
+      if (!callStartTime) startTimer();
+    });
+
+    session.on('ended', (ev) => {
+      log('SESSION', `ended: originator=${ev.originator} cause=${ev.cause}`, 'WARN');
+      activeSession   = null;
+      incomingSession = null;
+      muted           = false;
+      btnMute.textContent = 'Mute';
+      stopTimer();
+      setCallBadge('ended', `Finalizada (${ev.cause})`);
+      updateButtons(true, false, false);
+      remoteAudio.srcObject = null;
+    });
+
+    session.on('failed', (ev) => {
+      log('SESSION', `failed: originator=${ev.originator} cause=${ev.cause}`, 'ERR');
+      activeSession   = null;
+      incomingSession = null;
+      muted           = false;
+      btnMute.textContent = 'Mute';
+      stopTimer();
+      setCallBadge('ended', `Fallida (${ev.cause})`);
+      updateButtons(true, false, false);
+      remoteAudio.srcObject = null;
+    });
+
+    session.on('hold', (ev) => {
+      log('SESSION', `hold: ${ev.originator}`, 'EVT');
+      setCallBadge('ring', 'En espera');
+    });
+
+    session.on('unhold', (ev) => {
+      log('SESSION', `unhold: ${ev.originator}`, 'EVT');
+      setCallBadge('active', 'En llamada');
+    });
+  }
+
+  // ─── Conectar ────────────────────────────────────────────────────────────────
+  btnConnect.addEventListener('click', async () => {
+    const wssUrl  = document.getElementById('cfg-wss').value.trim();
+    const sipUri  = document.getElementById('cfg-uri').value.trim();
+    const authUser= document.getElementById('cfg-auth').value.trim();
+    const sipPass = document.getElementById('cfg-pass').value.trim();
+    const display = document.getElementById('cfg-display').value.trim();
+
+    if (!wssUrl || !sipUri || !authUser || !sipPass) {
+      log('CONFIG', 'Faltan credenciales — completar todos los campos', 'ERR');
+      return;
+    }
+
+    // Solicitar permisos de micrófono primero
+    log('MEDIA', 'Solicitando permisos de micrófono…', 'INFO');
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
+      stream.getTracks().forEach(t => t.stop()); // sólo verificación de permiso
+      log('MEDIA', 'Permiso de micrófono concedido', 'OK');
+    } catch (err) {
+      log('MEDIA', `Permiso de micrófono denegado: ${err.message}. WebRTC no funcionará.`, 'ERR');
+      return;
+    }
+
+    log('UA', `Construyendo UA: uri=${sipUri} wss=${wssUrl}`, 'INFO');
+    setSipBadge('yellow', 'Conectando…');
+
+    const socket = new JsSIP.WebSocketInterface(wssUrl);
+
+    const config = {
+      sockets        : [socket],
+      uri            : sipUri,
+      authorization_user: authUser,
+      password       : sipPass,
+      display_name   : display || undefined,
+      register       : true,
+      register_expires: 300,
+      session_timers : false,
+      // Sin STUN/TURN por ahora — si hay NAT simétrico, agregar iceServers aquí
+      // iceServers: [{ urls: 'stun:stun.l.google.com:19302' }],
+    };
+
+    JsSIP.debug.enable('JsSIP:*');
+
+    ua = new JsSIP.UA(config);
+
+    // ── Eventos del UA ────────────────────────────────────────────────────────
+
+    ua.on('connecting', (ev) => {
+      log('UA', `connecting: attempt=${ev.attempts}`, 'INFO');
+      setSipBadge('yellow', 'Conectando…');
+    });
+
+    ua.on('connected', (ev) => {
+      log('UA', 'connected — WSS TCP link establecido', 'OK');
+      setSipBadge('yellow', 'Conectado (registrando…)');
+    });
+
+    ua.on('disconnected', (ev) => {
+      log('UA', `disconnected: error=${ev.error} code=${ev.code} reason=${ev.reason}`, 'ERR');
+      setSipBadge('red', 'Desconectado');
+      updateButtons(false, false, false);
+    });
+
+    ua.on('registered', (ev) => {
+      log('UA', 'REGISTRADO exitosamente', 'OK');
+      setSipBadge('green', `Registrado (${sipUri})`);
+      updateButtons(true, false, false);
+    });
+
+    ua.on('unregistered', (ev) => {
+      log('UA', `unregistered: cause=${ev.cause}`, 'WARN');
+      setSipBadge('grey', 'Desregistrado');
+      updateButtons(false, false, false);
+    });
+
+    ua.on('registrationFailed', (ev) => {
+      log('UA', `registrationFailed: cause=${ev.cause} response=${ev.response?.status_code}`, 'ERR');
+      setSipBadge('red', `Registro fallido (${ev.cause})`);
+      updateButtons(false, false, false);
+    });
+
+    ua.on('registrationExpiring', () => {
+      log('UA', 'registrationExpiring — UA renovará automáticamente', 'WARN');
+    });
+
+    ua.on('newRTCSession', (ev) => {
+      log('UA', `newRTCSession: originator=${ev.originator} direction=${ev.session.direction}`, 'EVT');
+
+      if (activeSession) {
+        log('UA', 'Ya hay sesión activa — rechazando nueva', 'WARN');
+        ev.session.terminate();
+        return;
+      }
+
+      handleSession(ev.session, ev.originator === 'remote' ? 'incoming' : 'outgoing');
+    });
+
+    ua.on('newMessage', (ev) => {
+      log('UA', `newMessage: ${ev.originator}`, 'EVT');
+    });
+
+    ua.start();
+    log('UA', 'UA.start() invocado', 'INFO');
+
+    btnDisconnect.addEventListener('click', () => {
+      if (ua) {
+        log('UA', 'Deteniendo UA…', 'INFO');
+        ua.stop();
+        ua = null;
+        activeSession   = null;
+        incomingSession = null;
+        stopTimer();
+        setSipBadge('grey', 'Desconectado');
+        setCallBadge('idle', 'Sin llamada activa');
+        updateButtons(false, false, false);
+      }
+    }, { once: true });
+  });
+
+  // ─── Llamar ──────────────────────────────────────────────────────────────────
+  btnCall.addEventListener('click', () => {
+    if (!ua || activeSession) return;
+
+    const dest = dialDest.value.trim();
+    if (!dest) {
+      log('DIAL', 'Ingresá un número destino', 'ERR');
+      return;
+    }
+
+    const domain = document.getElementById('cfg-uri').value.split('@')[1] || '200.5.98.203';
+    // Si ya tiene dominio no lo agrega
+    const target = dest.includes('@') ? dest : `sip:${dest}@${domain}`;
+
+    log('DIAL', `Iniciando llamada a ${target}`, 'INFO');
+
+    const session = ua.call(target, {
+      mediaConstraints: { audio: true, video: false },
+      pcConfig: {
+        // iceServers: [{ urls: 'stun:stun.l.google.com:19302' }],
+      },
+    });
+
+    handleSession(session, 'outgoing');
+  });
+
+  // ─── Colgar ──────────────────────────────────────────────────────────────────
+  btnHangup.addEventListener('click', () => {
+    if (incomingSession) {
+      log('HANGUP', 'Rechazando llamada entrante', 'WARN');
+      incomingSession.terminate({ status_code: 486, reason_phrase: 'Busy Here' });
+      incomingSession = null;
+    } else if (activeSession) {
+      log('HANGUP', 'Colgando sesión activa', 'INFO');
+      activeSession.terminate();
+    }
+  });
+
+  // ─── Atender ─────────────────────────────────────────────────────────────────
+  btnAnswer.addEventListener('click', () => {
+    if (!incomingSession) return;
+    log('ANSWER', 'Atendiendo llamada entrante', 'INFO');
+    incomingSession.answer({ mediaConstraints: { audio: true, video: false } });
+    activeSession   = incomingSession;
+    incomingSession = null;
+  });
+
+  // ─── Mute ────────────────────────────────────────────────────────────────────
+  btnMute.addEventListener('click', () => {
+    if (!activeSession) return;
+    if (muted) {
+      activeSession.unmute({ audio: true });
+      muted = false;
+      btnMute.textContent = 'Mute';
+      log('MUTE', 'Micrófono activado', 'INFO');
+    } else {
+      activeSession.mute({ audio: true });
+      muted = true;
+      btnMute.textContent = 'Unmute';
+      log('MUTE', 'Micrófono silenciado', 'WARN');
+    }
+  });
+
+  // ─── Init ────────────────────────────────────────────────────────────────────
+  updateButtons(false, false, false);
+
+  // Verificar que JsSIP cargó correctamente
+  if (typeof JsSIP === 'undefined') {
+    log('INIT', 'ERROR: JsSIP no se cargó desde CDN. Verificar conexión a internet.', 'ERR');
+  } else {
+    log('INIT', `JsSIP ${JsSIP.version} cargado correctamente`, 'OK');
+  }
+
+  // Detectar si estamos en file:// y avisar
+  if (location.protocol === 'file:') {
+    log('INIT', 'ADVERTENCIA: protocolo file:// detectado. getUserMedia fallará.', 'ERR');
+    log('INIT', 'Servir con: npx serve varios  →  http://localhost:3000/poc-neotel.html', 'WARN');
+  } else {
+    log('INIT', `Protocolo: ${location.protocol} — correcto para WebRTC`, 'OK');
+  }
+</script>
+</body>
+</html>
