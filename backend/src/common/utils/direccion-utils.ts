@@ -1,4 +1,7 @@
 import axios from 'axios';
+import { Logger } from '@nestjs/common';
+
+const georefLogger = new Logger('GeorefUtil');
 
 export interface DireccionNormalizada {
     valido: boolean;
@@ -81,7 +84,7 @@ async function callGeoref(direccionStr: string, filtros?: DireccionFiltros): Pro
             lon: dir.ubicacion?.lon || undefined,
         };
     } catch (err) {
-        console.error('API Georef falló en callGeoref:', err.message);
+        georefLogger.error(`API Georef falló en callGeoref: ${err.message}`, err.stack);
         return null; // Asumimos error de conexión como un "No encontrado" silencioso en el ciclo de intentos
     }
 }

@@ -1,8 +1,10 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 
 @Injectable()
 export class EmpresasService {
+    private readonly logger = new Logger(EmpresasService.name);
+
     constructor(private prisma: PrismaService) { }
 
     findAll() {
@@ -20,12 +22,14 @@ export class EmpresasService {
     }
 
     create(data: { nombre: string; cuit?: string; configuracion?: any }) {
+        this.logger.log(`Creando empresa nombre=${data.nombre}`);
         return this.prisma.empresa.create({
             data,
         });
     }
 
     async update(id: number, data: { nombre?: string; cuit?: string; configuracion?: any }) {
+        this.logger.log(`Actualizando empresa id=${id}`);
         await this.findOne(id);
         return this.prisma.empresa.update({
             where: { id },
@@ -34,20 +38,19 @@ export class EmpresasService {
     }
 
     async remove(id: number) {
+        this.logger.log(`Eliminando empresa id=${id}`);
         await this.findOne(id);
         return this.prisma.empresa.delete({
             where: { id },
         });
     }
 
-    // --- ASIGNACIONES DE PARÁMETROS ---
     async assignParametros(empresaId: number, parametroIds: number[]) {
-        // Primero eliminamos todas las asignaciones existentes para esta empresa
+        this.logger.log(`Asignando ${parametroIds.length} parámetros a empresa id=${empresaId}`);
         await this.prisma.empresa_parametro.deleteMany({
             where: { empresaId },
         });
 
-        // Luego creamos las nuevas
         if (parametroIds.length > 0) {
             return this.prisma.empresa_parametro.createMany({
                 data: parametroIds.map(parametroId => ({

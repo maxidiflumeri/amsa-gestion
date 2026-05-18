@@ -5,6 +5,8 @@ import {
 } from '@nestjs/bullmq';
 import { Job } from 'bullmq';
 import { Logger, BadRequestException } from '@nestjs/common';
+import { nanoid } from 'nanoid';
+import { RequestContextService } from '../../../common/logger/request-context';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../../prisma/prisma.service';
 import {
@@ -41,6 +43,7 @@ export class ReportesProcessor extends WorkerHost {
     private readonly csvExp: CsvExportador,
     private readonly txtExp: TxtExportador,
     private readonly pdfExp: PdfExportador,
+    private readonly requestContext: RequestContextService,
   ) {
     super();
   }
@@ -48,8 +51,24 @@ export class ReportesProcessor extends WorkerHost {
   async process(
     job: Job<EjecutarReporteJobData, EjecutarReporteJobResult, string>,
   ): Promise<EjecutarReporteJobResult> {
-    const { ejecucionId, plantillaId, usuarioId, filtrosVars, formato } =
-      job.data;
+    const { ejecucionId, plantillaId, usuarioId, filtrosVars, formato, _ctx } = job.data;
+
+    const parentCtx = _ctx as { requestId?: string; usuarioId?: number } | undefined;
+    const ctx = {
+      requestId: parentCtx?.requestId ?? nanoid(8),
+      usuarioId: parentCtx?.usuarioId ?? usuarioId,
+      source: 'bull' as const,
+      jobId: String(job.id),
+      queue: job.queueName,
+    };
+
+    return this.requestContext.run(ctx, () => this.realProcess(job));
+  }
+
+  private async realProcess(
+    job: Job<EjecutarReporteJobData, EjecutarReporteJobResult, string>,
+  ): Promise<EjecutarReporteJobResult> {
+    const { ejecucionId, plantillaId, usuarioId, filtrosVars, formato } = job.data;
 
     this.logger.log(
       `[ejecucionId=${ejecucionId}] Iniciando job ${job.id} plantilla=${plantillaId} formato=${formato}`,

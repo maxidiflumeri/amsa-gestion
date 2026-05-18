@@ -67,6 +67,8 @@ export class AsyncExecutorService {
       isCancelled,
     } = options;
 
+    this.logger.debug(`executeStreaming raiz=${raiz} chunkSize=${chunkSize} hardLimit=${hardLimit}`);
+
     if (raiz !== 'deudor') {
       throw new BadRequestException(`Raíz ${raiz} no soportada`);
     }

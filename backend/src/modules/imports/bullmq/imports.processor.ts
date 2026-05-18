@@ -1,9 +1,11 @@
 import { Processor, WorkerHost } from '@nestjs/bullmq';
 import { Job } from 'bullmq';
 import { Logger } from '@nestjs/common';
+import { nanoid } from 'nanoid';
 import { ImportService } from '../imports.service';
 import { AuditoriaHelper } from '../../transacciones/auditoria.helper';
 import { AuditEstado, AuditModulo, AuditSeveridad, AuditTipo } from '../../transacciones/audit.enums';
+import { RequestContextService } from 'src/common/logger/request-context';
 
 @Processor('import-queue')
 export class ImportsProcessor extends WorkerHost {
@@ -12,13 +14,28 @@ export class ImportsProcessor extends WorkerHost {
   constructor(
     private readonly importService: ImportService,
     private readonly auditoria: AuditoriaHelper,
+    private readonly requestContext: RequestContextService,
   ) {
     super();
   }
 
   async process(job: Job<any, any, string>): Promise<any> {
-    this.logger.log(`Procesando trabajo de importación ${job.id}`);
-    const { remesaId, remesaOrigenId, usuarioId } = job.data ?? {};
+    const { remesaId, remesaOrigenId, usuarioId, _ctx } = job.data ?? {};
+
+    const parentCtx = _ctx as { requestId?: string; usuarioId?: number } | undefined;
+    const ctx = {
+      requestId: parentCtx?.requestId ?? nanoid(8),
+      usuarioId: parentCtx?.usuarioId ?? usuarioId,
+      source: 'bull' as const,
+      jobId: String(job.id),
+      queue: job.queueName,
+    };
+
+    return this.requestContext.run(ctx, () => this.realProcess(job, remesaId, remesaOrigenId, usuarioId));
+  }
+
+  private async realProcess(job: Job<any, any, string>, remesaId: number, remesaOrigenId: number | undefined, usuarioId: number | undefined): Promise<any> {
+    this.logger.log(`Iniciando importación remesa=${remesaId} usuario=${usuarioId ?? 'SYS'} job=${job.id}`);
 
     try {
       if (!remesaId) {
@@ -31,7 +48,7 @@ export class ImportsProcessor extends WorkerHost {
         remesaOrigenId,
       );
 
-      this.logger.log(`Trabajo de importación ${job.id} completado con éxito`);
+      this.logger.log(`Importación completada remesa=${remesaId} job=${job.id}`);
 
       await this.auditoria.log({
         modulo: AuditModulo.IMPORT,
@@ -45,7 +62,7 @@ export class ImportsProcessor extends WorkerHost {
 
       return result;
     } catch (error: any) {
-      this.logger.error(`Error procesando trabajo de importación ${job.id}`, error);
+      this.logger.error(`Importación falló remesa=${remesaId} job=${job.id}: ${error?.message}`, error?.stack);
       await this.auditoria.log({
         modulo: AuditModulo.IMPORT,
         entidad: 'Remesa',

@@ -189,6 +189,7 @@ export class EmailSenderService {
         const { deudorId, usuarioId, templateId, destinatarios, asunto, variables, archivos } = params;
 
         if (!destinatarios.length) throw new BadRequestException('Indicá al menos un destinatario.');
+        this.logger.log(`Enviando email templateId=${templateId} destinatarios=${destinatarios.length} deudorId=${deudorId}`);
 
         const deudor = await this.cargarDeudor(deudorId);
         const empresa = await this.cargarEmpresaConSmtp(deudor.empresaId);
@@ -225,7 +226,7 @@ export class EmailSenderService {
                     error: String(err?.message ?? err),
                 },
             });
-            this.logger.error(`Envío FAIL deudor=${deudorId} err=${err?.message}`);
+            this.logger.error(`Envío email FAIL templateId=${templateId} deudorId=${deudorId}: ${err?.message}`, err?.stack);
             return { envioId: envio.id, empresaId: deudor.empresaId, reporteIds: [], ok: false, enviados: 0, errores: [{ email: destinatarios[0], error: String(err?.message ?? err) }] };
         }
 

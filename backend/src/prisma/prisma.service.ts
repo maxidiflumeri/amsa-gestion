@@ -7,15 +7,15 @@ export class PrismaService extends PrismaClient implements OnModuleInit, OnModul
     private readonly logger = new Logger(PrismaService.name);
 
     async onModuleInit() {
-        // 1) Conectá primero
-        await this.$connect();
-
-        // 2) Seteá timezone en la sesión actual (afecta esta conexión del pool)
-        await this.$executeRawUnsafe('SET time_zone = "-03:00"');
-
-        // 3) Logueá una sola vez
-        const [row]: any = await this.$queryRawUnsafe('SELECT @@session.time_zone tz');
-        this.logger.log(`Prisma conectado con zona horaria: ${row.tz}`);
+        try {
+            await this.$connect();
+            await this.$executeRawUnsafe('SET time_zone = "-03:00"');
+            const [row]: any = await this.$queryRawUnsafe('SELECT @@session.time_zone tz');
+            this.logger.log(`PrismaService conectado zona=${row.tz}`);
+        } catch (err: any) {
+            this.logger.error(`PrismaService: $connect() falló: ${err.message}`, err.stack);
+            throw err;
+        }
     }
 
     async enableShutdownHooks(app: INestApplication) {
@@ -38,5 +38,6 @@ export class PrismaService extends PrismaClient implements OnModuleInit, OnModul
 
     async onModuleDestroy() {
         await this.$disconnect();
+        this.logger.log('PrismaService desconectado');
     }
 }

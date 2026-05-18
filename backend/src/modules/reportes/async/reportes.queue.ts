@@ -8,6 +8,7 @@ export interface EjecutarReporteJobData {
   empresaId: number | null;
   filtrosVars: Record<string, any>;
   formato: string;
+  _ctx?: { requestId?: string; usuarioId?: number };
 }
 
 export interface EjecutarReporteJobResult {

@@ -24,7 +24,8 @@ export class ConveniosService {
   }
 
   async create(dto: CreateConvenioDto) {
-    this.logger.log(`Creando convenio tipo ${dto.tipo} para deudor ${dto.deudorId}`);
+    const t0 = Date.now();
+    this.logger.log(`Creando convenio tipo=${dto.tipo} deudor=${dto.deudorId} cuotas=${dto.cantCuotas}`);
 
     const deudor = await this.prisma.deudor.findUnique({
       where: { id: dto.deudorId },
@@ -83,7 +84,7 @@ export class ConveniosService {
       },
     });
 
-    this.logger.log(`Convenio automático creado con ID ${convenio.id}, ${dto.cantCuotas} cuotas generadas`);
+    this.logger.log(`Convenio automático creado id=${convenio.id} cuotas=${dto.cantCuotas} deudor=${dto.deudorId}`);
     return convenio;
   }
 
@@ -129,7 +130,7 @@ export class ConveniosService {
       },
     });
 
-    this.logger.log(`Convenio libre creado con ID ${convenio.id}, ${dto.cuotas.length} cuotas cargadas`);
+    this.logger.log(`Convenio libre creado id=${convenio.id} cuotas=${dto.cuotas.length} deudor=${dto.deudorId}`);
     return convenio;
   }
 

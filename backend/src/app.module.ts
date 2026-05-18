@@ -1,15 +1,17 @@
 import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 import { BullModule } from '@nestjs/bullmq';
+import { WinstonModule } from 'nest-winston';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
-import { DeudoresModule } from './modules/deudores/deudores.module';
+import { winstonConfig } from './common/logger/winston.config';
+import { RequestContextModule } from './common/logger/request-context.module';
 import { PrismaModule } from './prisma/prisma.module';
+import { DeudoresModule } from './modules/deudores/deudores.module';
 import { ParametrosModule } from './modules/parametros/parametros.module';
 import { TransaccionesModule } from './modules/transacciones/transacciones.module';
 import { ContactosModule } from './modules/contactos/contactos.module';
 import { ComentariosModule } from './modules/comentarios/comentarios.module';
-import { LoggerModule } from './common/logger/logger.module';
 import { ImportModule } from './modules/imports/imports.module';
 import { EmpresasModule } from './modules/empresas/empresas.module';
 import { PoliticasModule } from './modules/politicas/politicas.module';
@@ -28,7 +30,8 @@ import { NeotelModule } from './modules/neotel/neotel.module';
 @Module({
   imports: [
     ConfigModule.forRoot({ isGlobal: true }),
-    LoggerModule,
+    WinstonModule.forRoot(winstonConfig()),
+    RequestContextModule,
     PrismaModule,
     BullModule.forRoot({
       connection: {

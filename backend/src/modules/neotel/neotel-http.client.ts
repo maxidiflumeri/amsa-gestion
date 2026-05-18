@@ -1,5 +1,6 @@
 import { Injectable, Logger, OnModuleInit, ServiceUnavailableException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { sanitizeParams } from 'src/common/logger/sanitize';
 import { NeotelApiError, NeotelAuthError, NeotelTimeoutError } from './errors/neotel.errors';
 import { XmlResponseParser } from './parsers/xml-response.parser';
 import type {
@@ -19,9 +20,6 @@ import type {
     NeotelUpdateContactParams,
 } from './dto/neotel-http.dto';
 
-/** Campos sensibles que NO deben aparecer en logs */
-const CAMPOS_SENSIBLES = new Set(['CLAVE', 'DATA', 'XML_UPDATE']);
-
 interface CallOptions {
     timeoutMs?: number;
     retries?: number;
@@ -32,7 +30,7 @@ interface CallOptions {
 
 @Injectable()
 export class NeotelHttpClient implements OnModuleInit {
-    private readonly logger = new Logger('[NeotelHttpClient]');
+    private readonly logger = new Logger(NeotelHttpClient.name);
 
     private baseUrl!: string;
     private defaultTimeoutMs!: number;
@@ -75,7 +73,7 @@ export class NeotelHttpClient implements OnModuleInit {
             ),
         ).toString();
 
-        const safeParams = this.redactSensitive(params);
+        const safeParams = sanitizeParams(params as Record<string, any>, ['CLAVE', 'DATA', 'XML_UPDATE']);
         this.logger.debug(`→ ${endpoint} params=${JSON.stringify(safeParams)}`);
 
         let lastError: Error = new NeotelTimeoutError(endpoint);
@@ -135,14 +133,6 @@ export class NeotelHttpClient implements OnModuleInit {
             throw new NeotelTimeoutError(endpoint);
         }
         throw new ServiceUnavailableException(`Neotel no disponible: ${lastError.message}`);
-    }
-
-    private redactSensitive(params: Record<string, string | number | boolean>): Record<string, string | number | boolean> {
-        const out: Record<string, string | number | boolean> = {};
-        for (const [k, v] of Object.entries(params)) {
-            out[k] = CAMPOS_SENSIBLES.has(k.toUpperCase()) ? '***' : v;
-        }
-        return out;
     }
 
     // ─────────────────────────────────────────────────────────────────────────

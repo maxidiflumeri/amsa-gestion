@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { deudor, Prisma } from '@prisma/client';
 import { PrismaService } from 'src/prisma/prisma.service';
 import { CreateDeudorDto } from './dtos/create-deudor.dto';
@@ -7,6 +7,8 @@ import { AdvancedSearchDto } from './dtos/advanced-search.dto';
 
 @Injectable()
 export class DeudoresService {
+    private readonly logger = new Logger(DeudoresService.name);
+
     constructor(private prisma: PrismaService) { }
 
     async findAll(page?: number, limit?: number, search?: string) {
@@ -162,6 +164,7 @@ export class DeudoresService {
     }
 
     async create(dto: CreateDeudorDto): Promise<deudor> {
+        this.logger.log(`Creando deudor documento=${dto.documento} empresaId=${dto.empresaId}`);
         const {
             empresaId,
             remesaId,
@@ -170,7 +173,7 @@ export class DeudoresService {
             ...rest
         } = dto;
 
-        return this.prisma.deudor.create({
+        const d = await this.prisma.deudor.create({
             data: {
                 ...rest,
                 empresa: { connect: { id: empresaId } },
@@ -179,10 +182,13 @@ export class DeudoresService {
                 ...(estadoGestionId && { estadoGestion: { connect: { id: estadoGestionId } } }),
             },
         });
+        this.logger.log(`Deudor creado id=${d.id} empresaId=${empresaId}`);
+        return d;
     }
 
 
     async update(id: number, dto: UpdateDeudorDto) {
+        this.logger.log(`Actualizando deudor id=${id}`);
         const { estadoSituacionClave, estadoGestionClave, motivoNoPagoClave } = dto;
 
         let data: any = {};
@@ -231,6 +237,7 @@ export class DeudoresService {
     }
 
     async delete(id: number): Promise<deudor> {
+        this.logger.log(`Eliminando deudor id=${id}`);
         return this.prisma.deudor.delete({
             where: { id },
         });

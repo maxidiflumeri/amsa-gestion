@@ -1,8 +1,10 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { PrismaService } from 'src/prisma/prisma.service';
 
 @Injectable()
 export class ParametrosService {
+    private readonly logger = new Logger(ParametrosService.name);
+
     constructor(private prisma: PrismaService) {}
 
     findAll(filters: { grupo?: string; empresaId?: number; activo?: boolean } = {}) {
@@ -42,16 +44,19 @@ export class ParametrosService {
     }
 
     create(data: { grupo: string; clave: string; descripcion: string; padreId?: number; categoria?: string; esGlobal?: boolean; activo?: boolean }) {
+        this.logger.log(`Creando parámetro grupo=${data.grupo} clave=${data.clave}`);
         return this.prisma.parametro.create({ data });
     }
 
     async update(id: number, data: { grupo?: string; clave?: string; descripcion?: string; padreId?: number; categoria?: string; esGlobal?: boolean; activo?: boolean }) {
+        this.logger.log(`Actualizando parámetro id=${id}`);
         await this.findOne(id);
         return this.prisma.parametro.update({ where: { id }, data });
     }
 
     async toggleActivo(id: number) {
         const p = await this.findOne(id);
+        this.logger.log(`Toggle activo parámetro id=${id} activo=${p.activo} → ${!p.activo}`);
         return this.prisma.parametro.update({
             where: { id },
             data: { activo: !p.activo },
@@ -59,6 +64,7 @@ export class ParametrosService {
     }
 
     async remove(id: number) {
+        this.logger.log(`Eliminando parámetro id=${id}`);
         await this.findOne(id);
         return this.prisma.parametro.delete({ where: { id } });
     }

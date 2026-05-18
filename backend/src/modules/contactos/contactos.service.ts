@@ -1,5 +1,5 @@
 // src/contactos/contactos.service.ts
-import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { PrismaService } from 'src/prisma/prisma.service';
 import { UpdateContactoDto } from './dtos/update-contacto.dto';
 import { CreateContactoDto } from './dtos/create-contacto.dto';
@@ -9,9 +9,12 @@ import { normalizarDireccionArgentina } from 'src/common/utils/direccion-utils';
 
 @Injectable()
 export class ContactosService {
+    private readonly logger = new Logger(ContactosService.name);
+
     constructor(private prisma: PrismaService) { }
 
     async create(dto: CreateContactoDto) {
+        this.logger.log(`Creando contacto tipo=${dto.tipo} deudorId=${dto.deudorId}`);
         const data: any = { ...dto };
         if (data.tipo === 'telefono' || data.tipo === 'whatsapp') {
             const res = normalizarTelefonoArgentino(data.valor);
@@ -74,6 +77,7 @@ export class ContactosService {
     }
 
     async update(id: number, dto: UpdateContactoDto) {
+        this.logger.log(`Actualizando contacto id=${id}`);
         const contacto = await this.prisma.contacto.findUnique({ where: { id } });
         if (!contacto) throw new NotFoundException('Contacto no encontrado');
 
@@ -142,6 +146,7 @@ export class ContactosService {
     }
 
     async remove(id: number) {
+        this.logger.log(`Eliminando contacto id=${id}`);
         const contacto = await this.prisma.contacto.findUnique({ where: { id } });
         if (!contacto) throw new NotFoundException('Contacto no encontrado');
         await this.prisma.contacto.delete({ where: { id } });

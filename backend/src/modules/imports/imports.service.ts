@@ -15,6 +15,7 @@ import { ProcessContext, MappedRow } from './processors/processor.interface';
 import { RealtimeService } from '../realtime/realtime.service';
 import { NotificacionesService } from '../notificaciones/notificaciones.service';
 import { ProgressEmitter } from './utils/progress-emitter';
+import { RequestContextService } from 'src/common/logger/request-context';
 
 @Injectable()
 export class ImportService {
@@ -26,6 +27,7 @@ export class ImportService {
         @InjectQueue('import-queue') private importQueue: Queue,
         private readonly realtimeService: RealtimeService,
         private readonly notificacionesService: NotificacionesService,
+        private readonly requestContext: RequestContextService,
     ) { }
 
     // --- PLANTILLAS ---
@@ -308,7 +310,7 @@ export class ImportService {
             await new Promise<void>((resolve, reject) => {
                 parser
                     .on('error', (parseErr) => {
-                        console.error("CSV ERROR:", parseErr);
+                        this.logger.error(`Error parsing CSV remesa=${remesaId}: ${parseErr.message}`, parseErr.stack);
                         reject(parseErr);
                     })
                     .on('data', (row: any) => {
@@ -395,11 +397,12 @@ export class ImportService {
             });
         }
 
-        // Encolar el trabajo
+        const ctx = this.requestContext.get();
         await this.importQueue.add('process-import', {
             remesaId,
             remesaOrigenId,
             usuarioId,
+            _ctx: ctx ? { requestId: ctx.requestId, usuarioId: ctx.usuarioId } : undefined,
         });
 
         return { message: 'Importación encolada correctamente', remesaId };

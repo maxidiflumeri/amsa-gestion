@@ -1,9 +1,8 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from 'src/prisma/prisma.service';
 import { RegistrarTransaccionDto } from './dtos/registrar-transaccion.dto';
 import { QueryTransaccionesDto } from './dtos/query-transacciones.dto';
-import { LoggerService } from 'src/common/logger/logger.service';
 import { XlsxExportador } from '../reportes/exportadores/xlsx.exportador';
 import { CsvExportador } from '../reportes/exportadores/csv.exportador';
 import { PdfExportador } from '../reportes/exportadores/pdf.exportador';
@@ -12,9 +11,10 @@ export type FormatoExport = 'xlsx' | 'csv' | 'pdf';
 
 @Injectable()
 export class TransaccionesService {
+    private readonly logger = new Logger(TransaccionesService.name);
+
     constructor(
         private prisma: PrismaService,
-        private logger: LoggerService,
         private xlsx: XlsxExportador,
         private csv: CsvExportador,
         private pdf: PdfExportador,
@@ -42,7 +42,6 @@ export class TransaccionesService {
 
         this.logger.debug(
             `Auditoría [${dto.modulo}/${dto.entidad}:${dto.tipo}] estado=${dto.estado ?? 'OK'} usuario=${dto.usuarioId ?? 'SYS'}`,
-            'TransaccionesService',
         );
 
         return tx;

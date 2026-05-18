@@ -1,7 +1,6 @@
-import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from 'src/prisma/prisma.service';
-import { LoggerService } from 'src/common/logger/logger.service';
 import { CODIGOS, RANGO_MAX_DIAS } from './codigos.constants';
 import { SnapshotDto } from './dtos/snapshot.dto';
 import { DrillDownDto } from './dtos/drill-down.dto';
@@ -38,12 +37,14 @@ type Granularidad = 'dia' | 'semana' | 'mes';
 
 @Injectable()
 export class DashboardsService {
+    private readonly logger = new Logger(DashboardsService.name);
+
     constructor(
         private prisma: PrismaService,
-        private logger: LoggerService,
     ) { }
 
     async snapshot(dto: SnapshotDto, restrictEmpresaId: number | null): Promise<SnapshotResponse> {
+        const t0 = Date.now();
         const desde = new Date(dto.desde);
         const hasta = new Date(dto.hasta);
         if (isNaN(desde.getTime()) || isNaN(hasta.getTime())) {
@@ -55,6 +56,9 @@ export class DashboardsService {
         const diffDias = Math.ceil((hasta.getTime() - desde.getTime()) / 86_400_000);
         if (diffDias > RANGO_MAX_DIAS) {
             throw new BadRequestException(`Rango máximo permitido: ${RANGO_MAX_DIAS} días`);
+        }
+        if (diffDias > RANGO_MAX_DIAS * 0.8) {
+            this.logger.warn(`Snapshot con rango amplio diffDias=${diffDias} (máx=${RANGO_MAX_DIAS})`);
         }
 
         const empresaIdEfectivo = restrictEmpresaId ?? dto.empresaId ?? null;
@@ -282,6 +286,8 @@ export class DashboardsService {
         const pagosPeriodo = pagosAgg._sum.importe ?? 0;
         const deudaTotal = deudaAgg._sum.montoTotal ?? 0;
         const ticketPromedio = pagosAgg._avg.importe ?? 0;
+
+        this.logger.log(`Snapshot generado empresaId=${restrictEmpresaId ?? dto.empresaId ?? 'todos'} casos=${cantidadCasos} en ${Date.now() - t0}ms`);
 
         return {
             kpis: {

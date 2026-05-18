@@ -15,6 +15,7 @@ import {
   REPORTES_JOB_EJECUTAR,
   EjecutarReporteJobData,
 } from '../async/reportes.queue';
+import { RequestContextService } from 'src/common/logger/request-context';
 import {
   EncolarEjecucionResponse,
   EstadoEjecucion,
@@ -34,6 +35,7 @@ export class EjecucionesService {
     private storage: ReportesStorageService,
     private executor: AsyncExecutorService,
     @InjectQueue(REPORTES_QUEUE_NAME) private queue: Queue,
+    private readonly requestContext: RequestContextService,
   ) {
     this.umbralSync = parseInt(
       process.env.REPORTES_SYNC_THRESHOLD || '5000',
@@ -95,6 +97,7 @@ export class EjecucionesService {
       },
     });
 
+    const ctx = this.requestContext.get();
     const jobData: EjecutarReporteJobData = {
       ejecucionId: ejecucion.id,
       plantillaId,
@@ -102,6 +105,7 @@ export class EjecucionesService {
       empresaId: plantilla.empresaId ?? null,
       filtrosVars: filtrosVars || {},
       formato: plantilla.formatoSalida,
+      _ctx: ctx ? { requestId: ctx.requestId, usuarioId: ctx.usuarioId } : undefined,
     };
 
     const job = await this.queue.add(REPORTES_JOB_EJECUTAR, jobData, {

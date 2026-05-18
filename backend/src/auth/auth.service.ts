@@ -23,10 +23,18 @@ export class AuthService {
     ) {}
 
     async loginWithGoogle(idToken: string, ctx?: { ip?: string; userAgent?: string }) {
-        const ticket = await client.verifyIdToken({
-            idToken,
-            audience: process.env.GOOGLE_CLIENT_ID,
-        });
+        this.logger.log(`Login Google: validando idToken tok=${idToken.slice(0, 10)}...`);
+
+        let ticket;
+        try {
+            ticket = await client.verifyIdToken({
+                idToken,
+                audience: process.env.GOOGLE_CLIENT_ID,
+            });
+        } catch (err: any) {
+            this.logger.error(`Login Google: verifyIdToken falló: ${err.message}`, err.stack);
+            throw new UnauthorizedException('Token de Google inválido o expirado');
+        }
 
         const payload = ticket.getPayload();
         if (!payload) throw new UnauthorizedException('Token de Google inválido');
@@ -95,7 +103,7 @@ export class AuthService {
             },
         );
 
-        this.logger.log(`Login exitoso: ${email} (rol: ${usuario.rolObj?.nombre ?? usuario.rol})`);
+        this.logger.log(`Login OK usuarioId=${usuario.id} email=${email} rol=${usuario.rolObj?.nombre ?? usuario.rol}`);
 
         await this.auditoria.log({
             modulo: AuditModulo.AUTH,
