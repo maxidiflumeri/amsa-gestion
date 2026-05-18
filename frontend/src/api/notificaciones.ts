@@ -53,6 +53,6 @@ export async function marcarTodas(): Promise<void> {
 }
 
 export async function obtenerImportsEnCurso(): Promise<ImportEnCursoDto[]> {
-    const { data } = await api.get<ImportEnCursoDto[]>('/imports/en-curso');
+    const { data } = await api.get<ImportEnCursoDto[]>('/import/en-curso');
     return data;
 }

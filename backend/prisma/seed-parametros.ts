@@ -3,7 +3,8 @@ import * as XLSX from 'xlsx';
 import * as path from 'path';
 
 const prisma = new PrismaClient();
-const EXCELS_DIR = 'C:/Users/MDIFLUME/Documents/Proyectos/Propios/amsa-gestion/varios';
+// Path relativo desde backend/prisma → ../../varios (portable Linux/Windows/Mac)
+const EXCELS_DIR = path.resolve(__dirname, '../../varios');
 
 interface CodigoRaw {
   empresa: string;

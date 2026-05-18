@@ -88,7 +88,19 @@
       "WebFetch(domain:neotel-us.atlassian.net)",
       "Bash(npx nest *)",
       "Bash(cat .gitignore)",
-      "Bash(ls varios/)"
+      "Bash(ls varios/)",
+      "Bash(cp /home/maxi/Documentos/GitHub/amsa-gestion/backend/.env /home/maxi/Documentos/GitHub/amsa-gestion/backend/.env.sender-backup && echo \"Backup OK\")",
+      "Bash(docker exec *)",
+      "Bash(ls src/modules/imports/ src/modules/imports/processors/)",
+      "Bash(ls src/modules/imports/bullmq/)",
+      "Bash(ls src/modules/reportes/async/)",
+      "Skill(nestjs-module)",
+      "Skill(nestjs-module:*)",
+      "Bash(python3 -c \"import json,sys; d=json.load\\(sys.stdin\\); print\\(json.dumps\\(d.get\\('exports', {}\\), indent=2\\)\\)\")",
+      "Bash(python3 -m json.tool)"
+    ],
+    "additionalDirectories": [
+      "/home/maxi/Documentos/GitHub/amsa-gestion/backend"
     ]
   }
 }

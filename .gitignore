@@ -1,2 +1,6 @@
 node_modules/
 .claude/worktrees/
+
+# Backups locales de .env (no commitear nunca, contienen secrets)
+*.env.sender-backup
+*.env.*.backup
