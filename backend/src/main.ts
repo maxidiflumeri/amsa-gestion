@@ -31,12 +31,19 @@ async function bootstrap() {
     app.useGlobalPipes(new ValidationPipe({ whitelist: false, transform: true }));
     app.setGlobalPrefix('api');
 
+    // Orígenes por defecto + los que se agreguen por env (CORS_ORIGINS, separados por coma).
+    // En prod, la EC2 inyecta CORS_ORIGINS=https://amsagestion.anamayasa.com vía docker-compose.
+    const defaultOrigins = [
+        'http://localhost:5173',
+        'http://localhost:3000',
+        'https://amsasender.anamayasa.com',
+    ];
+    const envOrigins = (process.env.CORS_ORIGINS ?? '')
+        .split(',')
+        .map((o) => o.trim())
+        .filter(Boolean);
     app.enableCors({
-        origin: [
-            'http://localhost:5173',
-            'http://localhost:3000',
-            'https://amsasender.anamayasa.com',
-        ],
+        origin: [...new Set([...defaultOrigins, ...envOrigins])],
         credentials: true,
     });
     app.use(json());

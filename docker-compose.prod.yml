@@ -1,0 +1,66 @@
+# docker-compose.prod.yml — AMSA Gestión (EC2, us-east-1)
+#
+# La imagen del backend se publica en ECR (la CI buildea, la EC2 hace pull — NO se buildea acá).
+# TLS termina en el ALB (ACM); el contenedor escucha HTTP plano en :3001 y el ALB lo targetea.
+# Secretos: en .env (renderizado desde SSM Parameter Store por infra/ec2/render-env.sh).
+# `${BACKEND_IMAGE}` se interpola desde ese mismo .env (docker compose lo autocarga).
+
+services:
+  backend:
+    image: ${BACKEND_IMAGE}
+    container_name: amsa-gestion-backend
+    restart: always
+    # Secretos / por-entorno (DATABASE_URL, JWT_SECRET, NEOTEL_SIP_ENCRYPTION_KEY,
+    # SENDER_*, GOOGLE_CLIENT_ID, JWT_EXPIRES_IN, BACKEND_IMAGE) → ver render-env.sh
+    env_file:
+      - .env
+    # Config NO sensible (vive en claro en el repo)
+    environment:
+      - NODE_ENV=production
+      - PORT=3001
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - CORS_ORIGINS=https://amsagestion.anamayasa.com
+      - REPORTES_STORAGE_PATH=/app/storage
+      - REPORTES_V2_STORAGE_PATH=/app/storage
+      - REPORTES_RETENTION_DAYS=30
+      - LOG_DIR=/app/logs
+      - LOG_LEVEL=log
+      - NEOTEL_API_HOST=http://200.5.98.203
+      - NEOTEL_TIMEOUT_MS=8000
+      - NEOTEL_RETRY_ATTEMPTS=3
+      - NEOTEL_SIP_DOMAIN=200.5.98.203
+      - NEOTEL_WSS_URL=wss://200.5.98.203:8089/ws
+    ports:
+      - "3001:3001"   # el target group del ALB apunta a este puerto
+    volumes:
+      - storage:/app/storage
+      - logs:/app/logs
+    depends_on:
+      - redis
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://localhost:3001/api/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 40s
+    # Logs del contenedor → CloudWatch Logs (sobreviven a la pérdida de la box).
+    # Requiere que el rol de la instancia tenga permisos logs:* (lo da Terraform).
+    logging:
+      driver: awslogs
+      options:
+        awslogs-region: us-east-1
+        awslogs-group: /amsa-gestion/backend
+        awslogs-create-group: "true"
+
+  redis:
+    image: redis:7-alpine
+    container_name: amsa-gestion-redis
+    restart: always
+    volumes:
+      - redis_data:/data
+
+volumes:
+  storage:
+  logs:
+  redis_data:

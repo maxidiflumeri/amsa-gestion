@@ -1,0 +1,15 @@
+# Contexto de build del backend (Dockerfile.backend). El front se despliega aparte (S3/CloudFront).
+.git
+.github
+frontend
+varios
+docs
+infra
+**/node_modules
+**/dist
+**/coverage
+**/logs
+**/storage
+**/.env
+**/.env.*
+!**/.env.example
