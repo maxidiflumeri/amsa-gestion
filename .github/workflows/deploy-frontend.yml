@@ -1,0 +1,79 @@
+name: Deploy Frontend (S3 + CloudFront)
+
+on:
+  push:
+    branches: [ main ]
+    paths:
+      - 'frontend/**'
+      - '.github/workflows/deploy-frontend.yml'
+  workflow_dispatch:
+
+permissions:
+  id-token: write   # OIDC con AWS
+  contents: read
+
+concurrency:
+  group: deploy-frontend
+  cancel-in-progress: true
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+    env:
+      NODE_OPTIONS: "--max-old-space-size=4096"
+    defaults:
+      run:
+        working-directory: ./frontend
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Use Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'npm'
+          cache-dependency-path: ./frontend/package-lock.json
+
+      - name: Install deps
+        run: npm ci
+
+      - name: Create .env.production
+        run: |
+          cat > .env.production <<EOF
+          VITE_API_URL=${{ vars.VITE_API_URL }}
+          VITE_HOST_SOCKET=${{ vars.VITE_HOST_SOCKET }}
+          VITE_GOOGLE_CLIENT_ID=${{ secrets.VITE_GOOGLE_CLIENT_ID }}
+          EOF
+
+      - name: Build
+        run: npm run build
+
+      - name: Configure AWS (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN_FRONTEND }}
+          aws-region: us-east-1
+
+      # 1) Assets hasheados con cache largo (excluye index.html)
+      - name: Sync assets (long cache)
+        run: |
+          aws s3 sync dist "s3://${{ vars.S3_BUCKET }}/" \
+            --delete \
+            --exclude "index.html" \
+            --cache-control "public,max-age=31536000,immutable"
+
+      # 2) index.html sin cache
+      - name: Upload index.html (no-cache)
+        run: |
+          aws s3 cp dist/index.html "s3://${{ vars.S3_BUCKET }}/index.html" \
+            --content-type "text/html" \
+            --cache-control "no-store,no-cache,must-revalidate" \
+            --metadata-directive REPLACE
+
+      # 3) Invalidación mínima de CloudFront
+      - name: CloudFront invalidation
+        run: |
+          aws cloudfront create-invalidation \
+            --distribution-id "${{ vars.CF_DISTRIBUTION_ID }}" \
+            --paths "/index.html" "/"

@@ -1,0 +1,16 @@
+# Copiar a terraform.tfvars y completar los secretos antes del apply.
+# terraform.tfvars está en .gitignore — NUNCA commitearlo.
+
+# Requeridos para que funcionen email-sender / telefonía (se pueden completar después):
+sender_internal_api_key   = "PEGAR_LA_KEY_QUE_AMSA_SENDER_PROD_ESPERA"
+neotel_sip_encryption_key = "PEGAR_LA_MISMA_KEY_DE_gestion_backend_punto_env"
+
+# Opcionales (tienen default sensato):
+# jwt_secret         = ""                # vacío => Terraform genera uno aleatorio fuerte
+# admin_cidr         = "190.16.88.238/32"
+# instance_type      = "t4g.large"
+# instance_arch      = "arm64"
+# rds_instance_class = "db.t4g.small"
+# rds_storage_gb     = 50
+# rds_max_storage_gb = 200
+# alarm_email        = "maxidiflumeri@gmail.com"

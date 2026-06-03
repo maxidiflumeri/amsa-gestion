@@ -1,0 +1,26 @@
+# Dockerfile.backend — AMSA Gestión (NestJS 11 + Prisma)
+# Build context = raíz del repo. La CI lo buildea y publica en ECR; la EC2 solo hace pull.
+# Lean: gestión NO usa puppeteer (exporta con pdfmake/exceljs/xlsx), así que no instala Chrome.
+FROM node:20-bookworm-slim
+
+ENV TZ=America/Argentina/Buenos_Aires
+
+# Prisma necesita openssl en runtime
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends openssl ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+
+# Dependencias primero (mejor cache de capas). Se mantiene el set completo
+# (incluye prisma CLI) porque el deploy corre `prisma db push` dentro del contenedor.
+COPY backend/package*.json ./
+COPY backend/prisma ./prisma
+RUN npm ci
+
+# Resto del código + generación de cliente + compilación
+COPY backend .
+RUN npx prisma generate && npm run build
+
+EXPOSE 3001
+CMD ["node", "dist/main"]

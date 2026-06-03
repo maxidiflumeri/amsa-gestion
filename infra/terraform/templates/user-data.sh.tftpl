@@ -1,0 +1,29 @@
+#!/usr/bin/env bash
+# user-data de la EC2 (Amazon Linux 2023). Instala Docker + compose y deja la box
+# lista para el primer deploy (que dispara GitHub Actions vía SSM).
+set -euxo pipefail
+REGION="${region}"
+APP_DIR=/opt/amsa-gestion
+
+# --- Docker ---
+dnf install -y docker
+systemctl enable --now docker
+
+# --- Plugin docker compose v2 (AL2023 no lo trae) ---
+mkdir -p /usr/local/lib/docker/cli-plugins
+curl -fsSL "https://github.com/docker/compose/releases/download/v2.29.7/docker-compose-linux-${compose_arch}" \
+  -o /usr/local/lib/docker/cli-plugins/docker-compose
+chmod +x /usr/local/lib/docker/cli-plugins/docker-compose
+
+mkdir -p "$APP_DIR"
+cd "$APP_DIR"
+
+# --- Traer scripts + compose desde SSM ---
+aws ssm get-parameter --name /amsa-gestion/_deploy_sh     --query Parameter.Value --output text --region "$REGION" > deploy.sh
+aws ssm get-parameter --name /amsa-gestion/_render_env_sh --query Parameter.Value --output text --region "$REGION" > render-env.sh
+aws ssm get-parameter --name /amsa-gestion/_compose       --query Parameter.Value --output text --region "$REGION" > docker-compose.prod.yml
+chmod +x deploy.sh render-env.sh
+
+# --- Render inicial del .env (el primer 'up' lo hace el workflow de backend) ---
+AWS_REGION="$REGION" ./render-env.sh || true
+echo "user-data: box lista. Esperando primer deploy vía GitHub Actions."
