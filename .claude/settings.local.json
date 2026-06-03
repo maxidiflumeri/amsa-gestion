@@ -97,7 +97,20 @@
       "Skill(nestjs-module)",
       "Skill(nestjs-module:*)",
       "Bash(python3 -c \"import json,sys; d=json.load\\(sys.stdin\\); print\\(json.dumps\\(d.get\\('exports', {}\\), indent=2\\)\\)\")",
-      "Bash(python3 -m json.tool)"
+      "Bash(python3 -m json.tool)",
+      "Bash(nc -z -w2 127.0.0.1 3306)",
+      "Bash(timeout 2 bash -c 'cat < /dev/tcp/127.0.0.1/3306')",
+      "Bash(systemctl status *)",
+      "Bash(curl -v --max-time 3 telnet://127.0.0.1:3306 2>&1 | head -15; echo \"---\"; ip addr 2>&1 | head -20; echo \"---\"; cat /etc/resolv.conf 2>&1 | head -5)",
+      "Read(//run/host/monitor/**)",
+      "Bash(ldd node_modules/@prisma/engines/schema-engine-*)",
+      "Bash(DEBUG=\"prisma*,-prisma:client*\" timeout 30 npx prisma db push --skip-generate --accept-data-loss)",
+      "Bash(timeout 10 ./node_modules/@prisma/engines/schema-engine-debian-openssl-3.0.x -d ./prisma/schema.prisma)",
+      "Bash(DATABASE_URL=\"mysql://root:root@127.0.0.1:3306/amsa_gestion?connect_timeout=10\" timeout 30 npx prisma db push --skip-generate --accept-data-loss)",
+      "Read(//proc/sys/net/ipv4/**)",
+      "Bash(lsmod)",
+      "Read(//home/maxi/infra/**)",
+      "Bash(chmod +x /home/maxi/Documentos/GitHub/amsa-gestion/backend/setup-db.sh)"
     ],
     "additionalDirectories": [
       "/home/maxi/Documentos/GitHub/amsa-gestion/backend"
