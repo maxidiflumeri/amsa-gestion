@@ -29,6 +29,12 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Set up QEMU (build cross-arch arm64)
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
       - name: Configure AWS (OIDC)
         uses: aws-actions/configure-aws-credentials@v4
         with:
@@ -39,16 +45,18 @@ jobs:
         id: ecr
         uses: aws-actions/amazon-ecr-login@v2
 
-      - name: Build & push image
+      # La EC2 es arm64 (Graviton t4g) → la imagen DEBE ser linux/arm64.
+      # El runner es x86, así que buildx + QEMU compilan arm64 por emulación.
+      - name: Build & push image (linux/arm64)
         env:
           REGISTRY: ${{ steps.ecr.outputs.registry }}
         run: |
           IMAGE="$REGISTRY/$ECR_REPO"
-          docker build -f Dockerfile.backend \
+          docker buildx build --platform linux/arm64 \
+            -f Dockerfile.backend \
             -t "$IMAGE:${{ github.sha }}" \
-            -t "$IMAGE:latest" .
-          docker push "$IMAGE:${{ github.sha }}"
-          docker push "$IMAGE:latest"
+            -t "$IMAGE:latest" \
+            --push .
           echo "IMAGE_URI=$IMAGE:${{ github.sha }}" >> "$GITHUB_ENV"
 
       # Dispara el deploy en la EC2 vía SSM (sin SSH ni puerto 22 expuesto).

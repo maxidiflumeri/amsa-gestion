@@ -8,8 +8,10 @@ infra
 **/node_modules
 **/dist
 **/coverage
-**/logs
-**/storage
+# OJO: scopear a los dirs runtime de backend/, NO usar **/storage ni **/logs
+# (matchearían el código en src/modules/reportes/storage → rompe el build)
+backend/logs
+backend/storage
 **/.env
 **/.env.*
 !**/.env.example
