@@ -54,9 +54,9 @@ async function main() {
       apellido: 'Gómez',
       montoTotal: 145320.5,
       fechaVencimiento: dias(-30),
-      estadoSituacionId: 762, // SIT-020 Promesa de pago vigente
-      estadoGestionId: 707,   // GES-002 Contacto con titular
-      motivoNoPagoId: 794,    // MNP-014 Priorizó pago de otros servicios
+      sitClave: 'SIT-020', // Promesa de pago vigente
+      gesClave: 'GES-002', // Contacto con titular
+      mnpClave: 'MNP-014', // Priorizó pago de otros servicios
       camposAdicionales: {
         plan: 'Personal Black',
         antiguedad_cliente: '4 años',
@@ -79,9 +79,9 @@ async function main() {
       apellido: 'Pérez',
       montoTotal: 387900.0,
       fechaVencimiento: dias(-60),
-      estadoSituacionId: 751, // SIT-001 Sin contacto
-      estadoGestionId: 710,   // GES-005 Llamada sin respuesta
-      motivoNoPagoId: null,
+      sitClave: 'SIT-001', // Sin contacto
+      gesClave: 'GES-005', // Llamada sin respuesta
+      mnpClave: null,
       camposAdicionales: {
         plan: 'Personal Flex 30GB',
         antiguedad_cliente: '7 años',
@@ -103,9 +103,9 @@ async function main() {
       apellido: 'Rodríguez',
       montoTotal: 62400.0,
       fechaVencimiento: dias(15),
-      estadoSituacionId: 764, // SIT-030 Convenio activo
-      estadoGestionId: 732,   // GES-052 Convenio solicitado
-      motivoNoPagoId: 813,    // MNP-060 Solicita plan de pagos
+      sitClave: 'SIT-030', // Convenio activo
+      gesClave: 'GES-052', // Convenio solicitado
+      mnpClave: 'MNP-060', // Solicita plan de pagos
       camposAdicionales: {
         plan: 'Personal Family 50GB',
         antiguedad_cliente: '2 años',
@@ -122,6 +122,20 @@ async function main() {
       ],
     },
   ];
+
+  // Resolver IDs de parámetros por CLAVE (robusto: los IDs son autoincrementales y varían por DB).
+  const clavesNec = [
+    ...new Set(deudores.flatMap((d) => [d.sitClave, d.gesClave, d.mnpClave].filter(Boolean))),
+  ] as string[];
+  const params = await p.parametro.findMany({
+    where: { clave: { in: clavesNec } },
+    select: { id: true, clave: true },
+  });
+  const idPorClave = new Map(params.map((x) => [x.clave, x.id]));
+  const faltan = clavesNec.filter((c) => !idPorClave.has(c));
+  if (faltan.length) {
+    throw new Error('Faltan parámetros (corré seed-codigos-curados primero): ' + faltan.join(', '));
+  }
 
   for (const d of deudores) {
     const deudor = await p.deudor.upsert({
@@ -140,9 +154,9 @@ async function main() {
         apellido: d.apellido,
         montoTotal: d.montoTotal,
         fechaVencimiento: d.fechaVencimiento,
-        estadoSituacionId: d.estadoSituacionId,
-        estadoGestionId: d.estadoGestionId,
-        motivoNoPagoId: d.motivoNoPagoId,
+        estadoSituacionId: idPorClave.get(d.sitClave)!,
+        estadoGestionId: idPorClave.get(d.gesClave)!,
+        motivoNoPagoId: d.mnpClave ? idPorClave.get(d.mnpClave)! : null,
         camposAdicionales: d.camposAdicionales,
       },
       update: {
@@ -150,9 +164,9 @@ async function main() {
         apellido: d.apellido,
         montoTotal: d.montoTotal,
         fechaVencimiento: d.fechaVencimiento,
-        estadoSituacionId: d.estadoSituacionId,
-        estadoGestionId: d.estadoGestionId,
-        motivoNoPagoId: d.motivoNoPagoId,
+        estadoSituacionId: idPorClave.get(d.sitClave)!,
+        estadoGestionId: idPorClave.get(d.gesClave)!,
+        motivoNoPagoId: d.mnpClave ? idPorClave.get(d.mnpClave)! : null,
         camposAdicionales: d.camposAdicionales,
       },
     });
