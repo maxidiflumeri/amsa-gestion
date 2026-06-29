@@ -62,6 +62,16 @@
 - **Backend** (`imports.service.deleteRemesa`): permite borrar remesas terminadas con casos **solo si ningún deudor tiene gestión** (comentarios, convenios, pagos, llamadas, emails). Si la tiene, rechaza con el detalle. Borrado transaccional en cascada controlada (contactos + campoextras + facturas → deudores → jobs/errores → remesa); la auditoría se conserva (transacciones quedan desvinculadas).
 - **Frontend** (`ImportHistory.tsx`): el botón eliminar se habilita en cualquier estado salvo "en curso"; el diálogo aclara que se borran los casos y que se bloquea si hay gestión.
 
+### 10. Políticas: editor enriquecido en las 3 secciones + tabs
+
+- **Frontend** (`AjustesPoliticas.tsx`): el modal de carga/edición se reorganizó en **3 tabs** (Descripción/Metodología · Formas de pago · Tipo de atención). Las 3 secciones usan ahora `RichTextEditor` (Tiptap: títulos, negrita/cursiva/subrayado, colores, listas, alineación) — antes solo la descripción. Modal a `maxWidth="md"`; la tabla limpia el HTML (`stripHtml`) en las columnas de formas de pago y tipo de atención.
+- **Frontend** (`PoliticaTab.tsx`): en la ficha del deudor, "formas de pago" y "tipo de atención" se renderizan como HTML (`RichTextEditor` readOnly), igual que la descripción.
+- **Backend**: sin cambios — los 3 campos ya eran `@db.Text`. Los datos viejos en texto plano se siguen viendo bien y quedan como HTML al re-editarlos.
+
+### 11. Número de cliente en el encabezado de gestión
+
+- **Frontend** (`FichaHeader.tsx`): se muestra el **Nº Cliente** junto a Empresa y Remesa en el header de la ficha del deudor. Toma `deudor.nroCliente` con fallback a `camposAdicionales.nro_cliente` (datos previos a la migración).
+
 ---
 
 ## [2026-05-13] — Usuarios: legajo, DNI y telefonía integrada en ABM

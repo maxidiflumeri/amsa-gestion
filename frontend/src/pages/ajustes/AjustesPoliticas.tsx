@@ -11,6 +11,8 @@ import {
     MenuItem,
     Paper,
     Stack,
+    Tab,
+    Tabs,
     TextField,
     Tooltip,
     Typography,
@@ -77,6 +79,7 @@ const AjustesPoliticas: React.FC = () => {
     const [editando, setEditando] = useState<Politica | null>(null)
     const [form, setForm] = useState({ ...EMPTY_FORM })
     const [saving, setSaving] = useState(false)
+    const [tabModal, setTabModal] = useState(0)
 
     // Carga inicial de empresas
     useEffect(() => {
@@ -106,6 +109,7 @@ const AjustesPoliticas: React.FC = () => {
 
     const handleAbrir = (politica?: Politica) => {
         setEditando(politica || null)
+        setTabModal(0)
         setForm(politica ? {
             nombre: politica.nombre,
             descripcion: politica.descripcion || '',
@@ -197,8 +201,11 @@ const AjustesPoliticas: React.FC = () => {
             key: 'formasDePago',
             label: 'Formas de pago',
             render: (row) => (
-                <Typography variant="body2">
-                    {String(row.formasDePago || '—')}
+                <Typography
+                    variant="body2"
+                    sx={{ maxWidth: 220, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
+                >
+                    {stripHtml(String(row.formasDePago || '')) || '—'}
                 </Typography>
             ),
         },
@@ -206,8 +213,11 @@ const AjustesPoliticas: React.FC = () => {
             key: 'tipoAtencion',
             label: 'Tipo de atención',
             render: (row) => (
-                <Typography variant="body2">
-                    {String(row.tipoAtencion || '—')}
+                <Typography
+                    variant="body2"
+                    sx={{ maxWidth: 220, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
+                >
+                    {stripHtml(String(row.tipoAtencion || '')) || '—'}
                 </Typography>
             ),
         },
@@ -352,14 +362,14 @@ const AjustesPoliticas: React.FC = () => {
                 onClose={handleCerrar}
                 fullScreen={isMobile}
                 fullWidth
-                maxWidth="sm"
+                maxWidth="md"
             >
                 <DialogTitle>
                     {editando ? 'Editar política' : 'Nueva política'}
                 </DialogTitle>
                 <Divider />
                 <DialogContent>
-                    <Stack spacing={2.5} sx={{ pt: 1 }}>
+                    <Stack spacing={2} sx={{ pt: 1 }}>
                         <TextField
                             autoFocus
                             label="Nombre *"
@@ -368,36 +378,39 @@ const AjustesPoliticas: React.FC = () => {
                             value={form.nombre}
                             onChange={e => setForm(f => ({ ...f, nombre: e.target.value }))}
                         />
-                        <Box>
-                            <Typography variant="caption" color="text.secondary" display="block" mb={0.5}>
-                                Descripción / Metodología
-                            </Typography>
-                            <Box sx={{ minHeight: isMobile ? 140 : 180 }}>
-                                <RichTextEditor
-                                    value={form.descripcion}
-                                    onChange={html => setForm(f => ({ ...f, descripcion: html }))}
-                                    minHeight={isMobile ? 140 : 180}
-                                />
-                            </Box>
+                        <Box sx={{ borderBottom: 1, borderColor: 'divider' }}>
+                            <Tabs
+                                value={tabModal}
+                                onChange={(_, v) => setTabModal(v)}
+                                variant={isMobile ? 'scrollable' : 'fullWidth'}
+                                scrollButtons="auto"
+                            >
+                                <Tab label="Descripción / Metodología" />
+                                <Tab label="Formas de pago" />
+                                <Tab label="Tipo de atención" />
+                            </Tabs>
                         </Box>
-                        <TextField
-                            label="Formas de pago"
-                            fullWidth
-                            size="small"
-                            multiline
-                            rows={2}
-                            value={form.formasDePago}
-                            onChange={e => setForm(f => ({ ...f, formasDePago: e.target.value }))}
-                        />
-                        <TextField
-                            label="Tipo de atención"
-                            fullWidth
-                            size="small"
-                            multiline
-                            rows={2}
-                            value={form.tipoAtencion}
-                            onChange={e => setForm(f => ({ ...f, tipoAtencion: e.target.value }))}
-                        />
+                        {tabModal === 0 && (
+                            <RichTextEditor
+                                value={form.descripcion}
+                                onChange={html => setForm(f => ({ ...f, descripcion: html }))}
+                                minHeight={isMobile ? 200 : 260}
+                            />
+                        )}
+                        {tabModal === 1 && (
+                            <RichTextEditor
+                                value={form.formasDePago}
+                                onChange={html => setForm(f => ({ ...f, formasDePago: html }))}
+                                minHeight={isMobile ? 200 : 260}
+                            />
+                        )}
+                        {tabModal === 2 && (
+                            <RichTextEditor
+                                value={form.tipoAtencion}
+                                onChange={html => setForm(f => ({ ...f, tipoAtencion: html }))}
+                                minHeight={isMobile ? 200 : 260}
+                            />
+                        )}
                     </Stack>
                 </DialogContent>
                 <DialogActions>

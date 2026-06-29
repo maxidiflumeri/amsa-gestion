@@ -11,6 +11,7 @@ import {
 import AccountCircleIcon from '@mui/icons-material/AccountCircle';
 import BusinessCenterIcon from '@mui/icons-material/BusinessCenter';
 import AssignmentIcon from '@mui/icons-material/Assignment';
+import BadgeIcon from '@mui/icons-material/Badge';
 
 interface Props {
     deudor: any;
@@ -20,7 +21,8 @@ interface Props {
 }
 
 const FichaHeader: React.FC<Props> = ({ deudor, deudaActualizada, totalPagadoConvenios, tieneConveniosPagados }) => {
-    const { id, nombre, apellido, documento, remesa, empresa, montoTotal, fechaVencimiento } = deudor;
+    const { id, nombre, apellido, documento, remesa, empresa, montoTotal, fechaVencimiento, nroCliente, camposAdicionales } = deudor;
+    const nroClienteMostrar = nroCliente || camposAdicionales?.nro_cliente || '-';
 
     return (
         <Card elevation={3} sx={{ mb: 3, borderRadius: 3 }}>
@@ -39,7 +41,7 @@ const FichaHeader: React.FC<Props> = ({ deudor, deudaActualizada, totalPagadoCon
                                 </Typography>
                             </Box>
                         </Stack>
-                        <Stack direction="row" spacing={3} mt={2}>
+                        <Stack direction="row" spacing={3} mt={2} sx={{ flexWrap: 'wrap', rowGap: 1 }}>
                             <Box display="flex" alignItems="center" gap={1}>
                                 <BusinessCenterIcon color="action" fontSize="small" />
                                 <Typography variant="body2">
@@ -50,6 +52,12 @@ const FichaHeader: React.FC<Props> = ({ deudor, deudaActualizada, totalPagadoCon
                                 <AssignmentIcon color="action" fontSize="small" />
                                 <Typography variant="body2">
                                     <strong>Remesa:</strong> {remesa?.numeroRemesa || '-'}
+                                </Typography>
+                            </Box>
+                            <Box display="flex" alignItems="center" gap={1}>
+                                <BadgeIcon color="action" fontSize="small" />
+                                <Typography variant="body2">
+                                    <strong>Nº Cliente:</strong> {nroClienteMostrar}
                                 </Typography>
                             </Box>
                         </Stack>

@@ -81,7 +81,7 @@ const PoliticaTab: React.FC<Props> = ({ deudorId }) => {
                                 <Typography variant="overline" color="text.secondary" fontWeight="bold" display="block">
                                     FORMAS DE PAGO
                                 </Typography>
-                                <Typography variant="body2">{politica.formasDePago}</Typography>
+                                <RichTextEditor value={politica.formasDePago} onChange={() => {}} readOnly minHeight={60} />
                             </Box>
                         )}
                         {politica.tipoAtencion && (
@@ -89,7 +89,7 @@ const PoliticaTab: React.FC<Props> = ({ deudorId }) => {
                                 <Typography variant="overline" color="text.secondary" fontWeight="bold" display="block">
                                     TIPO DE ATENCIÓN
                                 </Typography>
-                                <Typography variant="body2">{politica.tipoAtencion}</Typography>
+                                <RichTextEditor value={politica.tipoAtencion} onChange={() => {}} readOnly minHeight={60} />
                             </Box>
                         )}
                     </Stack>
