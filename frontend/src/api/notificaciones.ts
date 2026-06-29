@@ -30,12 +30,22 @@ export interface ImportEnCursoDto {
 
 export interface ListarNotificacionesParams {
     soloNoLeidas?: boolean;
+    soloLeidas?: boolean;
     limit?: number;
     offset?: number;
 }
 
-export async function listarNotificaciones(params?: ListarNotificacionesParams): Promise<NotificacionDto[]> {
-    const { data } = await api.get<NotificacionDto[]>('/notificaciones', { params });
+export interface ListarNotificacionesResp {
+    data: NotificacionDto[];
+    total: number;
+    limit: number;
+    offset: number;
+}
+
+export async function listarNotificaciones(
+    params?: ListarNotificacionesParams,
+): Promise<ListarNotificacionesResp> {
+    const { data } = await api.get<ListarNotificacionesResp>('/notificaciones', { params });
     return data;
 }
 

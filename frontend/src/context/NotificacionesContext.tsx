@@ -8,13 +8,10 @@ import React, {
     useState,
 } from 'react';
 import {
-    listarNotificaciones,
     obtenerContador,
     obtenerImportsEnCurso,
     marcarLeida as apiMarcarLeida,
     marcarTodas as apiMarcarTodas,
-    NotificacionDto,
-    ImportEnCursoDto,
 } from '../api/notificaciones';
 import { useSocket } from './SocketContext';
 import { useNotify } from '../hooks/useNotify';
@@ -33,9 +30,11 @@ interface ImportProgreso {
 }
 
 interface NotificacionesContextValue {
-    notificaciones: NotificacionDto[];
+    /** Cantidad real de notificaciones sin leer (badge). */
     noLeidas: number;
     importsEnCurso: ImportProgreso[];
+    /** Cambia cada vez que hay novedades (notif nueva, marcar leída/todas). El popover lo observa para recargar su lista paginada. */
+    nonce: number;
     marcarLeida: (id: number) => Promise<void>;
     marcarTodas: () => Promise<void>;
     refrescar: () => Promise<void>;
@@ -90,36 +89,23 @@ export const NotificacionesProvider: React.FC<{ children: React.ReactNode }> = (
     const { socket } = useSocket();
     const notify = useNotify();
 
-    const [notificaciones, setNotificaciones] = useState<NotificacionDto[]>([]);
     const [noLeidas, setNoLeidas] = useState(0);
     const [importsEnCurso, setImportsEnCurso] = useState<ImportProgreso[]>([]);
+    const [nonce, setNonce] = useState(0);
     const hidratadoRef = useRef(false);
 
     const hidratar = useCallback(async () => {
         const hayToken = !!localStorage.getItem('amsa_token');
         if (!hayToken) return;
         try {
-            const [notifs, contador, imports] = await Promise.all([
-                listarNotificaciones({ limit: 50 }),
+            // El contador (badge) y la lista paginada (popover) salen del backend.
+            // Acá solo hidratamos el contador y las importaciones en curso.
+            const [contador, imports] = await Promise.all([
                 obtenerContador(),
                 obtenerImportsEnCurso(),
             ]);
-            setNotificaciones(notifs);
             setNoLeidas(contador.noLeidas);
-            setImportsEnCurso(
-                imports.map((imp) => ({
-                    remesaId: imp.remesaId,
-                    tipo: imp.tipo,
-                    totalFilas: imp.totalFilas,
-                    progreso: imp.progreso,
-                    okFilas: imp.okFilas,
-                    errFilas: imp.errFilas,
-                    estadoProceso: imp.estadoProceso,
-                    usuarioId: imp.usuarioId,
-                    usuarioNombre: imp.usuarioNombre,
-                    startedAt: imp.startedAt,
-                })),
-            );
+            setImportsEnCurso(imports.map((imp) => ({ ...imp })));
             hidratadoRef.current = true;
         } catch {
             // Error silencioso en hidratación — se reintentará en próxima conexión
@@ -134,19 +120,8 @@ export const NotificacionesProvider: React.FC<{ children: React.ReactNode }> = (
         if (!socket) return;
 
         const onNotificacionNueva = (data: SocketNotificacionNueva) => {
-            const nueva: NotificacionDto = {
-                id: data.id,
-                tipo: data.tipo,
-                titulo: data.titulo,
-                mensaje: data.mensaje,
-                payload: data.payload,
-                rutaAccion: data.rutaAccion,
-                leida: false,
-                creadoEn: data.creadoEn,
-            };
-            setNotificaciones((prev) => [nueva, ...prev]);
             setNoLeidas((prev) => prev + 1);
-
+            setNonce((n) => n + 1);
             if (hidratadoRef.current) {
                 notify.info(data.titulo);
             }
@@ -216,25 +191,24 @@ export const NotificacionesProvider: React.FC<{ children: React.ReactNode }> = (
 
     const marcarLeida = useCallback(async (id: number) => {
         await apiMarcarLeida(id);
-        setNotificaciones((prev) =>
-            prev.map((n) => (n.id === id ? { ...n, leida: true } : n)),
-        );
         setNoLeidas((prev) => Math.max(0, prev - 1));
+        setNonce((n) => n + 1);
     }, []);
 
     const marcarTodas = useCallback(async () => {
         await apiMarcarTodas();
-        setNotificaciones((prev) => prev.map((n) => ({ ...n, leida: true })));
         setNoLeidas(0);
+        setNonce((n) => n + 1);
     }, []);
 
     const refrescar = useCallback(async () => {
         await hidratar();
+        setNonce((n) => n + 1);
     }, [hidratar]);
 
     const value = useMemo<NotificacionesContextValue>(
-        () => ({ notificaciones, noLeidas, importsEnCurso, marcarLeida, marcarTodas, refrescar }),
-        [notificaciones, noLeidas, importsEnCurso, marcarLeida, marcarTodas, refrescar],
+        () => ({ noLeidas, importsEnCurso, nonce, marcarLeida, marcarTodas, refrescar }),
+        [noLeidas, importsEnCurso, nonce, marcarLeida, marcarTodas, refrescar],
     );
 
     return (

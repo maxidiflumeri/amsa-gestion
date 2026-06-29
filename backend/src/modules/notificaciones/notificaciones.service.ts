@@ -75,35 +75,29 @@ export class NotificacionesService {
             rutaAccion: rutaAccion ?? null,
         }));
 
-        // 2. Crear todas las notificaciones de una vez
-        let notificacionesCreadas: { id: number; usuarioId: number }[] = [];
-        try {
-            await this.prisma.notificacion.createMany({ data: filas });
-
-            // Recuperar las creadas para obtener sus IDs (createMany no retorna records en MySQL)
-            notificacionesCreadas = await this.prisma.notificacion.findMany({
-                where: {
-                    usuarioId: { in: Array.from(destinatarioIds) },
-                    tipo,
-                    entidadId: entidadId ?? null,
-                    leida: false,
-                },
-                select: { id: true, usuarioId: true },
-                orderBy: { creadoEn: 'desc' },
-                take: filas.length,
-            });
-        } catch (err: any) {
-            this.logger.error(`Error al crear notificaciones: ${err?.message}`, err?.stack);
-            return;
+        // 2. Crear las notificaciones (una por una para obtener sus IDs reales).
+        //    El broadcast es a pocos usuarios (admins), así que el loop es barato y
+        //    evita la query frágil anterior que podía emitir con id undefined.
+        const notificacionesCreadas: { id: number; usuarioId: number }[] = [];
+        for (const fila of filas) {
+            try {
+                const n = await this.prisma.notificacion.create({
+                    data: fila,
+                    select: { id: true, usuarioId: true },
+                });
+                notificacionesCreadas.push(n);
+            } catch (err: any) {
+                this.logger.warn(
+                    `Error al crear notificacion para usuario ${fila.usuarioId}: ${err?.message}`,
+                );
+            }
         }
 
-        // 3. Emitir via socket a cada destinatario (sin romper si falla)
-        for (const usuarioId of destinatarioIds) {
+        // 3. Emitir via socket a cada destinatario con su id real (sin romper si falla)
+        for (const notif of notificacionesCreadas) {
             try {
-                const notif = notificacionesCreadas.find((n) => n.usuarioId === usuarioId);
-
                 const payloadSocket = {
-                    id: notif?.id,
+                    id: notif.id,
                     tipo,
                     titulo,
                     mensaje,
@@ -112,27 +106,26 @@ export class NotificacionesService {
                     creadoEn: new Date().toISOString(),
                 };
 
-                this.realtimeService.emitToUser(usuarioId, 'notificacion:nueva', payloadSocket);
+                this.realtimeService.emitToUser(notif.usuarioId, 'notificacion:nueva', payloadSocket);
 
-                // Recalcular contador y emitir
                 const noLeidas = await this.prisma.notificacion.count({
-                    where: { usuarioId, leida: false },
+                    where: { usuarioId: notif.usuarioId, leida: false },
                 });
-                this.realtimeService.emitToUser(usuarioId, 'notificacion:contador', { noLeidas });
+                this.realtimeService.emitToUser(notif.usuarioId, 'notificacion:contador', { noLeidas });
             } catch (err: any) {
                 this.logger.warn(
-                    `Error emitiendo notificacion via socket a usuario ${usuarioId}: ${err?.message}`,
+                    `Error emitiendo notificacion via socket a usuario ${notif.usuarioId}: ${err?.message}`,
                 );
             }
         }
     }
 
     async listar(usuarioId: number, opts: ListarNotificacionesDto) {
-        const { soloNoLeidas, limit = 20, offset = 0 } = opts;
+        const { soloNoLeidas, soloLeidas, limit = 20, offset = 0 } = opts;
 
         const where = {
             usuarioId,
-            ...(soloNoLeidas ? { leida: false } : {}),
+            ...(soloNoLeidas ? { leida: false } : soloLeidas ? { leida: true } : {}),
         };
 
         const [data, total] = await Promise.all([

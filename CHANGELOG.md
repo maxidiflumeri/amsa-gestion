@@ -78,6 +78,12 @@
 - **Backend**: nueva función común `procesarBloquesDeudor(deudorId, blocks, ctx)` en `utils/procesar-bloques.ts` que procesa bloques `FACTURA` y `CONTACTO` (respetando `validarDomicilios`). Se llama tras resolver el deudor en **todos** los processors: `deudores`, `contactos`, `enriquecimiento`, `pagos`, `facturas`; y `deudores-facturas` se refactorizó para usarla. En `contactos`/`enriquecimiento` los bloques se procesan aunque no haya contacto principal en la fila.
 - `ACTUALIZACIONES` se dejó intacto (tiene reconciliación especial de facturas).
 
+### 13. Notificaciones: fix del contador + rediseño con tabs y paginación
+
+- **Bug**: el badge mostraba un número que no coincidía con la ventana (badge con N pero lista vacía). Causa: el cliente `listarNotificaciones` devolvía el objeto `{ data, total, ... }` entero en vez del array → la lista quedaba sin renderizar. Además `/import/en-curso` devolvía la remesa cruda (campos con otros nombres) y `crear` podía emitir el socket con `id` undefined.
+- **Backend**: `listarEnCurso` ahora aplana al shape `ImportEnCursoDto` (`remesaId`, `tipo`, `progreso`, `usuarioNombre`, `startedAt`). `listar` soporta filtro `soloLeidas` (además de `soloNoLeidas`) y devuelve `total` para paginar. `crear` inserta una por una y emite el socket con el `id` real.
+- **Frontend**: `listarNotificaciones` devuelve `{ data, total }` correctamente. El contexto usa el contador real de no-leídas para el badge, expone un `nonce` para refrescar y ya no guarda la lista. El popover se rediseñó con **2 tabs (Sin leer / Leídas)** + **scroll infinito** (páginas de 20 por `offset`); las importaciones en curso quedan arriba.
+
 ---
 
 ## [2026-05-13] — Usuarios: legajo, DNI y telefonía integrada en ABM

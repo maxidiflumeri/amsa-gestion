@@ -499,7 +499,7 @@ export class ImportService {
                   usuarioCreadorId: user.sub,
               };
 
-        return this.prisma.remesa.findMany({
+        const remesas = await this.prisma.remesa.findMany({
             where,
             orderBy: { createdAt: 'desc' },
             include: {
@@ -512,6 +512,20 @@ export class ImportService {
                 },
             },
         });
+
+        // Aplanamos al shape que consume el frontend (ImportEnCursoDto).
+        return remesas.map((r) => ({
+            remesaId: r.id,
+            tipo: r.categoria,
+            totalFilas: r.totalFilas,
+            progreso: r.jobimport?.[0]?.progreso ?? 0,
+            okFilas: r.okFilas,
+            errFilas: r.errFilas,
+            estadoProceso: r.estadoProceso,
+            usuarioId: r.usuarioCreador?.id ?? null,
+            usuarioNombre: r.usuarioCreador?.nombre ?? 'Sistema',
+            startedAt: r.createdAt,
+        }));
     }
 
     // --- WORKER DE IMPORTACIÓN LÓGICA PESADA ---

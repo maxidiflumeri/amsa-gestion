@@ -8,6 +8,11 @@ export class ListarNotificacionesDto {
     soloNoLeidas?: boolean;
 
     @IsOptional()
+    @Transform(({ value }) => value === 'true' || value === true)
+    @IsBoolean()
+    soloLeidas?: boolean;
+
+    @IsOptional()
     @Transform(({ value }) => parseInt(value, 10))
     @IsInt()
     @Min(1)
