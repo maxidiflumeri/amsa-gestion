@@ -10,13 +10,18 @@ import EditIcon from '@mui/icons-material/Edit'
 import ContentCopyIcon from '@mui/icons-material/ContentCopy'
 import DeleteIcon from '@mui/icons-material/Delete'
 import PlayArrowIcon from '@mui/icons-material/PlayArrow'
+import BusinessIcon from '@mui/icons-material/Business'
 import AssessmentIcon from '@mui/icons-material/Assessment'
+import { Tooltip } from '@mui/material'
+import api from '../../api/axios'
 import { reportesApi } from '../../api/reportes'
 import { Plantilla } from '../../types/reportes'
 import { PageHeader, SectionCard, EmptyState, LoadingSkeleton, DataTableResponsive } from '../../components/ui'
 import type { DataTableColumn } from '../../components/ui'
 import { useNotify } from '../../hooks/useNotify'
 import { useConfirm } from '../../context/ConfirmContext'
+import ClonarPlantillaDialog, { type EmpresaOpt } from '../../components/plantillas/ClonarPlantillaDialog'
+import CambiarEmpresaDialog from '../../components/plantillas/CambiarEmpresaDialog'
 
 const ReportesHome = () => {
   const navigate = useNavigate()
@@ -24,9 +29,15 @@ const ReportesHome = () => {
   const confirm = useConfirm()
   const [plantillas, setPlantillas] = useState<Plantilla[]>([])
   const [loading, setLoading] = useState(true)
+  const [empresas, setEmpresas] = useState<EmpresaOpt[]>([])
+  const [cloneTarget, setCloneTarget] = useState<Plantilla | null>(null)
+  const [moveTarget, setMoveTarget] = useState<Plantilla | null>(null)
 
   useEffect(() => {
     loadPlantillas()
+    api.get('/empresas')
+      .then((res) => setEmpresas(res.data))
+      .catch((err) => notify.error(err))
   }, [])
 
   const loadPlantillas = async () => {
@@ -46,11 +57,24 @@ const ReportesHome = () => {
     }
   }
 
-  const handleDuplicate = async (plantilla: Plantilla) => {
-    if (!plantilla.id) return
+  const handleClonar = async (data: { nombre: string; empresaId: number | null }) => {
+    if (!cloneTarget?.id) return
     try {
-      await reportesApi.duplicarPlantilla(plantilla.id)
-      notify.success('Plantilla duplicada')
+      await reportesApi.duplicarPlantilla(cloneTarget.id, data)
+      notify.success('Plantilla clonada')
+      setCloneTarget(null)
+      loadPlantillas()
+    } catch (err: any) {
+      notify.error(err)
+    }
+  }
+
+  const handleCambiarEmpresa = async (empresaId: number | null) => {
+    if (!moveTarget?.id) return
+    try {
+      await reportesApi.cambiarEmpresaPlantilla(moveTarget.id, empresaId)
+      notify.success('Plantilla movida de empresa')
+      setMoveTarget(null)
       loadPlantillas()
     } catch (err: any) {
       notify.error(err)
@@ -131,11 +155,29 @@ const ReportesHome = () => {
           </IconButton>
           <IconButton
             size="small"
-            onClick={() => handleDuplicate(row)}
-            title="Duplicar"
+            onClick={() => setCloneTarget(row)}
+            title="Clonar"
           >
             <ContentCopyIcon fontSize="small" />
           </IconButton>
+          <Tooltip
+            title={
+              ((row._count?.ejecuciones ?? 0) > 0)
+                ? 'No se puede cambiar de empresa: la plantilla ya tiene ejecuciones'
+                : 'Cambiar de empresa'
+            }
+          >
+            <span>
+              <IconButton
+                size="small"
+                color="warning"
+                disabled={(row._count?.ejecuciones ?? 0) > 0}
+                onClick={() => setMoveTarget(row)}
+              >
+                <BusinessIcon fontSize="small" />
+              </IconButton>
+            </span>
+          </Tooltip>
           <IconButton
             size="small"
             onClick={() => handleDelete(row)}
@@ -183,6 +225,24 @@ const ReportesHome = () => {
           />
         </SectionCard>
       )}
+
+      <ClonarPlantillaDialog
+        open={!!cloneTarget}
+        onClose={() => setCloneTarget(null)}
+        nombreActual={cloneTarget?.nombre ?? ''}
+        empresaActualId={cloneTarget?.empresaId ?? null}
+        empresas={empresas}
+        permitirGlobal
+        onConfirm={handleClonar}
+      />
+      <CambiarEmpresaDialog
+        open={!!moveTarget}
+        onClose={() => setMoveTarget(null)}
+        empresaActualId={moveTarget?.empresaId ?? null}
+        empresas={empresas}
+        permitirGlobal
+        onConfirm={handleCambiarEmpresa}
+      />
     </Box>
   )
 }

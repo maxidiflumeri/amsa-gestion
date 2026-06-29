@@ -6,6 +6,64 @@
 
 ---
 
+## [2026-06-29] — Tanda de mejoras de UX y robustez (feedback de usuarios)
+
+> ⚠️ **Acciones de despliegue**:
+> 1. `prisma db push` aplica los campos nuevos: `remesa.validarDomicilios`, `deudor.nroCliente` + índice `Deudor_empresaId_remesaId_nroCliente_idx` (el `deploy.sh` ya corre `db push`).
+> 2. **Correr una vez post-deploy** el backfill de número de cliente: `npx ts-node --transpile-only prisma/scripts/backfill-nro-cliente.ts` (idempotente). Migra el `nro_cliente` histórico desde `camposAdicionales` a la columna nueva.
+
+### 1. Búsqueda de deudores por número de remesa
+
+- **Backend**: `AdvancedSearchDto` suma `nroRemesa?`. `deudores.service.searchAdvanced` filtra por la relación `remesa.numeroRemesa` (`contains`).
+- **Frontend**: `BuscadorAvanzadoModal.tsx` agrega el campo "Nº Remesa" al formulario.
+
+### 2. Entorno de desarrollo: `npm run dev` en la raíz
+
+- Nuevo `package.json` raíz con `concurrently`: `npm run dev` levanta backend (watch) + frontend (Vite) juntos. Scripts `dev:backend`, `dev:frontend`, `build`, `install:all`.
+- **Fix**: `backend/tsconfig.json` ahora apunta `tsBuildInfoFile` a `./dist/...`. Antes el `.tsbuildinfo` quedaba huérfano fuera de `dist` (que `nest start` borra con `deleteOutDir`), y tsc incremental no re-emitía → `Cannot find module dist/main`.
+
+### 3. Teléfono WhatsApp + principal: chip mitad y mitad
+
+- **Frontend** (`FichaContactosPanel.tsx`): cuando un teléfono es WhatsApp **y** principal, el chip se pinta con un gradiente diagonal mitad naranja (principal) / mitad verde (WhatsApp), respetando dark/light mode.
+
+### 4. WhatsApp solo en celulares — clasificación móvil/fijo por ENACOM
+
+- En Argentina el formato no distingue móvil de fijo sin el "9"/"15" (un celular se carga como `1155775452`). `libphonenumber` devuelve `UNKNOWN` para todos los AR. La distinción real está en los rangos asignados por ENACOM.
+- **Dataset**: `backend/src/common/data/enacom-prefijos.json` (≈48.900 bloques `área+central → móvil/fijo`, publicación ENACOM 2026-06-09). Versionado en git; `nest-cli.json` lo copia a `dist` (assets + watchAssets).
+- **Backend** (`phone-utils.ts`): `normalizarTelefonoArgentino` clasifica `subtipo` (`MOBILE`/`FIXED_LINE`) con longest-prefix-match sobre el dataset (señal explícita del `+549` primero). `contactos.service` (create/update) rechaza marcar WhatsApp en líneas fijas; **autocorrección perezosa**: al intentar marcar un fijo legacy, persiste su `subtipo` antes de rechazar para que el frontend lo deshabilite a futuro.
+- **Frontend** (`FichaContactosPanel.tsx`): el botón de WhatsApp queda deshabilitado (con tooltip) en teléfonos fijos según `contacto.subtipo`.
+
+### 5. Importación: switch "Validar domicilios" (default OFF)
+
+- La validación de domicilios contra Georef hacía la carga lenta (hasta 4 requests HTTP por dirección). Ahora es opcional.
+- **Schema**: `remesa.validarDomicilios Boolean @default(false)`.
+- **Backend**: `CreateRemesaDto` + `createRemesa` persisten el flag; `processImportJob` lo lee de la remesa y lo propaga vía `ProcessContext`. `contacto-import.ts`: si está OFF, arma el domicilio con formato pero **sin** llamar a Georef (`validado=false`). Los 3 processors que cargan contactos pasan `ctx.validarDomicilios`.
+- **Frontend** (`ImportWizard.tsx`): switch "Validar domicilios contra Georef" (default OFF) en el paso de configuración.
+
+### 6. Editor de plantillas: botón "Agregar" abajo + auto-scroll
+
+- **Frontend** (`MappingEditor.tsx`): en las 3 secciones (campos principales, extras, bloques repetitivos) el botón de agregar pasó del header al final de la lista, con auto-scroll al nuevo ítem (solo al agregar). Evita el ir y venir de scroll.
+
+### 7. Plantillas: clonar y cambiar de empresa (importación + reportes)
+
+- **Importación** (`imports.service` + controller + DTOs): `POST /import/plantillas/:id/clonar` (copia config; resuelve `version` por el unique; estados por defecto → null si cambia de empresa) y `POST /import/plantillas/:id/cambiar-empresa` (**bloqueado si la plantilla tiene remesas**). El listado expone `_count.remesa`.
+- **Reportes** (`reportes.service` + controller + DTOs): `/duplicar` mejorado (acepta nombre + empresa destino, `@Audit`, permiso `reportes.crear`) y nuevo `/cambiar-empresa` (**bloqueado si tiene ejecuciones**; admite "Global"). El listado expone `_count.ejecuciones`.
+- **Frontend**: diálogos reutilizables `ClonarPlantillaDialog` y `CambiarEmpresaDialog` (`components/plantillas/`), integrados en `PlantillasList` y `ReportesHome`. El botón "Cambiar empresa" se deshabilita si la plantilla ya se usó.
+
+### 8. Número de cliente como campo principal del deudor
+
+- El `nro_cliente` (clave del match de pagos/facturas/contactos/actualizaciones/bloques) vivía como dato adicional en `camposAdicionales` con clave mágica `nro_cliente` hardcodeada en 5 processors → frágil y sin índice.
+- **Schema**: nueva columna `deudor.nroCliente String?` + índice compuesto `[empresaId, remesaId, nroCliente]`. Backfill idempotente `prisma/scripts/backfill-nro-cliente.ts`.
+- **Backend**: la carga de deudores (`deudores` y `deudores-facturas` processors) ahora **exige** `nro_cliente` y lo guarda en la columna; helper `utils/nro-cliente.ts` lo toma como campo principal o como adicional (compatibilidad con plantillas viejas). Los 5 processors de match ahora usan la columna indexada en vez de `JSON_EXTRACT`. `searchAdvanced` busca por `nroCliente` (+ fallback a datos viejos).
+- **Frontend** (`MappingEditor.tsx`): "Nº Cliente (match)" agregado a los campos principales de DEUDORES.
+
+### 9. Borrar remesa terminada junto con sus casos
+
+- **Backend** (`imports.service.deleteRemesa`): permite borrar remesas terminadas con casos **solo si ningún deudor tiene gestión** (comentarios, convenios, pagos, llamadas, emails). Si la tiene, rechaza con el detalle. Borrado transaccional en cascada controlada (contactos + campoextras + facturas → deudores → jobs/errores → remesa); la auditoría se conserva (transacciones quedan desvinculadas).
+- **Frontend** (`ImportHistory.tsx`): el botón eliminar se habilita en cualquier estado salvo "en curso"; el diálogo aclara que se borran los casos y que se bloquea si hay gestión.
+
+---
+
 ## [2026-05-13] — Usuarios: legajo, DNI y telefonía integrada en ABM
 
 ### Backend

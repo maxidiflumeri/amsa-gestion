@@ -17,11 +17,14 @@ import EditIcon from '@mui/icons-material/Edit'
 import DeleteIcon from '@mui/icons-material/Delete'
 import ListAltIcon from '@mui/icons-material/ListAlt'
 import BusinessIcon from '@mui/icons-material/Business'
+import ContentCopyIcon from '@mui/icons-material/ContentCopy'
 import { useNavigate } from 'react-router-dom'
 import api from '../api/axios'
 import { useEmpresas } from '../hooks/useEmpresas'
 import { useNotify } from '../hooks/useNotify'
 import { useConfirm } from '../context/ConfirmContext'
+import ClonarPlantillaDialog from '../components/plantillas/ClonarPlantillaDialog'
+import CambiarEmpresaDialog from '../components/plantillas/CambiarEmpresaDialog'
 import {
     PageHeader,
     DataTableResponsive,
@@ -32,6 +35,7 @@ import type { DataTableColumn } from '../components/ui'
 
 interface Plantilla {
     id: number
+    empresaId: number
     nombre: string
     categoria: string
     version: number
@@ -40,6 +44,7 @@ interface Plantilla {
     tieneHeader: boolean
     mappingJson: Record<string, unknown>
     createdAt: string
+    _count?: { remesa: number }
 }
 
 type PlantillaRow = Plantilla & Record<string, unknown>
@@ -56,6 +61,8 @@ const PlantillasList: React.FC = () => {
 
     const [plantillas, setPlantillas] = useState<Plantilla[]>([])
     const [loading, setLoading] = useState(false)
+    const [cloneTarget, setCloneTarget] = useState<Plantilla | null>(null)
+    const [moveTarget, setMoveTarget] = useState<Plantilla | null>(null)
 
     const loadPlantillas = useCallback(async () => {
         if (!empresaId) return
@@ -87,6 +94,35 @@ const PlantillasList: React.FC = () => {
         try {
             await api.post(`/import/plantillas/${plantilla.id}/delete`)
             notify.success('Plantilla eliminada')
+            await loadPlantillas()
+        } catch (err) {
+            notify.error(err as Error)
+        }
+    }
+
+    const handleClonar = async (data: { nombre: string; empresaId: number | null }) => {
+        if (!cloneTarget) return
+        try {
+            await api.post(`/import/plantillas/${cloneTarget.id}/clonar`, {
+                nombre: data.nombre,
+                empresaId: data.empresaId,
+            })
+            notify.success('Plantilla clonada')
+            setCloneTarget(null)
+            await loadPlantillas()
+        } catch (err) {
+            notify.error(err as Error)
+        }
+    }
+
+    const handleCambiarEmpresa = async (empresaIdDestino: number | null) => {
+        if (!moveTarget || empresaIdDestino == null) return
+        try {
+            await api.post(`/import/plantillas/${moveTarget.id}/cambiar-empresa`, {
+                empresaId: empresaIdDestino,
+            })
+            notify.success('Plantilla movida de empresa')
+            setMoveTarget(null)
             await loadPlantillas()
         } catch (err) {
             notify.error(err as Error)
@@ -182,6 +218,39 @@ const PlantillasList: React.FC = () => {
                             >
                                 <EditIcon fontSize="small" />
                             </IconButton>
+                        </Tooltip>
+                        <Tooltip title="Clonar">
+                            <IconButton
+                                size="small"
+                                color="info"
+                                onClick={(e) => {
+                                    e.stopPropagation()
+                                    setCloneTarget(p)
+                                }}
+                            >
+                                <ContentCopyIcon fontSize="small" />
+                            </IconButton>
+                        </Tooltip>
+                        <Tooltip
+                            title={
+                                (p._count?.remesa ?? 0) > 0
+                                    ? 'No se puede cambiar de empresa: la plantilla ya tiene cargas'
+                                    : 'Cambiar de empresa'
+                            }
+                        >
+                            <span>
+                                <IconButton
+                                    size="small"
+                                    color="warning"
+                                    disabled={(p._count?.remesa ?? 0) > 0}
+                                    onClick={(e) => {
+                                        e.stopPropagation()
+                                        setMoveTarget(p)
+                                    }}
+                                >
+                                    <BusinessIcon fontSize="small" />
+                                </IconButton>
+                            </span>
                         </Tooltip>
                         <Tooltip title="Eliminar">
                             <IconButton
@@ -292,6 +361,22 @@ const PlantillasList: React.FC = () => {
                     )}
                 </Paper>
             )}
+
+            <ClonarPlantillaDialog
+                open={!!cloneTarget}
+                onClose={() => setCloneTarget(null)}
+                nombreActual={cloneTarget?.nombre ?? ''}
+                empresaActualId={cloneTarget?.empresaId ?? (empresaId || null)}
+                empresas={empresas}
+                onConfirm={handleClonar}
+            />
+            <CambiarEmpresaDialog
+                open={!!moveTarget}
+                onClose={() => setMoveTarget(null)}
+                empresaActualId={moveTarget?.empresaId ?? (empresaId || null)}
+                empresas={empresas}
+                onConfirm={handleCambiarEmpresa}
+            />
         </Box>
     )
 }

@@ -1,7 +1,7 @@
 // src/import/import.dto.ts
 import { ImportCategoria } from '../mapping-types';
-import { Type } from 'class-transformer';
-import { IsInt, IsNotEmpty, IsOptional, IsString } from 'class-validator';
+import { Transform, Type } from 'class-transformer';
+import { IsBoolean, IsInt, IsNotEmpty, IsOptional, IsString } from 'class-validator';
 
 export class CreatePlantillaDto {
     empresaId!: number;
@@ -46,4 +46,27 @@ export class CreateRemesaDto {
     @IsString()
     @IsOptional()
     fechaVencimiento?: string;
+
+    // Viene por multipart como string "true"/"false"; lo normalizamos a boolean.
+    @IsOptional()
+    @Transform(({ value }) => value === true || value === 'true')
+    @IsBoolean()
+    validarDomicilios?: boolean;
+}
+
+export class ClonarPlantillaDto {
+    @IsString()
+    @IsOptional()
+    nombre?: string;
+
+    @IsInt()
+    @Type(() => Number)
+    @IsOptional()
+    empresaId?: number;
+}
+
+export class CambiarEmpresaPlantillaDto {
+    @IsInt()
+    @Type(() => Number)
+    empresaId!: number;
 }

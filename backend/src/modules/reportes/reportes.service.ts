@@ -49,6 +49,8 @@ export class ReportesService {
             email: true,
           },
         },
+        // _count.ejecuciones: si ya se ejecutó alguna vez, no se permite cambiar de empresa.
+        _count: { select: { ejecuciones: true } },
       },
       orderBy: { createdAt: 'desc' },
     });
@@ -130,22 +132,60 @@ export class ReportesService {
     });
   }
 
-  async duplicate(id: number, usuarioId?: number) {
+  async duplicate(
+    id: number,
+    dto?: { nombre?: string; empresaId?: number | null },
+    usuarioId?: number,
+  ) {
     const original = await this.findOne(id);
 
-    this.logger.log(`Duplicando plantilla ${id}`);
+    // empresaId: undefined → conserva la del original; null → Global; number → esa empresa.
+    const empresaDestino = dto?.empresaId !== undefined ? dto.empresaId : original.empresaId;
+    if (empresaDestino != null) {
+      const emp = await this.prisma.empresa.findUnique({ where: { id: empresaDestino } });
+      if (!emp) throw new NotFoundException('Empresa destino no encontrada');
+    }
+
+    const nombre = dto?.nombre?.trim() || `${original.nombre} (copia)`;
+    this.logger.log(`Duplicando plantilla ${id} → "${nombre}" empresa=${empresaDestino ?? 'Global'}`);
 
     return this.prisma.plantilla_reporte.create({
       data: {
-        nombre: `${original.nombre} (copia)`,
+        nombre,
         descripcion: original.descripcion,
         raiz: original.raiz,
-        empresaId: original.empresaId,
+        empresaId: empresaDestino,
         definicion: original.definicion as unknown as Prisma.InputJsonValue,
         formatoSalida: original.formatoSalida,
         opcionesFormato: (original.opcionesFormato || Prisma.JsonNull) as unknown as Prisma.InputJsonValue,
         creadoPorId: usuarioId,
       },
+    });
+  }
+
+  /** Cambia la empresa de una plantilla de reporte. Solo si nunca se ejecutó. empresaId null = Global. */
+  async cambiarEmpresa(id: number, empresaId: number | null) {
+    const plantilla = await this.findOne(id);
+    if (plantilla.empresaId === empresaId) {
+      throw new BadRequestException('La plantilla ya pertenece a esa empresa');
+    }
+
+    if (empresaId != null) {
+      const emp = await this.prisma.empresa.findUnique({ where: { id: empresaId } });
+      if (!emp) throw new NotFoundException('Empresa destino no encontrada');
+    }
+
+    const ejecuciones = await this.prisma.ejecucion_reporte.count({ where: { plantillaId: id } });
+    if (ejecuciones > 0) {
+      throw new BadRequestException(
+        `No se puede cambiar de empresa: la plantilla ya tiene ${ejecuciones} ejecución(es). Cloná la plantilla a la empresa deseada.`,
+      );
+    }
+
+    this.logger.log(`Cambiando empresa de plantilla reporte ${id} → ${empresaId ?? 'Global'}`);
+    return this.prisma.plantilla_reporte.update({
+      where: { id },
+      data: { empresaId },
     });
   }
 

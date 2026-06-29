@@ -54,6 +54,7 @@ model deudor {
   empresaId         Int
   remesaId          Int
   documento         String
+  nroCliente        String?
   nombre            String
   apellido          String
   montoTotal        Float?
@@ -82,6 +83,7 @@ model deudor {
   @@unique([empresaId, documento, remesaId], map: "Deudor_empresaId_documento_remesaId_key")
   @@index([documento], map: "Deudor_documento_idx")
   @@index([empresaId, remesaId], map: "Deudor_empresaId_remesaId_idx")
+  @@index([empresaId, remesaId, nroCliente], map: "Deudor_empresaId_remesaId_nroCliente_idx")
   @@index([fechaVencimiento], map: "Deudor_fechaVencimiento_idx")
   @@index([estadoGestionId], map: "Deudor_estadoGestionId_fkey")
   @@index([estadoSituacionId], map: "Deudor_estadoSituacionId_fkey")
@@ -238,6 +240,7 @@ model remesa {
   totalFilas       Int                  @default(0)
   hoja             String?
   fechaVencimiento DateTime?
+  validarDomicilios Boolean             @default(false)
   politicaId       Int?
   usuarioCreadorId Int?                 @map("usuarioCreadorId")
   deudor           deudor[]

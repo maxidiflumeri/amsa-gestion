@@ -89,13 +89,17 @@ export class DeudoresService {
             andConditions.push({ empresa: { nombre: { contains: dto.empresa } } });
         }
         if (dto.nroCliente) {
-            // Buscamos coincidencia en la tabla relacional de campoExtras
+            // Columna principal nroCliente + fallback a datos viejos (campoExtras / camposAdicionales)
             andConditions.push({
                 OR: [
+                    { nroCliente: { contains: dto.nroCliente } },
                     { campoExtras: { some: { valor: { contains: dto.nroCliente } } } },
                     { camposAdicionales: { string_contains: dto.nroCliente } }
                 ]
             });
+        }
+        if (dto.nroRemesa) {
+            andConditions.push({ remesa: { numeroRemesa: { contains: dto.nroRemesa } } });
         }
         if (dto.email) {
             andConditions.push({ contactos: { some: { tipo: 'email', valor: { contains: dto.email } } } });

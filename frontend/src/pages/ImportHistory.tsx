@@ -70,9 +70,9 @@ const ESTADOS_EN_CURSO = ['PROCESANDO'];
 
 function esEliminable(row: { estadoProceso?: unknown; okFilas?: unknown }): boolean {
     const estado = String(row.estadoProceso ?? '');
-    if (estado === 'PENDIENTE' || estado === 'VALIDANDO' || estado === 'FALLIDA') return true;
-    if (estado === 'FINALIZADA' && Number(row.okFilas ?? 0) === 0) return true;
-    return false;
+    // Se puede intentar borrar en cualquier estado salvo "en curso".
+    // El backend valida que la remesa no tenga gestión antes de borrar los casos.
+    return !!estado && !ESTADOS_EN_CURSO.includes(estado);
 }
 
 export default function ImportHistory() {
@@ -300,7 +300,9 @@ export default function ImportHistory() {
                 <DialogTitle>Confirmar eliminación</DialogTitle>
                 <DialogContent>
                     <DialogContentText>
-                        Esta acción eliminará la importación y todos sus registros de errores y jobs asociados. Esta operación no se puede deshacer.
+                        Esta acción eliminará la importación junto con sus casos (deudores) y los datos cargados (contactos, facturas, etc.).
+                        Si la remesa ya tiene gestión (comentarios, convenios, pagos, llamadas o emails enviados), no se podrá eliminar.
+                        Esta operación no se puede deshacer.
                     </DialogContentText>
                 </DialogContent>
                 <DialogActions>

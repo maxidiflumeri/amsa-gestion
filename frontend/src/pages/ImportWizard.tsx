@@ -9,9 +9,11 @@ import {
     MenuItem,
     Select,
     FormControl,
+    FormControlLabel,
     InputLabel,
     LinearProgress,
     Stack,
+    Switch,
     TextField,
     useMediaQuery,
     useTheme,
@@ -59,6 +61,7 @@ export default function ImportWizard() {
     const [numeroRemesa, setNumeroRemesa] = useState("");
     const [fechaVencimiento, setFechaVencimiento] = useState("");
     const [hojaExcel, setHojaExcel] = useState<string>("");
+    const [validarDomicilios, setValidarDomicilios] = useState(false);
 
     const isExcelFile = file?.name?.match(/\.(xls|xlsx)$/i);
 
@@ -145,6 +148,8 @@ export default function ImportWizard() {
             if (isExcelFile && hojaExcel.trim() !== "") {
                 formData.append("hoja", hojaExcel.trim());
             }
+
+            formData.append("validarDomicilios", String(validarDomicilios));
 
             const resRemesa = await api.post("/import/remesas", formData, {
                 headers: { "Content-Type": "multipart/form-data" },
@@ -342,6 +347,27 @@ export default function ImportWizard() {
                                 ))}
                             </Select>
                         </FormControl>
+
+                        {/* Validación de domicilios contra Georef (opcional, más lento) */}
+                        <Box>
+                            <FormControlLabel
+                                control={
+                                    <Switch
+                                        checked={validarDomicilios}
+                                        onChange={(e) => setValidarDomicilios(e.target.checked)}
+                                    />
+                                }
+                                label="Validar domicilios contra Georef"
+                            />
+                            <Typography
+                                variant="caption"
+                                color="text.secondary"
+                                sx={{ display: "block", ml: 1 }}
+                            >
+                                Más lento. Si está desactivado, los domicilios se cargan con
+                                formato pero sin verificar.
+                            </Typography>
+                        </Box>
 
                         {/* Selector de remesa de deudores origen */}
                         {needsOrigen && (

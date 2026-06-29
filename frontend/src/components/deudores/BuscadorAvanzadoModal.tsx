@@ -38,6 +38,7 @@ interface SearchParams {
     documento: string
     empresa: string
     nroCliente: string
+    nroRemesa: string
     email: string
     telefono: string
 }
@@ -49,6 +50,7 @@ const initialParams: SearchParams = {
     documento: '',
     empresa: '',
     nroCliente: '',
+    nroRemesa: '',
     email: '',
     telefono: '',
 }
@@ -120,6 +122,7 @@ const BuscadorAvanzadoModal: React.FC<BuscadorAvanzadoModalProps> = ({ open, onC
         if (params.documento) payload.documento = params.documento
         if (params.empresa) payload.empresa = params.empresa
         if (params.nroCliente) payload.nroCliente = params.nroCliente
+        if (params.nroRemesa) payload.nroRemesa = params.nroRemesa
         if (params.email) payload.email = params.email
         if (params.telefono) payload.telefono = params.telefono
 
@@ -184,6 +187,9 @@ const BuscadorAvanzadoModal: React.FC<BuscadorAvanzadoModalProps> = ({ open, onC
                     </Grid>
                     <Grid item xs={12} sm={6} md={4}>
                         <TextField fullWidth size="small" label="Nº Cliente" name="nroCliente" value={params.nroCliente} onChange={handleChange} onKeyDown={handleKeyDown} autoComplete="off" />
+                    </Grid>
+                    <Grid item xs={12} sm={6} md={4}>
+                        <TextField fullWidth size="small" label="Nº Remesa" name="nroRemesa" value={params.nroRemesa} onChange={handleChange} onKeyDown={handleKeyDown} autoComplete="off" />
                     </Grid>
                     <Grid item xs={12} sm={6} md={4}>
                         <FormControl fullWidth size="small">

@@ -24,6 +24,11 @@ export class ContactosService {
             data.valor = res.e164;
             data.subtipo = res.tipo ?? null;
             data.validado = true;
+
+            const marcaWhatsapp = data.whatsapp === true || data.tipo === 'whatsapp';
+            if (marcaWhatsapp && data.subtipo === 'FIXED_LINE') {
+                throw new BadRequestException('No se puede marcar como WhatsApp un teléfono fijo');
+            }
         }
 
         if (data.tipo === 'email') {
@@ -91,6 +96,25 @@ export class ContactosService {
             data.valor = res.e164;
             data.subtipo = res.tipo ?? null;
             data.validado = true;
+        }
+
+        // Bloquear marcar WhatsApp en líneas fijas. El toggle no reenvía `valor`,
+        // así que usamos el subtipo guardado y lo recalculamos si es legacy/nulo.
+        if (dto.whatsapp === true) {
+            let tipoLinea: string | null = data.subtipo ?? contacto.subtipo;
+            if (!tipoLinea || tipoLinea === 'UNKNOWN') {
+                tipoLinea = normalizarTelefonoArgentino(contacto.valor).tipo ?? null;
+            }
+            if (tipoLinea === 'FIXED_LINE') {
+                // Autocorrección perezosa: si el subtipo guardado todavía no reflejaba que
+                // es fijo (dato viejo), lo persistimos ahora antes de rechazar. Así la próxima
+                // vez el frontend ya muestra el botón de WhatsApp deshabilitado de entrada.
+                if (contacto.subtipo !== 'FIXED_LINE') {
+                    await this.prisma.contacto.update({ where: { id }, data: { subtipo: 'FIXED_LINE' } });
+                }
+                throw new BadRequestException('No se puede marcar como WhatsApp un teléfono fijo');
+            }
+            if (tipoLinea) data.subtipo = tipoLinea; // backfill oportunista en el caso permitido (móvil)
         }
 
         if (contacto.tipo === 'email' && dto.valor) {

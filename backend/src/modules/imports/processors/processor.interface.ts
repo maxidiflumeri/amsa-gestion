@@ -19,6 +19,8 @@ export interface ProcessContext {
     empresaId: number;
     /** ID de la remesa de deudores a la que se vincula (para FACTURAS, CONTACTOS, PAGOS) */
     remesaOrigenId?: number;
+    /** Si true, los domicilios se validan/normalizan contra Georef (más lento). Si false, se cargan con formato sin verificar. */
+    validarDomicilios?: boolean;
     /** IDs de parámetros por defecto */
     defaults: {
         estadoSituacionId: number;

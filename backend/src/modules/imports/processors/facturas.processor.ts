@@ -29,7 +29,7 @@ export class FacturasProcessor implements ICategoryProcessor {
                 FROM deudor
                 WHERE empresaId = ${ctx.empresaId}
                   AND remesaId = ${targetRemesaId}
-                  AND JSON_UNQUOTE(JSON_EXTRACT(camposAdicionales, '$.nro_cliente')) = ${nroCliente}
+                  AND nroCliente = ${nroCliente}
                 LIMIT 1
             `,
         );

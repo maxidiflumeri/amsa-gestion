@@ -20,6 +20,8 @@ import { CatalogoService } from './catalogo/catalogo.service';
 import {
   CreatePlantillaDto,
   UpdatePlantillaDto,
+  DuplicarPlantillaDto,
+  CambiarEmpresaReporteDto,
 } from './dto/plantilla.dto';
 import { EjecutarDto, PreviewDto } from './dto/ejecutar.dto';
 import {
@@ -174,9 +176,42 @@ export class ReportesController {
   }
 
   @Post('plantillas/:id/duplicar')
-  async duplicate(@Param('id', ParseIntPipe) id: number) {
+  @Permisos('reportes.crear')
+  @Audit({
+    modulo: AuditModulo.REPORTES,
+    entidad: 'PlantillaReporte',
+    tipo: AuditTipo.CREATE,
+    entidadIdFromResponse: 'id',
+    empresaId: (res) => res?.empresaId,
+    resumen: (res, req) => `Clonó plantilla reporte ${req.params.id} → "${res?.nombre}"`,
+    data: (res, req) => ({ params: req.body, after: { id: res?.id, nombre: res?.nombre } }),
+  })
+  async duplicate(
+    @Param('id', ParseIntPipe) id: number,
+    @Body() dto: DuplicarPlantillaDto,
+    @Req() req: Request,
+  ) {
     this.logger.log(`POST /reportes/plantillas/${id}/duplicar`);
-    return this.reportesService.duplicate(id);
+    return this.reportesService.duplicate(id, dto, resolverUsuarioId(req));
+  }
+
+  @Post('plantillas/:id/cambiar-empresa')
+  @Permisos('reportes.editar')
+  @Audit({
+    modulo: AuditModulo.REPORTES,
+    entidad: 'PlantillaReporte',
+    tipo: AuditTipo.UPDATE,
+    entidadIdParam: 'id',
+    empresaId: (res) => res?.empresaId,
+    resumen: (res, req) => `Cambió de empresa la plantilla reporte ${req.params.id}`,
+    data: (res, req) => ({ params: req.body }),
+  })
+  async cambiarEmpresa(
+    @Param('id', ParseIntPipe) id: number,
+    @Body() dto: CambiarEmpresaReporteDto,
+  ) {
+    this.logger.log(`POST /reportes/plantillas/${id}/cambiar-empresa`);
+    return this.reportesService.cambiarEmpresa(id, dto.empresaId ?? null);
   }
 
   @Post('plantillas/:id/estimar')

@@ -37,7 +37,10 @@ function clean(v: any): string {
  *
  * Devuelve null si no hay valor mínimo para guardar.
  */
-export async function prepararContactoImport(data: ContactoImportInput): Promise<ContactoPreparado | null> {
+export async function prepararContactoImport(
+    data: ContactoImportInput,
+    validarDomicilios = false,
+): Promise<ContactoPreparado | null> {
     const tipo = clean(data.tipo || 'telefono').toLowerCase();
 
     if (tipo === 'telefono' || tipo === 'whatsapp' || tipo === 'celular') {
@@ -87,6 +90,13 @@ export async function prepararContactoImport(data: ContactoImportInput): Promise
         }
 
         if (!textoBusqueda) return null;
+
+        // Si la importación no pidió validar domicilios, cargamos el texto con formato
+        // acomodado pero SIN llamar a Georef (mucho más rápido). Queda como no verificado,
+        // igual que el caso "dirección no encontrada" de más abajo.
+        if (!validarDomicilios) {
+            return { tipo: 'direccion', valor: textoCrudo, validado: false };
+        }
 
         const cacheKey = `${textoBusqueda.toLowerCase()}|${(filtros?.localidad ?? '').toLowerCase()}|${(filtros?.provincia ?? '').toLowerCase()}`;
         let cached = cacheDirecciones.get(cacheKey);

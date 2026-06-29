@@ -27,7 +27,7 @@ export class PagosProcessor implements ICategoryProcessor {
                 FROM deudor
                 WHERE empresaId = ${ctx.empresaId}
                   AND remesaId = ${ctx.remesaId}
-                  AND JSON_UNQUOTE(JSON_EXTRACT(camposAdicionales, '$.nro_cliente')) = ${nroCliente}
+                  AND nroCliente = ${nroCliente}
                 LIMIT 1
             `,
         );

@@ -27,6 +27,10 @@ export class AdvancedSearchDto {
 
     @IsOptional()
     @IsString()
+    nroRemesa?: string;
+
+    @IsOptional()
+    @IsString()
     email?: string;
 
     @IsOptional()

@@ -1,4 +1,4 @@
-import React, { useCallback, useState } from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import {
     Box,
     Typography,
@@ -38,6 +38,7 @@ const DEST_FIELDS_BY_CATEGORY: Record<string, { value: string; label: string }[]
         { value: "nombre", label: "Nombre" },
         { value: "apellido", label: "Apellido" },
         { value: "documento", label: "Documento" },
+        { value: "nro_cliente", label: "Nº Cliente (match)" },
         { value: "montoTotal", label: "Monto total" },
         { value: "fechaVencimiento", label: "Fecha vencimiento" },
     ],
@@ -343,6 +344,17 @@ export default function MappingEditor({
     };
 
     // ─── Block handlers ───────────────────────────────────────────────────────
+
+    // Auto-scroll al agregar un bloque: el botón "Nuevo bloque" vive al final de la
+    // lista, así que llevamos el botón (y el bloque recién creado, justo encima) a la vista.
+    const blocksEndRef = useRef<HTMLDivElement>(null);
+    const prevBlocksLen = useRef(blocks.length);
+    useEffect(() => {
+        if (blocks.length > prevBlocksLen.current) {
+            blocksEndRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
+        }
+        prevBlocksLen.current = blocks.length;
+    }, [blocks.length]);
 
     const handleAddBlock = () => {
         if (!onBlocksChange) return;
@@ -678,6 +690,24 @@ export default function MappingEditor({
         .map((f, i) => ({ field: f, globalIdx: i }))
         .filter(({ field }) => field.isExtra);
 
+    // Auto-scroll al agregar campos (mismo criterio que los bloques): el botón vive al final.
+    const mainFieldsEndRef = useRef<HTMLDivElement>(null);
+    const extraFieldsEndRef = useRef<HTMLDivElement>(null);
+    const prevMainLen = useRef(mainFields.length);
+    const prevExtraLen = useRef(extraFields.length);
+    useEffect(() => {
+        if (mainFields.length > prevMainLen.current) {
+            mainFieldsEndRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
+        }
+        prevMainLen.current = mainFields.length;
+    }, [mainFields.length]);
+    useEffect(() => {
+        if (extraFields.length > prevExtraLen.current) {
+            extraFieldsEndRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
+        }
+        prevExtraLen.current = extraFields.length;
+    }, [extraFields.length]);
+
     // ─── JSX ──────────────────────────────────────────────────────────────────
 
     return (
@@ -770,65 +800,47 @@ export default function MappingEditor({
             )}
 
             {/* Main fields mapping */}
-            <SectionCard
-                title="Campos principales"
-                action={
-                    <Button
-                        startIcon={<AddIcon />}
-                        size="small"
-                        onClick={() => handleAddField(false)}
-                        disabled={disabled}
-                        sx={{ mr: 1 }}
-                    >
-                        Agregar campo
-                    </Button>
-                }
-            >
+            <SectionCard title="Campos principales">
                 {renderFieldList(
                     mainFields.map(({ field }) => field),
                     (localIdx) => mainFields[localIdx].globalIdx,
                     false
                 )}
-            </SectionCard>
-
-            {/* Extra fields (camposAdicionales) */}
-            <SectionCard
-                title="Campos extras (→ camposAdicionales JSON)"
-                action={
+                <Box ref={mainFieldsEndRef} sx={{ display: "flex", justifyContent: "center", pt: 1 }}>
                     <Button
                         startIcon={<AddIcon />}
                         size="small"
-                        onClick={() => handleAddField(true)}
+                        onClick={() => handleAddField(false)}
                         disabled={disabled}
-                        sx={{ mr: 1 }}
                     >
-                        Agregar campo extra
+                        Agregar campo
                     </Button>
-                }
-            >
+                </Box>
+            </SectionCard>
+
+            {/* Extra fields (camposAdicionales) */}
+            <SectionCard title="Campos extras (→ camposAdicionales JSON)">
                 {renderFieldList(
                     extraFields.map(({ field }) => field),
                     (localIdx) => extraFields[localIdx].globalIdx,
                     true
                 )}
+                <Box ref={extraFieldsEndRef} sx={{ display: "flex", justifyContent: "center", pt: 1 }}>
+                    <Button
+                        startIcon={<AddIcon />}
+                        size="small"
+                        onClick={() => handleAddField(true)}
+                        disabled={disabled}
+                    >
+                        Agregar campo extra
+                    </Button>
+                </Box>
             </SectionCard>
 
             {/* Repetitive Blocks */}
             <SectionCard
                 title="Bloques repetitivos (Mapeo Múltiple N-1)"
                 subtitle="¿Tu archivo tiene facturas en columnas horizontales repetidas (ej. Cuota 1, Cuota 2, etc.)? Podés crear un bloque nuevo por cada iteración."
-                action={
-                    <Button
-                        variant="outlined"
-                        startIcon={<AddIcon />}
-                        size="small"
-                        onClick={handleAddBlock}
-                        disabled={disabled}
-                        sx={{ mr: 1 }}
-                    >
-                        Nuevo bloque
-                    </Button>
-                }
             >
                 <Stack spacing={2}>
                     {blocks.map((block, bIdx) => (
@@ -921,6 +933,19 @@ export default function MappingEditor({
                             Sin bloques repetitivos configurados.
                         </Typography>
                     )}
+
+                    {/* Botón al final: siempre queda junto al último bloque y a la vista */}
+                    <Box ref={blocksEndRef} sx={{ display: "flex", justifyContent: "center", pt: 1 }}>
+                        <Button
+                            variant="outlined"
+                            startIcon={<AddIcon />}
+                            size="small"
+                            onClick={handleAddBlock}
+                            disabled={disabled}
+                        >
+                            Nuevo bloque
+                        </Button>
+                    </Box>
                 </Stack>
             </SectionCard>
         </Box>

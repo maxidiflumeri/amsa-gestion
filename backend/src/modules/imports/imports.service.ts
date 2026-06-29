@@ -8,7 +8,7 @@ import * as fs from 'fs';
 import * as fastcsv from 'fast-csv';
 import * as xlsx from 'xlsx';
 import { PrismaService } from 'src/prisma/prisma.service';
-import { CreatePlantillaDto, CreateRemesaDto } from './dtos/import.dto';
+import { ClonarPlantillaDto, CreatePlantillaDto, CreateRemesaDto } from './dtos/import.dto';
 import { MappingJson } from './mapping-types';
 import { getProcessor, getSupportedCategories } from './processors/processor-registry';
 import { ProcessContext, MappedRow } from './processors/processor.interface';
@@ -51,6 +51,8 @@ export class ImportService {
         return this.prisma.plantillaimport.findMany({
             where: { empresaId, ...(categoria ? { categoria: categoria as any } : {}) },
             orderBy: [{ nombre: 'asc' }, { version: 'desc' }],
+            // _count.remesa: cuántas cargas usaron la plantilla (para habilitar/bloquear "cambiar empresa")
+            include: { _count: { select: { remesa: true } } },
         });
     }
 
@@ -58,6 +60,83 @@ export class ImportService {
         const p = await this.prisma.plantillaimport.findUnique({ where: { id } });
         if (!p) throw new NotFoundException('Plantilla no encontrada');
         return p;
+    }
+
+    /** Próxima versión libre para un par (empresa, nombre), para respetar el unique [empresaId, nombre, version]. */
+    private async proximaVersionPlantilla(empresaId: number, nombre: string): Promise<number> {
+        const ultima = await this.prisma.plantillaimport.findFirst({
+            where: { empresaId, nombre },
+            orderBy: { version: 'desc' },
+            select: { version: true },
+        });
+        return (ultima?.version ?? 0) + 1;
+    }
+
+    /** Clona una plantilla (siempre permitido). Puede ir a otra empresa y/o con otro nombre. */
+    async clonarPlantilla(id: number, dto: ClonarPlantillaDto) {
+        const original = await this.getPlantilla(id);
+        const empresaDestino = dto.empresaId ?? original.empresaId;
+        const cambiaEmpresa = empresaDestino !== original.empresaId;
+
+        if (cambiaEmpresa) {
+            const emp = await this.prisma.empresa.findUnique({ where: { id: empresaDestino } });
+            if (!emp) throw new NotFoundException('Empresa destino no encontrada');
+        }
+
+        const nombre = dto.nombre?.trim() || `${original.nombre} (copia)`;
+        const version = await this.proximaVersionPlantilla(empresaDestino, nombre);
+
+        return this.prisma.plantillaimport.create({
+            data: {
+                empresaId: empresaDestino,
+                nombre,
+                categoria: original.categoria,
+                version,
+                activo: original.activo,
+                separador: original.separador,
+                tieneHeader: original.tieneHeader,
+                mappingJson: original.mappingJson as any,
+                // Los estados por defecto son parámetros por empresa: solo se conservan si no cambia de empresa.
+                defaultEstadoSituacionId: cambiaEmpresa ? null : original.defaultEstadoSituacionId,
+                defaultEstadoGestionId: cambiaEmpresa ? null : original.defaultEstadoGestionId,
+            },
+        });
+    }
+
+    /** Cambia la plantilla de empresa. Solo si nunca se usó (sin remesas), para no romper cargas existentes. */
+    async cambiarEmpresaPlantilla(id: number, empresaId: number) {
+        const plantilla = await this.getPlantilla(id);
+        if (plantilla.empresaId === empresaId) {
+            throw new BadRequestException('La plantilla ya pertenece a esa empresa');
+        }
+
+        const emp = await this.prisma.empresa.findUnique({ where: { id: empresaId } });
+        if (!emp) throw new NotFoundException('Empresa destino no encontrada');
+
+        const remesaCount = await this.prisma.remesa.count({ where: { plantillaId: id } });
+        if (remesaCount > 0) {
+            throw new BadRequestException(
+                `No se puede cambiar de empresa: la plantilla ya tiene ${remesaCount} carga(s). Cloná la plantilla a la empresa deseada.`,
+            );
+        }
+
+        // Respetar el unique [empresaId, nombre, version] en el destino.
+        const choca = await this.prisma.plantillaimport.findFirst({
+            where: { empresaId, nombre: plantilla.nombre, version: plantilla.version },
+            select: { id: true },
+        });
+        const version = choca ? await this.proximaVersionPlantilla(empresaId, plantilla.nombre) : plantilla.version;
+
+        return this.prisma.plantillaimport.update({
+            where: { id },
+            data: {
+                empresaId,
+                version,
+                // Reseteamos los estados por defecto (son parámetros de la empresa anterior).
+                defaultEstadoSituacionId: null,
+                defaultEstadoGestionId: null,
+            },
+        });
     }
 
     async updatePlantilla(id: number, data: Partial<CreatePlantillaDto>) {
@@ -175,6 +254,7 @@ export class ImportService {
                 archivoHash: saved.hash,
                 hoja: dto.hoja,
                 fechaVencimiento: dto.fechaVencimiento ? new Date(dto.fechaVencimiento) : null,
+                validarDomicilios: dto.validarDomicilios ?? false,
                 estadoProceso: 'PENDIENTE',
                 usuarioCreadorId: usuarioCreadorId ?? null,
             },
@@ -480,6 +560,7 @@ export class ImportService {
             remesaId: remesa.id,
             empresaId: remesa.empresaId,
             remesaOrigenId,
+            validarDomicilios: remesa.validarDomicilios ?? false,
             defaults: {
                 estadoSituacionId: defaultEstadoSituacionId,
                 estadoGestionId: defaultEstadoGestionId,
@@ -874,29 +955,59 @@ export class ImportService {
             throw new BadRequestException('No se puede eliminar una importación en curso');
         }
 
-        const totalmenteFallida =
-            remesa.estadoProceso === 'FALLIDA' ||
-            (remesa.estadoProceso === 'FINALIZADA' && (remesa.okFilas ?? 0) === 0);
-        const eliminable =
-            remesa.estadoProceso === 'PENDIENTE' ||
-            remesa.estadoProceso === 'VALIDANDO' ||
-            totalmenteFallida;
-        if (!eliminable) {
-            throw new BadRequestException(
-                'Solo se pueden eliminar importaciones pendientes, en validación o que fallaron completamente',
-            );
-        }
-
         const puedeVerOtros = user.permisos.includes('importacion.ver_progreso_otros');
         if (!puedeVerOtros && remesa.usuarioCreadorId !== user.sub) {
             throw new ForbiddenException('No tenés permiso para eliminar esta importación');
         }
 
-        await this.prisma.jobimport.deleteMany({ where: { remesaId } });
-        await this.prisma.importerror.deleteMany({ where: { remesaId } });
-        await this.prisma.remesa.delete({ where: { id: remesaId } });
+        // Casos ("deudores") de la remesa.
+        const deudores = await this.prisma.deudor.findMany({
+            where: { remesaId },
+            select: { id: true },
+        });
+        const deudorIds = deudores.map((d) => d.id);
 
-        this.logger.log(`Remesa ${remesaId} eliminada por usuario ${user.sub}`);
-        return { deleted: true };
+        // Si la remesa generó casos, solo permitimos borrarla si NINGUNO tiene gestión encima.
+        // Borrar gestión (comentarios, convenios, pagos, llamadas, emails) sería irreversible.
+        if (deudorIds.length > 0) {
+            const [comentarios, convenios, pagos, llamadas, emails] = await Promise.all([
+                this.prisma.comentario.count({ where: { deudorId: { in: deudorIds } } }),
+                this.prisma.convenio.count({ where: { deudorId: { in: deudorIds } } }),
+                this.prisma.pago.count({ where: { deudorId: { in: deudorIds } } }),
+                this.prisma.llamada_neotel.count({ where: { deudorId: { in: deudorIds } } }),
+                this.prisma.envio_email.count({ where: { deudorId: { in: deudorIds } } }),
+            ]);
+            const gestion = [
+                comentarios && `${comentarios} comentario(s)`,
+                convenios && `${convenios} convenio(s)`,
+                pagos && `${pagos} pago(s)`,
+                llamadas && `${llamadas} llamada(s)`,
+                emails && `${emails} email(s) enviado(s)`,
+            ].filter(Boolean);
+            if (gestion.length > 0) {
+                throw new BadRequestException(
+                    `No se puede eliminar: la remesa ya tiene gestión (${gestion.join(', ')}). ` +
+                    'Eliminarla borraría ese trabajo de forma irreversible.',
+                );
+            }
+        }
+
+        // Borrado transaccional: datos del deudor (RESTRICT) → deudores → artefactos de import → remesa.
+        // envio_email es CASCADE y transaccion es SET NULL a nivel DB; comentarios/convenios/pagos/llamadas
+        // son 0 por la validación anterior, así que el borrado de deudores no choca con foreign keys.
+        await this.prisma.$transaction(async (tx) => {
+            if (deudorIds.length > 0) {
+                await tx.contacto.deleteMany({ where: { deudorId: { in: deudorIds } } });
+                await tx.campoextra.deleteMany({ where: { deudorId: { in: deudorIds } } });
+                await tx.factura.deleteMany({ where: { deudorId: { in: deudorIds } } });
+                await tx.deudor.deleteMany({ where: { id: { in: deudorIds } } });
+            }
+            await tx.jobimport.deleteMany({ where: { remesaId } });
+            await tx.importerror.deleteMany({ where: { remesaId } });
+            await tx.remesa.delete({ where: { id: remesaId } });
+        });
+
+        this.logger.log(`Remesa ${remesaId} eliminada por usuario ${user.sub} (casos=${deudorIds.length})`);
+        return { deleted: true, casosEliminados: deudorIds.length };
     }
 }

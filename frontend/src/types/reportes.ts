@@ -120,6 +120,8 @@ export type Plantilla = {
   opcionesFormato?: OpcionesFormato
   createdAt?: string
   updatedAt?: string
+  empresa?: { id: number; nombre: string } | null
+  _count?: { ejecuciones?: number }
 }
 
 export type NodoCatalogo = {

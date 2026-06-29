@@ -11,6 +11,7 @@ import {
     Stack,
     Tooltip,
     Typography,
+    useTheme,
 } from '@mui/material';
 import EmailIcon from '@mui/icons-material/Email';
 import PhoneIcon from '@mui/icons-material/Phone';
@@ -52,6 +53,7 @@ const FichaContactosPanel: React.FC<Props> = ({
     puedeEnviarEmail,
 }) => {
     const notify = useNotify();
+    const theme = useTheme();
 
     const handleCopy = async (texto: string) => {
         try {
@@ -194,7 +196,12 @@ const FichaContactosPanel: React.FC<Props> = ({
                             const label = formatearTelefonoParaUI(c.valor);
                             const esWhatsapp = c.whatsapp === true || c.tipo === 'whatsapp';
                             const esPrincipal = c.prioridad === 1;
+                            const esAmbos = esWhatsapp && esPrincipal;
                             const validado = c.validado;
+                            // El backend clasifica móvil/fijo con los rangos de ENACOM y lo guarda en subtipo.
+                            // Solo deshabilitamos cuando es fijo confirmado; ante la duda dejamos marcar (el backend valida).
+                            const esFijo = c.subtipo === 'FIXED_LINE';
+                            const bloquearWhatsapp = esFijo && !esWhatsapp;
                             const chipColor: any = esPrincipal
                                 ? 'warning'
                                 : esWhatsapp
@@ -233,14 +240,21 @@ const FichaContactosPanel: React.FC<Props> = ({
                                                         : <StarBorderIcon sx={{ fontSize: 16 }} />}
                                                 </IconButton>
                                             </Tooltip>
-                                            <Tooltip title={esWhatsapp ? 'Quitar WhatsApp' : 'Marcar como WhatsApp'}>
-                                                <IconButton
-                                                    size="small"
-                                                    onClick={stopAnd(() => onToggleWhatsapp?.(c))}
-                                                    sx={{ p: 0.25, color: iconBtnColor ?? 'success.main' }}
-                                                >
-                                                    <WhatsAppIcon sx={{ fontSize: 16 }} />
-                                                </IconButton>
+                                            <Tooltip title={
+                                                bloquearWhatsapp
+                                                    ? 'No se puede usar WhatsApp en un teléfono fijo'
+                                                    : esWhatsapp ? 'Quitar WhatsApp' : 'Marcar como WhatsApp'
+                                            }>
+                                                <span>
+                                                    <IconButton
+                                                        size="small"
+                                                        disabled={bloquearWhatsapp}
+                                                        onClick={stopAnd(() => onToggleWhatsapp?.(c))}
+                                                        sx={{ p: 0.25, color: iconBtnColor ?? 'success.main' }}
+                                                    >
+                                                        <WhatsAppIcon sx={{ fontSize: 16 }} />
+                                                    </IconButton>
+                                                </span>
                                             </Tooltip>
                                             <Tooltip title="Copiar al portapapeles">
                                                 <IconButton size="small" onClick={stopAnd(() => handleCopy(c.valor))} sx={{ p: 0.25, color: iconBtnColor }}>
@@ -267,6 +281,10 @@ const FichaContactosPanel: React.FC<Props> = ({
                                                 color: 'common.white',
                                                 '&:hover': { color: 'rgba(255,255,255,0.85)' },
                                             },
+                                        }),
+                                        // Principal + WhatsApp: split mitad naranja / mitad verde
+                                        ...(esAmbos && {
+                                            background: `linear-gradient(135deg, ${theme.palette.warning.main} 0%, ${theme.palette.warning.main} 50%, ${theme.palette.success.main} 50%, ${theme.palette.success.main} 100%)`,
                                         }),
                                         '& .MuiChip-label': {
                                             display: 'block',

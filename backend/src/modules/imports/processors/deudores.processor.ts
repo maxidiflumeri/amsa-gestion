@@ -1,6 +1,7 @@
 // processors/deudores.processor.ts
 import { ICategoryProcessor, MappedRow, ProcessContext, RowValidationResult } from './processor.interface';
 import { Prisma } from '@prisma/client';
+import { nroClienteDeFila } from '../utils/nro-cliente';
 
 export class DeudoresProcessor implements ICategoryProcessor {
     readonly category = 'DEUDORES';
@@ -32,11 +33,15 @@ export class DeudoresProcessor implements ICategoryProcessor {
         if (!row.documento) {
             return { valid: false, error: 'Campo requerido faltante: documento' };
         }
+        if (!nroClienteDeFila(row)) {
+            return { valid: false, error: 'Campo requerido faltante: nro_cliente' };
+        }
         return { valid: true };
     }
 
     async processRow(row: MappedRow, ctx: ProcessContext): Promise<void> {
         const documentoStr = String(row.documento);
+        const nroCliente = nroClienteDeFila(row);
         let isNewForThisRemesa = true;
 
         const existingInRemesa = await ctx.prisma.deudor.findUnique({
@@ -66,6 +71,7 @@ export class DeudoresProcessor implements ICategoryProcessor {
                 empresaId: ctx.empresaId,
                 remesaId: ctx.remesaId,
                 documento: documentoStr,
+                nroCliente: nroCliente || null,
                 nombre: row.nombre ?? '',
                 apellido: row.apellido ?? '',
                 montoTotal: this.parseFloatSafe(row.montoTotal) ?? null,
@@ -75,6 +81,7 @@ export class DeudoresProcessor implements ICategoryProcessor {
                 estadoGestionId: ctx.defaults.estadoGestionId,
             },
             update: {
+                nroCliente: nroCliente || undefined,
                 nombre: row.nombre ?? undefined,
                 apellido: row.apellido ?? undefined,
                 montoTotal: this.parseFloatSafe(row.montoTotal) ?? undefined,

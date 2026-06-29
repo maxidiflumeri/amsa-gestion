@@ -177,6 +177,24 @@ export class CreatePlantillaDto {
   opcionesFormato?: any;
 }
 
+export class DuplicarPlantillaDto {
+  @IsOptional()
+  @IsString()
+  nombre?: string;
+
+  // undefined → conserva empresa del original; null → Global; number → esa empresa.
+  @IsOptional()
+  @IsInt()
+  empresaId?: number | null;
+}
+
+export class CambiarEmpresaReporteDto {
+  // null = Global (sin empresa).
+  @IsOptional()
+  @IsInt()
+  empresaId?: number | null;
+}
+
 export class UpdatePlantillaDto {
   @IsOptional()
   @IsString()

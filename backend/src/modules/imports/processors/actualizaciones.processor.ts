@@ -98,7 +98,7 @@ export class ActualizacionesProcessor implements ICategoryProcessor {
                     SELECT id FROM deudor
                     WHERE empresaId = ${ctx.empresaId}
                       AND remesaId = ${ctx.remesaOrigenId}
-                      AND JSON_UNQUOTE(JSON_EXTRACT(camposAdicionales, '$.nro_cliente')) = ${nroCliente}
+                      AND nroCliente = ${nroCliente}
                     LIMIT 1
                 `
             );

@@ -54,7 +54,7 @@ export class ContactosProcessor implements ICategoryProcessor {
                     FROM deudor
                     WHERE empresaId = ${ctx.empresaId}
                       AND remesaId = ${targetRemesaId}
-                      AND JSON_UNQUOTE(JSON_EXTRACT(camposAdicionales, '$.nro_cliente')) = ${nroCliente}
+                      AND nroCliente = ${nroCliente}
                     LIMIT 1
                 `,
             );
@@ -75,7 +75,7 @@ export class ContactosProcessor implements ICategoryProcessor {
             direccion_cp: row.direccion_cp,
             direccion_localidad: row.direccion_localidad,
             direccion_provincia: row.direccion_provincia,
-        });
+        }, ctx.validarDomicilios);
 
         if (!prep) return;
 

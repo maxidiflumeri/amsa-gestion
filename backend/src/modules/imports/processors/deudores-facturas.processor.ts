@@ -1,6 +1,7 @@
 import { ICategoryProcessor, MappedRow, ProcessContext, RowValidationResult } from './processor.interface';
 import { Prisma } from '@prisma/client';
 import { clearContactoImportCaches, prepararContactoImport } from '../utils/contacto-import';
+import { nroClienteDeFila } from '../utils/nro-cliente';
 
 export class DeudoresYFacturasProcessor implements ICategoryProcessor {
     readonly category = 'DEUDORES_Y_FACTURAS';
@@ -58,7 +59,10 @@ export class DeudoresYFacturasProcessor implements ICategoryProcessor {
         if (!row.documento) {
             return { valid: false, error: 'Campo requerido faltante: documento (Deudor)' };
         }
-        
+        if (!nroClienteDeFila(row)) {
+            return { valid: false, error: 'Campo requerido faltante: nro_cliente (Deudor)' };
+        }
+
         const hasMainFactura = !!row.nroFactura;
         const hasBlocksFactura = row._blocks?.some(b => b.entity === 'FACTURA' && b.data.nroFactura);
 
@@ -75,7 +79,8 @@ export class DeudoresYFacturasProcessor implements ICategoryProcessor {
 
     async processRow(row: MappedRow, ctx: ProcessContext): Promise<void> {
         const documentoStr = String(row.documento);
-        
+        const nroCliente = nroClienteDeFila(row);
+
         let deudorId: number;
 
         // 1. Gestionar el Deudor (Aislado por Remesa, Enriquecido Históricamente)
@@ -113,6 +118,7 @@ export class DeudoresYFacturasProcessor implements ICategoryProcessor {
                 empresaId: ctx.empresaId,
                 remesaId: ctx.remesaId,
                 documento: documentoStr,
+                nroCliente: nroCliente || null,
                 nombre: row.nombre ?? '',
                 apellido: row.apellido ?? '',
                 montoTotal: montoTotalParsed ?? rowInvoicesSum,
@@ -122,10 +128,11 @@ export class DeudoresYFacturasProcessor implements ICategoryProcessor {
                 estadoGestionId: ctx.defaults.estadoGestionId,
             },
             update: {
+                nroCliente: nroCliente || undefined,
                 nombre: row.nombre ?? undefined,
                 apellido: row.apellido ?? undefined,
-                montoTotal: montoTotalParsed !== undefined 
-                    ? montoTotalParsed 
+                montoTotal: montoTotalParsed !== undefined
+                    ? montoTotalParsed
                     : { increment: rowInvoicesSum },
                 fechaVencimiento: this.parseDateSafe(row.fechaVencimiento) ?? undefined,
                 camposAdicionales: row.camposAdicionales ?? undefined,
@@ -202,7 +209,7 @@ export class DeudoresYFacturasProcessor implements ICategoryProcessor {
             direccion_cp: data.direccion_cp,
             direccion_localidad: data.direccion_localidad,
             direccion_provincia: data.direccion_provincia,
-        });
+        }, ctx.validarDomicilios);
 
         if (!prep) return;
 

@@ -85,8 +85,11 @@ export const reportesApi = {
   eliminarPlantilla: (id: number) =>
     api.delete(`/reportes/plantillas/${id}`),
 
-  duplicarPlantilla: (id: number) =>
-    api.post<Plantilla>(`/reportes/plantillas/${id}/duplicar`, {}),
+  duplicarPlantilla: (id: number, data?: { nombre?: string; empresaId?: number | null }) =>
+    api.post<Plantilla>(`/reportes/plantillas/${id}/duplicar`, data ?? {}),
+
+  cambiarEmpresaPlantilla: (id: number, empresaId: number | null) =>
+    api.post<Plantilla>(`/reportes/plantillas/${id}/cambiar-empresa`, { empresaId }),
 
   preview: (data: { definicion: Definicion; filtrosVars?: any; raiz?: string }) =>
     api.post<{ columnas: any[]; filas: any[]; total: number }>(

@@ -31,6 +31,8 @@ export const validarTelefonoArgentinoFront = (input: string): PreviewTelefono =>
             e164: phone.number, // "+549..." o "+5411..."
             internacional: phone.formatInternational(),
             nacional: phone.formatNational(),
+            // Nota: en AR getType() no distingue móvil/fijo de forma fiable; la clasificación
+            // real (rangos ENACOM) la hace el backend y llega en contacto.subtipo.
             tipo: phone.getType?.(),
         };
     } catch {

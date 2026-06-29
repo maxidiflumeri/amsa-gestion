@@ -2,7 +2,7 @@
 import { Body, Controller, Delete, Get, Param, ParseIntPipe, Post, Put, Query, UploadedFile, UseInterceptors } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { ImportService } from './imports.service';
-import { CreatePlantillaDto, CreateRemesaDto } from './dtos/import.dto';
+import { CambiarEmpresaPlantillaDto, ClonarPlantillaDto, CreatePlantillaDto, CreateRemesaDto } from './dtos/import.dto';
 import { Permisos, UsuarioActual } from '../../auth/decorators';
 import { Audit } from '../transacciones/audit.decorator';
 import { AuditModulo, AuditTipo } from '../transacciones/audit.enums';
@@ -105,6 +105,36 @@ export class ImportController {
     })
     deletePlantilla(@Param('id', ParseIntPipe) id: number) {
         return this.service.deletePlantilla(id);
+    }
+
+    @Post('plantillas/:id/clonar')
+    @Permisos('plantillas_import.crear')
+    @Audit({
+        modulo: AuditModulo.IMPORT,
+        entidad: 'PlantillaImport',
+        tipo: AuditTipo.CREATE,
+        entidadIdFromResponse: 'id',
+        empresaId: (res) => res?.empresaId,
+        resumen: (res, req) => `Clonó plantilla import ${req.params.id} → "${res?.nombre}"`,
+        data: (res, req) => ({ params: req.body, after: res }),
+    })
+    clonarPlantilla(@Param('id', ParseIntPipe) id: number, @Body() dto: ClonarPlantillaDto) {
+        return this.service.clonarPlantilla(id, dto);
+    }
+
+    @Post('plantillas/:id/cambiar-empresa')
+    @Permisos('plantillas_import.editar')
+    @Audit({
+        modulo: AuditModulo.IMPORT,
+        entidad: 'PlantillaImport',
+        tipo: AuditTipo.UPDATE,
+        entidadIdParam: 'id',
+        empresaId: (res) => res?.empresaId,
+        resumen: (res, req) => `Cambió de empresa la plantilla import ${req.params.id}`,
+        data: (res, req) => ({ params: req.body, after: res }),
+    })
+    cambiarEmpresaPlantilla(@Param('id', ParseIntPipe) id: number, @Body() dto: CambiarEmpresaPlantillaDto) {
+        return this.service.cambiarEmpresaPlantilla(id, dto.empresaId);
     }
 
     // --- REMESAS ---
