@@ -2,6 +2,7 @@
 import { ICategoryProcessor, MappedRow, ProcessContext, RowValidationResult } from './processor.interface';
 import { Prisma } from '@prisma/client';
 import { nroClienteDeFila } from '../utils/nro-cliente';
+import { procesarBloquesDeudor } from '../utils/procesar-bloques';
 
 export class DeudoresProcessor implements ICategoryProcessor {
     readonly category = 'DEUDORES';
@@ -89,6 +90,9 @@ export class DeudoresProcessor implements ICategoryProcessor {
                 camposAdicionales: row.camposAdicionales ?? undefined,
             },
         });
+
+        // Bloques repetitivos (facturas/contactos) → se procesan en cualquier categoría.
+        await procesarBloquesDeudor(deudor.id, row._blocks, ctx);
 
         // -- ENRIQUECIMIENTO HISTÓRICO GLOBAL (Cross-Empresa / Cross-Remesa) --
         if (isNewForThisRemesa && documentoStr) {

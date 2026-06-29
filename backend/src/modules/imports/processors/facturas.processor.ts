@@ -1,6 +1,7 @@
 // processors/facturas.processor.ts
 import { ICategoryProcessor, MappedRow, ProcessContext, RowValidationResult } from './processor.interface';
 import { Prisma } from '@prisma/client';
+import { procesarBloquesDeudor } from '../utils/procesar-bloques';
 
 export class FacturasProcessor implements ICategoryProcessor {
     readonly category = 'FACTURAS';
@@ -39,6 +40,9 @@ export class FacturasProcessor implements ICategoryProcessor {
         }
 
         const deudor = rows[0];
+
+        // Bloques repetitivos del archivo → al deudor encontrado.
+        await procesarBloquesDeudor(deudor.id, row._blocks, ctx);
 
         await ctx.prisma.factura.upsert({
             where: {

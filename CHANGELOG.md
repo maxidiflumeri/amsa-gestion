@@ -72,6 +72,12 @@
 
 - **Frontend** (`FichaHeader.tsx`): se muestra el **Nº Cliente** junto a Empresa y Remesa en el header de la ficha del deudor. Toma `deudor.nroCliente` con fallback a `camposAdicionales.nro_cliente` (datos previos a la migración).
 
+### 12. Bloques repetitivos en todas las categorías de importación
+
+- **Bug detectado en prod**: una plantilla con bloques repetitivos (contactos/facturas) cargada con categoría `DEUDORES` mostraba los bloques en el preview pero **no los persistía** — solo `DEUDORES_Y_FACTURAS` (y parcialmente `ACTUALIZACIONES`) procesaban `_blocks`. Resultado: deudores creados sin sus facturas/contactos.
+- **Backend**: nueva función común `procesarBloquesDeudor(deudorId, blocks, ctx)` en `utils/procesar-bloques.ts` que procesa bloques `FACTURA` y `CONTACTO` (respetando `validarDomicilios`). Se llama tras resolver el deudor en **todos** los processors: `deudores`, `contactos`, `enriquecimiento`, `pagos`, `facturas`; y `deudores-facturas` se refactorizó para usarla. En `contactos`/`enriquecimiento` los bloques se procesan aunque no haya contacto principal en la fila.
+- `ACTUALIZACIONES` se dejó intacto (tiene reconciliación especial de facturas).
+
 ---
 
 ## [2026-05-13] — Usuarios: legajo, DNI y telefonía integrada en ABM

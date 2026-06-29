@@ -2,6 +2,7 @@ import { ICategoryProcessor, MappedRow, ProcessContext, RowValidationResult } fr
 import { Prisma } from '@prisma/client';
 import { clearContactoImportCaches, prepararContactoImport } from '../utils/contacto-import';
 import { nroClienteDeFila } from '../utils/nro-cliente';
+import { procesarBloquesDeudor } from '../utils/procesar-bloques';
 
 export class DeudoresYFacturasProcessor implements ICategoryProcessor {
     readonly category = 'DEUDORES_Y_FACTURAS';
@@ -184,20 +185,8 @@ export class DeudoresYFacturasProcessor implements ICategoryProcessor {
             await this.upsertFactura(deudorId, row, ctx);
         }
 
-        // 3. Procesar Facturas y Contactos en bloques dinámicos
-        if (row._blocks) {
-            for (const b of row._blocks) {
-                if ((b.entity === 'FACTURA' || b.entity === 'MIXTO' || b.entity === 'DEUDORES_Y_FACTURAS') && b.data.nroFactura) {
-                    await this.upsertFactura(deudorId, b.data, ctx);
-                } else if (b.entity === 'CONTACTO') {
-                    const tieneValor = !!b.data.valor;
-                    const tieneDireccion = !!(b.data.direccion_calle || b.data.direccion_numero || b.data.direccion_localidad || b.data.direccion_provincia);
-                    if (tieneValor || tieneDireccion) {
-                        await this.upsertContacto(deudorId, b.data, ctx);
-                    }
-                }
-            }
-        }
+        // 3. Procesar Facturas y Contactos en bloques dinámicos (lógica común a todas las categorías)
+        await procesarBloquesDeudor(deudorId, row._blocks, ctx);
     }
 
     private async upsertContacto(deudorId: number, data: any, ctx: ProcessContext) {

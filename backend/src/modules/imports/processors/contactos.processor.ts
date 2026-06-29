@@ -2,6 +2,7 @@
 import { ICategoryProcessor, MappedRow, ProcessContext, RowValidationResult } from './processor.interface';
 import { Prisma } from '@prisma/client';
 import { clearContactoImportCaches, prepararContactoImport } from '../utils/contacto-import';
+import { procesarBloquesDeudor } from '../utils/procesar-bloques';
 
 export class ContactosProcessor implements ICategoryProcessor {
     readonly category = 'CONTACTOS';
@@ -66,6 +67,9 @@ export class ContactosProcessor implements ICategoryProcessor {
         }
 
         const deudor = deudorRows[0];
+
+        // Bloques repetitivos del archivo → al deudor encontrado (aunque no haya contacto principal).
+        await procesarBloquesDeudor(deudor.id, row._blocks, ctx);
 
         const prep = await prepararContactoImport({
             tipo: row.tipo,
