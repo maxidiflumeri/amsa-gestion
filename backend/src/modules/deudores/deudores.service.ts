@@ -4,12 +4,16 @@ import { PrismaService } from 'src/prisma/prisma.service';
 import { CreateDeudorDto } from './dtos/create-deudor.dto';
 import { UpdateDeudorDto } from './dtos/update-deudor.dto';
 import { AdvancedSearchDto } from './dtos/advanced-search.dto';
+import { DeudorBloqueoService } from './utils/deudor-bloqueo';
 
 @Injectable()
 export class DeudoresService {
     private readonly logger = new Logger(DeudoresService.name);
 
-    constructor(private prisma: PrismaService) { }
+    constructor(
+        private prisma: PrismaService,
+        private bloqueo: DeudorBloqueoService,
+    ) { }
 
     async findAll(page?: number, limit?: number, search?: string) {
         let where: Prisma.deudorWhereInput = {};
@@ -193,6 +197,7 @@ export class DeudoresService {
 
     async update(id: number, dto: UpdateDeudorDto) {
         this.logger.log(`Actualizando deudor id=${id}`);
+        await this.bloqueo.assertNoBloqueado(id, 'actualizar estados');
         const { estadoSituacionClave, estadoGestionClave, motivoNoPagoClave } = dto;
 
         let data: any = {};
@@ -242,6 +247,7 @@ export class DeudoresService {
 
     async delete(id: number): Promise<deudor> {
         this.logger.log(`Eliminando deudor id=${id}`);
+        await this.bloqueo.assertNoBloqueado(id, 'eliminar');
         return this.prisma.deudor.delete({
             where: { id },
         });

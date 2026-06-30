@@ -57,12 +57,14 @@ model deudor {
   nroCliente        String?
   nombre            String
   apellido          String
-  montoTotal        Float?
-  fechaVencimiento  DateTime?
-  estadoSituacionId Int?
-  estadoGestionId   Int?
-  motivoNoPagoId    Int?
-  camposAdicionales Json?
+  montoTotal             Float?
+  saldo                  Float?        // Persistido por ConsolidacionSituacionService. Ver consolidacion-situacion-spec.md §2.
+  situacionConsolidadaEn DateTime?     // Timestamp de la última consolidación.
+  fechaVencimiento       DateTime?
+  estadoSituacionId      Int?
+  estadoGestionId        Int?
+  motivoNoPagoId         Int?
+  camposAdicionales      Json?
   createdAt         DateTime      @default(now())
   updatedAt         DateTime      @updatedAt
   campoExtras       campoextra[]
@@ -87,6 +89,7 @@ model deudor {
   @@index([fechaVencimiento], map: "Deudor_fechaVencimiento_idx")
   @@index([estadoGestionId], map: "Deudor_estadoGestionId_fkey")
   @@index([estadoSituacionId], map: "Deudor_estadoSituacionId_fkey")
+  @@index([estadoSituacionId, empresaId], map: "Deudor_estadoSituacion_empresa_idx")
   @@index([motivoNoPagoId], map: "Deudor_motivoNoPagoId_fkey")
   @@index([remesaId], map: "Deudor_remesaId_fkey")
 }

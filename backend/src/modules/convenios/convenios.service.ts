@@ -1,12 +1,16 @@
 import { Injectable, NotFoundException, BadRequestException, Logger } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import { CreateConvenioDto } from './dtos/create-convenio.dto';
+import { DeudorBloqueoService } from '../deudores/utils/deudor-bloqueo';
 
 @Injectable()
 export class ConveniosService {
   private readonly logger = new Logger(ConveniosService.name);
 
-  constructor(private prisma: PrismaService) {}
+  constructor(
+      private prisma: PrismaService,
+      private bloqueo: DeudorBloqueoService,
+  ) {}
 
   async findByDeudor(deudorId: number) {
     this.logger.log(`Listando convenios del deudor ${deudorId}`);
@@ -26,6 +30,8 @@ export class ConveniosService {
   async create(dto: CreateConvenioDto) {
     const t0 = Date.now();
     this.logger.log(`Creando convenio tipo=${dto.tipo} deudor=${dto.deudorId} cuotas=${dto.cantCuotas}`);
+
+    await this.bloqueo.assertNoBloqueado(dto.deudorId, 'crear convenio');
 
     const deudor = await this.prisma.deudor.findUnique({
       where: { id: dto.deudorId },
@@ -149,6 +155,8 @@ export class ConveniosService {
       throw new BadRequestException('La cuota ya está marcada como pagada');
     }
 
+    await this.bloqueo.assertNoBloqueado(cuota.convenio.deudorId, 'marcar cuota pagada');
+
     const fechaPago = new Date(pagoData.fecha);
 
     const [cuotaActualizada] = await this.prisma.$transaction([
@@ -185,6 +193,8 @@ export class ConveniosService {
     if (convenio.estado !== 'ACTIVO') {
       throw new BadRequestException(`El convenio ya está en estado ${convenio.estado}`);
     }
+
+    await this.bloqueo.assertNoBloqueado(convenio.deudorId, 'anular convenio');
 
     const updated = await this.prisma.convenio.update({
       where: { id: convenioId },

@@ -1,14 +1,19 @@
 import { ForbiddenException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { PrismaService } from 'src/prisma/prisma.service';
 import { CreateComentarioDto } from './dtos/create-comentario.dto';
+import { DeudorBloqueoService } from '../deudores/utils/deudor-bloqueo';
 
 @Injectable()
 export class ComentariosService {
     private readonly logger = new Logger(ComentariosService.name);
 
-    constructor(private prisma: PrismaService) { }
+    constructor(
+        private prisma: PrismaService,
+        private bloqueo: DeudorBloqueoService,
+    ) { }
 
     async create(dto: CreateComentarioDto) {
+        await this.bloqueo.assertNoBloqueado(dto.deudorId, 'crear comentario');
         return this.prisma.comentario.create({
             data: {
                 texto: dto.texto,
@@ -24,6 +29,8 @@ export class ComentariosService {
         const comentario = await this.prisma.comentario.findUnique({ where: { id } });
         if (!comentario) throw new NotFoundException('Comentario no encontrado');
 
+        await this.bloqueo.assertNoBloqueado(comentario.deudorId, 'eliminar comentario');
+
         await this.prisma.comentario.delete({ where: { id } });
         return comentario;
     }
@@ -36,6 +43,8 @@ export class ComentariosService {
             this.logger.warn(`Usuario ${usuarioId} intentó eliminar comentario ${id} de usuario ${comentario.usuarioId}`);
             throw new ForbiddenException('Solo podés eliminar tus propios comentarios.');
         }
+
+        await this.bloqueo.assertNoBloqueado(comentario.deudorId, 'eliminar comentario propio');
 
         await this.prisma.comentario.delete({ where: { id } });
         return comentario;

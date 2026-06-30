@@ -6,15 +6,20 @@ import { CreateContactoDto } from './dtos/create-contacto.dto';
 import { normalizarTelefonoArgentino } from 'src/common/utils/phone-utils';
 import { validarEmail } from 'src/common/utils/email-utils';
 import { normalizarDireccionArgentina } from 'src/common/utils/direccion-utils';
+import { DeudorBloqueoService } from '../deudores/utils/deudor-bloqueo';
 
 @Injectable()
 export class ContactosService {
     private readonly logger = new Logger(ContactosService.name);
 
-    constructor(private prisma: PrismaService) { }
+    constructor(
+        private prisma: PrismaService,
+        private bloqueo: DeudorBloqueoService,
+    ) { }
 
     async create(dto: CreateContactoDto) {
         this.logger.log(`Creando contacto tipo=${dto.tipo} deudorId=${dto.deudorId}`);
+        await this.bloqueo.assertNoBloqueado(dto.deudorId, 'crear contacto');
         const data: any = { ...dto };
         if (data.tipo === 'telefono' || data.tipo === 'whatsapp') {
             const res = normalizarTelefonoArgentino(data.valor);
@@ -85,6 +90,7 @@ export class ContactosService {
         this.logger.log(`Actualizando contacto id=${id}`);
         const contacto = await this.prisma.contacto.findUnique({ where: { id } });
         if (!contacto) throw new NotFoundException('Contacto no encontrado');
+        await this.bloqueo.assertNoBloqueado(contacto.deudorId, 'actualizar contacto');
 
         const data: any = { ...dto };
 
@@ -173,6 +179,7 @@ export class ContactosService {
         this.logger.log(`Eliminando contacto id=${id}`);
         const contacto = await this.prisma.contacto.findUnique({ where: { id } });
         if (!contacto) throw new NotFoundException('Contacto no encontrado');
+        await this.bloqueo.assertNoBloqueado(contacto.deudorId, 'eliminar contacto');
         await this.prisma.contacto.delete({ where: { id } });
         return contacto;
     }
