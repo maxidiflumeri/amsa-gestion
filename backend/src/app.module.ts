@@ -27,6 +27,7 @@ import { EmailSenderModule } from './modules/email-sender/email-sender.module';
 import { TimelineModule } from './modules/timeline/timeline.module';
 import { NeotelModule } from './modules/neotel/neotel.module';
 import { HealthModule } from './health/health.module';
+import { ConsolidacionModule } from './modules/consolidacion/consolidacion.module';
 
 @Module({
   imports: [
@@ -60,6 +61,7 @@ import { HealthModule } from './health/health.module';
     TimelineModule,
     NeotelModule,
     HealthModule,
+    ConsolidacionModule,
   ],
   controllers: [AppController],
   providers: [AppService],
