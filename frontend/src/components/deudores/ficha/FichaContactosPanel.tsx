@@ -39,7 +39,10 @@ interface Props {
     onMarcarPrincipal?: (contacto: any) => void;
     onEnviarEmail?: (contacto: any) => void;
     puedeEnviarEmail?: boolean;
+    disabled?: boolean;
 }
+
+const TOOLTIP_CANCELADA = 'Cuenta cancelada — no se puede modificar';
 
 const FichaContactosPanel: React.FC<Props> = ({
     contactos,
@@ -51,6 +54,7 @@ const FichaContactosPanel: React.FC<Props> = ({
     onMarcarPrincipal,
     onEnviarEmail,
     puedeEnviarEmail,
+    disabled = false,
 }) => {
     const notify = useNotify();
     const theme = useTheme();
@@ -92,9 +96,18 @@ const FichaContactosPanel: React.FC<Props> = ({
                               ? 'Direcciones'
                               : tipo + 's'}
                     </Typography>
-                    <IconButton size="small" color="primary" onClick={() => onAgregar(tipo)} sx={{ ml: 'auto' }}>
-                        <AddCircleOutlineIcon fontSize="small" />
-                    </IconButton>
+                    <Tooltip title={disabled ? TOOLTIP_CANCELADA : 'Agregar'} disableHoverListener={!disabled}>
+                        <span style={{ marginLeft: 'auto' }}>
+                            <IconButton
+                                size="small"
+                                color="primary"
+                                onClick={() => onAgregar(tipo)}
+                                disabled={disabled}
+                            >
+                                <AddCircleOutlineIcon fontSize="small" />
+                            </IconButton>
+                        </span>
+                    </Tooltip>
                 </Stack>
                 <Box>
                     {contactosFiltrados.length === 0 ? (
@@ -139,7 +152,7 @@ const FichaContactosPanel: React.FC<Props> = ({
                                 }
                                 color={color}
                                 variant="outlined"
-                                onDelete={() => onEliminar(c)}
+                                onDelete={disabled ? undefined : () => onEliminar(c)}
                                 size="small"
                                 sx={{
                                     mr: 1,
@@ -180,11 +193,20 @@ const FichaContactosPanel: React.FC<Props> = ({
                         variant="subtitle2"
                         sx={{ fontWeight: 'bold', color: 'text.secondary' }}
                     >
-                        Teléfonos
+                        Telefonos
                     </Typography>
-                    <IconButton size="small" color="primary" onClick={() => onAgregar('telefono')} sx={{ ml: 'auto' }}>
-                        <AddCircleOutlineIcon fontSize="small" />
-                    </IconButton>
+                    <Tooltip title={disabled ? TOOLTIP_CANCELADA : 'Agregar telefono'} disableHoverListener={!disabled}>
+                        <span style={{ marginLeft: 'auto' }}>
+                            <IconButton
+                                size="small"
+                                color="primary"
+                                onClick={() => onAgregar('telefono')}
+                                disabled={disabled}
+                            >
+                                <AddCircleOutlineIcon fontSize="small" />
+                            </IconButton>
+                        </span>
+                    </Tooltip>
                 </Stack>
                 <Box>
                     {telefonos.length === 0 ? (
@@ -229,26 +251,31 @@ const FichaContactosPanel: React.FC<Props> = ({
                                     label={
                                         <Stack direction="row" alignItems="center" spacing={0.25}>
                                             <Box component="span" sx={{ mr: 0.5 }}>{label}</Box>
-                                            <Tooltip title={esPrincipal ? 'Quitar como principal' : 'Marcar como principal'}>
-                                                <IconButton
-                                                    size="small"
-                                                    onClick={stopAnd(() => onMarcarPrincipal?.(c))}
-                                                    sx={{ p: 0.25, color: iconBtnColor ?? 'warning.main' }}
-                                                >
-                                                    {esPrincipal
-                                                        ? <StarIcon sx={{ fontSize: 16 }} />
-                                                        : <StarBorderIcon sx={{ fontSize: 16 }} />}
-                                                </IconButton>
+                                            <Tooltip title={disabled ? TOOLTIP_CANCELADA : esPrincipal ? 'Quitar como principal' : 'Marcar como principal'}>
+                                                <span>
+                                                    <IconButton
+                                                        size="small"
+                                                        disabled={disabled}
+                                                        onClick={stopAnd(() => onMarcarPrincipal?.(c))}
+                                                        sx={{ p: 0.25, color: iconBtnColor ?? 'warning.main' }}
+                                                    >
+                                                        {esPrincipal
+                                                            ? <StarIcon sx={{ fontSize: 16 }} />
+                                                            : <StarBorderIcon sx={{ fontSize: 16 }} />}
+                                                    </IconButton>
+                                                </span>
                                             </Tooltip>
                                             <Tooltip title={
-                                                bloquearWhatsapp
-                                                    ? 'No se puede usar WhatsApp en un teléfono fijo'
-                                                    : esWhatsapp ? 'Quitar WhatsApp' : 'Marcar como WhatsApp'
+                                                disabled
+                                                    ? TOOLTIP_CANCELADA
+                                                    : bloquearWhatsapp
+                                                      ? 'No se puede usar WhatsApp en un telefono fijo'
+                                                      : esWhatsapp ? 'Quitar WhatsApp' : 'Marcar como WhatsApp'
                                             }>
                                                 <span>
                                                     <IconButton
                                                         size="small"
-                                                        disabled={bloquearWhatsapp}
+                                                        disabled={bloquearWhatsapp || disabled}
                                                         onClick={stopAnd(() => onToggleWhatsapp?.(c))}
                                                         sx={{ p: 0.25, color: iconBtnColor ?? 'success.main' }}
                                                     >
@@ -266,7 +293,7 @@ const FichaContactosPanel: React.FC<Props> = ({
                                     color={chipColor}
                                     variant={chipVariant}
                                     title={validTooltip}
-                                    onDelete={() => onEliminar(c)}
+                                    onDelete={disabled ? undefined : () => onEliminar(c)}
                                     size="small"
                                     sx={{
                                         mr: 1,

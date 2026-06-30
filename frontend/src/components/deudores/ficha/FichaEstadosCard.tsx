@@ -8,6 +8,7 @@ import {
     Grid,
     MenuItem,
     TextField,
+    Tooltip,
 } from '@mui/material';
 import SaveIcon from '@mui/icons-material/Save';
 import CheckCircleIcon from '@mui/icons-material/CheckCircle';
@@ -22,7 +23,10 @@ interface Props {
     cambiosPendientes: boolean;
     onEstadoChange: (type: 'situacion' | 'gestion' | 'motivoNoPago', value: string) => void;
     onGuardar: () => void;
+    disabled?: boolean;
 }
+
+const TOOLTIP_CANCELADA = 'Cuenta cancelada — no se puede modificar';
 
 const FichaEstadosCard: React.FC<Props> = ({
     estadoSituacion,
@@ -34,6 +38,7 @@ const FichaEstadosCard: React.FC<Props> = ({
     cambiosPendientes,
     onEstadoChange,
     onGuardar,
+    disabled = false,
 }) => {
     return (
         <Card elevation={2} sx={{ mb: 3, borderRadius: 3 }}>
@@ -45,71 +50,90 @@ const FichaEstadosCard: React.FC<Props> = ({
             <CardContent>
                 <Grid container spacing={2} alignItems="center">
                     <Grid item xs={12} sm={4}>
-                        <TextField
-                            select
-                            fullWidth
-                            label="Situación del cliente"
-                            size="small"
-                            value={estadoSituacion}
-                            onChange={(e) => onEstadoChange('situacion', e.target.value)}
-                            variant="outlined"
-                        >
-                            {estadosSituacion?.map((est: any) => (
-                                <MenuItem key={est.clave} value={est.clave}>
-                                    {est.descripcion}
-                                </MenuItem>
-                            ))}
-                        </TextField>
+                        <Tooltip title={disabled ? TOOLTIP_CANCELADA : ''} disableHoverListener={!disabled}>
+                            <span>
+                                <TextField
+                                    select
+                                    fullWidth
+                                    label="Situación del cliente"
+                                    size="small"
+                                    value={estadoSituacion}
+                                    onChange={(e) => onEstadoChange('situacion', e.target.value)}
+                                    variant="outlined"
+                                    disabled={disabled}
+                                >
+                                    {estadosSituacion?.map((est: any) => (
+                                        <MenuItem key={est.clave} value={est.clave}>
+                                            {est.descripcion}
+                                        </MenuItem>
+                                    ))}
+                                </TextField>
+                            </span>
+                        </Tooltip>
                     </Grid>
                     <Grid item xs={12} sm={4}>
-                        <TextField
-                            select
-                            fullWidth
-                            label="Estado de Gestión"
-                            size="small"
-                            value={estadoGestion}
-                            onChange={(e) => onEstadoChange('gestion', e.target.value)}
-                            variant="outlined"
-                        >
-                            {estadosGestion?.map((est: any) => (
-                                <MenuItem key={est.clave} value={est.clave}>
-                                    {est.descripcion}
-                                </MenuItem>
-                            ))}
-                        </TextField>
+                        <Tooltip title={disabled ? TOOLTIP_CANCELADA : ''} disableHoverListener={!disabled}>
+                            <span>
+                                <TextField
+                                    select
+                                    fullWidth
+                                    label="Estado de Gestión"
+                                    size="small"
+                                    value={estadoGestion}
+                                    onChange={(e) => onEstadoChange('gestion', e.target.value)}
+                                    variant="outlined"
+                                    disabled={disabled}
+                                >
+                                    {estadosGestion?.map((est: any) => (
+                                        <MenuItem key={est.clave} value={est.clave}>
+                                            {est.descripcion}
+                                        </MenuItem>
+                                    ))}
+                                </TextField>
+                            </span>
+                        </Tooltip>
                     </Grid>
                     <Grid item xs={12} sm={4}>
-                        <TextField
-                            select
-                            fullWidth
-                            label="Motivo No Pago"
-                            size="small"
-                            value={motivoNoPago}
-                            onChange={(e) => onEstadoChange('motivoNoPago', e.target.value)}
-                            variant="outlined"
-                        >
-                            <MenuItem value="">
-                                <em>Sin motivo</em>
-                            </MenuItem>
-                            {motivosNoPago.map((p: any) => (
-                                <MenuItem key={p.id} value={p.clave}>
-                                    {p.descripcion}
-                                </MenuItem>
-                            ))}
-                        </TextField>
+                        <Tooltip title={disabled ? TOOLTIP_CANCELADA : ''} disableHoverListener={!disabled}>
+                            <span>
+                                <TextField
+                                    select
+                                    fullWidth
+                                    label="Motivo No Pago"
+                                    size="small"
+                                    value={motivoNoPago}
+                                    onChange={(e) => onEstadoChange('motivoNoPago', e.target.value)}
+                                    variant="outlined"
+                                    disabled={disabled}
+                                >
+                                    <MenuItem value="">
+                                        <em>Sin motivo</em>
+                                    </MenuItem>
+                                    {motivosNoPago.map((p: any) => (
+                                        <MenuItem key={p.id} value={p.clave}>
+                                            {p.descripcion}
+                                        </MenuItem>
+                                    ))}
+                                </TextField>
+                            </span>
+                        </Tooltip>
                     </Grid>
                     <Grid item xs={12}>
-                        <Button
-                            fullWidth
-                            variant="contained"
-                            color={cambiosPendientes ? 'primary' : 'inherit'}
-                            startIcon={cambiosPendientes ? <SaveIcon /> : <CheckCircleIcon />}
-                            onClick={onGuardar}
-                            disabled={!cambiosPendientes}
-                            sx={{ height: '40px' }}
-                        >
-                            {cambiosPendientes ? 'Guardar' : 'OK'}
-                        </Button>
+                        <Tooltip title={disabled ? TOOLTIP_CANCELADA : ''} disableHoverListener={!disabled}>
+                            <span>
+                                <Button
+                                    fullWidth
+                                    variant="contained"
+                                    color={cambiosPendientes ? 'primary' : 'inherit'}
+                                    startIcon={cambiosPendientes ? <SaveIcon /> : <CheckCircleIcon />}
+                                    onClick={onGuardar}
+                                    disabled={!cambiosPendientes || disabled}
+                                    sx={{ height: '40px' }}
+                                >
+                                    {cambiosPendientes ? 'Guardar' : 'OK'}
+                                </Button>
+                            </span>
+                        </Tooltip>
                     </Grid>
                 </Grid>
             </CardContent>

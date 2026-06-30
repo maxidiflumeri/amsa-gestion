@@ -3,6 +3,7 @@ import {
     Box,
     Card,
     CardContent,
+    Chip,
     Grid,
     Stack,
     Tooltip,
@@ -12,17 +13,23 @@ import AccountCircleIcon from '@mui/icons-material/AccountCircle';
 import BusinessCenterIcon from '@mui/icons-material/BusinessCenter';
 import AssignmentIcon from '@mui/icons-material/Assignment';
 import BadgeIcon from '@mui/icons-material/Badge';
+import CheckCircleIcon from '@mui/icons-material/CheckCircle';
 
 interface Props {
     deudor: any;
-    deudaActualizada: number;
-    totalPagadoConvenios: number;
-    tieneConveniosPagados: boolean;
+    cuentaCancelada: boolean;
 }
 
-const FichaHeader: React.FC<Props> = ({ deudor, deudaActualizada, totalPagadoConvenios, tieneConveniosPagados }) => {
-    const { id, nombre, apellido, documento, remesa, empresa, montoTotal, fechaVencimiento, nroCliente, camposAdicionales } = deudor;
+const FichaHeader: React.FC<Props> = ({ deudor, cuentaCancelada }) => {
+    const { id, nombre, apellido, documento, remesa, empresa, montoTotal, saldo, fechaVencimiento, nroCliente, camposAdicionales } = deudor;
     const nroClienteMostrar = nroCliente || camposAdicionales?.nro_cliente || '-';
+
+    // Usar saldo persistido del backend si está disponible y es menor al monto original.
+    // El campo saldo lo mantiene ConsolidacionSituacionService y contempla TODOS los pagos
+    // (incluyendo los generados por cuotas de convenio), por lo que reemplaza el cálculo
+    // local anterior que solo sumaba cuotas de convenio.
+    const tieneSaldoActualizado = saldo != null && montoTotal != null && saldo < montoTotal;
+    const pagado = tieneSaldoActualizado ? montoTotal - saldo : 0;
 
     return (
         <Card elevation={3} sx={{ mb: 3, borderRadius: 3 }}>
@@ -32,9 +39,19 @@ const FichaHeader: React.FC<Props> = ({ deudor, deudaActualizada, totalPagadoCon
                         <Stack direction="row" alignItems="center" spacing={2} mb={1}>
                             <AccountCircleIcon color="primary" sx={{ fontSize: 40 }} />
                             <Box>
-                                <Typography variant="h5" fontWeight="900" color="primary.main">
-                                    {nombre} {apellido}
-                                </Typography>
+                                <Stack direction="row" alignItems="center" spacing={1} flexWrap="wrap">
+                                    <Typography variant="h5" fontWeight="900" color="primary.main">
+                                        {nombre} {apellido}
+                                    </Typography>
+                                    {cuentaCancelada && (
+                                        <Chip
+                                            icon={<CheckCircleIcon />}
+                                            label="CUENTA CANCELADA"
+                                            color="success"
+                                            size="small"
+                                        />
+                                    )}
+                                </Stack>
                                 <Typography variant="body2" color="text.secondary">
                                     DNI/CUIL: <strong>{documento}</strong>
                                     {' · '}ID deudor: <strong>{id}</strong>
@@ -64,26 +81,30 @@ const FichaHeader: React.FC<Props> = ({ deudor, deudaActualizada, totalPagadoCon
                     </Grid>
 
                     <Grid item xs={12} md={6} sx={{ textAlign: { xs: 'left', md: 'right' } }}>
-                        {tieneConveniosPagados ? (
+                        {tieneSaldoActualizado ? (
                             <>
                                 <Typography variant="overline" color="text.secondary" fontWeight="bold">
-                                    DEUDA ACTUALIZADA
+                                    SALDO ACTUALIZADO
                                 </Typography>
-                                <Typography variant="h4" fontWeight="bold" color="success.main">
-                                    ${deudaActualizada.toLocaleString('es-AR', { minimumFractionDigits: 2 })}
+                                <Typography
+                                    variant="h4"
+                                    fontWeight="bold"
+                                    color={cuentaCancelada ? 'success.main' : 'text.primary'}
+                                >
+                                    ${saldo.toLocaleString('es-AR', { minimumFractionDigits: 2 })}
                                 </Typography>
-                                <Tooltip title="Deuda original informada por el cedente">
+                                <Tooltip title="Importe original informado por el cedente. Inmutable.">
                                     <Typography
                                         variant="caption"
                                         color="text.disabled"
                                         display="block"
                                         sx={{ textDecoration: 'line-through', cursor: 'default' }}
                                     >
-                                        Original: ${montoTotal?.toLocaleString('es-AR', { minimumFractionDigits: 2 }) || '0.00'}
+                                        Original: ${montoTotal.toLocaleString('es-AR', { minimumFractionDigits: 2 })}
                                     </Typography>
                                 </Tooltip>
                                 <Typography variant="caption" color="success.main" display="block">
-                                    Pagado por convenios: -${totalPagadoConvenios.toLocaleString('es-AR', { minimumFractionDigits: 2 })}
+                                    Pagado: -${pagado.toLocaleString('es-AR', { minimumFractionDigits: 2 })}
                                 </Typography>
                             </>
                         ) : (

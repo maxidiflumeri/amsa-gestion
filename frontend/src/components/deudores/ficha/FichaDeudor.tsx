@@ -113,22 +113,9 @@ const FichaDeudor: React.FC<Props> = ({ deudorId }) => {
 
     // ── Derived state ─────────────────────────────────────────────────────────────
 
-    const totalPagadoConvenios = useMemo(
-        () =>
-            convenios
-                .filter((c) => c.estado === 'ACTIVO' || c.estado === 'FINALIZADO')
-                .flatMap((c: any) => c.cuotas || [])
-                .filter((q: any) => q.estado === 'PAGADA')
-                .reduce((sum: number, q: any) => sum + (q.importe || 0), 0),
-        [convenios],
-    );
-
-    const deudaActualizada = useMemo(
-        () => (deudor?.montoTotal || 0) - totalPagadoConvenios,
-        [deudor?.montoTotal, totalPagadoConvenios],
-    );
-
-    const tieneConveniosPagados = useMemo(() => totalPagadoConvenios > 0, [totalPagadoConvenios]);
+    // Derivar si la cuenta está cancelada (SIT-050) para el modo bloqueado.
+    // Esta prop se propaga a todos los componentes hijos que tienen mutaciones.
+    const cuentaCancelada = deudor?.estadoSituacion?.clave === 'SIT-050';
 
     // ── Handlers ──────────────────────────────────────────────────────────────────
 
@@ -281,9 +268,7 @@ const FichaDeudor: React.FC<Props> = ({ deudorId }) => {
             {/* CABECERA */}
             <FichaHeader
                 deudor={deudor}
-                deudaActualizada={deudaActualizada}
-                totalPagadoConvenios={totalPagadoConvenios}
-                tieneConveniosPagados={tieneConveniosPagados}
+                cuentaCancelada={cuentaCancelada}
             />
 
             <Grid container spacing={3}>
@@ -300,6 +285,7 @@ const FichaDeudor: React.FC<Props> = ({ deudorId }) => {
                         cambiosPendientes={cambiosPendientes}
                         onEstadoChange={handleEstadoChange}
                         onGuardar={handleGuardarEstados}
+                        disabled={cuentaCancelada}
                     />
 
                     {/* TABS DASHBOARD */}
@@ -343,6 +329,7 @@ const FichaDeudor: React.FC<Props> = ({ deudorId }) => {
                                 deudorId={deudorId}
                                 comentarios={comentarios || []}
                                 onCreated={cargarInicial}
+                                disabled={cuentaCancelada}
                             />
                         </TabPanel>
 
@@ -361,6 +348,7 @@ const FichaDeudor: React.FC<Props> = ({ deudorId }) => {
                                 onNuevoConvenio={handleNuevoConvenio}
                                 onAnular={handleAnularConvenio}
                                 onPagarCuota={handleAbrirPagarCuota}
+                                disabled={cuentaCancelada}
                             />
                         </TabPanel>
 
@@ -395,6 +383,7 @@ const FichaDeudor: React.FC<Props> = ({ deudorId }) => {
                         onMarcarPrincipal={handleMarcarPrincipal}
                         onEnviarEmail={handleEnviarEmail}
                         puedeEnviarEmail={puedeEnviarEmail}
+                        disabled={cuentaCancelada}
                     />
                 </Grid>
             </Grid>

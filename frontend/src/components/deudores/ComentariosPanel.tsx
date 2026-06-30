@@ -24,12 +24,14 @@ interface ComentariosProps {
     deudorId: number
     comentarios: Comentario[]
     onCreated?: () => void
+    disabled?: boolean
 }
 
 const ComentariosPanel: React.FC<ComentariosProps> = ({
     deudorId,
     comentarios = [],
     onCreated,
+    disabled = false,
 }) => {
     const notify = useNotify()
     const [nuevoComentario, setNuevoComentario] = useState('')
@@ -120,57 +122,59 @@ const ComentariosPanel: React.FC<ComentariosProps> = ({
             </Box>
 
             {/* Campo de entrada */}
-            <Box
-                sx={{
-                    display: 'flex',
-                    alignItems: 'flex-start',
-                    gap: 1.5,
-                    mt: 1,
-                    p: 1.5,
-                    borderRadius: 3,
-                    bgcolor: 'background.paper',
-                    border: (t) => `1px solid ${t.palette.divider}`,
-                }}
-            >
-                <TextField
-                    placeholder="Escribí un comentario..."
-                    multiline
-                    fullWidth
-                    minRows={3}
-                    maxRows={8}
-                    variant="outlined"
-                    value={nuevoComentario}
-                    onChange={(e) => setNuevoComentario(e.target.value)}
-                    onKeyDown={handleKeyDown}
-                    disabled={sending}
-                    InputProps={{
-                        sx: {
-                            bgcolor: 'background.paper',
-                            borderRadius: 2,
-                            '& .MuiInputBase-input': {
-                                fontSize: 15,
-                                lineHeight: 1.5,
-                                py: 1.2,
-                            },
-                        },
+            {!disabled && (
+                <Box
+                    sx={{
+                        display: 'flex',
+                        alignItems: 'flex-start',
+                        gap: 1.5,
+                        mt: 1,
+                        p: 1.5,
+                        borderRadius: 3,
+                        bgcolor: 'background.paper',
+                        border: (t) => `1px solid ${t.palette.divider}`,
                     }}
-                />
-                <Box sx={{ display: 'flex', flexDirection: 'column', justifyContent: 'flex-end' }}>
-                    <IconButton
-                        color="primary"
-                        onClick={handleSend}
-                        disabled={!nuevoComentario.trim() || sending}
-                        sx={{
-                            bgcolor: 'primary.main',
-                            color: 'white',
-                            '&:hover': { bgcolor: 'primary.dark' },
-                            boxShadow: 2,
+                >
+                    <TextField
+                        placeholder="Escribí un comentario..."
+                        multiline
+                        fullWidth
+                        minRows={3}
+                        maxRows={8}
+                        variant="outlined"
+                        value={nuevoComentario}
+                        onChange={(e) => setNuevoComentario(e.target.value)}
+                        onKeyDown={handleKeyDown}
+                        disabled={sending}
+                        InputProps={{
+                            sx: {
+                                bgcolor: 'background.paper',
+                                borderRadius: 2,
+                                '& .MuiInputBase-input': {
+                                    fontSize: 15,
+                                    lineHeight: 1.5,
+                                    py: 1.2,
+                                },
+                            },
                         }}
-                    >
-                        <SendIcon />
-                    </IconButton>
+                    />
+                    <Box sx={{ display: 'flex', flexDirection: 'column', justifyContent: 'flex-end' }}>
+                        <IconButton
+                            color="primary"
+                            onClick={handleSend}
+                            disabled={!nuevoComentario.trim() || sending}
+                            sx={{
+                                bgcolor: 'primary.main',
+                                color: 'white',
+                                '&:hover': { bgcolor: 'primary.dark' },
+                                boxShadow: 2,
+                            }}
+                        >
+                            <SendIcon />
+                        </IconButton>
+                    </Box>
                 </Box>
-            </Box>
+            )}
         </SectionCard>
     )
 }

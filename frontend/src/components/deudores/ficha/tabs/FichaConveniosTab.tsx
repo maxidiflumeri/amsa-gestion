@@ -24,21 +24,34 @@ import PaymentIcon from '@mui/icons-material/Payment';
 import { LoadingSkeleton } from '../../../ui';
 import { estadoConvenioColor, estadoCuotaColor } from '../shared/estadoColors';
 
+const TOOLTIP_CANCELADA = 'Cuenta cancelada — no se puede modificar';
+
 interface Props {
     convenios: any[];
     loading: boolean;
     onNuevoConvenio: () => void;
     onAnular: (id: number) => void;
     onPagarCuota: (cuota: any) => void;
+    disabled?: boolean;
 }
 
-const FichaConveniosTab: React.FC<Props> = ({ convenios, loading, onNuevoConvenio, onAnular, onPagarCuota }) => {
+const FichaConveniosTab: React.FC<Props> = ({ convenios, loading, onNuevoConvenio, onAnular, onPagarCuota, disabled = false }) => {
     return (
         <Box sx={{ px: 2, pb: 2 }}>
             <Box display="flex" justifyContent="flex-end" mb={2}>
-                <Button variant="contained" size="small" startIcon={<HandshakeIcon />} onClick={onNuevoConvenio}>
-                    Nuevo Convenio
-                </Button>
+                <Tooltip title={disabled ? TOOLTIP_CANCELADA : ''} disableHoverListener={!disabled}>
+                    <span>
+                        <Button
+                            variant="contained"
+                            size="small"
+                            startIcon={<HandshakeIcon />}
+                            onClick={onNuevoConvenio}
+                            disabled={disabled}
+                        >
+                            Nuevo Convenio
+                        </Button>
+                    </span>
+                </Tooltip>
             </Box>
 
             {loading ? (
@@ -111,14 +124,17 @@ const FichaConveniosTab: React.FC<Props> = ({ convenios, loading, onNuevoConveni
                                                 </TableCell>
                                                 <TableCell>
                                                     {cuota.estado === 'PENDIENTE' && conv.estado === 'ACTIVO' && (
-                                                        <Tooltip title="Registrar pago">
-                                                            <IconButton
-                                                                size="small"
-                                                                color="success"
-                                                                onClick={() => onPagarCuota(cuota)}
-                                                            >
-                                                                <PaymentIcon fontSize="small" />
-                                                            </IconButton>
+                                                        <Tooltip title={disabled ? TOOLTIP_CANCELADA : 'Registrar pago'}>
+                                                            <span>
+                                                                <IconButton
+                                                                    size="small"
+                                                                    color="success"
+                                                                    disabled={disabled}
+                                                                    onClick={() => onPagarCuota(cuota)}
+                                                                >
+                                                                    <PaymentIcon fontSize="small" />
+                                                                </IconButton>
+                                                            </span>
                                                         </Tooltip>
                                                     )}
                                                 </TableCell>
@@ -129,14 +145,19 @@ const FichaConveniosTab: React.FC<Props> = ({ convenios, loading, onNuevoConveni
                             </TableContainer>
                             {conv.estado === 'ACTIVO' && (
                                 <Box display="flex" justifyContent="flex-end" mt={1}>
-                                    <Button
-                                        size="small"
-                                        color="error"
-                                        startIcon={<BlockIcon />}
-                                        onClick={() => onAnular(conv.id)}
-                                    >
-                                        Anular convenio
-                                    </Button>
+                                    <Tooltip title={disabled ? TOOLTIP_CANCELADA : ''} disableHoverListener={!disabled}>
+                                        <span>
+                                            <Button
+                                                size="small"
+                                                color="error"
+                                                startIcon={<BlockIcon />}
+                                                onClick={() => onAnular(conv.id)}
+                                                disabled={disabled}
+                                            >
+                                                Anular convenio
+                                            </Button>
+                                        </span>
+                                    </Tooltip>
                                 </Box>
                             )}
                         </AccordionDetails>

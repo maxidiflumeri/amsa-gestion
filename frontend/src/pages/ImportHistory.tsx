@@ -20,6 +20,7 @@ import {
 import RefreshIcon from '@mui/icons-material/Refresh';
 import VisibilityIcon from '@mui/icons-material/Visibility';
 import DeleteIcon from '@mui/icons-material/Delete';
+import MergeIcon from '@mui/icons-material/Merge';
 import InboxIcon from '@mui/icons-material/Inbox';
 import api from '../api/axios';
 import { useEmpresas } from '../hooks/useEmpresas';
@@ -35,6 +36,7 @@ import {
 } from '../components/ui';
 import type { StatusValue } from '../components/ui';
 import type { DataTableColumn } from '../components/ui';
+import ConsolidacionModal from '../components/consolidacion/ConsolidacionModal';
 
 interface Remesa {
     id: number;
@@ -86,6 +88,8 @@ export default function ImportHistory() {
     const [politicas, setPoliticas] = useState<Politica[]>([]);
     const [confirmDeleteId, setConfirmDeleteId] = useState<number | null>(null);
     const [deleting, setDeleting] = useState(false);
+    const [consolidarRemesaId, setConsolidarRemesaId] = useState<number | null>(null);
+    const puedeConsolidar = tienePermiso('consolidacion.ejecutar');
 
     const loadHistory = async () => {
         if (!empresaId) return;
@@ -271,6 +275,20 @@ export default function ImportHistory() {
                             </IconButton>
                         </Tooltip>
 
+                        {puedeConsolidar && (
+                            <Tooltip title="Consolidar situacion de deudores de esta remesa">
+                                <span>
+                                    <IconButton
+                                        color="secondary"
+                                        size="small"
+                                        onClick={() => setConsolidarRemesaId(row.id as number)}
+                                    >
+                                        <MergeIcon />
+                                    </IconButton>
+                                </span>
+                            </Tooltip>
+                        )}
+
                         {puedeEliminar && (
                             <Tooltip title={tooltipEliminar}>
                                 <span>
@@ -378,6 +396,14 @@ export default function ImportHistory() {
                     />
                 )}
             </SectionCard>
+
+            {consolidarRemesaId !== null && (
+                <ConsolidacionModal
+                    open={consolidarRemesaId !== null}
+                    scope={{ tipo: 'REMESA', remesaId: consolidarRemesaId }}
+                    onClose={() => setConsolidarRemesaId(null)}
+                />
+            )}
         </Box>
     );
 }
