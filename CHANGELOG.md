@@ -6,6 +6,45 @@
 
 ---
 
+## [2026-06-30] — Consolidación automática de situación según pagos (SIT-050 / SIT-041)
+
+> ⚠️ **Acciones de despliegue**:
+> 1. `prisma db push` aplica los campos nuevos de `deudor`: `saldo`, `situacionConsolidadaEn` + índice `Deudor_estadoSituacion_empresa_idx` (el `deploy.sh` ya corre `db push`).
+> 2. **Códigos SIT-050/SIT-041 deben estar seedeados** (`seed-codigos-curados.ts`): el `ConsolidacionSituacionService` **falla al bootstrap** si faltan (por diseño). Ya están en la base de prod.
+> 3. Env opcional `CONSOLIDACION_TOLERANCIA_PCT` (default `0.01` = 1%, rango `[0, 0.05]`).
+> 4. **Backfill post-deploy** de datos existentes: snapshot de `deudor(id, estadoSituacionId, montoTotal, saldo)` → botón "Consolidar" (preview → aplicar) o `npx ts-node --transpile-only prisma/scripts/backfill-consolidacion.ts --apply`.
+
+**Problema**: al cargar pagos/actualizaciones se generaban los pagos pero el **código de situación del deudor nunca cambiaba**. Se replica la lógica del CRM anterior: si la deuda queda cancelada → **SIT-050** (Cancelado); si hay pago parcial → **SIT-041** (Pago parcial).
+
+### 1. Modelo: `montoTotal` inmutable + `saldo` persistido
+
+- **Schema** (`deudor`): `saldo Float?` (= `montoTotal − Σpagos`, mantenido por la consolidación), `situacionConsolidadaEn DateTime?`, índice `[estadoSituacionId, empresaId]`.
+- `montoTotal` pasa a ser **inmutable** (el importe original del cedente). `actualizaciones.processor` deja de pisarlo (se eliminaron las 3 escrituras de `montoTotal` en escenarios A/B y `afterAll` C; se conserva en la **creación** de deudores nuevos). La baja se refleja vía pagos/`saldo`.
+
+### 2. Servicio core idempotente (`backend/src/modules/consolidacion/`)
+
+- `ConsolidacionSituacionService.consolidar(scope, opts)` con scopes `DEUDORES | REMESA | EMPRESA | TODAS`, procesado en **chunks de 500** con query agregada (`GROUP BY`, no fila por fila). Regla: `Σpagos == 0` → skip; `Σpagos ≥ montoTotal·(1−tolerancia)` → SIT-050; parcial → SIT-041; `saldo = max(0, montoTotal − Σpagos)`. Escritura por chunk en transacción (`updateMany` de situación + `$executeRaw GREATEST(0, ...)` para el saldo). `dryRun` no escribe. Idempotente. Tolerancia configurable por env, validada al bootstrap. Auditoría agregada best-effort.
+
+### 3. Disparo automático (afterAll de processors)
+
+- `pagos.processor` y `actualizaciones.processor` consolidan en `afterAll`: pagos usa scope `DEUDORES` (trackea `processedDeudorIds`); actualizaciones consolida la remesa origen (y la propia si difiere). Sin paso manual.
+
+### 4. Job batch + endpoints + bloqueo de cuenta cancelada
+
+- **Job BullMQ** `consolidacion-queue` (concurrency 1, attempts 1) con progreso por socket (`consolidacion:iniciada/progreso/finalizada`), notificación persistente y auditoría. **Lock Redis** (`lock:consolidacion`, TTL 15 min) → un solo apply a la vez; el preview no toma lock.
+- **Endpoints** `/api/consolidacion`: `POST /preview` (dryRun, `202 {jobId}`), `POST /aplicar` (`409 CONSOLIDACION_EN_CURSO` si hay otro), `GET /estado`. Permiso fino `consolidacion.ejecutar` (catálogos back/front + seed; ADMIN lo recibe).
+- **Bloqueo SIT-050**: `DeudorBloqueoService.assertNoBloqueado()` rechaza con `ForbiddenException(DEUDOR_CANCELADO)` toda mutación de un deudor cancelado — cableado en deudores (update/delete), comentarios (create/remove/removePropio), convenios (create/marcarCuotaPagada/anularConvenio) y contactos (create/update/remove). El consolidador y los workers de import están exceptuados.
+
+### 5. Frontend
+
+- **Ficha del deudor** (`FichaHeader`): muestra "Saldo actualizado" (campo `saldo`) con el "Original" tachado e inmutable y el monto pagado; fallback a "Deuda total" si `saldo` es null. Chip "CUENTA CANCELADA" y saldo en verde cuando SIT-050. Se eliminó el cálculo viejo de saldo por cuotas de convenio (el `saldo` del backend ya contempla todos los pagos).
+- **Modo bloqueado**: cuando `estadoSituacion.clave === 'SIT-050'` se deshabilitan (con tooltip) los estados, contactos, convenios y comentarios de la ficha — sin clonar la vista.
+- **`ConsolidacionModal`** reutilizable (preview → tabla resumen → aplicar, progreso por socket, manejo de 409) y botón "Consolidar" por remesa en `ImportHistory` (gateado por `consolidacion.ejecutar`).
+
+> Spec de diseño completo: [docs/consolidacion-situacion-spec.md](docs/consolidacion-situacion-spec.md). Pendiente opcional (Fase 6, no implementada): cron diario + dashboard de consolidaciones + métricas.
+
+---
+
 ## [2026-06-29] — Tanda de mejoras de UX y robustez (feedback de usuarios)
 
 > ⚠️ **Acciones de despliegue**:
