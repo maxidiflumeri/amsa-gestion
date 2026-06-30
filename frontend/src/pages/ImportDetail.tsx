@@ -281,7 +281,12 @@ export default function ImportDetail() {
         : 'neutral';
 
     const enProgreso = remesa ? EN_PROGRESO.has(remesa.estadoProceso) : false;
-    const progreso = remesa?.jobimport?.progreso ?? 0;
+    // Progreso calculado desde las filas (igual que el backend y las notificaciones):
+    // okFilas/errFilas/totalFilas se actualizan en cada tick del socket, mientras que
+    // jobimport puede ser null al inicio de una importación recién lanzada.
+    const progreso = remesa && remesa.totalFilas > 0
+        ? Math.min(100, Math.floor(((remesa.okFilas + remesa.errFilas) / remesa.totalFilas) * 100))
+        : (remesa?.jobimport?.progreso ?? 0);
 
     const successColor = theme.palette.success.main;
     const errorColor = theme.palette.error.main;
