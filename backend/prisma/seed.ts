@@ -16,6 +16,7 @@ const TODAS_LAS_KEYS: string[] = [
     'importacion.ver_historial',
     'importacion.ver_progreso_otros',
     'importacion.eliminar',
+    'consolidacion.ejecutar',
     'plantillas_import.ver',
     'plantillas_import.crear',
     'plantillas_import.editar',

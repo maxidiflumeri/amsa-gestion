@@ -42,6 +42,7 @@ export const TODOS_LOS_PERMISOS: PermisoSeccion[] = [
             { key: 'importacion.ver_historial', label: 'Ver historial de importaciones' },
             { key: 'importacion.ver_progreso_otros', label: 'Ver importaciones de otros usuarios' },
             { key: 'importacion.eliminar', label: 'Eliminar importaciones', descripcion: 'Permite eliminar remesas en estado PENDIENTE, FALLIDA o FINALIZADA' },
+            { key: 'consolidacion.ejecutar', label: 'Ejecutar consolidación de situación', descripcion: 'Recalcula saldo y código de situación según pagos cargados' },
         ],
     },
     {
