@@ -6,6 +6,12 @@ import { procesarBloquesDeudor } from '../utils/procesar-bloques';
 export class PagosProcessor implements ICategoryProcessor {
     readonly category = 'PAGOS';
 
+    /**
+     * IDs de deudores que recibieron pagos en este batch.
+     * Se usa en afterAll para consolidar solo los deudores tocados (optimización §4.2).
+     */
+    private processedDeudorIds = new Set<number>();
+
     validateRow(row: MappedRow, _ctx: ProcessContext): RowValidationResult {
         const nroCliente = String(row.nro_cliente ?? '').trim();
         if (!nroCliente) {
@@ -51,5 +57,31 @@ export class PagosProcessor implements ICategoryProcessor {
                 observacion: row.observacion ?? null,
             },
         });
+
+        // Trackear deudor tocado para la consolidación selectiva en afterAll
+        this.processedDeudorIds.add(deudor.id);
+    }
+
+    /**
+     * Fase 3 — §4.2: Al finalizar todas las filas, consolidar la situación de los
+     * deudores que recibieron pagos en este batch.
+     *
+     * Optimización: se consolida solo el subconjunto (scope DEUDORES) en lugar de
+     * toda la remesa, ahorrando evaluar deudores sin movimientos.
+     * Fallback a scope REMESA si el set está vacío (no debería ocurrir en práctica).
+     */
+    async afterAll(ctx: ProcessContext): Promise<void> {
+        if (this.processedDeudorIds.size > 0) {
+            await ctx.consolidacion.consolidar({
+                tipo: 'DEUDORES',
+                deudorIds: [...this.processedDeudorIds],
+            });
+        } else {
+            // Fallback: consolidar la remesa origen (o la propia si no hay origen)
+            await ctx.consolidacion.consolidar({
+                tipo: 'REMESA',
+                remesaId: ctx.remesaOrigenId ?? ctx.remesaId,
+            });
+        }
     }
 }

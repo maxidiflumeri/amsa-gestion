@@ -1,5 +1,6 @@
 // processors/processor.interface.ts
 import { PrismaService } from 'src/prisma/prisma.service';
+import { ConsolidacionSituacionService } from '../../consolidacion/consolidacion.service';
 
 /**
  * Resultado de validar una fila.
@@ -26,6 +27,8 @@ export interface ProcessContext {
         estadoSituacionId: number;
         estadoGestionId: number;
     };
+    /** Servicio de consolidación de situación (Fase 3). Inyectado por ImportService. */
+    consolidacion: ConsolidacionSituacionService;
 }
 
 /**

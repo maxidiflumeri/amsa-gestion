@@ -16,6 +16,7 @@ import { RealtimeService } from '../realtime/realtime.service';
 import { NotificacionesService } from '../notificaciones/notificaciones.service';
 import { ProgressEmitter } from './utils/progress-emitter';
 import { RequestContextService } from 'src/common/logger/request-context';
+import { ConsolidacionSituacionService } from '../consolidacion/consolidacion.service';
 
 @Injectable()
 export class ImportService {
@@ -28,6 +29,7 @@ export class ImportService {
         private readonly realtimeService: RealtimeService,
         private readonly notificacionesService: NotificacionesService,
         private readonly requestContext: RequestContextService,
+        private readonly consolidacion: ConsolidacionSituacionService,
     ) { }
 
     // --- PLANTILLAS ---
@@ -579,6 +581,7 @@ export class ImportService {
                 estadoSituacionId: defaultEstadoSituacionId,
                 estadoGestionId: defaultEstadoGestionId,
             },
+            consolidacion: this.consolidacion,
         };
 
         const mapping = remesa.plantilla.mappingJson as unknown as MappingJson;

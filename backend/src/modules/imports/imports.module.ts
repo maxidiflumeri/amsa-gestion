@@ -9,6 +9,7 @@ import { ImportsProcessor } from './bullmq/imports.processor';
 import { RealtimeModule } from '../realtime/realtime.module';
 import { NotificacionesModule } from '../notificaciones/notificaciones.module';
 import { TransaccionesModule } from '../transacciones/transacciones.module';
+import { ConsolidacionModule } from '../consolidacion/consolidacion.module';
 
 @Module({
   imports: [
@@ -18,6 +19,7 @@ import { TransaccionesModule } from '../transacciones/transacciones.module';
     RealtimeModule,
     NotificacionesModule,
     TransaccionesModule,
+    ConsolidacionModule,
   ],
   controllers: [ImportController],
   providers: [ImportService, PrismaService, FileStorageService, ImportsProcessor],

@@ -9,7 +9,7 @@ import { normalizarTelefonoArgentino } from '../../../common/utils/phone-utils';
  * A) Deudor ENCONTRADO en remesa origen → reconciliación por cuota/factura y/o montoTotal
  *    - Cuota en DB ausente del archivo → PAGADA + pago automático
  *    - Cuota nueva en archivo → insertar
- *    - montoTotal del archivo es fuente de verdad del total
+ *    - montoTotal es INMUTABLE (Fase 3): no se actualiza (spec §1 regla 7)
  *
  * B) Deudor en el archivo pero NO en remesa origen → NUEVO CASO
  *    - Se crea como deudor nuevo (en la remesa de la actualización)
@@ -18,7 +18,7 @@ import { normalizarTelefonoArgentino } from '../../../common/utils/phone-utils';
  * C) [afterAll] Deudor en remesa origen que NO apareció en el archivo → PAGÓ TODO
  *    - Todas sus facturas pendientes → PAGADA
  *    - Pago por el sum de esas facturas
- *    - montoTotal → 0
+ *    - montoTotal NO se toca (inmutable). ConsolidacionSituacionService lleva la situación a SIT-050.
  */
 export class ActualizacionesProcessor implements ICategoryProcessor {
     readonly category = 'ACTUALIZACIONES';
@@ -267,15 +267,6 @@ export class ActualizacionesProcessor implements ICategoryProcessor {
                 }
             }
 
-            // Actualizar total
-            const totalFinal = montoNuevo !== null
-                ? montoNuevo
-                : Number((await ctx.prisma.factura.aggregate({
-                    where: { deudorId, estado: { not: 'PAGADA' } }, _sum: { importe: true }
-                }))._sum.importe ?? 0);
-
-            await ctx.prisma.deudor.update({ where: { id: deudorId }, data: { montoTotal: totalFinal } });
-
         } else if (montoNuevo !== null) {
             // ── Modo B: solo montoTotal, sin bloques ──────────────────────────────
             const deudorActual = await ctx.prisma.deudor.findUnique({
@@ -301,13 +292,18 @@ export class ActualizacionesProcessor implements ICategoryProcessor {
                     },
                 });
             }
-            await ctx.prisma.deudor.update({ where: { id: deudorId }, data: { montoTotal: montoNuevo } });
+            // montoTotal es inmutable (spec §1 regla 7). No se actualiza.
         }
     }
 
     /**
      * ESCENARIO C (afterAll): Deudores de la remesa origen que NO aparecieron en
      * el archivo → asumimos que pagaron todo.
+     *
+     * Fase 3 — §4.3:
+     *  - Se mantiene la lógica de pago automático + marcar facturas PAGADA.
+     *  - Se ELIMINA la escritura de montoTotal: 0 (montoTotal es inmutable, spec §1 regla 7).
+     *  - Al final se delega la actualización de saldo y estadoSituacionId al consolidador.
      */
     async afterAll(ctx: ProcessContext): Promise<void> {
         if (!ctx.remesaOrigenId) return;
@@ -319,7 +315,7 @@ export class ActualizacionesProcessor implements ICategoryProcessor {
         });
 
         for (const { id: deudorId } of deudoresOrigen) {
-            if (this.processedDeudorIds.has(deudorId)) continue;  // ya fue procesado
+            if (this.processedDeudorIds.has(deudorId)) continue;  // ya fue procesado en el archivo
 
             // Este deudor no vino en el archivo → pagó todo
             const facturasPendientes = await ctx.prisma.factura.findMany({
@@ -350,11 +346,15 @@ export class ActualizacionesProcessor implements ICategoryProcessor {
                 });
             }
 
-            // Deuda en 0
-            await ctx.prisma.deudor.update({
-                where: { id: deudorId },
-                data: { montoTotal: 0 },
-            });
+            // montoTotal NO se toca (inmutable). La consolidación posterior lleva la situación a SIT-050.
+        }
+
+        // Consolidar deudores de la remesa origen (escenario C + deudores del archivo que estaban en esa remesa)
+        await ctx.consolidacion.consolidar({ tipo: 'REMESA', remesaId: ctx.remesaOrigenId });
+
+        // Si hay deudores nuevos del escenario B (ctx.remesaId !== ctx.remesaOrigenId), consolidarlos también
+        if (ctx.remesaId !== ctx.remesaOrigenId) {
+            await ctx.consolidacion.consolidar({ tipo: 'REMESA', remesaId: ctx.remesaId });
         }
     }
 
