@@ -28,6 +28,8 @@ import { TimelineModule } from './modules/timeline/timeline.module';
 import { NeotelModule } from './modules/neotel/neotel.module';
 import { HealthModule } from './health/health.module';
 import { ConsolidacionModule } from './modules/consolidacion/consolidacion.module';
+import { PagosModule } from './modules/pagos/pagos.module';
+import { PromesasModule } from './modules/promesas/promesas.module';
 
 @Module({
   imports: [
@@ -62,6 +64,8 @@ import { ConsolidacionModule } from './modules/consolidacion/consolidacion.modul
     NeotelModule,
     HealthModule,
     ConsolidacionModule,
+    PromesasModule,
+    PagosModule,
   ],
   controllers: [AppController],
   providers: [AppService],
