@@ -10,6 +10,7 @@ import { RealtimeModule } from '../realtime/realtime.module';
 import { NotificacionesModule } from '../notificaciones/notificaciones.module';
 import { TransaccionesModule } from '../transacciones/transacciones.module';
 import { ConsolidacionModule } from '../consolidacion/consolidacion.module';
+import { PromesasModule } from '../promesas/promesas.module';
 
 @Module({
   imports: [
@@ -20,6 +21,7 @@ import { ConsolidacionModule } from '../consolidacion/consolidacion.module';
     NotificacionesModule,
     TransaccionesModule,
     ConsolidacionModule,
+    PromesasModule,
   ],
   controllers: [ImportController],
   providers: [ImportService, PrismaService, FileStorageService, ImportsProcessor],

@@ -1,6 +1,7 @@
 // processors/processor.interface.ts
 import { PrismaService } from 'src/prisma/prisma.service';
 import { ConsolidacionSituacionService } from '../../consolidacion/consolidacion.service';
+import { PromesasService } from '../../promesas/promesas.service';
 import { MontoDeudorMode } from '../mapping-types';
 
 /**
@@ -30,6 +31,8 @@ export interface ProcessContext {
     };
     /** Servicio de consolidación de situación (Fase 3). Inyectado por ImportService. */
     consolidacion: ConsolidacionSituacionService;
+    /** Servicio de promesas de pago — para cerrar promesas cumplidas tras generar pagos. */
+    promesas: PromesasService;
     /**
      * Modo de cálculo de `deudor.montoTotal` desde la suma de facturas.
      * Leído de `mappingJson.montoDeudorDesdeFacturas` (default `SI_VACIO`).

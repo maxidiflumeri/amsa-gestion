@@ -1,7 +1,9 @@
 // processors/actualizaciones.processor.ts
 import { ICategoryProcessor, MappedRow, ProcessContext, RowValidationResult } from './processor.interface';
 import { Prisma } from '@prisma/client';
+import { Logger } from '@nestjs/common';
 import { normalizarTelefonoArgentino } from '../../../common/utils/phone-utils';
+import { reconciliarSaldo, reconciliarAusente } from '../utils/reconciliar-actualizacion';
 
 /**
  * Procesador ACTUALIZACIONES — tres escenarios:
@@ -22,9 +24,18 @@ import { normalizarTelefonoArgentino } from '../../../common/utils/phone-utils';
  */
 export class ActualizacionesProcessor implements ICategoryProcessor {
     readonly category = 'ACTUALIZACIONES';
+    private readonly logger = new Logger(ActualizacionesProcessor.name);
 
     /** IDs de deudores de la remesa origen que fueron procesados en este batch */
     private processedDeudorIds = new Set<number>();
+    /** IDs de deudores a los que se les generó un pago en este batch (para cerrar promesas cumplidas) */
+    private pagosDeudorIds = new Set<number>();
+
+    /** Σpagos actual de un deudor (para reconciliar sin duplicar). */
+    private async sumPagos(deudorId: number, ctx: ProcessContext): Promise<number> {
+        const agg = await ctx.prisma.pago.aggregate({ where: { deudorId }, _sum: { importe: true } });
+        return agg._sum.importe ?? 0;
+    }
 
     private parseFloatSafe(val: any): number {
         if (val === null || val === undefined || val === '') return 0;
@@ -234,10 +245,12 @@ export class ActualizacionesProcessor implements ICategoryProcessor {
                                 deudorId,
                                 fecha: new Date(),
                                 importe: importePago,
+                                origen: 'IMPORT_ACTUALIZACION',
                                 origenArchivo: `ACTUALIZACION_REMESA_${ctx.remesaId}`,
                                 observacion: `Pago automático - ${facDB.nroFactura}`,
                             },
                         });
+                        this.pagosDeudorIds.add(deudorId);
                     }
                 }
             }
@@ -268,26 +281,33 @@ export class ActualizacionesProcessor implements ICategoryProcessor {
             }
 
         } else if (montoNuevo !== null) {
-            // ── Modo B: solo montoTotal, sin bloques ──────────────────────────────
+            // ── Modo B: valor único = SALDO que queda (spec §3.2) ─────────────────
+            // Reconciliación por total contra los pagos ya registrados (no duplica
+            // pagos manuales ni actualizaciones sucesivas).
             const deudorActual = await ctx.prisma.deudor.findUnique({
                 where: { id: deudorId }, select: { montoTotal: true }
             });
-            const montoActual = deudorActual ? Number(deudorActual.montoTotal) : 0;
-            const delta = montoActual - montoNuevo;
+            const montoOriginal = deudorActual ? Number(deudorActual.montoTotal) : 0; // inmutable
+            const saldoArchivo = montoNuevo;
+            const yaPagado = await this.sumPagos(deudorId, ctx);
 
-            if (delta > 0.001) {
+            const r = reconciliarSaldo(montoOriginal, saldoArchivo, yaPagado);
+            if (r.tipo === 'pago') {
                 await ctx.prisma.pago.create({
                     data: {
-                        deudorId, fecha: new Date(), importe: delta,
+                        deudorId, fecha: new Date(), importe: r.importe,
+                        origen: 'IMPORT_ACTUALIZACION',
                         origenArchivo: `ACTUALIZACION_REMESA_${ctx.remesaId}`,
-                        observacion: `Pago automático: ${montoActual} → ${montoNuevo}`,
+                        observacion: `Reconciliación saldo: original ${montoOriginal} − saldo ${saldoArchivo} − pagos ${yaPagado}`,
                     },
                 });
-            } else if (delta < -0.001) {
+                this.pagosDeudorIds.add(deudorId);
+            } else if (r.tipo === 'ajuste') {
+                // La deuda creció (saldo informado > original): nueva factura de ajuste.
                 await ctx.prisma.factura.create({
                     data: {
-                        deudorId, nroFactura: `AJUSTE-${ctx.remesaId}-${Date.now()}`,
-                        importe: Math.abs(delta), fechaEmision: new Date(),
+                        deudorId, nroFactura: `AJUSTE-${ctx.remesaId}-${deudorId}-${Math.round(r.importe)}`,
+                        importe: r.importe, fechaEmision: new Date(),
                         vencimiento: new Date(), estado: 'PENDIENTE',
                     },
                 });
@@ -314,38 +334,45 @@ export class ActualizacionesProcessor implements ICategoryProcessor {
             select: { id: true },
         });
 
-        for (const { id: deudorId } of deudoresOrigen) {
+        // Traer montoTotal (original inmutable) para reconciliar contra Σpagos.
+        const deudoresConMonto = await ctx.prisma.deudor.findMany({
+            where: { remesaId: ctx.remesaOrigenId, empresaId: ctx.empresaId },
+            select: { id: true, montoTotal: true },
+        });
+
+        for (const { id: deudorId, montoTotal } of deudoresConMonto) {
             if (this.processedDeudorIds.has(deudorId)) continue;  // ya fue procesado en el archivo
 
-            // Este deudor no vino en el archivo → pagó todo
-            const facturasPendientes = await ctx.prisma.factura.findMany({
-                where: { deudorId, estado: { not: 'PAGADA' } },
-                select: { id: true, importe: true },
-            });
+            // Este deudor no vino en el archivo → pagó todo. Reconciliar contra Σpagos.
+            const yaPagado = await this.sumPagos(deudorId, ctx);
+            const r = reconciliarAusente(montoTotal == null ? null : Number(montoTotal), yaPagado);
 
-            if (facturasPendientes.length === 0) continue;
+            if (r.tipo === 'skip') {
+                this.logger.warn(`Deudor ${deudorId} ausente pero montoTotal 0/nulo — no se reconcilia.`);
+                continue;
+            }
 
-            const totalPagado = facturasPendientes.reduce((sum, f) => sum + f.importe, 0);
-
-            // Marcar todas como pagadas
-            await ctx.prisma.factura.updateMany({
-                where: { id: { in: facturasPendientes.map(f => f.id) } },
-                data: { estado: 'PAGADA' },
-            });
-
-            // Generar un pago por el total
-            if (totalPagado > 0) {
+            if (r.tipo === 'pago') {
                 await ctx.prisma.pago.create({
                     data: {
                         deudorId,
                         fecha: new Date(),
-                        importe: totalPagado,
+                        importe: r.importe,
+                        origen: 'IMPORT_ACTUALIZACION',
                         origenArchivo: `ACTUALIZACION_REMESA_${ctx.remesaId}`,
                         observacion: `Pago total automático: deudor ausente en actualización`,
                     },
                 });
+                this.pagosDeudorIds.add(deudorId);
             }
 
+            // Marcar facturas pendientes como PAGADA (deudor saldado)
+            if (r.marcarFacturasPagadas) {
+                await ctx.prisma.factura.updateMany({
+                    where: { deudorId, estado: { not: 'PAGADA' } },
+                    data: { estado: 'PAGADA' },
+                });
+            }
             // montoTotal NO se toca (inmutable). La consolidación posterior lleva la situación a SIT-050.
         }
 
@@ -356,6 +383,13 @@ export class ActualizacionesProcessor implements ICategoryProcessor {
         if (ctx.remesaId !== ctx.remesaOrigenId) {
             await ctx.consolidacion.consolidar({ tipo: 'REMESA', remesaId: ctx.remesaId });
         }
+
+        // Cerrar promesas VIGENTE que hayan quedado cumplidas por los pagos generados (spec §5.5)
+        if (this.pagosDeudorIds.size > 0) {
+            await ctx.promesas.cerrarCumplidas([...this.pagosDeudorIds]);
+        }
+        this.processedDeudorIds.clear();
+        this.pagosDeudorIds.clear();
     }
 
     private async upsertContacto(deudorId: number, data: any, ctx: ProcessContext): Promise<void> {

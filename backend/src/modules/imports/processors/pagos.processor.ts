@@ -48,15 +48,42 @@ export class PagosProcessor implements ICategoryProcessor {
         // Bloques repetitivos del archivo → al deudor encontrado.
         await procesarBloquesDeudor(deudor.id, row._blocks, ctx);
 
-        await ctx.prisma.pago.create({
-            data: {
+        const importe = row.importe ?? 0;
+
+        // Anti-dup (spec §3.1): si ya hay un pago MANUAL no confirmado del mismo deudor
+        // con este importe exacto → confirmarlo en vez de duplicar. Un claim por fila.
+        const claim = await ctx.prisma.pago.findFirst({
+            where: {
                 deudorId: deudor.id,
-                fecha: row.fecha ?? new Date(),
-                importe: row.importe ?? 0,
-                origenArchivo: row.origenArchivo ?? null,
-                observacion: row.observacion ?? null,
+                origen: 'MANUAL',
+                confirmadoImport: false,
+                importe,
             },
+            orderBy: { fecha: 'asc' },
+            select: { id: true },
         });
+
+        if (claim) {
+            await ctx.prisma.pago.update({
+                where: { id: claim.id },
+                data: {
+                    confirmadoImport: true,
+                    confirmadoEn: new Date(),
+                    origenArchivo: `PAGOS_REMESA_${ctx.remesaId}`,
+                },
+            });
+        } else {
+            await ctx.prisma.pago.create({
+                data: {
+                    deudorId: deudor.id,
+                    fecha: row.fecha ?? new Date(),
+                    importe,
+                    origen: 'IMPORT_PAGOS',
+                    origenArchivo: row.origenArchivo ?? null,
+                    observacion: row.observacion ?? null,
+                },
+            });
+        }
 
         // Trackear deudor tocado para la consolidación selectiva en afterAll
         this.processedDeudorIds.add(deudor.id);
@@ -72,10 +99,10 @@ export class PagosProcessor implements ICategoryProcessor {
      */
     async afterAll(ctx: ProcessContext): Promise<void> {
         if (this.processedDeudorIds.size > 0) {
-            await ctx.consolidacion.consolidar({
-                tipo: 'DEUDORES',
-                deudorIds: [...this.processedDeudorIds],
-            });
+            const deudorIds = [...this.processedDeudorIds];
+            await ctx.consolidacion.consolidar({ tipo: 'DEUDORES', deudorIds });
+            // Cerrar promesas VIGENTE que hayan quedado cumplidas por estos pagos (spec §5.5)
+            await ctx.promesas.cerrarCumplidas(deudorIds);
         } else {
             // Fallback: consolidar la remesa origen (o la propia si no hay origen)
             await ctx.consolidacion.consolidar({
@@ -83,5 +110,6 @@ export class PagosProcessor implements ICategoryProcessor {
                 remesaId: ctx.remesaOrigenId ?? ctx.remesaId,
             });
         }
+        this.processedDeudorIds.clear();
     }
 }

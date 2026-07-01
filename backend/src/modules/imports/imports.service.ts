@@ -17,6 +17,7 @@ import { NotificacionesService } from '../notificaciones/notificaciones.service'
 import { ProgressEmitter } from './utils/progress-emitter';
 import { RequestContextService } from 'src/common/logger/request-context';
 import { ConsolidacionSituacionService } from '../consolidacion/consolidacion.service';
+import { PromesasService } from '../promesas/promesas.service';
 
 @Injectable()
 export class ImportService {
@@ -30,6 +31,7 @@ export class ImportService {
         private readonly notificacionesService: NotificacionesService,
         private readonly requestContext: RequestContextService,
         private readonly consolidacion: ConsolidacionSituacionService,
+        private readonly promesas: PromesasService,
     ) { }
 
     // --- PLANTILLAS ---
@@ -589,6 +591,7 @@ export class ImportService {
                 estadoGestionId: defaultEstadoGestionId,
             },
             consolidacion: this.consolidacion,
+            promesas: this.promesas,
             montoDeudorDesdeFacturas,
         };
 
