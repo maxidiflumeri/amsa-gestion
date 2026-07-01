@@ -9,7 +9,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - [backend/](backend/) — NestJS 11 + Prisma + MySQL + BullMQ/Redis + Socket.IO
 - [frontend/](frontend/) — React 18 + Vite + MUI v5 + TypeScript + socket.io-client
 
-Antes de tocar código, **leer [CHANGELOG.md](CHANGELOG.md)**. Es el registro narrativo de desarrollo, mantenido a mano, y la fuente principal de contexto para retomar trabajo (decisiones, estado actual de cada módulo, deuda técnica). Los specs vivos están en [docs/](docs/) (`neotel-spec.md`, `email-sender-spec.md`, `timeline-spec.md`, `dashboards-spec.md`, `reportes-dynamic-spec.md`, `auditoria-spec.md`, `notificaciones-spec.md`).
+Antes de tocar código, **leer [CHANGELOG.md](CHANGELOG.md)**. Es el registro narrativo de desarrollo, mantenido a mano, y la fuente principal de contexto para retomar trabajo (decisiones, estado actual de cada módulo, deuda técnica). Los specs vivos están en [docs/](docs/) (`neotel-spec.md`, `email-sender-spec.md`, `timeline-spec.md`, `dashboards-spec.md`, `reportes-dynamic-spec.md`, `auditoria-spec.md`, `notificaciones-spec.md`, `consolidacion-situacion-spec.md`, `pagos-promesas-spec.md`).
 
 ## Comandos
 
