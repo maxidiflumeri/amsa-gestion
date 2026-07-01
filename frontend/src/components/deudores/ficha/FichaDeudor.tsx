@@ -497,6 +497,7 @@ const FichaDeudor: React.FC<Props> = ({ deudorId }) => {
                 open={openModalPago}
                 deudorId={deudorId}
                 saldoSugerido={deudor.saldo ?? deudor.montoTotal ?? 0}
+                maxDiasPromesa={deudor.empresa?.configuracion?.promesa_pago?.maxDias ?? 7}
                 puedePromesa={puedeCrearPromesa}
                 onClose={() => setOpenModalPago(false)}
                 onSaved={handlePagoSaved}

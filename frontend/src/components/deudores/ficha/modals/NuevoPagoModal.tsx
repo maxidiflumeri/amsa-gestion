@@ -164,7 +164,7 @@ const NuevoPagoModal: React.FC<Props> = ({
                                 size="small"
                                 fullWidth
                                 InputLabelProps={{ shrink: true }}
-                                inputProps={{ min: hoyISO(), max: isoMasDias(30) }}
+                                inputProps={{ min: hoyISO(), max: isoMasDias(maxDiasPromesa) }}
                                 value={promesaForm.fechaPromesa}
                                 onChange={(e) => setPromesaForm((f) => ({ ...f, fechaPromesa: e.target.value }))}
                             />

@@ -15,7 +15,7 @@
 > 1. `prisma db push` aplica los campos nuevos de `pago` (`origen`, `usuarioId`, `confirmadoImport`, `confirmadoEn`) + la tabla `promesa_pago` (no destructivo).
 > 2. **Asignar los permisos nuevos** (`pagos.*`, `promesas.*`) al rol ADMIN: se agregaron a `TODAS_LAS_KEYS` en `seed.ts`, así que correr el seed los asigna. En prod, re-seedear o asignarlos vía gestión de roles.
 > 3. **Redeploy del backend** (incluye el cron diario de promesas — verificar que arranca).
-> 4. Sin backfill obligatorio. El `maxDías` de promesa se configura por empresa en `empresa.configuracion` (`{ promesa_pago: { maxDias: 7 } }`, default 7); UI dedicada pendiente.
+> 4. Sin backfill obligatorio. El `maxDías` de promesa se configura por empresa en **Ajustes → Empresas** (guardado en `empresa.configuracion.promesa_pago.maxDias`, default 7, rango 1–30).
 
 **Feature** (feedback de usuarios): cargar pagos a mano desde la ficha (cuando el operador verifica en el sistema del cliente que el deudor pagó, antes de la bajada) y registrar **promesas de pago**. Ambas desde la solapa de Pagos con un modal con toggle.
 

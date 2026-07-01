@@ -38,7 +38,10 @@ interface Empresa {
     nombre: string
     cuit: string
     cuentaSmtpId?: number | null
+    configuracion?: any
 }
+
+const DEFAULT_MAX_DIAS_PROMESA = 7
 
 type EmpresaRow = Empresa & Record<string, unknown>
 
@@ -55,7 +58,7 @@ const AjustesEmpresas: React.FC = () => {
     const [open, setOpen] = useState(false)
     const [editing, setEditing] = useState<Empresa | null>(null)
     const [saving, setSaving] = useState(false)
-    const [formData, setFormData] = useState<{ nombre: string; cuit: string; cuentaSmtpId: number | null }>({ nombre: '', cuit: '', cuentaSmtpId: null })
+    const [formData, setFormData] = useState<{ nombre: string; cuit: string; cuentaSmtpId: number | null; maxDiasPromesa: number }>({ nombre: '', cuit: '', cuentaSmtpId: null, maxDiasPromesa: DEFAULT_MAX_DIAS_PROMESA })
     const [smtps, setSmtps] = useState<SmtpAccount[]>([])
     const [smtpsLoaded, setSmtpsLoaded] = useState(false)
 
@@ -77,10 +80,15 @@ const AjustesEmpresas: React.FC = () => {
     const handleOpen = async (empresa?: Empresa) => {
         if (empresa) {
             setEditing(empresa)
-            setFormData({ nombre: empresa.nombre, cuit: empresa.cuit || '', cuentaSmtpId: empresa.cuentaSmtpId ?? null })
+            setFormData({
+                nombre: empresa.nombre,
+                cuit: empresa.cuit || '',
+                cuentaSmtpId: empresa.cuentaSmtpId ?? null,
+                maxDiasPromesa: empresa.configuracion?.promesa_pago?.maxDias ?? DEFAULT_MAX_DIAS_PROMESA,
+            })
         } else {
             setEditing(null)
-            setFormData({ nombre: '', cuit: '', cuentaSmtpId: null })
+            setFormData({ nombre: '', cuit: '', cuentaSmtpId: null, maxDiasPromesa: DEFAULT_MAX_DIAS_PROMESA })
         }
         setOpen(true)
         if (puedeAdministrarEmail && !smtpsLoaded) {
@@ -101,7 +109,12 @@ const AjustesEmpresas: React.FC = () => {
     const handleSave = async () => {
         setSaving(true)
         try {
-            const datosEmpresa = { nombre: formData.nombre, cuit: formData.cuit }
+            const cfgPrevio = (editing?.configuracion as any) || {}
+            const configuracion = {
+                ...cfgPrevio,
+                promesa_pago: { ...(cfgPrevio.promesa_pago || {}), maxDias: formData.maxDiasPromesa },
+            }
+            const datosEmpresa = { nombre: formData.nombre, cuit: formData.cuit, configuracion }
             let empresaId: number
             if (editing) {
                 await api.patch(`/empresas/${editing.id}`, datosEmpresa)
@@ -267,6 +280,21 @@ const AjustesEmpresas: React.FC = () => {
                                 setFormData({ ...formData, cuit: e.target.value })
                             }
                             placeholder="XX-XXXXXXXX-X"
+                        />
+                        <TextField
+                            label="Máx. días para promesas de pago"
+                            type="number"
+                            fullWidth
+                            value={formData.maxDiasPromesa}
+                            inputProps={{ min: 1, max: 30 }}
+                            helperText="Tope de días a futuro al cargar una promesa de pago (default 7, rango 1–30)"
+                            onChange={(e) => {
+                                const n = parseInt(e.target.value, 10)
+                                setFormData({
+                                    ...formData,
+                                    maxDiasPromesa: isNaN(n) ? DEFAULT_MAX_DIAS_PROMESA : Math.min(30, Math.max(1, n)),
+                                })
+                            }}
                         />
                         {puedeAdministrarEmail && (
                             <TextField
