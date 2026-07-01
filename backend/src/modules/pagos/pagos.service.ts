@@ -74,9 +74,52 @@ export class PagosService {
         await this.bloqueo.assertNoBloqueado(pago.deudorId, 'eliminar pago'); // regla 6
 
         await this.prisma.pago.delete({ where: { id } });
-        await this.consolidacion.consolidar({ tipo: 'DEUDORES', deudorIds: [pago.deudorId] });
 
-        this.logger.log(`Pago manual eliminado id=${id} deudor=${pago.deudorId}`);
+        // Reconciliar. Ojo: la consolidación saltea deudores con Σpagos=0 (no revierte),
+        // así que si al borrar no quedan pagos hay que revertir a mano (spec/edge).
+        const agg = await this.prisma.pago.aggregate({
+            where: { deudorId: pago.deudorId },
+            _sum: { importe: true },
+        });
+        const restante = agg._sum.importe ?? 0;
+        if (restante > 0) {
+            await this.consolidacion.consolidar({ tipo: 'DEUDORES', deudorIds: [pago.deudorId] });
+        } else {
+            await this.revertirSinPagos(pago.deudorId);
+        }
+
+        this.logger.log(`Pago manual eliminado id=${id} deudor=${pago.deudorId} restante=${restante}`);
         return { id, deleted: true };
+    }
+
+    /**
+     * El deudor quedó sin pagos: resetear el saldo persistido y, si el código actual
+     * es de consolidación (SIT-041/SIT-050), devolverlo al default de la plantilla
+     * (estado "sin pagos"). La consolidación no hace esto porque saltea Σpagos=0.
+     */
+    private async revertirSinPagos(deudorId: number): Promise<void> {
+        const deudor = await this.prisma.deudor.findUnique({
+            where: { id: deudorId },
+            select: {
+                estadoSituacion: { select: { clave: true } },
+                remesa: { select: { plantilla: { select: { defaultEstadoSituacionId: true } } } },
+            },
+        });
+
+        const data: { saldo: null; situacionConsolidadaEn: Date; estadoSituacionId?: number } = {
+            saldo: null,
+            situacionConsolidadaEn: new Date(),
+        };
+
+        const clave = deudor?.estadoSituacion?.clave;
+        const defaultSit = deudor?.remesa?.plantilla?.defaultEstadoSituacionId ?? null;
+        if ((clave === 'SIT-041' || clave === 'SIT-050') && defaultSit) {
+            data.estadoSituacionId = defaultSit;
+        }
+
+        await this.prisma.deudor.update({ where: { id: deudorId }, data });
+        this.logger.log(
+            `Deudor ${deudorId} sin pagos: saldo reseteado${data.estadoSituacionId ? ` + situación → default(${defaultSit})` : ''}`,
+        );
     }
 }
