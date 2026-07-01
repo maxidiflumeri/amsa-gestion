@@ -56,12 +56,12 @@ export class ConsolidacionController {
     @Permisos('consolidacion.ejecutar')
     async preview(
         @Body() dto: ConsolidarScopeDto,
-        @UsuarioActual() usuario: { id: number },
+        @UsuarioActual() usuario: { sub: number },
     ) {
         this.validarScope(dto);
 
         const scope = this.toScope(dto);
-        const usuarioId = usuario.id;
+        const usuarioId = usuario.sub;
         const requestId = this.requestContext.getRequestId();
 
         this.logger.log(
@@ -97,12 +97,12 @@ export class ConsolidacionController {
     @Permisos('consolidacion.ejecutar')
     async aplicar(
         @Body() dto: ConsolidarScopeDto,
-        @UsuarioActual() usuario: { id: number },
+        @UsuarioActual() usuario: { sub: number },
     ) {
         this.validarScope(dto);
 
         const scope = this.toScope(dto);
-        const usuarioId = usuario.id;
+        const usuarioId = usuario.sub;
         const requestId = this.requestContext.getRequestId();
 
         this.logger.log(

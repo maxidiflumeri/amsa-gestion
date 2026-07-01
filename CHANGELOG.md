@@ -6,6 +6,16 @@
 
 ---
 
+## [2026-07-01] — Fix: consolidación desde UI quedaba "Calculando..." (usuarioId undefined)
+
+> ⚠️ Requiere **redeploy del backend** (solo código, sin migración).
+
+**Problema**: el `ConsolidacionModal` (preview y aplicar) quedaba colgado en "Calculando preview..." para siempre. El job corría bien en el backend (dry-run en ~100ms, `evaluados=4113 aSIT050=40 aSIT041=306`), pero `ConsolidacionController` leía `usuario.id` del `@UsuarioActual()`, cuando el payload JWT expone el id del usuario en **`sub`** (`req['usuario'] = payload` en `jwt-auth.guard.ts`; el resto del código usa `usuario.sub`). Con `usuarioId = undefined`, el `emitToUser(undefined, 'consolidacion:finalizada')` emitía a una room inexistente y el front nunca recibía el resultado del preview → el modal no transicionaba a `preview-listo` y no se podía llegar a "Aplicar".
+
+**Fix**: `usuario.id` → `usuario.sub` en `preview()` y `aplicar()` de `ConsolidacionController`. Único lugar del código con este error (el resto de los `@UsuarioActual()` ya usaban `sub`).
+
+---
+
 ## [2026-07-01] — Importe del deudor desde facturas + datos adicionales unificados
 
 > ⚠️ **Acciones de despliegue**:
