@@ -30,6 +30,7 @@ import FichaOtrasCuentasTab from './tabs/FichaOtrasCuentasTab';
 import AgregarContactoModal from './modals/AgregarContactoModal';
 import NuevoConvenioModal from './modals/NuevoConvenioModal';
 import PagoCuotaModal from './modals/PagoCuotaModal';
+import NuevoPagoModal from './modals/NuevoPagoModal';
 import EnviarEmailDialog from '../../email/EnviarEmailDialog';
 
 interface Props {
@@ -41,6 +42,10 @@ const FichaDeudor: React.FC<Props> = ({ deudorId }) => {
     const confirm = useConfirm();
     const { tienePermiso } = useAuth();
     const puedeEnviarEmail = tienePermiso('email.enviar');
+    const puedeCargarPago = tienePermiso('pagos.crear');
+    const puedeEliminarPago = tienePermiso('pagos.eliminar');
+    const puedeCrearPromesa = tienePermiso('promesas.crear');
+    const puedeVerPromesas = tienePermiso('promesas.ver');
 
     const [deudor, setDeudor] = useState<any>(null);
     const [loading, setLoading] = useState(true);
@@ -62,6 +67,10 @@ const FichaDeudor: React.FC<Props> = ({ deudorId }) => {
 
     // Modal pago de cuota
     const [cuotaAPagar, setCuotaAPagar] = useState<any>(null);
+
+    // Pagos / Promesas
+    const [openModalPago, setOpenModalPago] = useState(false);
+    const [promesas, setPromesas] = useState<any[]>([]);
 
     // Modal contacto
     const [openModalAgregar, setOpenModalAgregar] = useState(false);
@@ -106,10 +115,21 @@ const FichaDeudor: React.FC<Props> = ({ deudorId }) => {
         }
     }, [deudorId]);
 
+    const cargarPromesas = useCallback(async () => {
+        if (!puedeVerPromesas) return;
+        try {
+            const res = await api.get(`/promesas?deudorId=${deudorId}`);
+            setPromesas(res.data || []);
+        } catch {
+            // silencioso
+        }
+    }, [deudorId, puedeVerPromesas]);
+
     useEffect(() => {
         cargarInicial();
         cargarConvenios();
-    }, [cargarInicial, cargarConvenios]);
+        cargarPromesas();
+    }, [cargarInicial, cargarConvenios, cargarPromesas]);
 
     // ── Derived state ─────────────────────────────────────────────────────────────
 
@@ -246,6 +266,36 @@ const FichaDeudor: React.FC<Props> = ({ deudorId }) => {
         setOpenModalConvenio(true);
     }, []);
 
+    const handleNuevoPago = useCallback(() => {
+        setOpenModalPago(true);
+    }, []);
+
+    const handlePagoSaved = useCallback(() => {
+        cargarInicial();
+        cargarPromesas();
+    }, [cargarInicial, cargarPromesas]);
+
+    const handleEliminarPago = useCallback(
+        async (pago: any) => {
+            const ok = await confirm({
+                title: 'Eliminar pago',
+                description: `¿Eliminar el pago de $${(pago.importe ?? 0).toLocaleString('es-AR')}? Se recalculará el saldo y la situación del deudor.`,
+                confirmLabel: 'Eliminar',
+                confirmColor: 'error',
+            });
+            if (!ok) return;
+            try {
+                await api.delete(`/pagos/${pago.id}`);
+                notify.success('Pago eliminado');
+                await cargarInicial();
+                await cargarPromesas();
+            } catch (err: any) {
+                notify.error(err);
+            }
+        },
+        [confirm, notify, cargarInicial, cargarPromesas],
+    );
+
     const handleEnviarEmail = useCallback((contacto: any) => {
         setDestinatarioInicial(contacto?.valor);
         setOpenEmailDialog(true);
@@ -338,7 +388,15 @@ const FichaDeudor: React.FC<Props> = ({ deudorId }) => {
                         </TabPanel>
 
                         <TabPanel value={tabVal} index={2}>
-                            <FichaPagosTab pagos={pagos || []} />
+                            <FichaPagosTab
+                                pagos={pagos || []}
+                                promesas={promesas}
+                                onCargar={handleNuevoPago}
+                                onEliminar={handleEliminarPago}
+                                puedeCargar={puedeCargarPago}
+                                puedeEliminar={puedeEliminarPago}
+                                disabled={cuentaCancelada}
+                            />
                         </TabPanel>
 
                         <TabPanel value={tabVal} index={3}>
@@ -409,6 +467,15 @@ const FichaDeudor: React.FC<Props> = ({ deudorId }) => {
                 cuota={cuotaAPagar}
                 onClose={() => setCuotaAPagar(null)}
                 onSaved={handlePagoCuotaSaved}
+            />
+
+            <NuevoPagoModal
+                open={openModalPago}
+                deudorId={deudorId}
+                saldoSugerido={deudor.saldo ?? deudor.montoTotal ?? 0}
+                puedePromesa={puedeCrearPromesa}
+                onClose={() => setOpenModalPago(false)}
+                onSaved={handlePagoSaved}
             />
 
             {puedeEnviarEmail && openEmailDialog && (
