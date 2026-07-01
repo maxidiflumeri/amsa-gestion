@@ -6,6 +6,47 @@
 
 ---
 
+## [2026-07-01] — Carga manual de pagos + Promesas de pago
+
+> Diseño completo: [docs/pagos-promesas-spec.md](docs/pagos-promesas-spec.md) (v2, revisado por el agente architect).
+> Implementado en la rama `feat/pagos-promesas`.
+>
+> ⚠️ **Acciones de despliegue**:
+> 1. `prisma db push` aplica los campos nuevos de `pago` (`origen`, `usuarioId`, `confirmadoImport`, `confirmadoEn`) + la tabla `promesa_pago` (no destructivo).
+> 2. **Asignar los permisos nuevos** (`pagos.*`, `promesas.*`) al rol ADMIN: se agregaron a `TODAS_LAS_KEYS` en `seed.ts`, así que correr el seed los asigna. En prod, re-seedear o asignarlos vía gestión de roles.
+> 3. **Redeploy del backend** (incluye el cron diario de promesas — verificar que arranca).
+> 4. Sin backfill obligatorio. El `maxDías` de promesa se configura por empresa en `empresa.configuracion` (`{ promesa_pago: { maxDias: 7 } }`, default 7); UI dedicada pendiente.
+
+**Feature** (feedback de usuarios): cargar pagos a mano desde la ficha (cuando el operador verifica en el sistema del cliente que el deudor pagó, antes de la bajada) y registrar **promesas de pago**. Ambas desde la solapa de Pagos con un modal con toggle.
+
+### 1. Modelo
+
+- `pago`: nuevos `origen` (`MANUAL|IMPORT_PAGOS|IMPORT_ACTUALIZACION|CONVENIO`), `usuarioId`, `confirmadoImport`, `confirmadoEn` + índice `Pago_dedup_idx`.
+- Nuevo `promesa_pago` (`estado`, `cambioSit020`, `situacionAnteriorId`, `pagosAlCrear`, `fechaPromesa`, `monto?`).
+
+### 2. Módulo `pagos`
+
+- `POST /pagos` (manual → consolida el deudor → cierra promesa cumplida), `DELETE /pagos/:id` (solo `MANUAL`), `GET /pagos`. Bloqueo SIT-050 + `@Audit`.
+- **Fix de reversión**: al eliminar el último pago, la consolidación saltea `Σpagos=0` y no revertía; ahora se resetea `saldo=null` y —si el código era SIT-041/050— se vuelve al default de la plantilla.
+
+### 3. Módulo `promesas`
+
+- `POST /promesas` (se registra siempre; **código a SIT-020 solo si Σpagos=0**; update condicional anti-race; supersede la VIGENTE previa), `PATCH /:id/anular` (revierte el código si corresponde), `GET /promesas`, `POST /procesar-vencidas`.
+- **Cron diario** (`@Cron` 2 AM): detecta vencidas por los registros (no por código); con pago → CUMPLIDA, sin pago → INCUMPLIDA + SIT-021 (solo si seguía en SIT-020). Cache de SIT-020/021.
+- `cerrarCumplidas(deudorIds)` por snapshot `pagosAlCrear`, llamado desde pagos y desde el `afterAll` de los import processors.
+
+### 4. Anti-duplicación (carga manual vs bajadas)
+
+- **PAGOS** (detallado): claim por **importe exacto** — confirma un pago `MANUAL` no confirmado en vez de duplicar.
+- **ACTUALIZACIONES** (saldo): reconciliación por **total** (`pagado = montoTotal − saldoArchivo − Σpagos`), en helper puro `reconciliar-actualizacion.ts` con **13 tests**. Arregla también la duplicación preexistente de bajadas sucesivas. Escenario C (afterAll) reconcilia contra `montoTotal − Σpagos`. Rama por `nroFactura` fuera de alcance (los cedentes mandan valor único de saldo).
+
+### 5. Frontend
+
+- `NuevoPagoModal` (toggle **Pago real / Promesa**). `FichaPagosTab`: botón "Cargar", columna Origen legible + badge "Confirmado por bajada", eliminar por fila (solo MANUAL), sección de promesas con chips de estado. Refetch (`cargarInicial` + `cargarPromesas`). Bloqueado en SIT-050.
+- Permisos nuevos en catálogos back/front (`pagos.*`, `promesas.*`).
+
+---
+
 ## [2026-07-01] — Fix: consolidación desde UI quedaba "Calculando..." (usuarioId undefined)
 
 > ⚠️ Requiere **redeploy del backend** (solo código, sin migración).
