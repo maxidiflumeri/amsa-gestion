@@ -36,6 +36,23 @@ export const TODOS_LOS_PERMISOS: PermisoSeccion[] = [
         ],
     },
     {
+        seccion: 'Pagos',
+        permisos: [
+            { key: 'pagos.ver', label: 'Ver pagos' },
+            { key: 'pagos.crear', label: 'Cargar pagos manuales' },
+            { key: 'pagos.eliminar', label: 'Eliminar pagos manuales' },
+        ],
+    },
+    {
+        seccion: 'Promesas de Pago',
+        permisos: [
+            { key: 'promesas.ver', label: 'Ver promesas de pago' },
+            { key: 'promesas.crear', label: 'Cargar promesas de pago' },
+            { key: 'promesas.cancelar', label: 'Anular promesas de pago' },
+            { key: 'promesas.procesar_vencidas', label: 'Procesar promesas vencidas (batch)' },
+        ],
+    },
+    {
         seccion: 'Importación',
         permisos: [
             { key: 'importacion.ejecutar', label: 'Ejecutar importaciones' },

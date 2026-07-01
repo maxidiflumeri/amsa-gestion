@@ -77,6 +77,7 @@ model deudor {
   motivoNoPago      parametro?    @relation("DeudorMotivoNoPago", fields: [motivoNoPagoId], references: [id])
   facturas          factura[]
   pagos             pago[]
+  promesas          promesa_pago[]
   transacciones     transaccion[]
   convenios         convenio[]
   enviosEmail       envio_email[]
@@ -153,17 +154,45 @@ model jobimport {
 }
 
 model pago {
-  id            Int      @id @default(autoincrement())
-  deudorId      Int
-  fecha         DateTime
-  importe       Float
-  origenArchivo String?
-  observacion   String?
-  deudor        deudor   @relation(fields: [deudorId], references: [id], map: "Pago_deudorId_fkey")
+  id               Int       @id @default(autoincrement())
+  deudorId         Int
+  fecha            DateTime
+  importe          Float
+  origenArchivo    String?
+  observacion      String?
+  origen           String?   // 'MANUAL' | 'IMPORT_PAGOS' | 'IMPORT_ACTUALIZACION' | 'CONVENIO'
+  usuarioId        Int?
+  confirmadoImport Boolean   @default(false)
+  confirmadoEn     DateTime?
+  deudor           deudor    @relation(fields: [deudorId], references: [id], map: "Pago_deudorId_fkey")
+  usuario          usuario?  @relation("PagoUsuario", fields: [usuarioId], references: [id])
 
   @@index([deudorId], map: "Pago_deudorId_fkey")
   @@index([fecha], map: "Pago_fecha_idx")
   @@index([deudorId, fecha], map: "Pago_deudorId_fecha_idx")
+  @@index([deudorId, origen, confirmadoImport], map: "Pago_dedup_idx")
+}
+
+model promesa_pago {
+  id                  Int        @id @default(autoincrement())
+  deudorId            Int
+  usuarioId           Int?
+  fechaPromesa        DateTime
+  monto               Float?
+  estado              String     @default("VIGENTE") // VIGENTE | CUMPLIDA | INCUMPLIDA | ANULADA
+  cambioSit020        Boolean    @default(false)
+  situacionAnteriorId Int?
+  pagosAlCrear        Float      @default(0)
+  observacion         String?
+  createdAt           DateTime   @default(now())
+  cerradaEn           DateTime?
+  deudor              deudor     @relation(fields: [deudorId], references: [id])
+  usuario             usuario?   @relation("PromesaUsuario", fields: [usuarioId], references: [id])
+  situacionAnterior   parametro? @relation("PromesaSituacionAnterior", fields: [situacionAnteriorId], references: [id])
+
+  @@index([deudorId])
+  @@index([estado, fechaPromesa])
+  @@index([estado])
 }
 
 model parametro {
@@ -184,6 +213,7 @@ model parametro {
   plantillasConSituacion      plantillaimport[]   @relation("PlantillaDefaultSituacion")
   plantillasConGestion        plantillaimport[]   @relation("PlantillaDefaultGestion")
   llamadas                    llamada_neotel[]    @relation("LlamadaSubcategoria")
+  promesasComoAnterior        promesa_pago[]      @relation("PromesaSituacionAnterior")
 }
 
 model empresa_parametro {
@@ -333,6 +363,8 @@ model usuario {
   mapeosEmail       email_template_variable_mapeo[]
   agenteTelefonia   agente_telefonia?
   callbacksAgendados callback_neotel[]
+  pagosManuales     pago[]              @relation("PagoUsuario")
+  promesas          promesa_pago[]      @relation("PromesaUsuario")
 
   @@index([rolId])
 }
