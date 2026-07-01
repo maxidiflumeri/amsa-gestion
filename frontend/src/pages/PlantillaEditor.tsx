@@ -5,6 +5,7 @@ import {
     Divider,
     FormControl,
     FormControlLabel,
+    FormHelperText,
     InputLabel,
     MenuItem,
     Paper,
@@ -188,6 +189,11 @@ const PlantillaEditor: React.FC = () => {
     const [blocks, setBlocks] = useState<MappingBlock[]>([])
     const [defaultEstadoSituacionId, setDefaultEstadoSituacionId] = useState<number | ''>('')
     const [defaultEstadoGestionId, setDefaultEstadoGestionId] = useState<number | ''>('')
+    const [montoDeudorDesdeFacturas, setMontoDeudorDesdeFacturas] =
+        useState<'NO' | 'SI_VACIO' | 'SIEMPRE'>('SI_VACIO')
+
+    // Flujos donde tiene sentido calcular el importe del deudor desde las facturas
+    const esFlujoFacturas = categoria === 'FACTURAS' || categoria === 'DEUDORES_Y_FACTURAS'
 
     // Empresa del editor: para creación la toma de la lista via state o default
     const [empresaId, setEmpresaId] = useState<number | null>(null)
@@ -238,6 +244,7 @@ const PlantillaEditor: React.FC = () => {
             setEmpresaId(p.empresaId ?? null)
             setDefaultEstadoSituacionId(p.defaultEstadoSituacionId ?? '')
             setDefaultEstadoGestionId(p.defaultEstadoGestionId ?? '')
+            setMontoDeudorDesdeFacturas(p.mappingJson?.montoDeudorDesdeFacturas ?? 'SI_VACIO')
         } catch (err) {
             notify.error(err as Error)
             navigate('/plantillas')
@@ -298,6 +305,9 @@ const PlantillaEditor: React.FC = () => {
             .map((k) => k.trim())
             .filter(Boolean)
         const mappingJson = fieldsToMappingJson(fields, blocks, entity, keys)
+        if (esFlujoFacturas) {
+            ;(mappingJson as Record<string, unknown>).montoDeudorDesdeFacturas = montoDeudorDesdeFacturas
+        }
 
         try {
             if (isEdit && id) {
@@ -518,6 +528,43 @@ const PlantillaEditor: React.FC = () => {
                         </FormControl>
                     )}
                 </Stack>
+
+                {/* Importe del deudor desde facturas (solo flujos con facturas) */}
+                {esFlujoFacturas && (
+                    <>
+                        <Divider sx={{ my: 3 }} />
+                        <Typography variant="h6" sx={{ fontWeight: 600, mb: 2 }}>
+                            Importe del deudor
+                        </Typography>
+                        <FormControl sx={{ flex: '1 1 360px', maxWidth: 520, mb: 3 }}>
+                            <InputLabel>Calcular importe desde las facturas</InputLabel>
+                            <Select
+                                value={montoDeudorDesdeFacturas}
+                                label="Calcular importe desde las facturas"
+                                onChange={(e) =>
+                                    setMontoDeudorDesdeFacturas(
+                                        e.target.value as 'NO' | 'SI_VACIO' | 'SIEMPRE'
+                                    )
+                                }
+                            >
+                                <MenuItem value="SI_VACIO">
+                                    Solo si el deudor vino sin importe (recomendado)
+                                </MenuItem>
+                                <MenuItem value="SIEMPRE">
+                                    Siempre (las facturas son la fuente de verdad)
+                                </MenuItem>
+                                <MenuItem value="NO">
+                                    No calcular (el importe viene en el archivo de deudores)
+                                </MenuItem>
+                            </Select>
+                            <FormHelperText>
+                                Al cargar las facturas, el importe del deudor se completa con la suma de
+                                sus facturas según esta opción. "Solo si vino sin importe" nunca pisa un
+                                valor ya cargado.
+                            </FormHelperText>
+                        </FormControl>
+                    </>
+                )}
 
                 <Divider sx={{ my: 3 }} />
 

@@ -1,6 +1,7 @@
 // processors/processor.interface.ts
 import { PrismaService } from 'src/prisma/prisma.service';
 import { ConsolidacionSituacionService } from '../../consolidacion/consolidacion.service';
+import { MontoDeudorMode } from '../mapping-types';
 
 /**
  * Resultado de validar una fila.
@@ -29,6 +30,12 @@ export interface ProcessContext {
     };
     /** Servicio de consolidación de situación (Fase 3). Inyectado por ImportService. */
     consolidacion: ConsolidacionSituacionService;
+    /**
+     * Modo de cálculo de `deudor.montoTotal` desde la suma de facturas.
+     * Leído de `mappingJson.montoDeudorDesdeFacturas` (default `SI_VACIO`).
+     * Aplica a las categorías FACTURAS y DEUDORES_Y_FACTURAS.
+     */
+    montoDeudorDesdeFacturas: MontoDeudorMode;
 }
 
 /**

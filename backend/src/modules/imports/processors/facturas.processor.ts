@@ -2,9 +2,15 @@
 import { ICategoryProcessor, MappedRow, ProcessContext, RowValidationResult } from './processor.interface';
 import { Prisma } from '@prisma/client';
 import { procesarBloquesDeudor } from '../utils/procesar-bloques';
+import { mergeCamposAdicionalesEnDeudores, recalcularMontoTotalDesdeFacturas } from '../utils/monto-facturas';
 
 export class FacturasProcessor implements ICategoryProcessor {
     readonly category = 'FACTURAS';
+
+    /** Deudores tocados en este batch → se recalcula su montoTotal en afterAll. */
+    private touchedDeudorIds = new Set<number>();
+    /** Extras (datos adicionales del archivo de facturas) acumulados por deudor → se mergean en afterAll. */
+    private extrasPorDeudor = new Map<number, Record<string, any>>();
 
     validateRow(row: MappedRow, _ctx: ProcessContext): RowValidationResult {
         const nroCliente = String(row.nro_cliente ?? '').trim();
@@ -64,5 +70,26 @@ export class FacturasProcessor implements ICategoryProcessor {
                 vencimiento: row.vencimiento ?? undefined,
             },
         });
+
+        // Trackear el deudor para recalcular su montoTotal en afterAll.
+        this.touchedDeudorIds.add(deudor.id);
+
+        // Datos adicionales configurados en el mapeo de facturas → se cargan en el deudor.
+        if (row.camposAdicionales && Object.keys(row.camposAdicionales).length > 0) {
+            const prev = this.extrasPorDeudor.get(deudor.id) ?? {};
+            this.extrasPorDeudor.set(deudor.id, { ...prev, ...row.camposAdicionales });
+        }
+    }
+
+    /**
+     * Al finalizar todas las filas: (1) recalcula `montoTotal` del deudor desde la suma
+     * de facturas según el modo de la plantilla y consolida saldo/situación; (2) mergea
+     * los datos adicionales del archivo en `deudor.camposAdicionales`.
+     */
+    async afterAll(ctx: ProcessContext): Promise<void> {
+        await recalcularMontoTotalDesdeFacturas(ctx, [...this.touchedDeudorIds]);
+        await mergeCamposAdicionalesEnDeudores(ctx, this.extrasPorDeudor);
+        this.touchedDeudorIds.clear();
+        this.extrasPorDeudor.clear();
     }
 }

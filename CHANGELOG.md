@@ -6,6 +6,34 @@
 
 ---
 
+## [2026-07-01] — Importe del deudor desde facturas + datos adicionales unificados
+
+> ⚠️ **Acciones de despliegue**:
+> 1. **Sin migración de schema**: la opción nueva se guarda dentro de `plantillaimport.mappingJson` (`montoDeudorDesdeFacturas`). No hace falta `prisma db push` por esta feature.
+> 2. **Sin backfill**: aplica solo a importaciones nuevas. Los deudores ya cargados con importe en 0 quedan como están (siguen expuestos a que un pago los marque SIT-050 vía consolidación — pendiente si aparece el caso).
+> 3. Las plantillas de facturas existentes toman el default **`SI_VACIO`** al abrirlas/guardarlas (comportamiento seguro: solo rellenan importes en 0).
+
+**Problema** (feedback de usuarios en pruebas): en el flujo de dos archivos (primero deudores, después facturas), el archivo de deudores muchas veces **no trae el importe**, así que el deudor quedaba con `montoTotal`/saldo en **0**. El de facturas sí trae los importes, pero el `FacturasProcessor` nunca tocaba al deudor. Además, los "datos adicionales" mapeados en la carga de facturas se **descartaban** (la tabla `factura` no tiene campo JSON) y no se veían en ningún lado. Un `montoTotal = 0` además rompe la consolidación (cualquier pago dispara **SIT-050**).
+
+### 1. Importe del deudor calculado desde las facturas (configurable por plantilla)
+
+- Nuevo modo `mappingJson.montoDeudorDesdeFacturas: 'NO' | 'SI_VACIO' | 'SIEMPRE'` (default **`SI_VACIO`**), propagado a `ProcessContext`. `NO` = no toca `montoTotal`; `SI_VACIO` = lo completa con Σfacturas solo si quedó null/0; `SIEMPRE` = pisa con Σfacturas.
+- Util compartido `imports/utils/monto-facturas.ts` → `recalcularMontoTotalDesdeFacturas(ctx, deudorIds)`: recálculo **idempotente** con `UPDATE ... SET montoTotal = (SELECT SUM(importe) FROM factura ...)` en chunks de 500 (no incrementos), y luego `ConsolidacionSituacionService.consolidar({ tipo: 'DEUDORES', deudorIds })` para reconciliar saldo/situación (si Σpagos == 0 hace skip → no-op barato en carga inicial).
+- `FacturasProcessor`: trackea los `deudorId` tocados y corre el recálculo en un nuevo `afterAll`.
+- `DeudoresYFacturasProcessor`: se unificó a la misma lógica. Antes usaba `montoTotal: ?? rowInvoicesSum` + `{ increment }` (no idempotente, duplicaba al reimportar); ahora el importe se reconcilia en `afterAll` desde la suma real de facturas.
+
+### 2. Datos adicionales de facturas → datos adicionales del deudor
+
+- `FacturasProcessor` ahora acumula `row.camposAdicionales` por deudor y en `afterAll` los **mergea** dentro de `deudor.camposAdicionales` (`mergeCamposAdicionalesEnDeudores`), **sin pisar** las claves que ya tenía del import de deudores (ante clave repetida gana el último valor). Antes se descartaban.
+- Quedan visibles automáticamente en la card "Datos Adicionales" de la ficha y en el catálogo de reportes (no hubo que tocar la visualización).
+
+### 3. Frontend (`PlantillaEditor` + `MappingEditor`)
+
+- `PlantillaEditor`: sección **"Importe del deudor"** con el selector de modo, visible solo para categorías `FACTURAS` y `DEUDORES_Y_FACTURAS`; se persiste en `mappingJson.montoDeudorDesdeFacturas` (default `SI_VACIO`).
+- `MappingEditor`: la sección "Campos extras" muestra un subtítulo aclaratorio en flujos de facturas ("se cargan en los Datos Adicionales del DEUDOR, no de la factura; se mergean con los que ya tenga").
+
+---
+
 ## [2026-06-30] — Consolidación automática de situación según pagos (SIT-050 / SIT-041)
 
 > ⚠️ **Acciones de despliegue**:

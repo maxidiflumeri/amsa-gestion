@@ -290,6 +290,8 @@ export default function MappingEditor({
     const notify = useNotify();
 
     const destFields = DEST_FIELDS_BY_CATEGORY[categoria] ?? [];
+    // En flujos con facturas, los campos extra se cargan en los datos adicionales del DEUDOR.
+    const esFlujoFacturas = categoria === "FACTURAS" || categoria === "DEUDORES_Y_FACTURAS";
     const [previewRows, setPreviewRows] = useState<string[][]>([]);
     const [totalColumns, setTotalColumns] = useState(0);
     const [previewFile, setPreviewFile] = useState<File | null>(null);
@@ -819,7 +821,14 @@ export default function MappingEditor({
             </SectionCard>
 
             {/* Extra fields (camposAdicionales) */}
-            <SectionCard title="Campos extras (→ camposAdicionales JSON)">
+            <SectionCard
+                title="Campos extras (→ camposAdicionales JSON)"
+                subtitle={
+                    esFlujoFacturas
+                        ? "En importaciones de facturas, estos campos se cargan en los Datos Adicionales del DEUDOR (no de la factura) y se muestran en su ficha. Se mergean con los que el deudor ya tenga."
+                        : undefined
+                }
+            >
                 {renderFieldList(
                     extraFields.map(({ field }) => field),
                     (localIdx) => extraFields[localIdx].globalIdx,

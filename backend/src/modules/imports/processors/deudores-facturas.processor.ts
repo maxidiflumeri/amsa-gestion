@@ -3,14 +3,17 @@ import { Prisma } from '@prisma/client';
 import { clearContactoImportCaches, prepararContactoImport } from '../utils/contacto-import';
 import { nroClienteDeFila } from '../utils/nro-cliente';
 import { procesarBloquesDeudor } from '../utils/procesar-bloques';
+import { recalcularMontoTotalDesdeFacturas } from '../utils/monto-facturas';
 
 export class DeudoresYFacturasProcessor implements ICategoryProcessor {
     readonly category = 'DEUDORES_Y_FACTURAS';
-    
-    // Caché simple en memoria por llamada executeRemesa para evitar 
+
+    // Caché simple en memoria por llamada executeRemesa para evitar
     // constantes Upserts si el archivo trae muchas filas del mismo deudor seguido.
     // Clave: documento
     private debtorCache: Map<string, number> = new Map();
+    /** Deudores tocados en este batch → se recalcula su montoTotal en afterAll. */
+    private touchedDeudorIds = new Set<number>();
 
     private parseFloatSafe(val: any): number | undefined {
         if (val === null || val === undefined || val === '') return undefined;
@@ -39,21 +42,6 @@ export class DeudoresYFacturasProcessor implements ICategoryProcessor {
         if (!val) return undefined;
         const d = new Date(val);
         return isNaN(d.getTime()) ? undefined : d;
-    }
-
-    private getRowInvoicesSum(row: MappedRow): number {
-        let sum = 0;
-        if (row.nroFactura && row.importe) {
-            sum += this.parseFloatSafe(row.importe) || 0;
-        }
-        if (row._blocks) {
-            for (const b of row._blocks) {
-                if ((b.entity === 'FACTURA' || b.entity === 'MIXTO' || b.entity === 'DEUDORES_Y_FACTURAS') && b.data.nroFactura) {
-                    sum += this.parseFloatSafe(b.data.importe) || 0;
-                }
-            }
-        }
-        return sum;
     }
 
     validateRow(row: MappedRow, _ctx: ProcessContext): RowValidationResult {
@@ -105,8 +93,7 @@ export class DeudoresYFacturasProcessor implements ICategoryProcessor {
         }
         
         const montoTotalParsed = this.parseFloatSafe(row.montoTotal);
-        const rowInvoicesSum = this.getRowInvoicesSum(row);
-        
+
         const deudor = await ctx.prisma.deudor.upsert({
             where: {
                 empresaId_documento_remesaId: {
@@ -122,7 +109,7 @@ export class DeudoresYFacturasProcessor implements ICategoryProcessor {
                 nroCliente: nroCliente || null,
                 nombre: row.nombre ?? '',
                 apellido: row.apellido ?? '',
-                montoTotal: montoTotalParsed ?? rowInvoicesSum,
+                montoTotal: montoTotalParsed ?? null,
                 fechaVencimiento: this.parseDateSafe(row.fechaVencimiento) ?? null,
                 camposAdicionales: row.camposAdicionales ?? Prisma.JsonNull,
                 estadoSituacionId: ctx.defaults.estadoSituacionId,
@@ -132,15 +119,16 @@ export class DeudoresYFacturasProcessor implements ICategoryProcessor {
                 nroCliente: nroCliente || undefined,
                 nombre: row.nombre ?? undefined,
                 apellido: row.apellido ?? undefined,
-                montoTotal: montoTotalParsed !== undefined
-                    ? montoTotalParsed
-                    : { increment: rowInvoicesSum },
+                // El importe se reconcilia en afterAll desde la suma real de facturas
+                // (idempotente). Solo se persiste acá si vino explícito en el archivo.
+                montoTotal: montoTotalParsed ?? undefined,
                 fechaVencimiento: this.parseDateSafe(row.fechaVencimiento) ?? undefined,
                 camposAdicionales: row.camposAdicionales ?? undefined,
             },
         });
 
         deudorId = deudor.id;
+        this.touchedDeudorIds.add(deudorId);
 
         // -- ENRIQUECIMIENTO HISTÓRICO GLOBAL --
         if (isNewForThisRemesa && !this.debtorCache.has(documentoStr)) {
@@ -251,8 +239,12 @@ export class DeudoresYFacturasProcessor implements ICategoryProcessor {
         });
     }
 
-    async afterAll(_ctx: ProcessContext): Promise<void> {
+    async afterAll(ctx: ProcessContext): Promise<void> {
+        // Reconciliar el importe del deudor con la suma real de facturas (según modo)
+        // y consolidar saldo/situación. Idempotente.
+        await recalcularMontoTotalDesdeFacturas(ctx, [...this.touchedDeudorIds]);
         clearContactoImportCaches();
         this.debtorCache.clear();
+        this.touchedDeudorIds.clear();
     }
 }

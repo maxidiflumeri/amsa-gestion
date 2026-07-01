@@ -571,6 +571,13 @@ export class ImportService {
             );
         }
 
+        const mapping = remesa.plantilla.mappingJson as unknown as MappingJson;
+
+        // Modo de cálculo de montoTotal desde facturas (default seguro: SI_VACIO)
+        const modoMonto = mapping?.montoDeudorDesdeFacturas;
+        const montoDeudorDesdeFacturas =
+            modoMonto === 'NO' || modoMonto === 'SIEMPRE' ? modoMonto : 'SI_VACIO';
+
         const ctx: ProcessContext = {
             prisma: this.prisma,
             remesaId: remesa.id,
@@ -582,9 +589,9 @@ export class ImportService {
                 estadoGestionId: defaultEstadoGestionId,
             },
             consolidacion: this.consolidacion,
+            montoDeudorDesdeFacturas,
         };
 
-        const mapping = remesa.plantilla.mappingJson as unknown as MappingJson;
         const sep = remesa.plantilla.separador ?? '|';
         const hasHeader = !!remesa.plantilla.tieneHeader;
 

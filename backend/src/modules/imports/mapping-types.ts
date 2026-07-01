@@ -11,6 +11,15 @@ export interface RepetitiveBlock {
     columns: Record<string, MappingColumn>;
 }
 
+/**
+ * Modo de cálculo del importe (`montoTotal`) del deudor a partir de la suma de
+ * sus facturas. Aplica a las categorías FACTURAS y DEUDORES_Y_FACTURAS.
+ * - `NO`: no se toca `montoTotal` (lo trae el archivo de deudores).
+ * - `SI_VACIO`: se completa con Σfacturas solo si el deudor quedó en null/0 (default).
+ * - `SIEMPRE`: `montoTotal = Σfacturas`, pisando cualquier valor previo.
+ */
+export type MontoDeudorMode = 'NO' | 'SI_VACIO' | 'SIEMPRE';
+
 export interface MappingJson {
     entity: 'DEUDOR' | 'FACTURA' | 'PAGO' | 'CONTACTO' | 'ENRIQ_MIXTO' | 'MIXTO';
     matchKeys: string[];        // ej: ["empresaId","documento"]
@@ -20,4 +29,6 @@ export interface MappingJson {
     defaults?: Record<string, any>;
     validations?: Array<{ field: string; rule: string }>;
     dedup?: { strategy: 'keep-last' | 'keep-first'; orderBy?: string[] };
+    /** Modo de cálculo de `deudor.montoTotal` desde las facturas (default `SI_VACIO`). */
+    montoDeudorDesdeFacturas?: MontoDeudorMode;
 }
