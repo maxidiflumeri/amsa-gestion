@@ -46,6 +46,7 @@ const FichaDeudor: React.FC<Props> = ({ deudorId }) => {
     const puedeEliminarPago = tienePermiso('pagos.eliminar');
     const puedeCrearPromesa = tienePermiso('promesas.crear');
     const puedeVerPromesas = tienePermiso('promesas.ver');
+    const puedeCancelarPromesa = tienePermiso('promesas.cancelar');
 
     const [deudor, setDeudor] = useState<any>(null);
     const [loading, setLoading] = useState(true);
@@ -296,6 +297,27 @@ const FichaDeudor: React.FC<Props> = ({ deudorId }) => {
         [confirm, notify, cargarInicial, cargarPromesas],
     );
 
+    const handleAnularPromesa = useCallback(
+        async (promesa: any) => {
+            const ok = await confirm({
+                title: 'Anular promesa',
+                description: `¿Anular la promesa de pago del ${new Date(promesa.fechaPromesa).toLocaleDateString()}?`,
+                confirmLabel: 'Anular',
+                confirmColor: 'error',
+            });
+            if (!ok) return;
+            try {
+                await api.patch(`/promesas/${promesa.id}/anular`);
+                notify.success('Promesa anulada');
+                await cargarInicial();
+                await cargarPromesas();
+            } catch (err: any) {
+                notify.error(err);
+            }
+        },
+        [confirm, notify, cargarInicial, cargarPromesas],
+    );
+
     const handleEnviarEmail = useCallback((contacto: any) => {
         setDestinatarioInicial(contacto?.valor);
         setOpenEmailDialog(true);
@@ -393,8 +415,10 @@ const FichaDeudor: React.FC<Props> = ({ deudorId }) => {
                                 promesas={promesas}
                                 onCargar={handleNuevoPago}
                                 onEliminar={handleEliminarPago}
+                                onAnularPromesa={handleAnularPromesa}
                                 puedeCargar={puedeCargarPago}
                                 puedeEliminar={puedeEliminarPago}
+                                puedeCancelarPromesa={puedeCancelarPromesa}
                                 disabled={cuentaCancelada}
                             />
                         </TabPanel>

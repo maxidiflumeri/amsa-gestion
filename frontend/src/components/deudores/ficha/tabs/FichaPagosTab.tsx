@@ -16,14 +16,17 @@ import {
 } from '@mui/material';
 import AddIcon from '@mui/icons-material/Add';
 import DeleteIcon from '@mui/icons-material/Delete';
+import CancelIcon from '@mui/icons-material/Cancel';
 
 interface Props {
     pagos: any[];
     promesas?: any[];
     onCargar?: () => void;
     onEliminar?: (pago: any) => void;
+    onAnularPromesa?: (promesa: any) => void;
     puedeCargar?: boolean;
     puedeEliminar?: boolean;
+    puedeCancelarPromesa?: boolean;
     disabled?: boolean;
 }
 
@@ -48,8 +51,10 @@ const FichaPagosTab: React.FC<Props> = ({
     promesas = [],
     onCargar,
     onEliminar,
+    onAnularPromesa,
     puedeCargar = false,
     puedeEliminar = false,
+    puedeCancelarPromesa = false,
     disabled = false,
 }) => {
     const promesasVisibles = promesas.filter((p) => p.estado !== 'ANULADA');
@@ -100,6 +105,20 @@ const FichaPagosTab: React.FC<Props> = ({
                                     <Typography variant="caption" color="text.secondary">
                                         — {p.observacion}
                                     </Typography>
+                                )}
+                                {p.estado === 'VIGENTE' && puedeCancelarPromesa && (
+                                    <Tooltip title="Anular promesa">
+                                        <span>
+                                            <IconButton
+                                                size="small"
+                                                color="error"
+                                                disabled={disabled}
+                                                onClick={() => onAnularPromesa?.(p)}
+                                            >
+                                                <CancelIcon fontSize="small" />
+                                            </IconButton>
+                                        </span>
+                                    </Tooltip>
                                 )}
                             </Stack>
                         ))}
