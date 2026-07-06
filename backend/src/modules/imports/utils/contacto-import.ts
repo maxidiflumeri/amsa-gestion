@@ -1,4 +1,4 @@
-import { normalizarTelefonoArgentino } from '../../../common/utils/phone-utils';
+import { normalizarTelefonoArgentino, esPosibleTelefono } from '../../../common/utils/phone-utils';
 import { validarEmail } from '../../../common/utils/email-utils';
 import { normalizarDireccionArgentina } from '../../../common/utils/direccion-utils';
 
@@ -48,7 +48,10 @@ export async function prepararContactoImport(
         if (!raw) return null;
         const res = normalizarTelefonoArgentino(raw);
         if (res.valido && res.e164) return { tipo: 'telefono', valor: res.e164, validado: true };
-        return { tipo: 'telefono', valor: raw, validado: false };
+        // No validó: se carga en rojo (revisión manual) solo si tiene forma de teléfono.
+        // Si es basura evidente ("0", "123") o relleno ("1111-1111"), se descarta.
+        if (esPosibleTelefono(raw)) return { tipo: 'telefono', valor: raw, validado: false };
+        return null;
     }
 
     if (tipo === 'email') {

@@ -2,7 +2,7 @@
 import { ICategoryProcessor, MappedRow, ProcessContext, RowValidationResult } from './processor.interface';
 import { Prisma } from '@prisma/client';
 import { Logger } from '@nestjs/common';
-import { normalizarTelefonoArgentino } from '../../../common/utils/phone-utils';
+import { normalizarTelefonoArgentino, esPosibleTelefono } from '../../../common/utils/phone-utils';
 import { reconciliarSaldo, reconciliarAusente } from '../utils/reconciliar-actualizacion';
 import { esDocumentoPlaceholder } from '../utils/documento';
 import { mergeAdicionales } from '../utils/campos-adicionales';
@@ -523,7 +523,13 @@ export class ActualizacionesProcessor implements ICategoryProcessor {
 
         if (['telefono', 'celular', 'whatsapp'].includes(tipoContacto)) {
             const val = normalizarTelefonoArgentino(valorFinal);
-            if (val.valido && val.e164) { valorFinal = val.e164; isValidado = true; }
+            if (val.valido && val.e164) {
+                valorFinal = val.e164;
+                isValidado = true;
+            } else if (!esPosibleTelefono(valorFinal)) {
+                // Basura evidente o relleno → no se carga.
+                return;
+            }
         }
 
         await ctx.prisma.contacto.upsert({

@@ -118,6 +118,42 @@ export function normalizarTelefonoArgentino(input: string): NormalizarResultado 
     };
 }
 
+// ---- Filtro de plausibilidad para teléfonos que NO validaron ----
+// Un teléfono que no valida (formato raro, característica dudosa) igual se carga
+// "en rojo" para revisión manual, SIEMPRE que su forma sea compatible con un teléfono.
+// Esto descarta la basura evidente ("0", "123", un número solo) y los rellenos
+// ("(02941) 1111-1111", "0000000000") sin borrar números casi-completos reales.
+const MIN_DIGITOS_TELEFONO = 10;   // número significativo nacional argentino = 10 dígitos
+const MAX_DIGITOS_TELEFONO = 15;   // tope E.164 (54 9 + 10 = 13; margen hasta 15)
+const MAX_CORRIDA_REPETIDA = 6;    // 6+ dígitos idénticos seguidos ⇒ relleno/placeholder
+
+/** Corrida más larga de un mismo dígito consecutivo dentro de la cadena de dígitos. */
+function corridaMaximaDeDigitos(digitos: string): number {
+    let run = digitos.length ? 1 : 0;
+    let max = run;
+    for (let i = 1; i < digitos.length; i++) {
+        run = digitos[i] === digitos[i - 1] ? run + 1 : 1;
+        if (run > max) max = run;
+    }
+    return max;
+}
+
+/**
+ * ¿La cadena tiene forma de teléfono argentino? No dice que sea válido (para eso está
+ * `normalizarTelefonoArgentino`), solo que NO es basura evidente. Se usa para decidir si
+ * un teléfono que no validó igual se carga (en rojo) o se descarta.
+ *
+ * Rechaza: menos de 10 o más de 15 dígitos; y rellenos con 6+ dígitos idénticos seguidos
+ * (ej. "(02941) 1111-1111", "0000000000"). Mantiene números reales con dígitos variados
+ * aunque no validen (ej. "15-(02941) 64-3701").
+ */
+export function esPosibleTelefono(input: string): boolean {
+    const digitos = String(input ?? '').replace(/\D/g, '');
+    if (digitos.length < MIN_DIGITOS_TELEFONO || digitos.length > MAX_DIGITOS_TELEFONO) return false;
+    if (corridaMaximaDeDigitos(digitos) >= MAX_CORRIDA_REPETIDA) return false;
+    return true;
+}
+
 // Para throw directo en pipelines (ej. Pipes/Services)
 export function assertTelefonoAR(input: string) {
     const res = normalizarTelefonoArgentino(input);

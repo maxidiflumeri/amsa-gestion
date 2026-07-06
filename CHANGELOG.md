@@ -6,6 +6,28 @@
 
 ---
 
+## [2026-07-06] — Filtro de teléfonos basura en la importación
+
+> ⚠️ **Redeploy del backend** (solo código, sin migración). Aplica solo a importaciones nuevas;
+> no toca los contactos ya cargados.
+
+**Problema** (feedback de usuarios): al importar cartera o datos adicionales, un teléfono que no valida
+se cargaba igual "en rojo" para revisión manual — pero se cargaba **cualquier cosa**: `0`, `123`, un número
+solo, o rellenos como `(02941) 1111-1111` / `(02941) 11111111` (característica real pero abonado repetido).
+
+**Fix**: nuevo `esPosibleTelefono(input)` en `common/utils/phone-utils.ts` — filtro de plausibilidad que se
+aplica **solo** cuando el número NO valida (si valida, sigue quedando verde en E.164). Un teléfono que no
+valida se carga en rojo únicamente si tiene forma de teléfono; si es basura evidente o relleno, se **descarta**
+(`prepararContactoImport` devuelve `null`). Reglas: entre **10 y 15 dígitos** y sin **corridas de 6+ dígitos
+idénticos** seguidos (esto último es lo que caza `1111-1111` aunque tenga característica válida y 13 dígitos).
+Mantiene reales aunque no validen, ej. `15-(02941) 64-3701` (dígitos variados).
+
+- Aplicado en el punto central `imports/utils/contacto-import.ts` (cubre cartera/DEUDORES, ENRIQUECIMIENTO,
+  CONTACTOS, DEUDORES_Y_FACTURAS) y en el `upsertContacto` inline de `actualizaciones.processor.ts` (escenario
+  deudor nuevo). Tests: `phone-utils.spec.ts` (21 casos, con los ejemplos reales reportados).
+
+---
+
 ## [2026-07-06] — Cargar asignaciones sin DNI + completar DNI/adicionales por ACTUALIZACIONES
 
 > ⚠️ **Acciones de despliegue**:
