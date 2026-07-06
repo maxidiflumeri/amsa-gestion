@@ -19,6 +19,7 @@ import { RequestContextService } from 'src/common/logger/request-context';
 import { ConsolidacionSituacionService } from '../consolidacion/consolidacion.service';
 import { PromesasService } from '../promesas/promesas.service';
 import { AuditoriaHelper } from '../transacciones/auditoria.helper';
+import { normalizarTelefonoArgentino } from '../../common/utils/phone-utils';
 
 @Injectable()
 export class ImportService {
@@ -454,12 +455,12 @@ export class ImportService {
         const mapping = remesa.plantilla.mappingJson as unknown as MappingJson;
         const cfg = mapping.acciones;
         if (!cfg) throw new BadRequestException('La plantilla no es de acciones masivas');
-        if (cfg.matchMode !== 'DEUDOR' || !cfg.matchColumn) {
-            // El modo CONTACTO (limpieza global) se contabiliza en la Fase 2.
-            return { matchMode: cfg.matchMode, totalFilas: 0, valoresDistintos: 0, deudoresAfectados: 0, operaciones: cfg.operaciones.map(o => o.tipo) };
-        }
 
-        const idx = cfg.matchColumn.fromIndex;
+        const esContacto = cfg.matchMode === 'CONTACTO';
+        const idx = esContacto ? cfg.contactoValor?.fromIndex : cfg.matchColumn?.fromIndex;
+        if (idx === undefined || idx === null) {
+            throw new BadRequestException('La plantilla de acciones no tiene columna de match configurada');
+        }
         const sep = remesa.plantilla.separador ?? '|';
         const hasHeader = !!remesa.plantilla.tieneHeader;
         const valores = new Set<string>();
@@ -486,21 +487,41 @@ export class ImportService {
             });
         }
 
-        // Contar deudores afectados en chunks (IN acotado).
-        const field = cfg.matchColumn.field;
+        const scopeDeudor: any = { empresaId: remesa.empresaId, ...(remesaOrigenId ? { remesaId: remesaOrigenId } : {}) };
+
+        // ── Modo CONTACTO: contar contactos a eliminar ──
+        if (esContacto) {
+            const cv = cfg.contactoValor!;
+            const candidatos = new Set<string>();
+            for (const v of valores) {
+                candidatos.add(v);
+                if (cv.tipo === 'telefono') { const n = normalizarTelefonoArgentino(v); if (n.valido && n.e164) candidatos.add(n.e164); }
+                if (cv.tipo === 'email') candidatos.add(v.toLowerCase());
+            }
+            const lista = [...candidatos];
+            let contactosAEliminar = 0;
+            for (let i = 0; i < lista.length; i += 1000) {
+                contactosAEliminar += await this.prisma.contacto.count({
+                    where: { tipo: cv.tipo, valor: { in: lista.slice(i, i + 1000) }, deudor: scopeDeudor },
+                });
+            }
+            return {
+                matchMode: 'CONTACTO', totalFilas, valoresDistintos: valores.size,
+                deudoresAfectados: 0, contactosAEliminar,
+                operaciones: cfg.operaciones.map(o => o.tipo),
+            };
+        }
+
+        // ── Modo DEUDOR: contar deudores afectados en chunks (IN acotado) ──
+        const field = cfg.matchColumn!.field;
         const campo = field === 'documento' ? 'documento' : field === 'id' ? 'id' : 'nroCliente';
         const lista: any[] = field === 'id'
             ? [...valores].map(Number).filter(Number.isInteger)
             : [...valores];
         const ids = new Set<number>();
         for (let i = 0; i < lista.length; i += 1000) {
-            const chunk = lista.slice(i, i + 1000);
             const rows = await this.prisma.deudor.findMany({
-                where: {
-                    empresaId: remesa.empresaId,
-                    ...(remesaOrigenId ? { remesaId: remesaOrigenId } : {}),
-                    [campo]: { in: chunk },
-                },
+                where: { ...scopeDeudor, [campo]: { in: lista.slice(i, i + 1000) } },
                 select: { id: true },
             });
             for (const r of rows) ids.add(r.id);
@@ -513,6 +534,71 @@ export class ImportService {
             deudoresAfectados: ids.size,
             operaciones: cfg.operaciones.map(o => o.tipo),
         };
+    }
+
+    // --- REVERTIR ACCIONES MASIVAS (undo por snapshot) ---
+    async revertirAcciones(remesaId: number, usuarioId?: number) {
+        const remesa = await this.prisma.remesa.findUnique({ where: { id: remesaId } });
+        if (!remesa) throw new NotFoundException('Remesa no existe');
+        if (remesa.categoria !== 'ACCIONES') throw new BadRequestException('La remesa no es de acciones masivas');
+        if (remesa.accionRevertidaEn) {
+            return { yaRevertida: true, deudoresRevertidos: 0, contactosRestaurados: 0, comentariosBorrados: 0 };
+        }
+
+        const snaps = await this.prisma.accion_masiva_snapshot.findMany({
+            where: { remesaId }, orderBy: { id: 'desc' },
+        });
+
+        let deudoresRevertidos = 0;
+        const contactosACrear: any[] = [];
+        const comentariosABorrar: number[] = [];
+
+        for (const s of snaps) {
+            const dp = (s.datosPrevios ?? {}) as Record<string, any>;
+            if (s.entidad === 'deudor' && s.accion === 'UPDATE') {
+                const data: any = {};
+                for (const [k, v] of Object.entries(dp)) {
+                    if (k === 'fechaVencimiento') data[k] = v ? new Date(v) : null;
+                    else if (k === 'camposAdicionales') data[k] = v == null ? Prisma.JsonNull : v;
+                    else data[k] = v;
+                }
+                await this.prisma.deudor.update({ where: { id: s.entidadId }, data }).catch(() => { });
+                deudoresRevertidos++;
+            } else if (s.entidad === 'contacto' && s.accion === 'DELETE') {
+                contactosACrear.push({
+                    deudorId: dp.deudorId, tipo: dp.tipo, valor: dp.valor,
+                    subtipo: dp.subtipo ?? null, prioridad: dp.prioridad ?? 0,
+                    validado: dp.validado ?? false, whatsapp: dp.whatsapp ?? null,
+                });
+            } else if (s.entidad === 'comentario' && s.accion === 'INSERT') {
+                comentariosABorrar.push(s.entidadId);
+            }
+        }
+
+        let contactosRestaurados = 0;
+        for (let i = 0; i < contactosACrear.length; i += 500) {
+            const r = await this.prisma.contacto.createMany({ data: contactosACrear.slice(i, i + 500), skipDuplicates: true });
+            contactosRestaurados += r.count;
+        }
+        let comentariosBorrados = 0;
+        if (comentariosABorrar.length) {
+            const r = await this.prisma.comentario.deleteMany({ where: { id: { in: comentariosABorrar } } });
+            comentariosBorrados = r.count;
+        }
+
+        await this.prisma.remesa.update({
+            where: { id: remesaId },
+            data: { accionRevertidaEn: new Date(), accionRevertidaPorId: usuarioId ?? null },
+        });
+
+        await this.auditoria.log({
+            modulo: 'IMPORT', entidad: 'acciones_masivas', tipo: 'DELETE',
+            usuarioId: usuarioId ?? null, empresaId: remesa.empresaId, entidadId: remesaId,
+            resumen: `Revirtió acción masiva (remesa ${remesaId})`,
+            data: { deudoresRevertidos, contactosRestaurados, comentariosBorrados },
+        });
+
+        return { yaRevertida: false, deudoresRevertidos, contactosRestaurados, comentariosBorrados };
     }
 
     // --- EJECUTAR (Encuela el trabajo en BullMQ) ---

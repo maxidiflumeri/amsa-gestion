@@ -6,6 +6,31 @@
 
 ---
 
+## [2026-07-06] — Acciones masivas: Fase 2 (eliminar contacto) + Fase 3 (revertir)
+
+> ⚠️ **Redeploy back + front** (sin migración; el modelo del snapshot ya se creó en la Fase 1).
+
+**Fase 2 — Eliminar contacto**:
+- `AccionesProcessor.DELETE_CONTACTO` (modo DEUDOR): borra los contactos del deudor matcheado cuyo tipo+valor
+  coincidan (normalizando teléfono/email como en el import), con snapshot `DELETE` (fila completa) para el undo.
+- **Modo CONTACTO** (limpieza global): un listado de teléfonos/emails se borra de **toda la base** de la empresa
+  (scopeable a una remesa), sin importar el deudor. `valoresCandidatos` matchea el valor crudo + normalizado.
+- Preview: `previewAccionesImpacto` ahora cuenta "N contactos a eliminar" en modo CONTACTO. El wizard lo muestra.
+- Frontend `AccionesEditor`: selector "Tipo de acción" (modificar deudores / eliminar contacto de toda la base);
+  operación "Eliminar contacto" (tipo tel/email/cualquiera + valor fijo o por columna).
+
+**Fase 3 — Revertir (undo)**:
+- `POST /import/remesas/:id/revertir-acciones` (permiso `deudores.acciones_masivas`): lee
+  `accion_masiva_snapshot` en orden inverso y deshace — `UPDATE`→re-setea los campos, `DELETE`→re-inserta el
+  contacto (`createMany` skipDuplicates), `INSERT`→borra el comentario. Marca `remesa.accionRevertidaEn/PorId`.
+  Idempotente (si ya está revertida, no hace nada). Auditoría del revert.
+- Frontend: botón **"Revertir acción"** (ícono Undo) en el historial para remesas ACCIONES finalizadas y no
+  revertidas, con diálogo de confirmación. Aviso: si alguien editó a mano después, esos cambios se pisan.
+
+Con esto la feature de acciones masivas queda **completa** (Fases 1-3).
+
+---
+
 ## [2026-07-06] — Importación "Acciones masivas" (Fase 1)
 
 > Diseño completo (3 fases) en el plan aprobado. Esta entrega es la **Fase 1**: núcleo usable de acciones

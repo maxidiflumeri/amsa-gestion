@@ -183,6 +183,19 @@ export class ImportController {
         return this.service.previewAccionesImpacto(id, remesaOrigenId ? Number(remesaOrigenId) : undefined);
     }
 
+    @Post('remesas/:id/revertir-acciones')
+    @Permisos('deudores.acciones_masivas')
+    @Audit({
+        modulo: AuditModulo.IMPORT,
+        entidad: 'Remesa',
+        tipo: AuditTipo.DELETE,
+        entidadIdParam: 'id',
+        resumen: (res, req) => `Revirtió acción masiva remesa ${req.params.id}`,
+    })
+    revertirAcciones(@Param('id', ParseIntPipe) id: number, @UsuarioActual() user: UsuarioJwt) {
+        return this.service.revertirAcciones(id, user.sub);
+    }
+
     @Post('ejecutar/:id')
     @Permisos('importacion.ejecutar')
     @Audit({

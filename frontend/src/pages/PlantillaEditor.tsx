@@ -308,13 +308,20 @@ const PlantillaEditor: React.FC = () => {
             return
         }
         if (esAcciones) {
-            if (!accionesConfig.operaciones.length) {
-                notify.error('Agregá al menos una operación a la acción masiva')
-                return
-            }
-            if (accionesConfig.matchMode === 'DEUDOR' && !accionesConfig.matchColumn) {
-                notify.error('Configurá la columna de match (Nº Cliente o Documento)')
-                return
+            if (accionesConfig.matchMode === 'CONTACTO') {
+                if (!accionesConfig.contactoValor) {
+                    notify.error('Configurá el tipo y la columna del contacto a eliminar')
+                    return
+                }
+            } else {
+                if (!accionesConfig.operaciones.length) {
+                    notify.error('Agregá al menos una operación a la acción masiva')
+                    return
+                }
+                if (!accionesConfig.matchColumn) {
+                    notify.error('Configurá la columna de match (Nº Cliente, Documento o ID)')
+                    return
+                }
             }
         } else if (fields.filter((f) => f.destField).length === 0) {
             notify.error('Agregá al menos un campo de mapeo')

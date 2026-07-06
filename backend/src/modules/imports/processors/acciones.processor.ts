@@ -2,13 +2,14 @@
 //
 // Categoría ACCIONES (acciones masivas): aplica un catálogo CERRADO de operaciones a
 // los deudores matcheados por un listado, grabando un snapshot de cada cambio para
-// poder revertir (undo). Fase 1: matchMode DEUDOR + operaciones SET_* / SET_ADICIONALES /
-// ADD_COMENTARIO. DELETE_CONTACTO y matchMode CONTACTO llegan en la Fase 2.
+// poder revertir (undo). Modo DEUDOR: operaciones SET_* / SET_ADICIONALES / ADD_COMENTARIO /
+// DELETE_CONTACTO. Modo CONTACTO: limpieza global de un teléfono/email de toda la base.
 import { Logger } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { ICategoryProcessor, MappedRow, ProcessContext, RowValidationResult } from './processor.interface';
 import { AccionesConfig, AccionOperacion } from '../mapping-types';
 import { mergeAdicionales } from '../utils/campos-adicionales';
+import { normalizarTelefonoArgentino } from '../../../common/utils/phone-utils';
 import { AuditEstado, AuditModulo, AuditSeveridad, AuditTipo } from '../../transacciones/audit.enums';
 
 const CLAVE_SIT_CANCELADO = 'SIT-050';
@@ -28,6 +29,7 @@ export class AccionesProcessor implements ICategoryProcessor {
     private snapshots: SnapshotRow[] = [];
     private deudoresAfectados = new Set<number>();
     private comentariosCreados = 0;
+    private contactosEliminados = 0;
     private saltadosCancelados = 0;
     private sinMatch = 0;
     /** cache clave de parámetro → id (para SET_* por columna). */
@@ -37,9 +39,41 @@ export class AccionesProcessor implements ICategoryProcessor {
         this.snapshots = [];
         this.deudoresAfectados = new Set();
         this.comentariosCreados = 0;
+        this.contactosEliminados = 0;
         this.saltadosCancelados = 0;
         this.sinMatch = 0;
         this.paramCache.clear();
+    }
+
+    /** Valores candidatos con los que puede estar guardado un contacto (normalizado como en el import). */
+    private valoresCandidatos(tipo: string, valor: string): string[] {
+        const raw = String(valor).trim();
+        if (!raw) return [];
+        const set = new Set<string>([raw]);
+        if (tipo === 'telefono' || tipo === 'cualquiera') {
+            const n = normalizarTelefonoArgentino(raw);
+            if (n.valido && n.e164) set.add(n.e164);
+        }
+        if (tipo === 'email' || tipo === 'cualquiera') set.add(raw.toLowerCase());
+        return [...set];
+    }
+
+    /** Borra los contactos que matchean `where`, grabando snapshot de cada uno (para el undo). */
+    private async eliminarContactos(where: any, ctx: ProcessContext): Promise<number> {
+        const contactos = await ctx.prisma.contacto.findMany({ where });
+        if (!contactos.length) return 0;
+        for (const c of contactos) {
+            this.snapshots.push({
+                remesaId: ctx.remesaId, entidad: 'contacto', entidadId: c.id, accion: 'DELETE',
+                datosPrevios: {
+                    deudorId: c.deudorId, tipo: c.tipo, valor: c.valor, subtipo: c.subtipo,
+                    prioridad: c.prioridad, validado: c.validado, whatsapp: c.whatsapp,
+                },
+            });
+        }
+        await ctx.prisma.contacto.deleteMany({ where: { id: { in: contactos.map(c => c.id) } } });
+        this.contactosEliminados += contactos.length;
+        return contactos.length;
     }
 
     private parseFloatSafe(val: any): number | null {
@@ -78,14 +112,18 @@ export class AccionesProcessor implements ICategoryProcessor {
 
     validateRow(row: MappedRow, ctx: ProcessContext): RowValidationResult {
         const cfg = ctx.accionesConfig;
-        if (!cfg || !cfg.operaciones?.length) {
+        if (!cfg) return { valid: false, error: 'La plantilla de acciones no tiene configuración' };
+        if (cfg.matchMode === 'CONTACTO') {
+            if (!cfg.contactoValor) return { valid: false, error: 'Falta la columna del contacto a eliminar' };
+            if (!this.raw(row, cfg.contactoValor.fromIndex)) return { valid: false, error: 'Fila sin valor de contacto' };
+            return { valid: true };
+        }
+        if (!cfg.operaciones?.length) {
             return { valid: false, error: 'La plantilla de acciones no tiene operaciones configuradas' };
         }
-        if (cfg.matchMode === 'DEUDOR') {
-            if (!cfg.matchColumn) return { valid: false, error: 'Falta la columna de match (nro_cliente/documento)' };
-            if (!this.raw(row, cfg.matchColumn.fromIndex)) {
-                return { valid: false, error: `Fila sin ${cfg.matchColumn.field}` };
-            }
+        if (!cfg.matchColumn) return { valid: false, error: 'Falta la columna de match (nro_cliente/documento/id)' };
+        if (!this.raw(row, cfg.matchColumn.fromIndex)) {
+            return { valid: false, error: `Fila sin ${cfg.matchColumn.field}` };
         }
         return { valid: true };
     }
@@ -94,8 +132,19 @@ export class AccionesProcessor implements ICategoryProcessor {
         const cfg = ctx.accionesConfig;
         if (!cfg) throw new Error('ACCIONES sin configuración (mappingJson.acciones)');
 
+        // ── Modo CONTACTO: limpieza global de un teléfono/email de toda la base ──
         if (cfg.matchMode === 'CONTACTO') {
-            // Fase 2: limpieza global de contactos.
+            const cv = cfg.contactoValor;
+            if (!cv) return;
+            const valor = this.raw(row, cv.fromIndex);
+            const candidatos = this.valoresCandidatos(cv.tipo, valor);
+            if (!candidatos.length) return;
+            const deudorWhere: any = { empresaId: ctx.empresaId };
+            if (ctx.remesaOrigenId) deudorWhere.remesaId = ctx.remesaOrigenId;
+            const borrados = await this.eliminarContactos(
+                { tipo: cv.tipo, valor: { in: candidatos }, deudor: deudorWhere }, ctx,
+            );
+            if (borrados === 0) this.sinMatch++;
             return;
         }
 
@@ -197,9 +246,16 @@ export class AccionesProcessor implements ICategoryProcessor {
                     toco = true;
                     break;
                 }
-                case 'DELETE_CONTACTO':
-                    // Fase 2.
+                case 'DELETE_CONTACTO': {
+                    const valor = this.valorTexto(op, row);
+                    const candidatos = this.valoresCandidatos(op.contactoTipo, valor);
+                    if (!candidatos.length) break;
+                    const where: any = { deudorId: d.id, valor: { in: candidatos } };
+                    if (op.contactoTipo !== 'cualquiera') where.tipo = op.contactoTipo;
+                    const borrados = await this.eliminarContactos(where, ctx);
+                    if (borrados > 0) toco = true;
                     break;
+                }
             }
         }
 
@@ -236,11 +292,15 @@ export class AccionesProcessor implements ICategoryProcessor {
             usuarioId: ctx.usuarioId ?? null,
             empresaId: ctx.empresaId,
             entidadId: ctx.remesaId,
-            resumen: `Acciones masivas: ${this.deudoresAfectados.size} deudores afectados`,
+            resumen: ctx.accionesConfig?.matchMode === 'CONTACTO'
+                ? `Acciones masivas: ${this.contactosEliminados} contactos eliminados`
+                : `Acciones masivas: ${this.deudoresAfectados.size} deudores afectados`,
             data: {
+                matchMode: ctx.accionesConfig?.matchMode,
                 operaciones: (ctx.accionesConfig?.operaciones ?? []).map((o: AccionOperacion) => o.tipo),
                 deudoresAfectados: this.deudoresAfectados.size,
                 comentariosCreados: this.comentariosCreados,
+                contactosEliminados: this.contactosEliminados,
                 saltadosCancelados: this.saltadosCancelados,
                 filasSinMatch: this.sinMatch,
             },
@@ -248,7 +308,8 @@ export class AccionesProcessor implements ICategoryProcessor {
 
         this.logger.log(
             `ACCIONES remesa=${ctx.remesaId}: ${this.deudoresAfectados.size} deudores afectados, ` +
-            `${this.comentariosCreados} comentarios, ${this.saltadosCancelados} cancelados salteados, ${this.sinMatch} filas sin match.`,
+            `${this.comentariosCreados} comentarios, ${this.contactosEliminados} contactos eliminados, ` +
+            `${this.saltadosCancelados} cancelados salteados, ${this.sinMatch} filas sin match.`,
         );
         this.reset();
     }

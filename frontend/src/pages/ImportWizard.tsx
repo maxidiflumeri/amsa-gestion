@@ -78,7 +78,7 @@ export default function ImportWizard() {
     const [remesaId, setRemesaId] = useState<number | null>(null);
     const [preview, setPreview] = useState<any[]>([]);
     const [previewStats, setPreviewStats] = useState({ total: 0, ok: 0, err: 0 });
-    const [accionesImpacto, setAccionesImpacto] = useState<{ deudoresAfectados: number; valoresDistintos: number; operaciones: string[] } | null>(null);
+    const [accionesImpacto, setAccionesImpacto] = useState<{ matchMode: string; deudoresAfectados: number; contactosAEliminar?: number; valoresDistintos: number; operaciones: string[] } | null>(null);
 
     // Paso 4 – resultado final
     const [finalResult, setFinalResult] = useState({ total: 0, ok: 0, err: 0 });
@@ -454,10 +454,19 @@ export default function ImportWizard() {
                     <>
                         {categoria === "ACCIONES" && accionesImpacto && (
                             <Alert severity="warning" sx={{ mb: 2 }}>
-                                <AlertTitle>Vas a modificar {accionesImpacto.deudoresAfectados} deudores</AlertTitle>
-                                {accionesImpacto.valoresDistintos} valores de match en el archivo ·
-                                operaciones: {accionesImpacto.operaciones.join(", ")}. Revisá antes de confirmar —
-                                el cambio se aplica sobre toda la base de la empresa.
+                                {accionesImpacto.matchMode === "CONTACTO" ? (
+                                    <>
+                                        <AlertTitle>Vas a eliminar {accionesImpacto.contactosAEliminar ?? 0} contactos</AlertTitle>
+                                        {accionesImpacto.valoresDistintos} valores en el archivo. Se borran de toda la base
+                                        de la empresa. Se puede deshacer después. Revisá antes de confirmar.
+                                    </>
+                                ) : (
+                                    <>
+                                        <AlertTitle>Vas a modificar {accionesImpacto.deudoresAfectados} deudores</AlertTitle>
+                                        {accionesImpacto.valoresDistintos} valores de match en el archivo ·
+                                        operaciones: {accionesImpacto.operaciones.join(", ")}. Revisá antes de confirmar.
+                                    </>
+                                )}
                             </Alert>
                         )}
                         <PreviewTable

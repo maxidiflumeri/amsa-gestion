@@ -22,6 +22,7 @@ import VisibilityIcon from '@mui/icons-material/Visibility';
 import DeleteIcon from '@mui/icons-material/Delete';
 import MergeIcon from '@mui/icons-material/Merge';
 import InboxIcon from '@mui/icons-material/Inbox';
+import UndoIcon from '@mui/icons-material/Undo';
 import api from '../api/axios';
 import { useEmpresas } from '../hooks/useEmpresas';
 import { useNotify } from '../hooks/useNotify';
@@ -50,6 +51,7 @@ interface Remesa {
     errFilas: number;
     createdAt: string;
     politicaId?: number | null;
+    accionRevertidaEn?: string | null;
 }
 
 type RemesaRow = Remesa & Record<string, unknown>;
@@ -90,6 +92,9 @@ export default function ImportHistory() {
     const [deleting, setDeleting] = useState(false);
     const [consolidarRemesaId, setConsolidarRemesaId] = useState<number | null>(null);
     const puedeConsolidar = tienePermiso('consolidacion.ejecutar');
+    const puedeRevertir = tienePermiso('deudores.acciones_masivas');
+    const [confirmRevertId, setConfirmRevertId] = useState<number | null>(null);
+    const [reverting, setReverting] = useState(false);
 
     const loadHistory = async () => {
         if (!empresaId) return;
@@ -134,6 +139,25 @@ export default function ImportHistory() {
         } finally {
             setDeleting(false);
             setConfirmDeleteId(null);
+        }
+    };
+
+    const handleRevertConfirmed = async () => {
+        if (!confirmRevertId) return;
+        setReverting(true);
+        try {
+            const { data } = await api.post(`/import/remesas/${confirmRevertId}/revertir-acciones`);
+            setRemesas(prev => prev.map(r => r.id === confirmRevertId ? { ...r, accionRevertidaEn: new Date().toISOString() } : r));
+            notify.success(
+                data?.yaRevertida
+                    ? 'La acción ya estaba revertida'
+                    : `Acción revertida (${data.deudoresRevertidos} deudores, ${data.contactosRestaurados} contactos restaurados, ${data.comentariosBorrados} comentarios borrados)`,
+            );
+        } catch (err: any) {
+            notify.error(err);
+        } finally {
+            setReverting(false);
+            setConfirmRevertId(null);
         }
     };
 
@@ -289,6 +313,21 @@ export default function ImportHistory() {
                             </Tooltip>
                         )}
 
+                        {puedeRevertir && String(row.categoria) === 'ACCIONES' && estado === 'FINALIZADA' && (
+                            <Tooltip title={row.accionRevertidaEn ? 'Acción ya revertida' : 'Revertir esta acción masiva'}>
+                                <span>
+                                    <IconButton
+                                        color="warning"
+                                        size="small"
+                                        disabled={!!row.accionRevertidaEn}
+                                        onClick={() => setConfirmRevertId(row.id as number)}
+                                    >
+                                        <UndoIcon />
+                                    </IconButton>
+                                </span>
+                            </Tooltip>
+                        )}
+
                         {puedeEliminar && (
                             <Tooltip title={tooltipEliminar}>
                                 <span>
@@ -334,6 +373,28 @@ export default function ImportHistory() {
                         disabled={deleting}
                     >
                         {deleting ? 'Eliminando...' : 'Eliminar'}
+                    </Button>
+                </DialogActions>
+            </Dialog>
+
+            <Dialog
+                open={confirmRevertId !== null}
+                onClose={() => !reverting && setConfirmRevertId(null)}
+            >
+                <DialogTitle>Revertir acción masiva</DialogTitle>
+                <DialogContent>
+                    <DialogContentText>
+                        Se deshacen los cambios de esta acción masiva volviendo a los valores previos (según el
+                        snapshot): se restauran contactos eliminados, se borran los comentarios agregados y se
+                        revierten los campos modificados. Si algún deudor se editó a mano después, esos cambios se pisan.
+                    </DialogContentText>
+                </DialogContent>
+                <DialogActions>
+                    <Button onClick={() => setConfirmRevertId(null)} disabled={reverting}>
+                        Cancelar
+                    </Button>
+                    <Button onClick={handleRevertConfirmed} color="warning" variant="contained" disabled={reverting}>
+                        {reverting ? 'Revirtiendo...' : 'Revertir'}
                     </Button>
                 </DialogActions>
             </Dialog>

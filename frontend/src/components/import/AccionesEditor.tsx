@@ -25,16 +25,19 @@ import { useNotify } from "../../hooks/useNotify";
 // ─── Tipos (espejan backend mapping-types.ts → AccionesConfig) ────────────────
 export type OrigenValor = "ESTATICO" | "COLUMNA";
 export type CampoPrincipal = "nombre" | "apellido" | "montoTotal" | "fechaVencimiento" | "nroCliente";
+export type TipoContactoAccion = "telefono" | "email" | "cualquiera";
 
 export type AccionOperacion =
     | { tipo: "SET_SITUACION" | "SET_GESTION" | "SET_MOTIVO"; modo: OrigenValor; parametroId?: number; fromIndex?: number }
     | { tipo: "SET_CAMPO"; campo: CampoPrincipal; modo: OrigenValor; valor?: string; fromIndex?: number }
     | { tipo: "SET_ADICIONALES"; columnas: Array<{ nombre: string; fromIndex: number }> }
-    | { tipo: "ADD_COMENTARIO"; modo: OrigenValor; texto?: string; fromIndex?: number };
+    | { tipo: "ADD_COMENTARIO"; modo: OrigenValor; texto?: string; fromIndex?: number }
+    | { tipo: "DELETE_CONTACTO"; contactoTipo: TipoContactoAccion; modo: OrigenValor; valor?: string; fromIndex?: number };
 
 export interface AccionesConfig {
     matchMode: "DEUDOR" | "CONTACTO";
     matchColumn?: { field: "nro_cliente" | "documento" | "id"; fromIndex: number };
+    contactoValor?: { tipo: "telefono" | "email"; fromIndex: number };
     saltearCanceladas?: boolean;
     operaciones: AccionOperacion[];
 }
@@ -62,6 +65,7 @@ const TIPOS_OP: { value: AccionOperacion["tipo"]; label: string }[] = [
     { value: "SET_CAMPO", label: "Pisar un campo principal" },
     { value: "SET_ADICIONALES", label: "Agregar datos adicionales" },
     { value: "ADD_COMENTARIO", label: "Agregar comentario" },
+    { value: "DELETE_CONTACTO", label: "Eliminar contacto" },
 ];
 
 const CAMPOS: { value: CampoPrincipal; label: string }[] = [
@@ -148,6 +152,42 @@ export default function AccionesEditor({
                 </Typography>
             </Box>
 
+            {/* Tipo de acción */}
+            <FormControl size="small" sx={{ minWidth: 340, mb: 2 }}>
+                <InputLabel>Tipo de acción</InputLabel>
+                <Select label="Tipo de acción" value={cfg.matchMode} onChange={(e) => set({ matchMode: e.target.value as any })}>
+                    <MenuItem value="DEUDOR">Modificar deudores de un listado</MenuItem>
+                    <MenuItem value="CONTACTO">Eliminar un teléfono/email de toda la base</MenuItem>
+                </Select>
+            </FormControl>
+
+            {cfg.matchMode === "CONTACTO" && (
+                <SectionCard title="Contactos a eliminar">
+                    <Stack direction="row" spacing={2} flexWrap="wrap" alignItems="center" useFlexGap>
+                        <FormControl size="small" sx={{ minWidth: 160 }}>
+                            <InputLabel>Tipo</InputLabel>
+                            <Select
+                                label="Tipo"
+                                value={cfg.contactoValor?.tipo ?? "telefono"}
+                                onChange={(e) => set({ contactoValor: { tipo: e.target.value as any, fromIndex: cfg.contactoValor?.fromIndex ?? 0 } })}
+                            >
+                                <MenuItem value="telefono">Teléfono</MenuItem>
+                                <MenuItem value="email">Email</MenuItem>
+                            </Select>
+                        </FormControl>
+                        <ColumnaSelect
+                            label="Columna del valor"
+                            value={cfg.contactoValor?.fromIndex}
+                            onChange={(n) => set({ contactoValor: { tipo: cfg.contactoValor?.tipo ?? "telefono", fromIndex: n } })}
+                        />
+                    </Stack>
+                    <Typography variant="caption" color="text.secondary" sx={{ display: "block", mt: 1 }}>
+                        Se elimina de TODA la base de la empresa cada contacto cuyo valor esté en esa columna. Se puede deshacer después.
+                    </Typography>
+                </SectionCard>
+            )}
+
+            {cfg.matchMode === "DEUDOR" && (<>
             {/* Matcheo */}
             <SectionCard title="A qué deudores">
                 <Stack direction="row" spacing={2} flexWrap="wrap" alignItems="center" useFlexGap>
@@ -197,7 +237,8 @@ export default function AccionesEditor({
                                             const base: any =
                                                 tipo === "SET_ADICIONALES" ? { tipo, columnas: [{ nombre: "", fromIndex: 0 }] }
                                                     : tipo === "SET_CAMPO" ? { tipo, campo: "nombre", modo: "ESTATICO" }
-                                                        : { tipo, modo: "ESTATICO" };
+                                                        : tipo === "DELETE_CONTACTO" ? { tipo, contactoTipo: "telefono", modo: "ESTATICO" }
+                                                            : { tipo, modo: "ESTATICO" };
                                             setOp(i, base);
                                         }}
                                     >
@@ -267,6 +308,31 @@ export default function AccionesEditor({
                                     </>
                                 )}
 
+                                {op.tipo === "DELETE_CONTACTO" && (
+                                    <>
+                                        <FormControl size="small" sx={{ minWidth: 150 }}>
+                                            <InputLabel>Tipo</InputLabel>
+                                            <Select label="Tipo" value={op.contactoTipo} onChange={(e) => setOp(i, { ...op, contactoTipo: e.target.value as any })}>
+                                                <MenuItem value="telefono">Teléfono</MenuItem>
+                                                <MenuItem value="email">Email</MenuItem>
+                                                <MenuItem value="cualquiera">Cualquiera</MenuItem>
+                                            </Select>
+                                        </FormControl>
+                                        <FormControl size="small" sx={{ minWidth: 150 }}>
+                                            <InputLabel>Origen</InputLabel>
+                                            <Select label="Origen" value={op.modo} onChange={(e) => setOp(i, { ...op, modo: e.target.value as OrigenValor })}>
+                                                <MenuItem value="ESTATICO">Un valor fijo</MenuItem>
+                                                <MenuItem value="COLUMNA">Desde una columna</MenuItem>
+                                            </Select>
+                                        </FormControl>
+                                        {op.modo === "ESTATICO" ? (
+                                            <TextField size="small" label="Valor a eliminar" value={op.valor ?? ""} onChange={(e) => setOp(i, { ...op, valor: e.target.value })} />
+                                        ) : (
+                                            <ColumnaSelect label="Columna" value={op.fromIndex} onChange={(n) => setOp(i, { ...op, fromIndex: n })} />
+                                        )}
+                                    </>
+                                )}
+
                                 <Box sx={{ flex: 1 }} />
                                 <IconButton color="error" onClick={() => removeOp(i)} aria-label="Quitar operación">
                                     <DeleteIcon />
@@ -305,6 +371,7 @@ export default function AccionesEditor({
                     </Button>
                 </Stack>
             </SectionCard>
+            </>)}
         </Box>
     );
 }
