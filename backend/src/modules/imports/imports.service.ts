@@ -7,6 +7,7 @@ import { FileStorageService } from './file-storage.service';
 import * as fs from 'fs';
 import * as fastcsv from 'fast-csv';
 import * as xlsx from 'xlsx';
+import { Prisma } from '@prisma/client';
 import { PrismaService } from 'src/prisma/prisma.service';
 import { ClonarPlantillaDto, CreatePlantillaDto, CreateRemesaDto } from './dtos/import.dto';
 import { MappingJson } from './mapping-types';
