@@ -174,6 +174,15 @@ export class ImportController {
         return this.service.validateRemesa(id);
     }
 
+    @Get('remesas/:id/acciones-preview')
+    @Permisos('deudores.acciones_masivas')
+    accionesPreview(
+        @Param('id', ParseIntPipe) id: number,
+        @Query('remesaOrigenId') remesaOrigenId?: string,
+    ) {
+        return this.service.previewAccionesImpacto(id, remesaOrigenId ? Number(remesaOrigenId) : undefined);
+    }
+
     @Post('ejecutar/:id')
     @Permisos('importacion.ejecutar')
     @Audit({

@@ -6,6 +6,42 @@
 
 ---
 
+## [2026-07-06] — Importación "Acciones masivas" (Fase 1)
+
+> Diseño completo (3 fases) en el plan aprobado. Esta entrega es la **Fase 1**: núcleo usable de acciones
+> sobre deudores por listado. Faltan Fase 2 (eliminar contacto + limpieza global) y Fase 3 (botón revertir).
+>
+> ⚠️ **Deploy**: `prisma db push` (enum `ACCIONES` en `plantillaimport_categoria`/`remesa_categoria`, tabla
+> `accion_masiva_snapshot`, campos `remesa.accionRevertidaEn/PorId`) + asignar el permiso nuevo
+> `deudores.acciones_masivas` a ADMIN (re-seed).
+
+**Feature**: nueva categoría de importación **ACCIONES** para manipular la base de deudores desde un listado sin
+entrar a MySQL. En vez de mapear columnas→campos, la plantilla define **un matcheo + operaciones** de un catálogo
+cerrado (sin SQL libre).
+
+### Fase 1 (implementado)
+- **Modelo**: enum `ACCIONES` (x2), tabla `accion_masiva_snapshot` (undo: UPDATE/DELETE/INSERT con `datosPrevios`),
+  `remesa.accionRevertidaEn/PorId`. `mappingJson.acciones` = `AccionesConfig` (matchMode DEUDOR, matchColumn,
+  saltearCanceladas, operaciones[]).
+- **AccionesProcessor** ([processors/acciones.processor.ts](backend/src/modules/imports/processors/acciones.processor.ts)):
+  matchea deudores **empresa-wide** por Nº Cliente/Documento; por cada uno aplica `SET_SITUACION/GESTION/MOTIVO`,
+  `SET_CAMPO` (nombre/apellido/monto/vencimiento/nroCliente), `SET_ADICIONALES` (merge new-wins con `mergeAdicionales`)
+  y `ADD_COMENTARIO`, **grabando snapshot** de cada cambio para el futuro undo. Salta SIT-050 si `saltearCanceladas`.
+  `afterAll` audita el resumen (`AuditoriaHelper`, módulo IMPORT).
+- **Preview de impacto** (`GET /import/remesas/:id/acciones-preview`): cuenta "N deudores afectados" leyendo las
+  claves de match del archivo, sin escribir. El wizard lo muestra en un Alert antes de confirmar.
+- **Permiso** `deudores.acciones_masivas` (catálogos back/front + seed ADMIN). `ProcessContext` sumó `usuarioId`,
+  `auditoria`, `accionesConfig` y `MappedRow._raw` (fila cruda). Las plantillas ACCIONES no exigen estado inicial.
+- **Frontend**: card "Acciones masivas" en `CategorySelector`; `AccionesEditor` (constructor de match + operaciones)
+  reemplaza el editor de columnas en `PlantillaEditor` para esta categoría; el wizard no pide remesa origen
+  (empresa-wide) y muestra el impacto en el paso de preview.
+
+### Pendiente (Fase 2/3)
+- Fase 2: `DELETE_CONTACTO` (por deudor y limpieza global `matchMode=CONTACTO`).
+- Fase 3: endpoint + botón **"Revertir acción"** que lee `accion_masiva_snapshot` y deshace.
+
+---
+
 ## [2026-07-06] — ACTUALIZACIONES: saldo correcto cuando la deuda crece + switch factura/saldo
 
 > ⚠️ **Redeploy back + front** (solo código, sin migración). Aplica a importaciones nuevas.

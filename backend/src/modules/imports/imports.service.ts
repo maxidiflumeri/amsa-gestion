@@ -18,6 +18,7 @@ import { ProgressEmitter } from './utils/progress-emitter';
 import { RequestContextService } from 'src/common/logger/request-context';
 import { ConsolidacionSituacionService } from '../consolidacion/consolidacion.service';
 import { PromesasService } from '../promesas/promesas.service';
+import { AuditoriaHelper } from '../transacciones/auditoria.helper';
 
 @Injectable()
 export class ImportService {
@@ -32,6 +33,7 @@ export class ImportService {
         private readonly requestContext: RequestContextService,
         private readonly consolidacion: ConsolidacionSituacionService,
         private readonly promesas: PromesasService,
+        private readonly auditoria: AuditoriaHelper,
     ) { }
 
     // --- PLANTILLAS ---
@@ -45,8 +47,9 @@ export class ImportService {
                 separador: dto.separador ?? '|',
                 tieneHeader: dto.tieneHeader ?? false,
                 mappingJson: dto.mappingJson,
-                defaultEstadoSituacionId: dto.defaultEstadoSituacionId ?? null,
-                defaultEstadoGestionId: dto.defaultEstadoGestionId ?? null,
+                // `|| null` para que un 0/NaN (ej. plantilla ACCIONES sin estado inicial) no viole el FK.
+                defaultEstadoSituacionId: dto.defaultEstadoSituacionId || null,
+                defaultEstadoGestionId: dto.defaultEstadoGestionId || null,
             },
         });
     }
@@ -156,8 +159,8 @@ export class ImportService {
                 ...(data.separador !== undefined ? { separador: data.separador } : {}),
                 ...(data.tieneHeader !== undefined ? { tieneHeader: data.tieneHeader } : {}),
                 ...(data.mappingJson !== undefined ? { mappingJson: data.mappingJson } : {}),
-                ...('defaultEstadoSituacionId' in data ? { defaultEstadoSituacionId: data.defaultEstadoSituacionId ?? null } : {}),
-                ...('defaultEstadoGestionId' in data ? { defaultEstadoGestionId: data.defaultEstadoGestionId ?? null } : {}),
+                ...('defaultEstadoSituacionId' in data ? { defaultEstadoSituacionId: data.defaultEstadoSituacionId || null } : {}),
+                ...('defaultEstadoGestionId' in data ? { defaultEstadoGestionId: data.defaultEstadoGestionId || null } : {}),
             },
         });
     }
@@ -272,6 +275,7 @@ export class ImportService {
 
         // Si fast-csv devuelve un objeto (tieneHeader=true), convertir a array
         const rowArr = Array.isArray(row) ? row : Object.values(row);
+        obj._raw = rowArr; // fila cruda por índice (la usa la categoría ACCIONES)
 
         // Mapeo principal por índice
         for (const [dest, cfg] of Object.entries(mapping.columns)) {
@@ -435,6 +439,82 @@ export class ImportService {
         };
     }
 
+    // --- PREVIEW DE IMPACTO (categoría ACCIONES) ---
+    /**
+     * Cuenta cuántos deudores serían afectados por una plantilla de ACCIONES (modo DEUDOR),
+     * leyendo las claves de match del archivo completo y contando en una sola query. No escribe.
+     */
+    async previewAccionesImpacto(remesaId: number, remesaOrigenId?: number, hoja?: string) {
+        const remesa = await this.prisma.remesa.findUnique({
+            where: { id: remesaId }, include: { plantilla: true },
+        });
+        if (!remesa || !remesa.archivo || !remesa.plantilla) {
+            throw new NotFoundException('Remesa/archivo/plantilla no existe');
+        }
+        const mapping = remesa.plantilla.mappingJson as unknown as MappingJson;
+        const cfg = mapping.acciones;
+        if (!cfg) throw new BadRequestException('La plantilla no es de acciones masivas');
+        if (cfg.matchMode !== 'DEUDOR' || !cfg.matchColumn) {
+            // El modo CONTACTO (limpieza global) se contabiliza en la Fase 2.
+            return { matchMode: cfg.matchMode, totalFilas: 0, valoresDistintos: 0, deudoresAfectados: 0, operaciones: cfg.operaciones.map(o => o.tipo) };
+        }
+
+        const idx = cfg.matchColumn.fromIndex;
+        const sep = remesa.plantilla.separador ?? '|';
+        const hasHeader = !!remesa.plantilla.tieneHeader;
+        const valores = new Set<string>();
+        let totalFilas = 0;
+
+        const push = (rowArr: any[]) => {
+            totalFilas++;
+            const v = String(rowArr?.[idx] ?? '').trim();
+            if (v) valores.add(v);
+        };
+
+        if (remesa.archivo.match(/\.(xls|xlsx)$/i)) {
+            const wb = xlsx.readFile(remesa.archivo, { cellDates: true, dateNF: 'yyyy-mm-dd' });
+            const sheetName = hoja && wb.SheetNames.includes(hoja) ? hoja : wb.SheetNames[0];
+            const rows: any[][] = xlsx.utils.sheet_to_json(wb.Sheets[sheetName], { header: 1, defval: '', raw: false });
+            for (let i = hasHeader ? 1 : 0; i < rows.length; i++) if (rows[i]?.length) push(rows[i]);
+        } else {
+            await new Promise<void>((resolve, reject) => {
+                const parser = fastcsv.parse({ headers: hasHeader, delimiter: sep, trim: false });
+                parser.on('error', reject)
+                    .on('data', (row: any) => push(Array.isArray(row) ? row : Object.values(row)))
+                    .on('end', () => resolve());
+                fs.createReadStream(remesa.archivo!).pipe(parser);
+            });
+        }
+
+        // Contar deudores afectados en chunks (IN acotado).
+        const field = cfg.matchColumn.field;
+        const campo = field === 'documento' ? 'documento' : field === 'id' ? 'id' : 'nroCliente';
+        const lista: any[] = field === 'id'
+            ? [...valores].map(Number).filter(Number.isInteger)
+            : [...valores];
+        const ids = new Set<number>();
+        for (let i = 0; i < lista.length; i += 1000) {
+            const chunk = lista.slice(i, i + 1000);
+            const rows = await this.prisma.deudor.findMany({
+                where: {
+                    empresaId: remesa.empresaId,
+                    ...(remesaOrigenId ? { remesaId: remesaOrigenId } : {}),
+                    [campo]: { in: chunk },
+                },
+                select: { id: true },
+            });
+            for (const r of rows) ids.add(r.id);
+        }
+
+        return {
+            matchMode: 'DEUDOR',
+            totalFilas,
+            valoresDistintos: valores.size,
+            deudoresAfectados: ids.size,
+            operaciones: cfg.operaciones.map(o => o.tipo),
+        };
+    }
+
     // --- EJECUTAR (Encuela el trabajo en BullMQ) ---
     async executeRemesa(remesaId: number, usuarioId?: number, remesaOrigenId?: number) {
 
@@ -564,9 +644,11 @@ export class ImportService {
         // Obtener procesador para la categoría
         const processor = getProcessor(remesa.categoria);
 
-        // Usar los defaults configurados en la plantilla
+        // Usar los defaults configurados en la plantilla.
+        // ACCIONES no crea deudores → no necesita estado inicial de situación/gestión.
         const { defaultEstadoSituacionId, defaultEstadoGestionId } = remesa.plantilla;
-        if (!defaultEstadoSituacionId || !defaultEstadoGestionId) {
+        const esAcciones = remesa.categoria === 'ACCIONES';
+        if (!esAcciones && (!defaultEstadoSituacionId || !defaultEstadoGestionId)) {
             throw new BadRequestException(
                 'La plantilla no tiene configurado el estado inicial de situación/gestión. ' +
                 'Edita la plantilla y completá los campos.',
@@ -592,17 +674,20 @@ export class ImportService {
             prisma: this.prisma,
             remesaId: remesa.id,
             empresaId: remesa.empresaId,
+            usuarioId: ownerId ?? undefined,
             remesaOrigenId,
             validarDomicilios: remesa.validarDomicilios ?? false,
             defaults: {
-                estadoSituacionId: defaultEstadoSituacionId,
-                estadoGestionId: defaultEstadoGestionId,
+                estadoSituacionId: defaultEstadoSituacionId ?? 0,
+                estadoGestionId: defaultEstadoGestionId ?? 0,
             },
             consolidacion: this.consolidacion,
             promesas: this.promesas,
+            auditoria: this.auditoria,
             montoDeudorDesdeFacturas,
             modoActualizacion,
             comportamientoDeudaMayor,
+            accionesConfig: mapping?.acciones,
         };
 
         const sep = remesa.plantilla.separador ?? '|';

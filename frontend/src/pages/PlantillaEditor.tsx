@@ -24,6 +24,7 @@ import MappingEditor, {
     MappingField,
     MappingBlock,
 } from '../components/import/MappingEditor'
+import AccionesEditor, { AccionesConfig } from '../components/import/AccionesEditor'
 
 // ─── Constantes ──────────────────────────────────────────────────────────────
 
@@ -35,6 +36,7 @@ const CATEGORIAS = [
     'CONTACTOS',
     'DEUDORES_Y_FACTURAS',
     'ACTUALIZACIONES',
+    'ACCIONES',
 ]
 
 const ENTITY_MAP: Record<string, string> = {
@@ -45,6 +47,7 @@ const ENTITY_MAP: Record<string, string> = {
     CONTACTOS: 'CONTACTO',
     DEUDORES_Y_FACTURAS: 'MIXTO',
     ACTUALIZACIONES: 'ACTUALIZACION',
+    ACCIONES: 'ACCIONES',
 }
 
 // ─── Helpers de mapeo ────────────────────────────────────────────────────────
@@ -196,9 +199,18 @@ const PlantillaEditor: React.FC = () => {
     const [comportamientoDeudaMayor, setComportamientoDeudaMayor] =
         useState<'FACTURA_NUEVA' | 'ACTUALIZAR_SALDO'>('FACTURA_NUEVA')
 
+    const [accionesConfig, setAccionesConfig] = useState<AccionesConfig>({
+        matchMode: 'DEUDOR',
+        matchColumn: { field: 'nro_cliente', fromIndex: 0 },
+        saltearCanceladas: false,
+        operaciones: [],
+    })
+    const [paramsMotivo, setParamsMotivo] = useState<Parametro[]>([])
+
     // Flujos donde tiene sentido calcular el importe del deudor desde las facturas
     const esFlujoFacturas = categoria === 'FACTURAS' || categoria === 'DEUDORES_Y_FACTURAS'
     const esActualizacion = categoria === 'ACTUALIZACIONES'
+    const esAcciones = categoria === 'ACCIONES'
 
     // Empresa del editor: para creación la toma de la lista via state o default
     const [empresaId, setEmpresaId] = useState<number | null>(null)
@@ -215,15 +227,18 @@ const PlantillaEditor: React.FC = () => {
     const loadParametros = useCallback(async (eid: number) => {
         setLoadingParams(true)
         try {
-            const [resSit, resGest] = await Promise.all([
+            const [resSit, resGest, resMot] = await Promise.all([
                 api.get('/parametros', { params: { empresaId: eid, grupo: 'situacion', activo: 'true' } }),
                 api.get('/parametros', { params: { empresaId: eid, grupo: 'gestion', activo: 'true' } }),
+                api.get('/parametros', { params: { empresaId: eid, grupo: 'motivo_no_pago', activo: 'true' } }),
             ])
             setParamsSituacion(resSit.data ?? [])
             setParamsGestion(resGest.data ?? [])
+            setParamsMotivo(resMot.data ?? [])
         } catch {
             setParamsSituacion([])
             setParamsGestion([])
+            setParamsMotivo([])
         } finally {
             setLoadingParams(false)
         }
@@ -252,6 +267,7 @@ const PlantillaEditor: React.FC = () => {
             setMontoDeudorDesdeFacturas(p.mappingJson?.montoDeudorDesdeFacturas ?? 'SI_VACIO')
             setModoActualizacion(p.mappingJson?.modoActualizacion ?? 'RECONCILIAR')
             setComportamientoDeudaMayor(p.mappingJson?.comportamientoDeudaMayor ?? 'FACTURA_NUEVA')
+            if (p.mappingJson?.acciones) setAccionesConfig(p.mappingJson.acciones)
         } catch (err) {
             notify.error(err as Error)
             navigate('/plantillas')
@@ -291,15 +307,24 @@ const PlantillaEditor: React.FC = () => {
             notify.error('El nombre es obligatorio')
             return
         }
-        if (fields.filter((f) => f.destField).length === 0) {
+        if (esAcciones) {
+            if (!accionesConfig.operaciones.length) {
+                notify.error('Agregá al menos una operación a la acción masiva')
+                return
+            }
+            if (accionesConfig.matchMode === 'DEUDOR' && !accionesConfig.matchColumn) {
+                notify.error('Configurá la columna de match (Nº Cliente o Documento)')
+                return
+            }
+        } else if (fields.filter((f) => f.destField).length === 0) {
             notify.error('Agregá al menos un campo de mapeo')
             return
         }
-        if (!defaultEstadoSituacionId) {
+        if (!esAcciones && !defaultEstadoSituacionId) {
             notify.error('Seleccioná el estado de situación inicial')
             return
         }
-        if (!defaultEstadoGestionId) {
+        if (!esAcciones && !defaultEstadoGestionId) {
             notify.error('Seleccioná el estado de gestión inicial')
             return
         }
@@ -319,6 +344,9 @@ const PlantillaEditor: React.FC = () => {
             ;(mappingJson as Record<string, unknown>).modoActualizacion = modoActualizacion
             ;(mappingJson as Record<string, unknown>).comportamientoDeudaMayor = comportamientoDeudaMayor
         }
+        if (esAcciones) {
+            ;(mappingJson as Record<string, unknown>).acciones = accionesConfig
+        }
 
         try {
             if (isEdit && id) {
@@ -329,8 +357,8 @@ const PlantillaEditor: React.FC = () => {
                     separador,
                     tieneHeader,
                     mappingJson,
-                    defaultEstadoSituacionId: Number(defaultEstadoSituacionId),
-                    defaultEstadoGestionId: Number(defaultEstadoGestionId),
+                    defaultEstadoSituacionId: defaultEstadoSituacionId === '' ? null : Number(defaultEstadoSituacionId),
+                    defaultEstadoGestionId: defaultEstadoGestionId === '' ? null : Number(defaultEstadoGestionId),
                 })
                 notify.success('Plantilla actualizada correctamente')
             } else {
@@ -347,8 +375,8 @@ const PlantillaEditor: React.FC = () => {
                     separador,
                     tieneHeader,
                     mappingJson,
-                    defaultEstadoSituacionId: Number(defaultEstadoSituacionId),
-                    defaultEstadoGestionId: Number(defaultEstadoGestionId),
+                    defaultEstadoSituacionId: defaultEstadoSituacionId === '' ? null : Number(defaultEstadoSituacionId),
+                    defaultEstadoGestionId: defaultEstadoGestionId === '' ? null : Number(defaultEstadoGestionId),
                 })
                 notify.success('Plantilla creada correctamente')
             }
@@ -482,6 +510,8 @@ const PlantillaEditor: React.FC = () => {
                     />
                 </Stack>
 
+                {!esAcciones && (
+                <>
                 <Divider sx={{ my: 3 }} />
 
                 {/* Estados iniciales */}
@@ -539,6 +569,8 @@ const PlantillaEditor: React.FC = () => {
                         </FormControl>
                     )}
                 </Stack>
+                </>
+                )}
 
                 {/* Importe del deudor desde facturas (solo flujos con facturas) */}
                 {esFlujoFacturas && (
@@ -637,21 +669,40 @@ const PlantillaEditor: React.FC = () => {
 
                 <Divider sx={{ my: 3 }} />
 
-                {/* Mapeo de columnas */}
-                <Typography variant="h6" sx={{ fontWeight: 600, mb: 2 }}>
-                    Mapeo de columnas
-                </Typography>
+                {esAcciones ? (
+                    <>
+                        <Typography variant="h6" sx={{ fontWeight: 600, mb: 2 }}>
+                            Acciones masivas
+                        </Typography>
+                        <AccionesEditor
+                            value={accionesConfig}
+                            onChange={setAccionesConfig}
+                            paramsSituacion={paramsSituacion}
+                            paramsGestion={paramsGestion}
+                            paramsMotivo={paramsMotivo}
+                            separador={separador}
+                            tieneHeader={tieneHeader}
+                        />
+                    </>
+                ) : (
+                    <>
+                        {/* Mapeo de columnas */}
+                        <Typography variant="h6" sx={{ fontWeight: 600, mb: 2 }}>
+                            Mapeo de columnas
+                        </Typography>
 
-                <MappingEditor
-                    fields={fields}
-                    onChange={setFields}
-                    blocks={blocks}
-                    onBlocksChange={setBlocks}
-                    separador={separador}
-                    tieneHeader={tieneHeader}
-                    categoria={categoria}
-                    disabled={false}
-                />
+                        <MappingEditor
+                            fields={fields}
+                            onChange={setFields}
+                            blocks={blocks}
+                            onBlocksChange={setBlocks}
+                            separador={separador}
+                            tieneHeader={tieneHeader}
+                            categoria={categoria}
+                            disabled={false}
+                        />
+                    </>
+                )}
             </Paper>
         </Box>
     )

@@ -7,6 +7,7 @@ import { ContactosProcessor } from './contactos.processor';
 import { EnriquecimientoProcessor } from './enriquecimiento.processor';
 import { DeudoresYFacturasProcessor } from './deudores-facturas.processor';
 import { ActualizacionesProcessor } from './actualizaciones.processor';
+import { AccionesProcessor } from './acciones.processor';
 
 /**
  * Registro de procesadores por categoría.
@@ -21,6 +22,7 @@ const processors: ICategoryProcessor[] = [
     new EnriquecimientoProcessor(),
     new DeudoresYFacturasProcessor(),
     new ActualizacionesProcessor(),
+    new AccionesProcessor(),
 ];
 
 const registry = new Map<string, ICategoryProcessor>();

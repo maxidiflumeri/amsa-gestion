@@ -2,7 +2,8 @@
 import { PrismaService } from 'src/prisma/prisma.service';
 import { ConsolidacionSituacionService } from '../../consolidacion/consolidacion.service';
 import { PromesasService } from '../../promesas/promesas.service';
-import { ComportamientoDeudaMayor, ModoActualizacion, MontoDeudorMode } from '../mapping-types';
+import { AuditoriaHelper } from '../../transacciones/auditoria.helper';
+import { AccionesConfig, ComportamientoDeudaMayor, ModoActualizacion, MontoDeudorMode } from '../mapping-types';
 
 /**
  * Resultado de validar una fila.
@@ -20,6 +21,8 @@ export interface ProcessContext {
     prisma: PrismaService;
     remesaId: number;
     empresaId: number;
+    /** Usuario que disparó la importación (para autoría de comentarios y auditoría). */
+    usuarioId?: number;
     /** ID de la remesa de deudores a la que se vincula (para FACTURAS, CONTACTOS, PAGOS) */
     remesaOrigenId?: number;
     /** Si true, los domicilios se validan/normalizan contra Georef (más lento). Si false, se cargan con formato sin verificar. */
@@ -33,6 +36,10 @@ export interface ProcessContext {
     consolidacion: ConsolidacionSituacionService;
     /** Servicio de promesas de pago — para cerrar promesas cumplidas tras generar pagos. */
     promesas: PromesasService;
+    /** Helper de auditoría (categoría ACCIONES registra su resumen). */
+    auditoria: AuditoriaHelper;
+    /** Config de la categoría ACCIONES (leída de `mappingJson.acciones`). */
+    accionesConfig?: AccionesConfig;
     /**
      * Modo de cálculo de `deudor.montoTotal` desde la suma de facturas.
      * Leído de `mappingJson.montoDeudorDesdeFacturas` (default `SI_VACIO`).
@@ -59,6 +66,8 @@ export interface MappedRow {
     [key: string]: any;
     camposAdicionales?: Record<string, any>;
     _blocks?: Array<{ entity: string; data: Record<string, any> }>;
+    /** Fila cruda (array de valores por índice de columna). La usa la categoría ACCIONES. */
+    _raw?: any[];
 }
 
 /**

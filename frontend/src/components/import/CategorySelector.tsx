@@ -13,6 +13,7 @@ import PaymentsIcon from "@mui/icons-material/Payments";
 import ContactPhoneIcon from "@mui/icons-material/ContactPhone";
 import AutoFixHighIcon from "@mui/icons-material/AutoFixHigh";
 import SyncAltIcon from "@mui/icons-material/SyncAlt";
+import PlaylistAddCheckIcon from "@mui/icons-material/PlaylistAddCheck";
 
 interface CategoryOption {
     value: string;
@@ -72,6 +73,14 @@ const CATEGORIES: CategoryOption[] = [
             "Reconciliar deuda (pagos, nuevas facturas, saldo) o solo completar DNI / datos adicionales de deudores existentes",
         icon: <SyncAltIcon sx={{ fontSize: 40 }} />,
         color: "#00796b",
+    },
+    {
+        value: "ACCIONES",
+        label: "Acciones masivas",
+        description:
+            "Sobre un listado: marcar situación/gestión, pisar campos, cargar datos adicionales o comentarios",
+        icon: <PlaylistAddCheckIcon sx={{ fontSize: 40 }} />,
+        color: "#6d4c41",
     },
 ];
 

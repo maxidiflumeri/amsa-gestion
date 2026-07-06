@@ -39,6 +39,36 @@ export type ModoActualizacion = 'RECONCILIAR' | 'SOLO_DATOS';
  */
 export type ComportamientoDeudaMayor = 'FACTURA_NUEVA' | 'ACTUALIZAR_SALDO';
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Categoría ACCIONES (acciones masivas): matcheo + catálogo cerrado de operaciones.
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** Origen del valor de una operación: el mismo para todos, o por columna del archivo. */
+export type OrigenValor = 'ESTATICO' | 'COLUMNA';
+
+export type CampoPrincipal = 'nombre' | 'apellido' | 'montoTotal' | 'fechaVencimiento' | 'nroCliente';
+export type TipoContactoAccion = 'telefono' | 'email' | 'cualquiera';
+
+export type AccionOperacion =
+    | { tipo: 'SET_SITUACION' | 'SET_GESTION' | 'SET_MOTIVO'; modo: OrigenValor; parametroId?: number; fromIndex?: number }
+    | { tipo: 'SET_CAMPO'; campo: CampoPrincipal; modo: OrigenValor; valor?: string; fromIndex?: number }
+    | { tipo: 'SET_ADICIONALES'; columnas: Array<{ nombre: string; fromIndex: number }> }
+    | { tipo: 'ADD_COMENTARIO'; modo: OrigenValor; texto?: string; fromIndex?: number }
+    | { tipo: 'DELETE_CONTACTO'; contactoTipo: TipoContactoAccion; modo: OrigenValor; valor?: string; fromIndex?: number };
+
+export interface AccionesConfig {
+    /** DEUDOR: acciones sobre deudores matcheados por listado. CONTACTO: limpieza global de contactos. */
+    matchMode: 'DEUDOR' | 'CONTACTO';
+    /** Columna de match para matchMode DEUDOR (id = ID interno del deudor). */
+    matchColumn?: { field: 'nro_cliente' | 'documento' | 'id'; fromIndex: number };
+    /** Valor de contacto a borrar para matchMode CONTACTO (limpieza global). */
+    contactoValor?: { tipo: 'telefono' | 'email'; fromIndex: number };
+    /** Si true, no se tocan los deudores cancelados (SIT-050). */
+    saltearCanceladas?: boolean;
+    /** Operaciones a aplicar en orden. */
+    operaciones: AccionOperacion[];
+}
+
 export interface MappingJson {
     entity: 'DEUDOR' | 'FACTURA' | 'PAGO' | 'CONTACTO' | 'ENRIQ_MIXTO' | 'MIXTO';
     matchKeys: string[];        // ej: ["empresaId","documento"]
@@ -54,4 +84,6 @@ export interface MappingJson {
     modoActualizacion?: ModoActualizacion;
     /** Comportamiento ante deuda mayor en ACTUALIZACIONES (default `FACTURA_NUEVA`). */
     comportamientoDeudaMayor?: ComportamientoDeudaMayor;
+    /** Config de la categoría ACCIONES (acciones masivas). */
+    acciones?: AccionesConfig;
 }

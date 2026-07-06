@@ -1,5 +1,7 @@
 import React, { useCallback, useEffect, useState } from "react";
 import {
+    Alert,
+    AlertTitle,
     Box,
     Button,
     Step,
@@ -68,12 +70,15 @@ export default function ImportWizard() {
     // Remesa de deudores origen
     const [remesasDeudores, setRemesasDeudores] = useState<any[]>([]);
     const [remesaOrigenId, setRemesaOrigenId] = useState<number | null>(null);
-    const needsOrigen = categoria !== "" && categoria !== "DEUDORES" && categoria !== "DEUDORES_Y_FACTURAS";
+    // ACCIONES: la remesa origen es OPCIONAL (sin elegir = toda la base de la empresa).
+    const esAcciones = categoria === "ACCIONES";
+    const needsOrigen = categoria !== "" && categoria !== "DEUDORES" && categoria !== "DEUDORES_Y_FACTURAS" && !esAcciones;
 
     // Paso 2 – preview
     const [remesaId, setRemesaId] = useState<number | null>(null);
     const [preview, setPreview] = useState<any[]>([]);
     const [previewStats, setPreviewStats] = useState({ total: 0, ok: 0, err: 0 });
+    const [accionesImpacto, setAccionesImpacto] = useState<{ deudoresAfectados: number; valoresDistintos: number; operaciones: string[] } | null>(null);
 
     // Paso 4 – resultado final
     const [finalResult, setFinalResult] = useState({ total: 0, ok: 0, err: 0 });
@@ -91,7 +96,7 @@ export default function ImportWizard() {
 
     // ─── Carga de remesas de deudores ────────────────────────
     useEffect(() => {
-        if (!needsOrigen || !empresaId) {
+        if ((!needsOrigen && !esAcciones) || !empresaId) {
             setRemesasDeudores([]);
             return;
         }
@@ -100,7 +105,7 @@ export default function ImportWizard() {
                 res.data.filter((r: any) => r.estadoProceso === "FINALIZADA")
             ))
             .catch((err) => notify.error(err));
-    }, [needsOrigen, empresaId]);
+    }, [needsOrigen, esAcciones, empresaId]);
 
     // ─── Handlers ────────────────────────────────────────────
 
@@ -167,6 +172,19 @@ export default function ImportWizard() {
                 err: resValidar.data.err ?? 0,
             });
 
+            if (categoria === "ACCIONES") {
+                try {
+                    const resImp = await api.get(`/import/remesas/${newRemesaId}/acciones-preview`, {
+                        params: remesaOrigenId ? { remesaOrigenId } : undefined,
+                    });
+                    setAccionesImpacto(resImp.data);
+                } catch {
+                    setAccionesImpacto(null);
+                }
+            } else {
+                setAccionesImpacto(null);
+            }
+
             setActiveStep(2);
         } catch (err: any) {
             notify.error(err);
@@ -210,6 +228,7 @@ export default function ImportWizard() {
         setRemesasDeudores([]);
         setPreview([]);
         setPreviewStats({ total: 0, ok: 0, err: 0 });
+        setAccionesImpacto(null);
         setFinalResult({ total: 0, ok: 0, err: 0 });
     };
 
@@ -286,41 +305,45 @@ export default function ImportWizard() {
                             </Select>
                         </FormControl>
 
-                        {/* Campos de Remesa Manual */}
-                        <Stack
-                            direction={{ xs: "column", sm: "row" }}
-                            spacing={2}
-                        >
-                            <TextField
-                                label="Nombre de remesa"
-                                variant="outlined"
-                                fullWidth
-                                placeholder="Ej: Asignación Feb-2024"
-                                value={nombreRemesa}
-                                onChange={(e) => setNombreRemesa(e.target.value)}
-                                helperText="Opcional: se generará uno automático si se deja vacío"
-                            />
-                            <TextField
-                                label="Número de remesa"
-                                variant="outlined"
-                                fullWidth
-                                placeholder="Ej: REM-123"
-                                value={numeroRemesa}
-                                onChange={(e) => setNumeroRemesa(e.target.value)}
-                                helperText="Opcional: se generará uno automático si se deja vacío"
-                            />
-                        </Stack>
+                        {/* Campos de Remesa Manual (no aplican a Acciones masivas) */}
+                        {!esAcciones && (
+                            <>
+                                <Stack
+                                    direction={{ xs: "column", sm: "row" }}
+                                    spacing={2}
+                                >
+                                    <TextField
+                                        label="Nombre de remesa"
+                                        variant="outlined"
+                                        fullWidth
+                                        placeholder="Ej: Asignación Feb-2024"
+                                        value={nombreRemesa}
+                                        onChange={(e) => setNombreRemesa(e.target.value)}
+                                        helperText="Opcional: se generará uno automático si se deja vacío"
+                                    />
+                                    <TextField
+                                        label="Número de remesa"
+                                        variant="outlined"
+                                        fullWidth
+                                        placeholder="Ej: REM-123"
+                                        value={numeroRemesa}
+                                        onChange={(e) => setNumeroRemesa(e.target.value)}
+                                        helperText="Opcional: se generará uno automático si se deja vacío"
+                                    />
+                                </Stack>
 
-                        <TextField
-                            label="Fecha de vencimiento (Lote)"
-                            type="date"
-                            variant="outlined"
-                            fullWidth
-                            value={fechaVencimiento}
-                            onChange={(e) => setFechaVencimiento(e.target.value)}
-                            InputLabelProps={{ shrink: true }}
-                            helperText="Opcional: se aplicará esta fecha a todos los deudores sin fecha específica"
-                        />
+                                <TextField
+                                    label="Fecha de vencimiento (Lote)"
+                                    type="date"
+                                    variant="outlined"
+                                    fullWidth
+                                    value={fechaVencimiento}
+                                    onChange={(e) => setFechaVencimiento(e.target.value)}
+                                    InputLabelProps={{ shrink: true }}
+                                    helperText="Opcional: se aplicará esta fecha a todos los deudores sin fecha específica"
+                                />
+                            </>
+                        )}
 
                         {/* Selector de plantilla */}
                         <FormControl fullWidth>
@@ -348,42 +371,49 @@ export default function ImportWizard() {
                             </Select>
                         </FormControl>
 
-                        {/* Validación de domicilios contra Georef (opcional, más lento) */}
-                        <Box>
-                            <FormControlLabel
-                                control={
-                                    <Switch
-                                        checked={validarDomicilios}
-                                        onChange={(e) => setValidarDomicilios(e.target.checked)}
-                                    />
-                                }
-                                label="Validar domicilios contra Georef"
-                            />
-                            <Typography
-                                variant="caption"
-                                color="text.secondary"
-                                sx={{ display: "block", ml: 1 }}
-                            >
-                                Más lento. Si está desactivado, los domicilios se cargan con
-                                formato pero sin verificar.
-                            </Typography>
-                        </Box>
+                        {/* Validación de domicilios contra Georef (no aplica a Acciones masivas) */}
+                        {!esAcciones && (
+                            <Box>
+                                <FormControlLabel
+                                    control={
+                                        <Switch
+                                            checked={validarDomicilios}
+                                            onChange={(e) => setValidarDomicilios(e.target.checked)}
+                                        />
+                                    }
+                                    label="Validar domicilios contra Georef"
+                                />
+                                <Typography
+                                    variant="caption"
+                                    color="text.secondary"
+                                    sx={{ display: "block", ml: 1 }}
+                                >
+                                    Más lento. Si está desactivado, los domicilios se cargan con
+                                    formato pero sin verificar.
+                                </Typography>
+                            </Box>
+                        )}
 
                         {/* Selector de remesa de deudores origen */}
-                        {needsOrigen && (
+                        {(needsOrigen || esAcciones) && (
                             <FormControl fullWidth>
                                 <InputLabel id="remesa-origen-label">
-                                    Vincular a remesa de deudores
+                                    {esAcciones ? "Aplicar solo a una remesa (opcional)" : "Vincular a remesa de deudores"}
                                 </InputLabel>
                                 <Select
                                     labelId="remesa-origen-label"
-                                    label="Vincular a remesa de deudores"
+                                    label={esAcciones ? "Aplicar solo a una remesa (opcional)" : "Vincular a remesa de deudores"}
                                     value={remesaOrigenId ?? ""}
                                     onChange={(e) =>
-                                        setRemesaOrigenId(Number(e.target.value))
+                                        setRemesaOrigenId(e.target.value === "" ? null : Number(e.target.value))
                                     }
                                 >
-                                    {remesasDeudores.length === 0 && (
+                                    {esAcciones && (
+                                        <MenuItem value="">
+                                            Toda la base de la empresa
+                                        </MenuItem>
+                                    )}
+                                    {remesasDeudores.length === 0 && !esAcciones && (
                                         <MenuItem disabled value="">
                                             No hay remesas de deudores finalizadas
                                         </MenuItem>
@@ -421,12 +451,22 @@ export default function ImportWizard() {
 
                 {/* PASO 2 — Preview */}
                 {activeStep === 2 && (
-                    <PreviewTable
-                        preview={preview}
-                        total={previewStats.total}
-                        ok={previewStats.ok}
-                        err={previewStats.err}
-                    />
+                    <>
+                        {categoria === "ACCIONES" && accionesImpacto && (
+                            <Alert severity="warning" sx={{ mb: 2 }}>
+                                <AlertTitle>Vas a modificar {accionesImpacto.deudoresAfectados} deudores</AlertTitle>
+                                {accionesImpacto.valoresDistintos} valores de match en el archivo ·
+                                operaciones: {accionesImpacto.operaciones.join(", ")}. Revisá antes de confirmar —
+                                el cambio se aplica sobre toda la base de la empresa.
+                            </Alert>
+                        )}
+                        <PreviewTable
+                            preview={preview}
+                            total={previewStats.total}
+                            ok={previewStats.ok}
+                            err={previewStats.err}
+                        />
+                    </>
                 )}
 
                 {/* PASO 3 — Progreso */}

@@ -5,6 +5,7 @@ const TODAS_LAS_KEYS: string[] = [
     'deudores.ver',
     'deudores.editar_estado',
     'deudores.exportar',
+    'deudores.acciones_masivas',
     'comentarios.ver',
     'comentarios.crear',
     'comentarios.eliminar',

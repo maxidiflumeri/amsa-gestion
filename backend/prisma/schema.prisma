@@ -276,6 +276,8 @@ model remesa {
   validarDomicilios Boolean             @default(false)
   politicaId       Int?
   usuarioCreadorId Int?                 @map("usuarioCreadorId")
+  accionRevertidaEn   DateTime?
+  accionRevertidaPorId Int?
   deudor           deudor[]
   importerror      importerror[]
   jobimport        jobimport[]
@@ -385,6 +387,21 @@ enum remesa_estadoProceso {
   FALLIDA
 }
 
+/// Snapshot de cambios de un import de ACCIONES masivas, para poder revertir (undo).
+/// Un registro por cambio: UPDATE guarda {campo: valorViejo}; DELETE guarda la fila completa
+/// borrada; INSERT guarda null y `entidadId` = id creado (se borra al revertir).
+model accion_masiva_snapshot {
+  id           BigInt   @id @default(autoincrement())
+  remesaId     Int
+  entidad      String   // 'deudor' | 'contacto' | 'comentario'
+  entidadId    Int
+  accion       String   // 'UPDATE' | 'DELETE' | 'INSERT'
+  datosPrevios Json?
+  createdAt    DateTime @default(now())
+
+  @@index([remesaId])
+}
+
 enum plantillaimport_categoria {
   DEUDORES
   FACTURAS
@@ -393,6 +410,7 @@ enum plantillaimport_categoria {
   CONTACTOS
   DEUDORES_Y_FACTURAS
   ACTUALIZACIONES
+  ACCIONES
 }
 
 enum remesa_categoria {
@@ -403,6 +421,7 @@ enum remesa_categoria {
   CONTACTOS
   DEUDORES_Y_FACTURAS
   ACTUALIZACIONES
+  ACCIONES
 }
 
 model politica {
