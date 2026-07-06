@@ -193,6 +193,8 @@ const PlantillaEditor: React.FC = () => {
         useState<'NO' | 'SI_VACIO' | 'SIEMPRE'>('SI_VACIO')
     const [modoActualizacion, setModoActualizacion] =
         useState<'RECONCILIAR' | 'SOLO_DATOS'>('RECONCILIAR')
+    const [comportamientoDeudaMayor, setComportamientoDeudaMayor] =
+        useState<'FACTURA_NUEVA' | 'ACTUALIZAR_SALDO'>('FACTURA_NUEVA')
 
     // Flujos donde tiene sentido calcular el importe del deudor desde las facturas
     const esFlujoFacturas = categoria === 'FACTURAS' || categoria === 'DEUDORES_Y_FACTURAS'
@@ -249,6 +251,7 @@ const PlantillaEditor: React.FC = () => {
             setDefaultEstadoGestionId(p.defaultEstadoGestionId ?? '')
             setMontoDeudorDesdeFacturas(p.mappingJson?.montoDeudorDesdeFacturas ?? 'SI_VACIO')
             setModoActualizacion(p.mappingJson?.modoActualizacion ?? 'RECONCILIAR')
+            setComportamientoDeudaMayor(p.mappingJson?.comportamientoDeudaMayor ?? 'FACTURA_NUEVA')
         } catch (err) {
             notify.error(err as Error)
             navigate('/plantillas')
@@ -314,6 +317,7 @@ const PlantillaEditor: React.FC = () => {
         }
         if (esActualizacion) {
             ;(mappingJson as Record<string, unknown>).modoActualizacion = modoActualizacion
+            ;(mappingJson as Record<string, unknown>).comportamientoDeudaMayor = comportamientoDeudaMayor
         }
 
         try {
@@ -600,6 +604,34 @@ const PlantillaEditor: React.FC = () => {
                             "pagó todo" y NO se crean deudores nuevos. Dejalo desactivado para las
                             actualizaciones normales de deuda.
                         </FormHelperText>
+
+                        {modoActualizacion === 'RECONCILIAR' && (
+                            <FormControl sx={{ flex: '1 1 360px', maxWidth: 520, mb: 2 }}>
+                                <InputLabel>Si el saldo informado es mayor al actual</InputLabel>
+                                <Select
+                                    value={comportamientoDeudaMayor}
+                                    label="Si el saldo informado es mayor al actual"
+                                    onChange={(e) =>
+                                        setComportamientoDeudaMayor(
+                                            e.target.value as 'FACTURA_NUEVA' | 'ACTUALIZAR_SALDO'
+                                        )
+                                    }
+                                >
+                                    <MenuItem value="FACTURA_NUEVA">
+                                        Generar una factura nueva por la diferencia
+                                    </MenuItem>
+                                    <MenuItem value="ACTUALIZAR_SALDO">
+                                        Actualizar la factura existente, sin generar nuevas
+                                    </MenuItem>
+                                </Select>
+                                <FormHelperText>
+                                    Cuando la deuda crece, el saldo del deudor siempre se actualiza. Elegí cómo
+                                    reflejarlo en las facturas: "factura nueva por la diferencia" (deja rastro de
+                                    cada aumento) o "actualizar la existente" (para intereses diarios, evita
+                                    generar una factura por día si el deudor tiene una sola factura).
+                                </FormHelperText>
+                            </FormControl>
+                        )}
                     </>
                 )}
 

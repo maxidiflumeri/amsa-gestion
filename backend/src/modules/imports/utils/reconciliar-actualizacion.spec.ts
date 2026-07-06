@@ -31,6 +31,19 @@ describe('reconciliarSaldo (ACTUALIZACIONES modo saldo)', () => {
         expect(reconciliarSaldo(1000, 1200, 0)).toEqual({ tipo: 'ajuste', importe: 200 });
     });
 
+    it('deuda que crece al doble (100 → 200): ajuste por la diferencia', () => {
+        expect(reconciliarSaldo(100, 200, 0)).toEqual({ tipo: 'ajuste', importe: 100 });
+    });
+
+    it('intereses diarios: cada corrida detecta el incremento respecto del montoTotal ya crecido', () => {
+        // Día 1: montoTotal 100, archivo 102 → ajuste 2 (el processor sube montoTotal a 102)
+        expect(reconciliarSaldo(100, 102, 0)).toEqual({ tipo: 'ajuste', importe: 2 });
+        // Día 2: montoTotal ya es 102, archivo 104 → ajuste 2 (sube a 104)
+        expect(reconciliarSaldo(102, 104, 0)).toEqual({ tipo: 'ajuste', importe: 2 });
+        // Día 3: montoTotal 104, archivo 106 → ajuste 2
+        expect(reconciliarSaldo(104, 106, 0)).toEqual({ tipo: 'ajuste', importe: 2 });
+    });
+
     it('diferencias por debajo del epsilon se tratan como nada', () => {
         expect(reconciliarSaldo(1000, 999.5, 0)).toEqual({ tipo: 'nada' }); // objetivo 0.5 ≤ 1
         expect(reconciliarSaldo(1000.0000001, 800, 200)).toEqual({ tipo: 'nada' });

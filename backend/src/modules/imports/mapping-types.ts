@@ -30,6 +30,15 @@ export type MontoDeudorMode = 'NO' | 'SI_VACIO' | 'SIEMPRE';
  */
 export type ModoActualizacion = 'RECONCILIAR' | 'SOLO_DATOS';
 
+/**
+ * Comportamiento de ACTUALIZACIONES (Modo B / saldo) cuando el saldo informado es
+ * MAYOR al actual del deudor (la deuda creció):
+ * - `FACTURA_NUEVA` (default): genera una factura de ajuste por la diferencia y sube el saldo.
+ * - `ACTUALIZAR_SALDO`: no genera facturas nuevas; si el deudor tiene una única factura pendiente,
+ *   le actualiza el importe al saldo informado, y sube el saldo. Pensado para intereses diarios.
+ */
+export type ComportamientoDeudaMayor = 'FACTURA_NUEVA' | 'ACTUALIZAR_SALDO';
+
 export interface MappingJson {
     entity: 'DEUDOR' | 'FACTURA' | 'PAGO' | 'CONTACTO' | 'ENRIQ_MIXTO' | 'MIXTO';
     matchKeys: string[];        // ej: ["empresaId","documento"]
@@ -43,4 +52,6 @@ export interface MappingJson {
     montoDeudorDesdeFacturas?: MontoDeudorMode;
     /** Modo del import de ACTUALIZACIONES (default `RECONCILIAR`). */
     modoActualizacion?: ModoActualizacion;
+    /** Comportamiento ante deuda mayor en ACTUALIZACIONES (default `FACTURA_NUEVA`). */
+    comportamientoDeudaMayor?: ComportamientoDeudaMayor;
 }

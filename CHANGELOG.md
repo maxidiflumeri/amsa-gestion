@@ -6,6 +6,36 @@
 
 ---
 
+## [2026-07-06] — ACTUALIZACIONES: saldo correcto cuando la deuda crece + switch factura/saldo
+
+> ⚠️ **Redeploy back + front** (solo código, sin migración). Aplica a importaciones nuevas.
+
+**Problema** (feedback de usuarios) en ACTUALIZACIONES Modo B (valor único = saldo que queda):
+1. **Bug**: si el archivo trae un saldo mayor (debía 100, viene 200), se creaba una factura de AJUSTE por la
+   diferencia pero **el saldo del deudor no subía** (quedaba en 100). La consolidación deriva
+   `saldo = montoTotal − Σpagos` con `montoTotal` inmutable y **saltea** a los deudores con `Σpagos == 0`, así
+   que la factura de ajuste no movía nada.
+2. **Proliferación**: con intereses diarios (100→102→104…) se generaba una factura de $2 por día.
+
+**Cambios**:
+- **`montoTotal` pasa de "inmutable" a "monótono no-decreciente"**: en ACTUALIZACIONES solo crece cuando el
+  cedente reporta más deuda; las bajas siguen siendo pagos. Es el único lever para que suba el saldo.
+- Nueva rama `subirDeudaDeudor` en `actualizaciones.processor.ts`: ante deuda mayor sube
+  `montoTotal = saldoArchivo + Σpagos` y setea `saldo = saldoArchivo` **directo** (la consolidación saltea sin
+  pagos; con pagos recomputa el mismo valor). El crecimiento se detecta relativo al `montoTotal` ya crecido, así
+  que las corridas diarias de intereses se reconcilian una a una (`reconciliarSaldo` sin cambios).
+- **Nuevo switch por plantilla** `mappingJson.comportamientoDeudaMayor: 'FACTURA_NUEVA' (default) | 'ACTUALIZAR_SALDO'`
+  (propagado por `ProcessContext`):
+  - `FACTURA_NUEVA`: genera la factura de ajuste por la diferencia (comportamiento clásico, ahora con el saldo corregido).
+  - `ACTUALIZAR_SALDO`: no crea facturas; si el deudor tiene **una única** factura pendiente le pisa el importe al
+    saldo informado (para intereses diarios). Con 0 o >1 facturas solo corrige el saldo del deudor y loguea `warn`.
+- **Frontend** (`PlantillaEditor`): selector "Si el saldo informado es mayor al actual" en la sección de
+  ACTUALIZACIONES, visible cuando el modo no es "solo datos".
+- Tests: `reconciliar-actualizacion.spec.ts` +2 casos (100→200 y la secuencia de intereses diarios); los 13
+  previos intactos. Alcance: solo Modo B de RECONCILIAR (no afecta Modo A por nroFactura ni SOLO_DATOS).
+
+---
+
 ## [2026-07-06] — Filtro de teléfonos basura en la importación
 
 > ⚠️ **Redeploy del backend** (solo código, sin migración). Aplica solo a importaciones nuevas;

@@ -584,6 +584,10 @@ export class ImportService {
         const modoActualizacion =
             mapping?.modoActualizacion === 'SOLO_DATOS' ? 'SOLO_DATOS' : 'RECONCILIAR';
 
+        // Comportamiento ante deuda mayor (default seguro: FACTURA_NUEVA = comportamiento clásico)
+        const comportamientoDeudaMayor =
+            mapping?.comportamientoDeudaMayor === 'ACTUALIZAR_SALDO' ? 'ACTUALIZAR_SALDO' : 'FACTURA_NUEVA';
+
         const ctx: ProcessContext = {
             prisma: this.prisma,
             remesaId: remesa.id,
@@ -598,6 +602,7 @@ export class ImportService {
             promesas: this.promesas,
             montoDeudorDesdeFacturas,
             modoActualizacion,
+            comportamientoDeudaMayor,
         };
 
         const sep = remesa.plantilla.separador ?? '|';

@@ -416,17 +416,66 @@ export class ActualizacionesProcessor implements ICategoryProcessor {
                 });
                 this.pagosDeudorIds.add(deudorId);
             } else if (r.tipo === 'ajuste') {
-                // La deuda creció (saldo informado > original): nueva factura de ajuste.
-                await ctx.prisma.factura.create({
-                    data: {
-                        deudorId, nroFactura: `AJUSTE-${ctx.remesaId}-${deudorId}-${Math.round(r.importe)}`,
-                        importe: r.importe, fechaEmision: new Date(),
-                        vencimiento: new Date(), estado: 'PENDIENTE',
-                    },
-                });
+                // La deuda creció (saldo informado > original). Para que el saldo del deudor
+                // suba hay que mover montoTotal: la consolidación deriva saldo = montoTotal − Σpagos
+                // y además saltea a los deudores sin pagos. montoTotal es monótono no-decreciente:
+                // solo crece acá; las bajas siguen siendo pagos.
+                // nuevoMonto = saldoArchivo + Σpagos  ⇒  montoTotal − Σpagos = saldoArchivo (outstanding real).
+                const nuevoMonto = saldoArchivo + yaPagado;
+                const crecimiento = nuevoMonto - montoOriginal;
+                await this.subirDeudaDeudor(deudorId, nuevoMonto, saldoArchivo, crecimiento, ctx);
             }
-            // montoTotal es inmutable (spec §1 regla 7). No se actualiza.
         }
+    }
+
+    /**
+     * Sube la deuda de un deudor (montoTotal + saldo) y refleja el aumento en las facturas
+     * según `ctx.comportamientoDeudaMayor`:
+     *  - FACTURA_NUEVA: genera una factura de ajuste por la diferencia.
+     *  - ACTUALIZAR_SALDO: si el deudor tiene una única factura pendiente, le pisa el importe
+     *    al saldo informado (sin crear facturas nuevas). Si tiene 0 o >1, no toca facturas.
+     * El `saldo` se setea directo porque la consolidación saltea a los deudores con Σpagos == 0;
+     * si hay pagos, la consolidación del afterAll recomputa el mismo valor.
+     */
+    private async subirDeudaDeudor(
+        deudorId: number,
+        nuevoMonto: number,
+        saldoArchivo: number,
+        crecimiento: number,
+        ctx: ProcessContext,
+    ): Promise<void> {
+        await ctx.prisma.deudor.update({
+            where: { id: deudorId },
+            data: { montoTotal: nuevoMonto, saldo: saldoArchivo },
+        });
+
+        if (ctx.comportamientoDeudaMayor === 'ACTUALIZAR_SALDO') {
+            const pendientes = await ctx.prisma.factura.findMany({
+                where: { deudorId, estado: { not: 'PAGADA' } },
+                select: { id: true },
+            });
+            if (pendientes.length === 1) {
+                await ctx.prisma.factura.update({
+                    where: { id: pendientes[0].id },
+                    data: { importe: saldoArchivo },
+                });
+            } else if (pendientes.length > 1) {
+                this.logger.warn(
+                    `Deudor ${deudorId}: ACTUALIZAR_SALDO con ${pendientes.length} facturas pendientes — ` +
+                    `se actualizó el saldo del deudor pero no se tocó ninguna factura (no se puede desambiguar).`,
+                );
+            }
+            return;
+        }
+
+        // FACTURA_NUEVA (default): factura de ajuste por el crecimiento de la deuda.
+        await ctx.prisma.factura.create({
+            data: {
+                deudorId, nroFactura: `AJUSTE-${ctx.remesaId}-${deudorId}-${Math.round(crecimiento)}`,
+                importe: crecimiento, fechaEmision: new Date(),
+                vencimiento: new Date(), estado: 'PENDIENTE',
+            },
+        });
     }
 
     /**

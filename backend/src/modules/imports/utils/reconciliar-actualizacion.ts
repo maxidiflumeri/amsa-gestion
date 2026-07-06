@@ -21,6 +21,11 @@ export type ReconResultado =
  * - objetivoPagado = montoOriginal − saldoArchivo  (cuánto debería estar pagado en total)
  * - si objetivoPagado < 0 → la deuda creció (saldo informado > original) → 'ajuste'
  * - si no → deltaPago = objetivoPagado − yaPagado; si > ε → 'pago'; si no → 'nada'
+ *
+ * Nota: la detección de 'ajuste' es relativa al `montoOriginal`. En ACTUALIZACIONES ese
+ * `montoOriginal` = `deudor.montoTotal`, que ahora sube en cada crecimiento de deuda
+ * (ver `subirDeudaDeudor` en actualizaciones.processor), así que las actualizaciones
+ * sucesivas de intereses (100→102→104…) se detectan como 'ajuste' en cada corrida.
  */
 export function reconciliarSaldo(
     montoOriginal: number,
