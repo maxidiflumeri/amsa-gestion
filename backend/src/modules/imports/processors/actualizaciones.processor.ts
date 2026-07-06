@@ -4,6 +4,8 @@ import { Prisma } from '@prisma/client';
 import { Logger } from '@nestjs/common';
 import { normalizarTelefonoArgentino } from '../../../common/utils/phone-utils';
 import { reconciliarSaldo, reconciliarAusente } from '../utils/reconciliar-actualizacion';
+import { esDocumentoPlaceholder } from '../utils/documento';
+import { mergeAdicionales } from '../utils/campos-adicionales';
 
 /**
  * Procesador ACTUALIZACIONES — tres escenarios:
@@ -30,6 +32,19 @@ export class ActualizacionesProcessor implements ICategoryProcessor {
     private processedDeudorIds = new Set<number>();
     /** IDs de deudores a los que se les generó un pago en este batch (para cerrar promesas cumplidas) */
     private pagosDeudorIds = new Set<number>();
+    /**
+     * ¿Alguna fila trajo datos de deuda (facturas o montoTotal)? Defensa en profundidad:
+     * si un archivo etiquetado como ACTUALIZACIONES no trae ningún dato de deuda, se omite
+     * el escenario C (marcar ausentes como pagados) aunque el modo sea RECONCILIAR.
+     */
+    private sawReconciliationData = false;
+
+    /** Limpia el estado acumulado del batch. */
+    private reset(): void {
+        this.processedDeudorIds.clear();
+        this.pagosDeudorIds.clear();
+        this.sawReconciliationData = false;
+    }
 
     /** Σpagos actual de un deudor (para reconciliar sin duplicar). */
     private async sumPagos(deudorId: number, ctx: ProcessContext): Promise<number> {
@@ -60,9 +75,23 @@ export class ActualizacionesProcessor implements ICategoryProcessor {
         return isNaN(d.getTime()) ? undefined : d;
     }
 
-    validateRow(row: MappedRow, _ctx: ProcessContext): RowValidationResult {
+    validateRow(row: MappedRow, ctx: ProcessContext): RowValidationResult {
         if (!row.documento && !row.nro_cliente) {
             return { valid: false, error: 'Campo requerido: documento o nro_cliente' };
+        }
+
+        // Modo SOLO_DATOS: solo se actualiza identidad (DNI) y datos adicionales; no se
+        // exige info de deuda. Alcanza con la identidad + algo para actualizar.
+        if (ctx.modoActualizacion === 'SOLO_DATOS') {
+            const hasAdicionales =
+                !!row.camposAdicionales && Object.keys(row.camposAdicionales).length > 0;
+            if (!row.documento && !hasAdicionales && !row.nombre && !row.apellido) {
+                return {
+                    valid: false,
+                    error: 'En modo "solo datos" la fila debe traer DNI y/o datos adicionales para actualizar',
+                };
+            }
+            return { valid: true };
         }
 
         const hasFacturaBlocks = row._blocks?.some(
@@ -83,6 +112,15 @@ export class ActualizacionesProcessor implements ICategoryProcessor {
         if (!ctx.remesaOrigenId) {
             throw new Error('ACTUALIZACIONES requiere una remesa de origen (remesaOrigenId)');
         }
+
+        const soloDatos = ctx.modoActualizacion === 'SOLO_DATOS';
+
+        // Registrar si el archivo trae datos de deuda (para el guard del escenario C).
+        const hasFacturaBlocks = row._blocks?.some(
+            b => (b.entity === 'FACTURA' || b.entity === 'DEUDORES_Y_FACTURAS') && b.data.nroFactura
+        );
+        const hasMontoTotal = row.montoTotal !== undefined && row.montoTotal !== null && row.montoTotal !== '';
+        if (hasFacturaBlocks || hasMontoTotal) this.sawReconciliationData = true;
 
         // ── 1. Buscar deudor en la remesa de origen ───────────────────────────────
         let deudorId: number | null = null;
@@ -118,6 +156,12 @@ export class ActualizacionesProcessor implements ICategoryProcessor {
 
         // ── ESCENARIO B: Deudor nuevo, no estaba en la remesa origen ─────────────
         if (!deudorId) {
+            // En modo "solo datos" no se crean deudores: es una actualización de existentes.
+            if (soloDatos) {
+                const ref = row.documento ? `documento=${row.documento}` : `nro_cliente=${row.nro_cliente}`;
+                this.logger.warn(`Deudor no encontrado en la remesa origen (${ref}) — se omite (modo solo datos).`);
+                return;
+            }
             await this.crearNuevoDeudor(row, ctx);
             return;
         }
@@ -125,8 +169,77 @@ export class ActualizacionesProcessor implements ICategoryProcessor {
         // Registrar que este deudor fue visto en el archivo
         this.processedDeudorIds.add(deudorId);
 
-        // ── ESCENARIO A: Deudor existente → reconciliación ────────────────────────
-        await this.reconciliarDeudor(deudorId, row, ctx);
+        // ── ESCENARIO A: Deudor existente ─────────────────────────────────────────
+        // Siempre se completa DNI (pisa el placeholder) + se mergean los datos adicionales.
+        await this.actualizarIdentidadYAdicionales(deudorId, row, ctx);
+
+        // La reconciliación de deuda solo corre en modo RECONCILIAR.
+        if (!soloDatos) {
+            await this.reconciliarDeudor(deudorId, row, ctx);
+        }
+    }
+
+    /**
+     * Completa la identidad y los datos adicionales de un deudor existente.
+     * - DNI: si la fila trae documento y el deudor tiene un placeholder (cargado sin DNI),
+     *   se pisa con el DNI real (salvo que otro deudor de la remesa ya tenga ese DNI).
+     * - camposAdicionales: merge "gana el valor nuevo" (reemplaza claves existentes).
+     * - nombre/apellido: se rellenan solo si están vacíos (no se pisan datos buenos).
+     */
+    private async actualizarIdentidadYAdicionales(
+        deudorId: number,
+        row: MappedRow,
+        ctx: ProcessContext,
+    ): Promise<void> {
+        const actual = await ctx.prisma.deudor.findUnique({
+            where: { id: deudorId },
+            select: { documento: true, nombre: true, apellido: true, camposAdicionales: true },
+        });
+        if (!actual) return;
+
+        const data: Prisma.deudorUpdateInput = {};
+
+        // DNI real del archivo → completa el placeholder.
+        const dniArchivo = row.documento ? String(row.documento).trim() : '';
+        if (dniArchivo && dniArchivo !== actual.documento) {
+            if (esDocumentoPlaceholder(actual.documento)) {
+                const conflicto = await ctx.prisma.deudor.findFirst({
+                    where: {
+                        empresaId: ctx.empresaId,
+                        remesaId: ctx.remesaOrigenId,
+                        documento: dniArchivo,
+                        id: { not: deudorId },
+                    },
+                    select: { id: true },
+                });
+                if (conflicto) {
+                    this.logger.warn(
+                        `No se actualiza el DNI del deudor ${deudorId}: ya existe otro deudor (${conflicto.id}) ` +
+                        `con ese documento en la remesa ${ctx.remesaOrigenId}.`,
+                    );
+                } else {
+                    data.documento = dniArchivo;
+                }
+            } else {
+                // El deudor ya tenía un DNI real distinto → no se pisa (posible error de datos).
+                this.logger.warn(
+                    `Deudor ${deudorId} ya tiene un DNI real distinto al del archivo — no se pisa el documento.`,
+                );
+            }
+        }
+
+        // Datos adicionales: merge con "gana el valor nuevo".
+        if (row.camposAdicionales && Object.keys(row.camposAdicionales).length > 0) {
+            data.camposAdicionales = mergeAdicionales(actual.camposAdicionales, row.camposAdicionales);
+        }
+
+        // Nombre/apellido: rellenar solo si el actual está vacío.
+        if (row.nombre && !String(actual.nombre ?? '').trim()) data.nombre = String(row.nombre);
+        if (row.apellido && !String(actual.apellido ?? '').trim()) data.apellido = String(row.apellido);
+
+        if (Object.keys(data).length > 0) {
+            await ctx.prisma.deudor.update({ where: { id: deudorId }, data });
+        }
     }
 
     /**
@@ -328,6 +441,18 @@ export class ActualizacionesProcessor implements ICategoryProcessor {
     async afterAll(ctx: ProcessContext): Promise<void> {
         if (!ctx.remesaOrigenId) return;
 
+        // Guard: en modo SOLO_DATOS (o si el archivo no trajo ningún dato de deuda) NO se
+        // marca a los ausentes como "pagó todo" ni se reconcilia deuda. Solo se actualizaron
+        // identidad/adicionales de los deudores presentes en el archivo.
+        if (ctx.modoActualizacion === 'SOLO_DATOS' || !this.sawReconciliationData) {
+            this.logger.log(
+                `ACTUALIZACIONES modo=${ctx.modoActualizacion}, datosDeDeuda=${this.sawReconciliationData}: ` +
+                `se omite la marcación de ausentes como pagados y la consolidación de deuda.`,
+            );
+            this.reset();
+            return;
+        }
+
         // Obtener todos los deudores de la remesa origen
         const deudoresOrigen = await ctx.prisma.deudor.findMany({
             where: { remesaId: ctx.remesaOrigenId, empresaId: ctx.empresaId },
@@ -388,8 +513,7 @@ export class ActualizacionesProcessor implements ICategoryProcessor {
         if (this.pagosDeudorIds.size > 0) {
             await ctx.promesas.cerrarCumplidas([...this.pagosDeudorIds]);
         }
-        this.processedDeudorIds.clear();
-        this.pagosDeudorIds.clear();
+        this.reset();
     }
 
     private async upsertContacto(deudorId: number, data: any, ctx: ProcessContext): Promise<void> {

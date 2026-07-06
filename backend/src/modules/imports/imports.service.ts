@@ -580,6 +580,10 @@ export class ImportService {
         const montoDeudorDesdeFacturas =
             modoMonto === 'NO' || modoMonto === 'SIEMPRE' ? modoMonto : 'SI_VACIO';
 
+        // Modo del import de ACTUALIZACIONES (default seguro: RECONCILIAR = comportamiento clásico)
+        const modoActualizacion =
+            mapping?.modoActualizacion === 'SOLO_DATOS' ? 'SOLO_DATOS' : 'RECONCILIAR';
+
         const ctx: ProcessContext = {
             prisma: this.prisma,
             remesaId: remesa.id,
@@ -593,6 +597,7 @@ export class ImportService {
             consolidacion: this.consolidacion,
             promesas: this.promesas,
             montoDeudorDesdeFacturas,
+            modoActualizacion,
         };
 
         const sep = remesa.plantilla.separador ?? '|';

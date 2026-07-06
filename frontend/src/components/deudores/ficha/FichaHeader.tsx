@@ -14,6 +14,7 @@ import BusinessCenterIcon from '@mui/icons-material/BusinessCenter';
 import AssignmentIcon from '@mui/icons-material/Assignment';
 import BadgeIcon from '@mui/icons-material/Badge';
 import CheckCircleIcon from '@mui/icons-material/CheckCircle';
+import { mostrarDocumento } from '../../../utils/documento';
 
 interface Props {
     deudor: any;
@@ -53,7 +54,7 @@ const FichaHeader: React.FC<Props> = ({ deudor, cuentaCancelada }) => {
                                     )}
                                 </Stack>
                                 <Typography variant="body2" color="text.secondary">
-                                    DNI/CUIL: <strong>{documento}</strong>
+                                    DNI/CUIL: <strong>{mostrarDocumento(documento)}</strong>
                                     {' · '}ID deudor: <strong>{id}</strong>
                                 </Typography>
                             </Box>

@@ -2,7 +2,7 @@
 import { PrismaService } from 'src/prisma/prisma.service';
 import { ConsolidacionSituacionService } from '../../consolidacion/consolidacion.service';
 import { PromesasService } from '../../promesas/promesas.service';
-import { MontoDeudorMode } from '../mapping-types';
+import { ModoActualizacion, MontoDeudorMode } from '../mapping-types';
 
 /**
  * Resultado de validar una fila.
@@ -39,6 +39,11 @@ export interface ProcessContext {
      * Aplica a las categorías FACTURAS y DEUDORES_Y_FACTURAS.
      */
     montoDeudorDesdeFacturas: MontoDeudorMode;
+    /**
+     * Modo del import de ACTUALIZACIONES. Leído de `mappingJson.modoActualizacion`
+     * (default `RECONCILIAR`). Ver {@link ModoActualizacion}.
+     */
+    modoActualizacion: ModoActualizacion;
 }
 
 /**

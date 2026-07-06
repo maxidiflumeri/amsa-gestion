@@ -6,6 +6,59 @@
 
 ---
 
+## [2026-07-06] — Cargar asignaciones sin DNI + completar DNI/adicionales por ACTUALIZACIONES
+
+> ⚠️ **Acciones de despliegue**:
+> 1. **Sin migración de schema**: el placeholder llena `documento` (sigue NOT NULL), `camposAdicionales`
+>    ya es `Json?`, y el modo nuevo vive dentro de `mappingJson.modoActualizacion`. No hace falta `db push`.
+> 2. **Sin backfill**: aplica a importaciones nuevas.
+> 3. **Redeploy back + front**.
+
+**Problema** (feedback de usuarios): varias asignaciones llegan **sin DNI** (el DNI viene después en un
+archivo de adicionales), pero la carga de DEUDORES exigía `documento` y no dejaba avanzar. La identidad del
+deudor es la clave única `(empresaId, documento, remesaId)` con `documento` **NOT NULL**, así que no se puede
+hacer nullable (rompe dedup/upsert).
+
+### 1. Cargar deudores SIN DNI (placeholder estable)
+
+- Nuevo util `imports/utils/documento.ts`: `placeholderDocumento(nroCliente)` → `SIN-DNI-<nroCliente>`,
+  `esDocumentoPlaceholder()`, `documentoDeFila()`. Cuando la fila no trae DNI se guarda un placeholder
+  **determinístico** derivado del `nroCliente` (respeta la clave única y la reimportación es idempotente).
+- `DeudoresProcessor` y `DeudoresYFacturasProcessor`: `validateRow` ahora exige `documento` **o**
+  `nro_cliente` (antes ambos). El enriquecimiento histórico de contactos se saltea con placeholder
+  (no hay histórico que matchear hasta que llegue el DNI real).
+
+### 2. Completar DNI + adicionales por ACTUALIZACIONES (modo "solo datos")
+
+- Nuevo `mappingJson.modoActualizacion: 'RECONCILIAR' (default) | 'SOLO_DATOS'`, propagado a `ProcessContext`.
+- `ActualizacionesProcessor`:
+  - **Escenario A** (deudor existente, match por documento/nro_cliente): siempre corre
+    `actualizarIdentidadYAdicionales` — pisa el **DNI placeholder** con el real (con chequeo de conflicto en
+    la remesa), **mergea** `camposAdicionales` con "gana el valor nuevo" (`mergeAdicionales`, util nuevo
+    `campos-adicionales.ts`), y rellena nombre/apellido solo si estaban vacíos.
+  - **Modo SOLO_DATOS**: `validateRow` no exige montos/facturas; NO reconcilia deuda; escenario B (no
+    encontrado) **no crea** deudores; y el **`afterAll` (escenario C) se saltea** — no marca a los ausentes
+    como "pagó todo" (el riesgo principal de usar ACTUALIZACIONES para un archivo parcial de solo-DNI).
+  - Defensa en profundidad: aunque el modo sea RECONCILIAR, si ninguna fila trajo datos de deuda
+    (`sawReconciliationData=false`) el escenario C también se saltea.
+
+### 3. Frontend
+
+- `PlantillaEditor`: switch **"Solo actualizar datos (DNI / adicionales) — no reconciliar deuda"** (solo
+  categoría ACTUALIZACIONES), persistido en `mappingJson.modoActualizacion`.
+- `MappingEditor`: labels de DEUDORES / DEUDORES_Y_FACTURAS aclaran que el DNI es opcional si hay Nº Cliente
+  (se agregó `nro_cliente` como campo principal en DEUDORES_Y_FACTURAS). `CategorySelector`: descripción de
+  ACTUALIZACIONES ampliada.
+- Nuevo util `frontend/src/utils/documento.ts` (`mostrarDocumento`): la ficha (`FichaHeader`) y el listado
+  (`DeudoresTable`) muestran **"Sin DNI"** en vez del placeholder `SIN-DNI-…`.
+
+### 4. Tests
+
+- `documento.spec.ts` + `campos-adicionales.spec.ts` (16 casos). Los 13 tests de
+  `reconciliar-actualizacion.spec.ts` siguen verdes (la reconciliación de montos no cambió).
+
+---
+
 ## [2026-07-01] — Carga manual de pagos + Promesas de pago
 
 > Diseño completo: [docs/pagos-promesas-spec.md](docs/pagos-promesas-spec.md) (v2, revisado por el agente architect).

@@ -2,6 +2,7 @@ import { ICategoryProcessor, MappedRow, ProcessContext, RowValidationResult } fr
 import { Prisma } from '@prisma/client';
 import { clearContactoImportCaches, prepararContactoImport } from '../utils/contacto-import';
 import { nroClienteDeFila } from '../utils/nro-cliente';
+import { documentoDeFila, esDocumentoPlaceholder } from '../utils/documento';
 import { procesarBloquesDeudor } from '../utils/procesar-bloques';
 import { recalcularMontoTotalDesdeFacturas } from '../utils/monto-facturas';
 
@@ -45,11 +46,10 @@ export class DeudoresYFacturasProcessor implements ICategoryProcessor {
     }
 
     validateRow(row: MappedRow, _ctx: ProcessContext): RowValidationResult {
-        if (!row.documento) {
-            return { valid: false, error: 'Campo requerido faltante: documento (Deudor)' };
-        }
-        if (!nroClienteDeFila(row)) {
-            return { valid: false, error: 'Campo requerido faltante: nro_cliente (Deudor)' };
+        // El DNI puede faltar: en ese caso se identifica por nro_cliente y se guarda
+        // un placeholder que el DNI real pisa luego (ver utils/documento.ts).
+        if (!row.documento && !nroClienteDeFila(row)) {
+            return { valid: false, error: 'Campo requerido faltante: documento o nro_cliente (Deudor)' };
         }
 
         const hasMainFactura = !!row.nroFactura;
@@ -67,7 +67,7 @@ export class DeudoresYFacturasProcessor implements ICategoryProcessor {
     }
 
     async processRow(row: MappedRow, ctx: ProcessContext): Promise<void> {
-        const documentoStr = String(row.documento);
+        const documentoStr = documentoDeFila(row);
         const nroCliente = nroClienteDeFila(row);
 
         let deudorId: number;
@@ -133,8 +133,9 @@ export class DeudoresYFacturasProcessor implements ICategoryProcessor {
         // -- ENRIQUECIMIENTO HISTÓRICO GLOBAL --
         if (isNewForThisRemesa && !this.debtorCache.has(documentoStr)) {
             this.debtorCache.set(documentoStr, deudorId);
-            
-            if (documentoStr) {
+
+            // Se saltea con placeholder (sin DNI): no hay histórico que matchear todavía.
+            if (documentoStr && !esDocumentoPlaceholder(documentoStr)) {
                 // Buscamos TODOS los contactos históricos de cualquier deudor que comparta este DNI
                 const historicContacts = await ctx.prisma.contacto.findMany({
                     where: {

@@ -5,6 +5,7 @@ import { DataTableResponsive, EmptyState, LoadingSkeleton, SectionCard } from '.
 import type { DataTableColumn } from '../ui'
 import api from '../../api/axios'
 import { useNotify } from '../../hooks/useNotify'
+import { mostrarDocumento } from '../../utils/documento'
 
 interface Deudor {
     id: number
@@ -29,7 +30,12 @@ interface Props {
 
 const columns: DataTableColumn<DeudorRow>[] = [
     { key: 'id', label: 'ID', width: 70, hideInCard: true },
-    { key: 'documento', label: 'Documento', primary: true },
+    {
+        key: 'documento',
+        label: 'Documento',
+        primary: true,
+        render: (row) => mostrarDocumento(row.documento as string),
+    },
     {
         key: 'nombreApellido',
         label: 'Cliente',

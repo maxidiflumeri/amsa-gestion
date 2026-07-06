@@ -37,8 +37,8 @@ const DEST_FIELDS_BY_CATEGORY: Record<string, { value: string; label: string }[]
     DEUDORES: [
         { value: "nombre", label: "Nombre" },
         { value: "apellido", label: "Apellido" },
-        { value: "documento", label: "Documento" },
-        { value: "nro_cliente", label: "Nº Cliente (match)" },
+        { value: "documento", label: "Documento / DNI (opcional si hay Nº Cliente)" },
+        { value: "nro_cliente", label: "Nº Cliente (match / requerido si no hay DNI)" },
         { value: "montoTotal", label: "Monto total" },
         { value: "fechaVencimiento", label: "Fecha vencimiento" },
     ],
@@ -82,7 +82,8 @@ const DEST_FIELDS_BY_CATEGORY: Record<string, { value: string; label: string }[]
         { value: "direccion_provincia", label: "Dirección — Provincia" },
     ],
     DEUDORES_Y_FACTURAS: [
-        { value: "documento", label: "Documento (Deudor)" },
+        { value: "documento", label: "Documento / DNI (Deudor, opcional si hay Nº Cliente)" },
+        { value: "nro_cliente", label: "Nº Cliente (Deudor, requerido si no hay DNI)" },
         { value: "nombre", label: "Nombre (Deudor)" },
         { value: "apellido", label: "Apellido (Deudor)" },
         { value: "montoTotal", label: "Monto total (Deudor)" },
@@ -93,7 +94,7 @@ const DEST_FIELDS_BY_CATEGORY: Record<string, { value: string; label: string }[]
         { value: "vencimiento", label: "Vencimiento (Factura)" },
     ],
     ACTUALIZACIONES: [
-        { value: "documento", label: "Documento (match / nuevo Deudor)" },
+        { value: "documento", label: "Documento / DNI (match y/o completa DNI faltante)" },
         { value: "nro_cliente", label: "Nro. Cliente (match alternativo)" },
         { value: "nombre", label: "Nombre (para casos nuevos)" },
         { value: "apellido", label: "Apellido (para casos nuevos)" },

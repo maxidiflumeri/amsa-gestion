@@ -69,7 +69,7 @@ const CATEGORIES: CategoryOption[] = [
         value: "ACTUALIZACIONES",
         label: "Actualizaciones",
         description:
-            "Reconciliar deuda actual: pagos automáticos, nuevas facturas y recalculo de saldo",
+            "Reconciliar deuda (pagos, nuevas facturas, saldo) o solo completar DNI / datos adicionales de deudores existentes",
         icon: <SyncAltIcon sx={{ fontSize: 40 }} />,
         color: "#00796b",
     },

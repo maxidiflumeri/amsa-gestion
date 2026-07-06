@@ -2,6 +2,7 @@
 import { ICategoryProcessor, MappedRow, ProcessContext, RowValidationResult } from './processor.interface';
 import { Prisma } from '@prisma/client';
 import { nroClienteDeFila } from '../utils/nro-cliente';
+import { documentoDeFila, esDocumentoPlaceholder } from '../utils/documento';
 import { procesarBloquesDeudor } from '../utils/procesar-bloques';
 
 export class DeudoresProcessor implements ICategoryProcessor {
@@ -31,17 +32,16 @@ export class DeudoresProcessor implements ICategoryProcessor {
     }
 
     validateRow(row: MappedRow, _ctx: ProcessContext): RowValidationResult {
-        if (!row.documento) {
-            return { valid: false, error: 'Campo requerido faltante: documento' };
-        }
-        if (!nroClienteDeFila(row)) {
-            return { valid: false, error: 'Campo requerido faltante: nro_cliente' };
+        // El DNI puede faltar (asignaciones sin documento): en ese caso se identifica
+        // por nro_cliente y se guarda un placeholder que el DNI real pisa luego.
+        if (!row.documento && !nroClienteDeFila(row)) {
+            return { valid: false, error: 'Campo requerido faltante: documento o nro_cliente' };
         }
         return { valid: true };
     }
 
     async processRow(row: MappedRow, ctx: ProcessContext): Promise<void> {
-        const documentoStr = String(row.documento);
+        const documentoStr = documentoDeFila(row);
         const nroCliente = nroClienteDeFila(row);
         let isNewForThisRemesa = true;
 
@@ -95,7 +95,9 @@ export class DeudoresProcessor implements ICategoryProcessor {
         await procesarBloquesDeudor(deudor.id, row._blocks, ctx);
 
         // -- ENRIQUECIMIENTO HISTÓRICO GLOBAL (Cross-Empresa / Cross-Remesa) --
-        if (isNewForThisRemesa && documentoStr) {
+        // Se saltea con placeholder (deudor sin DNI): no hay histórico que matchear
+        // hasta que llegue el DNI real por la actualización.
+        if (isNewForThisRemesa && documentoStr && !esDocumentoPlaceholder(documentoStr)) {
             const historicContacts = await ctx.prisma.contacto.findMany({
                 where: {
                     deudor: {

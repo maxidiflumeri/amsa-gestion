@@ -20,6 +20,16 @@ export interface RepetitiveBlock {
  */
 export type MontoDeudorMode = 'NO' | 'SI_VACIO' | 'SIEMPRE';
 
+/**
+ * Modo del import de ACTUALIZACIONES:
+ * - `RECONCILIAR` (default): comportamiento clásico — reconcilia deuda (pagos automáticos,
+ *   nuevas facturas) y marca como "pagó todo" a los deudores ausentes del archivo.
+ * - `SOLO_DATOS`: solo actualiza identidad (DNI) y datos adicionales de deudores existentes.
+ *   NO reconcilia deuda, NO marca ausentes como pagados y NO crea deudores nuevos.
+ *   Se usa para completar el DNI + adicionales de asignaciones cargadas sin DNI.
+ */
+export type ModoActualizacion = 'RECONCILIAR' | 'SOLO_DATOS';
+
 export interface MappingJson {
     entity: 'DEUDOR' | 'FACTURA' | 'PAGO' | 'CONTACTO' | 'ENRIQ_MIXTO' | 'MIXTO';
     matchKeys: string[];        // ej: ["empresaId","documento"]
@@ -31,4 +41,6 @@ export interface MappingJson {
     dedup?: { strategy: 'keep-last' | 'keep-first'; orderBy?: string[] };
     /** Modo de cálculo de `deudor.montoTotal` desde las facturas (default `SI_VACIO`). */
     montoDeudorDesdeFacturas?: MontoDeudorMode;
+    /** Modo del import de ACTUALIZACIONES (default `RECONCILIAR`). */
+    modoActualizacion?: ModoActualizacion;
 }

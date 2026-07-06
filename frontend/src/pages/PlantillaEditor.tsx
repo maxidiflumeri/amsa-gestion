@@ -191,9 +191,12 @@ const PlantillaEditor: React.FC = () => {
     const [defaultEstadoGestionId, setDefaultEstadoGestionId] = useState<number | ''>('')
     const [montoDeudorDesdeFacturas, setMontoDeudorDesdeFacturas] =
         useState<'NO' | 'SI_VACIO' | 'SIEMPRE'>('SI_VACIO')
+    const [modoActualizacion, setModoActualizacion] =
+        useState<'RECONCILIAR' | 'SOLO_DATOS'>('RECONCILIAR')
 
     // Flujos donde tiene sentido calcular el importe del deudor desde las facturas
     const esFlujoFacturas = categoria === 'FACTURAS' || categoria === 'DEUDORES_Y_FACTURAS'
+    const esActualizacion = categoria === 'ACTUALIZACIONES'
 
     // Empresa del editor: para creación la toma de la lista via state o default
     const [empresaId, setEmpresaId] = useState<number | null>(null)
@@ -245,6 +248,7 @@ const PlantillaEditor: React.FC = () => {
             setDefaultEstadoSituacionId(p.defaultEstadoSituacionId ?? '')
             setDefaultEstadoGestionId(p.defaultEstadoGestionId ?? '')
             setMontoDeudorDesdeFacturas(p.mappingJson?.montoDeudorDesdeFacturas ?? 'SI_VACIO')
+            setModoActualizacion(p.mappingJson?.modoActualizacion ?? 'RECONCILIAR')
         } catch (err) {
             notify.error(err as Error)
             navigate('/plantillas')
@@ -307,6 +311,9 @@ const PlantillaEditor: React.FC = () => {
         const mappingJson = fieldsToMappingJson(fields, blocks, entity, keys)
         if (esFlujoFacturas) {
             ;(mappingJson as Record<string, unknown>).montoDeudorDesdeFacturas = montoDeudorDesdeFacturas
+        }
+        if (esActualizacion) {
+            ;(mappingJson as Record<string, unknown>).modoActualizacion = modoActualizacion
         }
 
         try {
@@ -563,6 +570,36 @@ const PlantillaEditor: React.FC = () => {
                                 valor ya cargado.
                             </FormHelperText>
                         </FormControl>
+                    </>
+                )}
+
+                {/* Modo de la actualización (solo categoría ACTUALIZACIONES) */}
+                {esActualizacion && (
+                    <>
+                        <Divider sx={{ my: 3 }} />
+                        <Typography variant="h6" sx={{ fontWeight: 600, mb: 1 }}>
+                            Modo de la actualización
+                        </Typography>
+                        <FormControlLabel
+                            control={
+                                <Switch
+                                    checked={modoActualizacion === 'SOLO_DATOS'}
+                                    onChange={(e) =>
+                                        setModoActualizacion(
+                                            e.target.checked ? 'SOLO_DATOS' : 'RECONCILIAR'
+                                        )
+                                    }
+                                />
+                            }
+                            label="Solo actualizar datos (DNI / adicionales) — no reconciliar deuda"
+                        />
+                        <FormHelperText sx={{ mb: 2 }}>
+                            Activá esta opción para archivos que solo completan el DNI faltante y/o
+                            datos adicionales de deudores ya cargados (match por Nº Cliente). En este
+                            modo NO se generan pagos automáticos, NO se marca a los ausentes como
+                            "pagó todo" y NO se crean deudores nuevos. Dejalo desactivado para las
+                            actualizaciones normales de deuda.
+                        </FormHelperText>
                     </>
                 )}
 
