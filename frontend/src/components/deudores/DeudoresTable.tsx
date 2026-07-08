@@ -13,6 +13,7 @@ interface Deudor {
     remesa: any
     documento: string
     nombre: string
+    nroCliente?: string | null
     camposAdicionales: any
     apellido: string
     montoTotal: number | null
@@ -46,7 +47,8 @@ const columns: DataTableColumn<DeudorRow>[] = [
     {
         key: 'nro_cliente',
         label: 'Nº Cliente',
-        render: (row) => (row.camposAdicionales as any)?.nro_cliente || '-',
+        render: (row) =>
+            (row as any).nroCliente || (row.camposAdicionales as any)?.nro_cliente || '-',
     },
     {
         key: 'numeroRemesa',

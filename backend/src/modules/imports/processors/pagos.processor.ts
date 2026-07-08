@@ -17,8 +17,10 @@ export class PagosProcessor implements ICategoryProcessor {
         if (!nroCliente) {
             return { valid: false, error: 'nro_cliente es requerido para pagos' };
         }
-        if (row.importe == null) {
-            return { valid: false, error: 'Campo requerido faltante: importe' };
+        // La UI de mapeo de PAGOS expone el campo del importe como `monto` (label "Monto");
+        // se acepta como alias de `importe` para no rechazar plantillas mapeadas con esa clave.
+        if (row.importe == null && row.monto == null) {
+            return { valid: false, error: 'Campo requerido faltante: importe (o monto)' };
         }
         return { valid: true };
     }
@@ -48,7 +50,13 @@ export class PagosProcessor implements ICategoryProcessor {
         // Bloques repetitivos del archivo → al deudor encontrado.
         await procesarBloquesDeudor(deudor.id, row._blocks, ctx);
 
-        const importe = row.importe ?? 0;
+        const importe = row.importe ?? row.monto ?? 0;
+
+        // Fecha del pago: se respeta la mapeada en la plantilla (campo `fecha`, o su alias
+        // `fechaPago` que expone la UI). Si no vino o es inválida, se usa la fecha del día.
+        const fechaRaw = row.fecha ?? row.fechaPago;
+        const fechaParsed = fechaRaw != null && fechaRaw !== '' ? new Date(fechaRaw) : null;
+        const fechaPago = fechaParsed && !isNaN(fechaParsed.getTime()) ? fechaParsed : new Date();
 
         // Anti-dup (spec §3.1): si ya hay un pago MANUAL no confirmado del mismo deudor
         // con este importe exacto → confirmarlo en vez de duplicar. Un claim por fila.
@@ -76,7 +84,7 @@ export class PagosProcessor implements ICategoryProcessor {
             await ctx.prisma.pago.create({
                 data: {
                     deudorId: deudor.id,
-                    fecha: row.fecha ?? new Date(),
+                    fecha: fechaPago,
                     importe,
                     origen: 'IMPORT_PAGOS',
                     origenArchivo: row.origenArchivo ?? null,

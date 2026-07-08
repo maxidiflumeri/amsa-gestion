@@ -84,6 +84,13 @@ export interface MappingJson {
     modoActualizacion?: ModoActualizacion;
     /** Comportamiento ante deuda mayor en ACTUALIZACIONES (default `FACTURA_NUEVA`). */
     comportamientoDeudaMayor?: ComportamientoDeudaMayor;
+    /**
+     * ACTUALIZACIONES: si `false`, NO se crean deudores nuevos cuando el registro no matchea
+     * la remesa origen — solo se actualizan los existentes y se ignoran los no encontrados.
+     * Útil cuando un mismo archivo cubre varias remesas y se aplica una por una.
+     * Default `true` (comportamiento clásico: los no encontrados se cargan como caso nuevo).
+     */
+    crearNuevosCasos?: boolean;
     /** Config de la categoría ACCIONES (acciones masivas). */
     acciones?: AccionesConfig;
 }

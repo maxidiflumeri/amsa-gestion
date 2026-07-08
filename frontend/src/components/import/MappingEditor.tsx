@@ -106,7 +106,8 @@ const DEST_FIELDS_BY_CATEGORY: Record<string, { value: string; label: string }[]
 const AVAILABLE_TRANSFORMS = [
     { value: "trim", label: "Quitar espacios de los extremos" },
     { value: "removeSpaces", label: "Quitar todos los espacios" },
-    { value: "removePrefix:CUIL ", label: 'Quitar prefijo "CUIL "' },
+    { value: "removeQuotes", label: "Quitar comilla simple ( ' )" },
+    { value: "removePrefix:CUI[LT][^0-9]*", label: "Quitar prefijo CUIL / CUIT" },
     { value: "upper", label: "MAYÚSCULAS" },
     { value: "title", label: "Título (Primera Letra)" },
     { value: "toNumber:es-AR", label: "Número (coma decimal)" },

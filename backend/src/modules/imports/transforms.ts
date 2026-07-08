@@ -92,6 +92,9 @@ const title = (s: any) =>
             .toLowerCase()
             .replace(/\b\w/g, (c) => c.toUpperCase());
 const removeSpaces = (s: any) => (s == null ? null : String(s).replace(/\s+/g, ''));
+// Quita comillas simples: la recta ' y las tipográficas ' ' que a veces mete Excel
+// (ej: números exportados como texto con apóstrofo delante → '12345).
+const removeQuotes = (s: any) => (s == null ? null : String(s).replace(/['‘’]/g, ''));
 const removePrefix = (s: any, prefix: string) => {
     if (s == null) return null;
     const str = String(s);
@@ -125,6 +128,7 @@ export function applyTransforms(raw: any, tr?: string[]) {
         else if (t === 'upper') v = upper(v);
         else if (t === 'title') v = title(v);
         else if (t === 'removeSpaces') v = removeSpaces(v);
+        else if (t === 'removeQuotes') v = removeQuotes(v);
 
         else if (t.startsWith('removePrefix:')) {
             const prefix = t.substring('removePrefix:'.length);

@@ -6,6 +6,55 @@
 
 ---
 
+## [2026-07-08] — Fixes de imports: actualizaciones, transformaciones, pagos y vista de deudores
+
+> ⚠️ **Redeploy back + front** (sin migración: todos los cambios son de código).
+> Lote de 7 arreglos reportados sobre importaciones. Ninguno cambia el comportamiento por defecto de
+> los flujos existentes (defaults seguros).
+
+**Backend**
+
+- **Actualizaciones — pago parcial con saldo total ya no genera "pagos fantasma"**
+  ([actualizaciones.processor.ts](backend/src/modules/imports/processors/actualizaciones.processor.ts)):
+  el "Modo A" (reconciliación por `nroFactura`) separa ahora dos modelos que estaban mezclados:
+  - *Factura con importe propio*: pago por cuota = importe real de la factura (sin cambios).
+  - *Saldo total único* (planes de ahorro, cuotas con importe 0): se eliminó la división
+    `montoTotal / cantidadCuotas` que registraba un pago por cada cuota faltante con un monto mal
+    calculado. Las cuotas ausentes solo se marcan `PAGADA` y el pago se calcula **una sola vez** por el
+    total vía el helper compartido `reconciliarSaldoTotal` (mismo criterio que el Modo B). Caso
+    1843155: antes 2 pagos de $2.154.164 y saldo $3.154.164; ahora 1 pago de $1.000.000 y saldo
+    $6.462.493,19.
+- **Actualizaciones — la deuda total crece al llegar una cuota nueva**: en el modelo "factura con
+  importe", al insertar una factura nueva se acumula `deudaAgregada` y se sube `montoTotal` + `saldo`
+  del deudor (antes la factura se agregaba pero la deuda quedaba en el valor de la carga original).
+- **Actualizaciones — flag `crearNuevosCasos`** (default `true`): si se desactiva, los registros que no
+  matchean la remesa origen se ignoran en vez de crearse como deudor nuevo. Resuelve el caso Fiat
+  Plan/Jeep Plan (un archivo que abarca 4 remesas, aplicado una por una, ya no duplica los de las otras).
+  Sumado a `MappingJson`, `ProcessContext` e `imports.service` (parseo con default seguro).
+- **Pagos — se acepta `monto` como alias de `importe`** ([pagos.processor.ts](backend/src/modules/imports/processors/pagos.processor.ts)):
+  la UI de mapeo de PAGOS expone la clave interna `monto`, pero el processor leía `importe` → rechazaba
+  toda fila con "Falta Importe" (afectaba a AUSA y a cualquier plantilla de pagos nueva). Retrocompatible.
+- **Pagos — se respeta la fecha mapeada**: `fecha` (o su alias `fechaPago` de la UI); si no viene o es
+  inválida, se usa la fecha del día. Antes la fecha mapeada se ignoraba y siempre quedaba la de hoy.
+- **Transformaciones** ([transforms.ts](backend/src/modules/imports/transforms.ts)): nueva `removeQuotes`
+  (quita comilla simple recta y tipográficas, para XLS de Excel con números como texto `'12345`).
+
+**Frontend**
+
+- **Lista de deudores — Nº Cliente ya no muestra siempre "-"**
+  ([DeudoresTable.tsx](frontend/src/components/deudores/DeudoresTable.tsx),
+  [BuscadorAvanzadoModal.tsx](frontend/src/components/deudores/BuscadorAvanzadoModal.tsx)): la columna leía
+  solo `camposAdicionales.nro_cliente` (JSON legacy, null en los deudores actuales); ahora lee la columna
+  nativa `nroCliente` con fallback al JSON, igual que la ficha.
+- **Transformaciones** ([MappingEditor.tsx](frontend/src/components/import/MappingEditor.tsx)): la limpieza
+  de prefijo pasa de `CUIL ` a `CUI[LT][^0-9]*` (limpia CUIL **y** CUIT, evita que el CUIT quede pegado al
+  documento); nueva opción "Quitar comilla simple ( ' )".
+- **PlantillaEditor** ([PlantillaEditor.tsx](frontend/src/pages/PlantillaEditor.tsx)): toggle "No crear
+  casos nuevos — solo actualizar deudores existentes" en la sección ACTUALIZACIONES (persiste
+  `mappingJson.crearNuevosCasos`).
+
+---
+
 ## [2026-07-06] — Acciones masivas: Fase 2 (eliminar contacto) + Fase 3 (revertir)
 
 > ⚠️ **Redeploy back + front** (sin migración; el modelo del snapshot ya se creó en la Fase 1).

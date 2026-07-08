@@ -198,6 +198,7 @@ const PlantillaEditor: React.FC = () => {
         useState<'RECONCILIAR' | 'SOLO_DATOS'>('RECONCILIAR')
     const [comportamientoDeudaMayor, setComportamientoDeudaMayor] =
         useState<'FACTURA_NUEVA' | 'ACTUALIZAR_SALDO'>('FACTURA_NUEVA')
+    const [crearNuevosCasos, setCrearNuevosCasos] = useState(true)
 
     const [accionesConfig, setAccionesConfig] = useState<AccionesConfig>({
         matchMode: 'DEUDOR',
@@ -267,6 +268,7 @@ const PlantillaEditor: React.FC = () => {
             setMontoDeudorDesdeFacturas(p.mappingJson?.montoDeudorDesdeFacturas ?? 'SI_VACIO')
             setModoActualizacion(p.mappingJson?.modoActualizacion ?? 'RECONCILIAR')
             setComportamientoDeudaMayor(p.mappingJson?.comportamientoDeudaMayor ?? 'FACTURA_NUEVA')
+            setCrearNuevosCasos(p.mappingJson?.crearNuevosCasos !== false)
             if (p.mappingJson?.acciones) setAccionesConfig(p.mappingJson.acciones)
         } catch (err) {
             notify.error(err as Error)
@@ -350,6 +352,7 @@ const PlantillaEditor: React.FC = () => {
         if (esActualizacion) {
             ;(mappingJson as Record<string, unknown>).modoActualizacion = modoActualizacion
             ;(mappingJson as Record<string, unknown>).comportamientoDeudaMayor = comportamientoDeudaMayor
+            ;(mappingJson as Record<string, unknown>).crearNuevosCasos = crearNuevosCasos
         }
         if (esAcciones) {
             ;(mappingJson as Record<string, unknown>).acciones = accionesConfig
@@ -645,6 +648,22 @@ const PlantillaEditor: React.FC = () => {
                         </FormHelperText>
 
                         {modoActualizacion === 'RECONCILIAR' && (
+                            <>
+                            <FormControlLabel
+                                control={
+                                    <Switch
+                                        checked={!crearNuevosCasos}
+                                        onChange={(e) => setCrearNuevosCasos(!e.target.checked)}
+                                    />
+                                }
+                                label="No crear casos nuevos — solo actualizar deudores existentes"
+                            />
+                            <FormHelperText sx={{ mb: 2 }}>
+                                Activá esta opción cuando un mismo archivo abarca varias remesas y lo
+                                aplicás una por una: los registros que no pertenecen a la remesa elegida
+                                se ignoran en vez de cargarse como deudores nuevos. Dejalo desactivado
+                                para las actualizaciones normales (los no encontrados se dan de alta).
+                            </FormHelperText>
                             <FormControl sx={{ flex: '1 1 360px', maxWidth: 520, mb: 2 }}>
                                 <InputLabel>Si el saldo informado es mayor al actual</InputLabel>
                                 <Select
@@ -670,6 +689,7 @@ const PlantillaEditor: React.FC = () => {
                                     generar una factura por día si el deudor tiene una sola factura).
                                 </FormHelperText>
                             </FormControl>
+                            </>
                         )}
                     </>
                 )}

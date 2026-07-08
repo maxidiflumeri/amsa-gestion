@@ -81,7 +81,8 @@ const resultColumns: DataTableColumn<ResultRow>[] = [
     {
         key: 'nroCliente',
         label: 'Nº Cli.',
-        render: (row) => (row.camposAdicionales as any)?.nro_cliente || '-',
+        render: (row) =>
+            (row as any).nroCliente || (row.camposAdicionales as any)?.nro_cliente || '-',
     },
 ]
 

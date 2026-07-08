@@ -57,6 +57,11 @@ export interface ProcessContext {
      * Ver {@link ComportamientoDeudaMayor}.
      */
     comportamientoDeudaMayor: ComportamientoDeudaMayor;
+    /**
+     * ACTUALIZACIONES: si `false`, los registros que no matchean la remesa origen se ignoran
+     * (no se crea deudor nuevo). Leído de `mappingJson.crearNuevosCasos` (default `true`).
+     */
+    crearNuevosCasos: boolean;
 }
 
 /**

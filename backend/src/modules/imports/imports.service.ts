@@ -757,6 +757,10 @@ export class ImportService {
         const comportamientoDeudaMayor =
             mapping?.comportamientoDeudaMayor === 'ACTUALIZAR_SALDO' ? 'ACTUALIZAR_SALDO' : 'FACTURA_NUEVA';
 
+        // ACTUALIZACIONES: crear casos nuevos si no matchean la remesa origen
+        // (default seguro: true = comportamiento clásico). Solo se desactiva con el flag explícito.
+        const crearNuevosCasos = mapping?.crearNuevosCasos !== false;
+
         const ctx: ProcessContext = {
             prisma: this.prisma,
             remesaId: remesa.id,
@@ -774,6 +778,7 @@ export class ImportService {
             montoDeudorDesdeFacturas,
             modoActualizacion,
             comportamientoDeudaMayor,
+            crearNuevosCasos,
             accionesConfig: mapping?.acciones,
         };
 

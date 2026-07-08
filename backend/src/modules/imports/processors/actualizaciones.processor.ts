@@ -162,6 +162,14 @@ export class ActualizacionesProcessor implements ICategoryProcessor {
                 this.logger.warn(`Deudor no encontrado en la remesa origen (${ref}) — se omite (modo solo datos).`);
                 return;
             }
+            // Flag crearNuevosCasos=false: solo actualizar existentes; los no encontrados en la
+            // remesa origen se ignoran (no se crea deudor nuevo). Útil para archivos que cubren
+            // varias remesas y se aplican una por una sin duplicar los de las otras.
+            if (!ctx.crearNuevosCasos) {
+                const ref = row.documento ? `documento=${row.documento}` : `nro_cliente=${row.nro_cliente}`;
+                this.logger.warn(`Deudor no encontrado en la remesa origen (${ref}) — se omite (crearNuevosCasos=false).`);
+                return;
+            }
             await this.crearNuevoDeudor(row, ctx);
             return;
         }
@@ -343,21 +351,28 @@ export class ActualizacionesProcessor implements ICategoryProcessor {
             }
 
             const nrosEnDB = new Set(facturasEnDB.map(f => f.nroFactura));
-            const importePorCuota = (montoNuevo !== null && nrosEnArchivo.size > 0)
-                ? montoNuevo / nrosEnArchivo.size
-                : null;
 
-            // Cuotas pagadas (en DB pero no en archivo)
+            // ¿El plan maneja un importe REAL por cuota (modelo "factura con importe") o un
+            // SALDO TOTAL único (modelo ahorro/plan: las cuotas son marcadores con importe 0 y
+            // el monto viene en montoTotal)? En el modelo de saldo único NO se genera un pago
+            // por cuota faltante (evita los "pagos fantasma" de dividir el saldo remanente por
+            // la cantidad de cuotas): el pago se deriva del total con reconciliarSaldoTotal.
+            const hayImportesReales =
+                facturasEnDB.some(f => f.importe > 0) ||
+                [...nrosEnArchivo.values()].some(d => (d.importe ?? 0) > 0);
+
+            // Cuotas pagadas (en DB pero no en archivo) → PAGADA. Se registra un pago por cuota
+            // SOLO cuando la factura tiene importe propio; en el modelo de saldo único el pago
+            // se genera una única vez más abajo a partir del total.
             for (const facDB of facturasEnDB) {
                 if (!nrosEnArchivo.has(facDB.nroFactura)) {
                     await ctx.prisma.factura.update({ where: { id: facDB.id }, data: { estado: 'PAGADA' } });
-                    const importePago = facDB.importe > 0 ? facDB.importe : (importePorCuota ?? 0);
-                    if (importePago > 0) {
+                    if (facDB.importe > 0) {
                         await ctx.prisma.pago.create({
                             data: {
                                 deudorId,
                                 fecha: new Date(),
-                                importe: importePago,
+                                importe: facDB.importe,
                                 origen: 'IMPORT_ACTUALIZACION',
                                 origenArchivo: `ACTUALIZACION_REMESA_${ctx.remesaId}`,
                                 observacion: `Pago automático - ${facDB.nroFactura}`,
@@ -368,10 +383,12 @@ export class ActualizacionesProcessor implements ICategoryProcessor {
                 }
             }
 
-            // Cuotas nuevas (en archivo pero no en DB)
+            // Cuotas nuevas (en archivo pero no en DB). Se acumula la deuda agregada (importe
+            // real) para hacer crecer el montoTotal del deudor en el modelo "factura con importe".
+            let deudaAgregada = 0;
             for (const [nroFactura, datos] of nrosEnArchivo) {
                 if (!nrosEnDB.has(nroFactura)) {
-                    const importeFactura = datos.importe ?? importePorCuota ?? 0;
+                    const importeFactura = datos.importe ?? 0;
                     await ctx.prisma.factura.create({
                         data: {
                             deudorId,
@@ -382,6 +399,7 @@ export class ActualizacionesProcessor implements ICategoryProcessor {
                             estado: 'PENDIENTE',
                         },
                     });
+                    if (importeFactura > 0) deudaAgregada += importeFactura;
                 } else if (datos.importe !== undefined) {
                     const facExistente = facturasEnDB.find(f => f.nroFactura === nroFactura)!;
                     if (Math.abs(facExistente.importe - datos.importe) > 0.001) {
@@ -393,38 +411,66 @@ export class ActualizacionesProcessor implements ICategoryProcessor {
                 }
             }
 
+            // ── Ajuste de deuda / pago según el modelo ────────────────────────────
+            if (hasMontoTotal && !hayImportesReales && montoNuevo !== null) {
+                // Modelo saldo único: un ÚNICO pago (o ajuste de deuda si el saldo creció) por
+                // el total, reconciliando contra el original y los pagos ya registrados.
+                await this.reconciliarSaldoTotal(deudorId, montoNuevo, ctx);
+            } else if (deudaAgregada > 0) {
+                // Modelo "factura con importe": llegó una cuota nueva → la deuda total del deudor
+                // debe crecer por su importe (antes la factura se agregaba pero montoTotal quedaba
+                // en el valor de la carga original). Se setea el saldo directo porque la
+                // consolidación saltea a los deudores con Σpagos == 0.
+                const d = await ctx.prisma.deudor.findUnique({
+                    where: { id: deudorId }, select: { montoTotal: true },
+                });
+                const nuevoMonto = (d ? Number(d.montoTotal) : 0) + deudaAgregada;
+                const yaPagado = await this.sumPagos(deudorId, ctx);
+                await ctx.prisma.deudor.update({
+                    where: { id: deudorId },
+                    data: { montoTotal: nuevoMonto, saldo: Math.max(0, nuevoMonto - yaPagado) },
+                });
+            }
+
         } else if (montoNuevo !== null) {
             // ── Modo B: valor único = SALDO que queda (spec §3.2) ─────────────────
-            // Reconciliación por total contra los pagos ya registrados (no duplica
-            // pagos manuales ni actualizaciones sucesivas).
-            const deudorActual = await ctx.prisma.deudor.findUnique({
-                where: { id: deudorId }, select: { montoTotal: true }
-            });
-            const montoOriginal = deudorActual ? Number(deudorActual.montoTotal) : 0; // inmutable
-            const saldoArchivo = montoNuevo;
-            const yaPagado = await this.sumPagos(deudorId, ctx);
+            await this.reconciliarSaldoTotal(deudorId, montoNuevo, ctx);
+        }
+    }
 
-            const r = reconciliarSaldo(montoOriginal, saldoArchivo, yaPagado);
-            if (r.tipo === 'pago') {
-                await ctx.prisma.pago.create({
-                    data: {
-                        deudorId, fecha: new Date(), importe: r.importe,
-                        origen: 'IMPORT_ACTUALIZACION',
-                        origenArchivo: `ACTUALIZACION_REMESA_${ctx.remesaId}`,
-                        observacion: `Reconciliación saldo: original ${montoOriginal} − saldo ${saldoArchivo} − pagos ${yaPagado}`,
-                    },
-                });
-                this.pagosDeudorIds.add(deudorId);
-            } else if (r.tipo === 'ajuste') {
-                // La deuda creció (saldo informado > original). Para que el saldo del deudor
-                // suba hay que mover montoTotal: la consolidación deriva saldo = montoTotal − Σpagos
-                // y además saltea a los deudores sin pagos. montoTotal es monótono no-decreciente:
-                // solo crece acá; las bajas siguen siendo pagos.
-                // nuevoMonto = saldoArchivo + Σpagos  ⇒  montoTotal − Σpagos = saldoArchivo (outstanding real).
-                const nuevoMonto = saldoArchivo + yaPagado;
-                const crecimiento = nuevoMonto - montoOriginal;
-                await this.subirDeudaDeudor(deudorId, nuevoMonto, saldoArchivo, crecimiento, ctx);
-            }
+    /**
+     * Reconciliación por SALDO TOTAL único. La usan el Modo B (valor único) y el modelo
+     * ahorro/plan del Modo A. El archivo trae el saldo que queda por pagar; `montoTotal` del
+     * deudor es el ORIGINAL inmutable. Genera un ÚNICO pago por la diferencia (o sube la deuda
+     * si el saldo creció), restando lo YA pagado para no duplicar. Nunca un pago por cuota.
+     */
+    private async reconciliarSaldoTotal(deudorId: number, saldoArchivo: number, ctx: ProcessContext): Promise<void> {
+        const deudorActual = await ctx.prisma.deudor.findUnique({
+            where: { id: deudorId }, select: { montoTotal: true },
+        });
+        const montoOriginal = deudorActual ? Number(deudorActual.montoTotal) : 0; // inmutable
+        const yaPagado = await this.sumPagos(deudorId, ctx);
+
+        const r = reconciliarSaldo(montoOriginal, saldoArchivo, yaPagado);
+        if (r.tipo === 'pago') {
+            await ctx.prisma.pago.create({
+                data: {
+                    deudorId, fecha: new Date(), importe: r.importe,
+                    origen: 'IMPORT_ACTUALIZACION',
+                    origenArchivo: `ACTUALIZACION_REMESA_${ctx.remesaId}`,
+                    observacion: `Reconciliación saldo: original ${montoOriginal} − saldo ${saldoArchivo} − pagos ${yaPagado}`,
+                },
+            });
+            this.pagosDeudorIds.add(deudorId);
+        } else if (r.tipo === 'ajuste') {
+            // La deuda creció (saldo informado > original). Para que el saldo del deudor suba hay
+            // que mover montoTotal: la consolidación deriva saldo = montoTotal − Σpagos y además
+            // saltea a los deudores sin pagos. montoTotal es monótono no-decreciente: solo crece
+            // acá; las bajas siguen siendo pagos.
+            // nuevoMonto = saldoArchivo + Σpagos  ⇒  montoTotal − Σpagos = saldoArchivo (outstanding real).
+            const nuevoMonto = saldoArchivo + yaPagado;
+            const crecimiento = nuevoMonto - montoOriginal;
+            await this.subirDeudaDeudor(deudorId, nuevoMonto, saldoArchivo, crecimiento, ctx);
         }
     }
 
