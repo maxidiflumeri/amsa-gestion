@@ -53,7 +53,10 @@ export type AccionOperacion =
     | { tipo: 'SET_SITUACION' | 'SET_GESTION' | 'SET_MOTIVO'; modo: OrigenValor; parametroId?: number; fromIndex?: number }
     | { tipo: 'SET_CAMPO'; campo: CampoPrincipal; modo: OrigenValor; valor?: string; fromIndex?: number }
     | { tipo: 'SET_ADICIONALES'; columnas: Array<{ nombre: string; fromIndex: number }> }
-    | { tipo: 'ADD_COMENTARIO'; modo: OrigenValor; texto?: string; fromIndex?: number }
+    // ADD_COMENTARIO: texto fijo (ESTATICO), una columna (COLUMNA + fromIndex), o una PLANTILLA
+    // de texto libre con variables `{{colN}}` (N = índice de columna 0-based) que se reemplazan
+    // por el valor de esa columna en cada fila. La plantilla permite concatenar y maquetar libre.
+    | { tipo: 'ADD_COMENTARIO'; modo: 'ESTATICO' | 'COLUMNA' | 'PLANTILLA'; texto?: string; fromIndex?: number; plantilla?: string }
     | { tipo: 'DELETE_CONTACTO'; contactoTipo: TipoContactoAccion; modo: OrigenValor; valor?: string; fromIndex?: number };
 
 export interface AccionesConfig {

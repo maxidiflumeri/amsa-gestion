@@ -2,6 +2,7 @@ import React, { useCallback, useState } from "react";
 import {
     Box,
     Button,
+    Chip,
     CircularProgress,
     Divider,
     FormControl,
@@ -31,7 +32,7 @@ export type AccionOperacion =
     | { tipo: "SET_SITUACION" | "SET_GESTION" | "SET_MOTIVO"; modo: OrigenValor; parametroId?: number; fromIndex?: number }
     | { tipo: "SET_CAMPO"; campo: CampoPrincipal; modo: OrigenValor; valor?: string; fromIndex?: number }
     | { tipo: "SET_ADICIONALES"; columnas: Array<{ nombre: string; fromIndex: number }> }
-    | { tipo: "ADD_COMENTARIO"; modo: OrigenValor; texto?: string; fromIndex?: number }
+    | { tipo: "ADD_COMENTARIO"; modo: "ESTATICO" | "COLUMNA" | "PLANTILLA"; texto?: string; fromIndex?: number; plantilla?: string }
     | { tipo: "DELETE_CONTACTO"; contactoTipo: TipoContactoAccion; modo: OrigenValor; valor?: string; fromIndex?: number };
 
 export interface AccionesConfig {
@@ -128,6 +129,23 @@ export default function AccionesEditor({
     };
     const removeOp = (i: number) => set({ operaciones: cfg.operaciones.filter((_, j) => j !== i) });
     const addOp = () => set({ operaciones: [...cfg.operaciones, { tipo: "SET_SITUACION", modo: "ESTATICO" } as AccionOperacion] });
+
+    // Plantilla de comentario: refs a los textarea para insertar {{colN}} en la posición del cursor.
+    const comentarioRefs = React.useRef<Record<number, HTMLTextAreaElement | null>>({});
+    const insertarVariable = (i: number, op: any, placeholder: string) => {
+        const el = comentarioRefs.current[i];
+        const actual: string = op.plantilla ?? "";
+        if (!el) { setOp(i, { ...op, plantilla: actual + placeholder }); return; }
+        const start = el.selectionStart ?? actual.length;
+        const end = el.selectionEnd ?? actual.length;
+        const nuevo = actual.slice(0, start) + placeholder + actual.slice(end);
+        setOp(i, { ...op, plantilla: nuevo });
+        const pos = start + placeholder.length;
+        requestAnimationFrame(() => { el.focus(); el.setSelectionRange(pos, pos); });
+    };
+    // Preview en vivo: reemplaza {{colN}} por el valor de la 1ª fila de muestra.
+    const previewPlantilla = (tpl: string): string =>
+        tpl.replace(/\{\{\s*col\s*(\d+)\s*\}\}/gi, (_m, x) => String(previewRows[0]?.[Number(x)] ?? ""));
 
     const paramsFor = (tipo: string): Parametro[] =>
         tipo === "SET_SITUACION" ? paramsSituacion : tipo === "SET_GESTION" ? paramsGestion : paramsMotivo;
@@ -293,16 +311,18 @@ export default function AccionesEditor({
 
                                 {op.tipo === "ADD_COMENTARIO" && (
                                     <>
-                                        <FormControl size="small" sx={{ minWidth: 150 }}>
+                                        <FormControl size="small" sx={{ minWidth: 190 }}>
                                             <InputLabel>Origen</InputLabel>
-                                            <Select label="Origen" value={op.modo} onChange={(e) => setOp(i, { ...op, modo: e.target.value as OrigenValor })}>
+                                            <Select label="Origen" value={op.modo} onChange={(e) => setOp(i, { ...op, modo: e.target.value as "ESTATICO" | "COLUMNA" | "PLANTILLA" })}>
                                                 <MenuItem value="ESTATICO">Texto fijo</MenuItem>
                                                 <MenuItem value="COLUMNA">Desde una columna</MenuItem>
+                                                <MenuItem value="PLANTILLA">Plantilla con variables</MenuItem>
                                             </Select>
                                         </FormControl>
-                                        {op.modo === "ESTATICO" ? (
+                                        {op.modo === "ESTATICO" && (
                                             <TextField size="small" fullWidth label="Comentario" value={op.texto ?? ""} onChange={(e) => setOp(i, { ...op, texto: e.target.value })} sx={{ flex: 1, minWidth: 240 }} />
-                                        ) : (
+                                        )}
+                                        {op.modo === "COLUMNA" && (
                                             <ColumnaSelect label="Columna" value={op.fromIndex} onChange={(n) => setOp(i, { ...op, fromIndex: n })} />
                                         )}
                                     </>
@@ -360,6 +380,42 @@ export default function AccionesEditor({
                                             Agregar campo
                                         </Button>
                                     </Stack>
+                                </Box>
+                            )}
+
+                            {op.tipo === "ADD_COMENTARIO" && op.modo === "PLANTILLA" && (
+                                <Box sx={{ mt: 2, pl: 1 }}>
+                                    <Typography variant="caption" color="text.secondary">
+                                        Escribí el comentario como quieras e insertá variables de columna.
+                                        Cada {"{{colN}}"} se reemplaza por el valor de esa columna en cada fila.
+                                    </Typography>
+                                    <TextField
+                                        fullWidth multiline minRows={2} sx={{ mt: 1 }}
+                                        label="Plantilla del comentario"
+                                        placeholder="ej: tarjeta {{col1}} - motivo {{col2}} - por {{col3}}"
+                                        value={op.plantilla ?? ""}
+                                        onChange={(e) => setOp(i, { ...op, plantilla: e.target.value })}
+                                        inputRef={(el) => { comentarioRefs.current[i] = (el as HTMLTextAreaElement) ?? null; }}
+                                    />
+                                    <Stack direction="row" spacing={0.5} flexWrap="wrap" useFlexGap alignItems="center" sx={{ mt: 1 }}>
+                                        <Typography variant="caption" color="text.secondary" sx={{ mr: 0.5 }}>
+                                            Insertar columna:
+                                        </Typography>
+                                        {Array.from({ length: totalColumns > 0 ? totalColumns : 12 }).map((_, ci) => (
+                                            <Chip
+                                                key={ci}
+                                                size="small"
+                                                variant="outlined"
+                                                label={`{{col${ci}}}${previewRows[0]?.[ci] ? ` · ${String(previewRows[0][ci]).substring(0, 12)}` : ""}`}
+                                                onMouseDown={(e) => { e.preventDefault(); insertarVariable(i, op, `{{col${ci}}}`); }}
+                                            />
+                                        ))}
+                                    </Stack>
+                                    {!!op.plantilla && previewRows[0] && (
+                                        <Typography variant="caption" color="text.secondary" sx={{ display: "block", mt: 1, fontStyle: "italic" }}>
+                                            Vista previa (1ª fila): {previewPlantilla(op.plantilla) || "—"}
+                                        </Typography>
+                                    )}
                                 </Box>
                             )}
                         </Box>

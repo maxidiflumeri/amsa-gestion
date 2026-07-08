@@ -93,8 +93,14 @@ export class AccionesProcessor implements ICategoryProcessor {
         return String(row._raw?.[fromIndex] ?? '').trim();
     }
 
-    /** Valor textual de una operación estática/columna. */
+    /** Valor textual de una operación (texto fijo, una columna, o plantilla con variables). */
     private valorTexto(op: any, row: MappedRow): string {
+        // Plantilla de texto libre: cada {{colN}} se reemplaza por el valor de la columna N.
+        if (op.modo === 'PLANTILLA') {
+            return String(op.plantilla ?? '')
+                .replace(/\{\{\s*col\s*(\d+)\s*\}\}/gi, (_m: string, idx: string) => this.raw(row, Number(idx)))
+                .trim();
+        }
         if (op.modo === 'COLUMNA') return this.raw(row, op.fromIndex);
         return String(op.valor ?? op.texto ?? '').trim();
     }

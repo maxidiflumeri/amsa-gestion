@@ -6,6 +6,33 @@
 
 ---
 
+## [2026-07-08] — Acciones masivas: comentario con plantilla de variables
+
+> ⚠️ **Redeploy back + front** (sin migración: es un campo más dentro de `mappingJson.acciones`).
+
+La operación **"Agregar comentario"** de la categoría ACCIONES suma un tercer origen del valor,
+**"Plantilla con variables"**: el usuario escribe el texto libre e inserta variables de columna
+`{{colN}}` (N = índice de columna 0-based) que se reemplazan por el valor de esa columna en cada
+fila. Cubre y supera la concatenación (permite maquetar el texto como se quiera, ej.
+`tarjeta {{col1}} - motivo {{col2}} - por {{col3}}`).
+
+**Backend**
+- [mapping-types.ts](backend/src/modules/imports/mapping-types.ts): `ADD_COMENTARIO` suma `modo: 'PLANTILLA'`
+  y el campo `plantilla?: string`.
+- [acciones.processor.ts](backend/src/modules/imports/processors/acciones.processor.ts): `valorTexto`
+  resuelve la plantilla sustituyendo `{{colN}}` (regex tolerante a espacios/mayúsculas) por el valor
+  crudo de la columna; las variables sin valor quedan vacías y el texto literal se respeta.
+
+**Frontend**
+- [AccionesEditor.tsx](frontend/src/components/import/AccionesEditor.tsx): builder visual para el modo
+  plantilla — textarea multilínea + chips clickeables por columna (con muestra del valor) que insertan
+  `{{colN}}` **en la posición del cursor**, y **vista previa en vivo** con la 1ª fila del archivo de muestra.
+
+Retrocompatible: los orígenes "Texto fijo" y "Desde una columna" no cambian; las plantillas ya guardadas
+siguen funcionando igual.
+
+---
+
 ## [2026-07-08] — Fixes de imports: actualizaciones, transformaciones, pagos y vista de deudores
 
 > ⚠️ **Redeploy back + front** (sin migración: todos los cambios son de código).
