@@ -3,6 +3,7 @@ import { Injectable, NotFoundException, BadRequestException, ConflictException, 
 import { InjectQueue } from '@nestjs/bullmq';
 import { Queue, Job } from 'bullmq';
 import { applyTransforms } from './transforms';
+import { resolveDelimiter } from './utils/delimitador';
 import { FileStorageService } from './file-storage.service';
 import * as fs from 'fs';
 import * as fastcsv from 'fast-csv';
@@ -218,7 +219,7 @@ export class ImportService {
 
             const parser = fastcsv.parse({
                 headers: false,
-                delimiter: separador,
+                delimiter: resolveDelimiter(separador),
                 trim: false,
                 maxRows: maxRows + (tieneHeader ? 1 : 0),
             });
@@ -344,7 +345,7 @@ export class ImportService {
         }
 
         const mapping = remesa.plantilla.mappingJson as unknown as MappingJson;
-        const sep = remesa.plantilla.separador ?? '|';
+        const sep = resolveDelimiter(remesa.plantilla.separador ?? '|');
         const hasHeader = !!remesa.plantilla.tieneHeader;
 
         let totalRows = 0;
@@ -462,7 +463,7 @@ export class ImportService {
         if (idx === undefined || idx === null) {
             throw new BadRequestException('La plantilla de acciones no tiene columna de match configurada');
         }
-        const sep = remesa.plantilla.separador ?? '|';
+        const sep = resolveDelimiter(remesa.plantilla.separador ?? '|');
         const hasHeader = !!remesa.plantilla.tieneHeader;
         const valores = new Set<string>();
         let totalFilas = 0;
@@ -782,7 +783,7 @@ export class ImportService {
             accionesConfig: mapping?.acciones,
         };
 
-        const sep = remesa.plantilla.separador ?? '|';
+        const sep = resolveDelimiter(remesa.plantilla.separador ?? '|');
         const hasHeader = !!remesa.plantilla.tieneHeader;
 
         const BATCH_SIZE = 200;

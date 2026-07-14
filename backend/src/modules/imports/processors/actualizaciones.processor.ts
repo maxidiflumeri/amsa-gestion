@@ -383,8 +383,11 @@ export class ActualizacionesProcessor implements ICategoryProcessor {
                 }
             }
 
-            // Cuotas nuevas (en archivo pero no en DB). Se acumula la deuda agregada (importe
-            // real) para hacer crecer el montoTotal del deudor en el modelo "factura con importe".
+            // Cambio de deuda por cuotas. Se acumula el delta (importe real) para hacer crecer el
+            // montoTotal del deudor en el modelo "factura con importe":
+            //  - cuota nueva (en archivo, no en DB) → suma su importe completo.
+            //  - cuota existente con importe corregido → suma el delta (nuevo − viejo), para que el
+            //    total refleje el valor actualizado y no el de la carga original.
             let deudaAgregada = 0;
             for (const [nroFactura, datos] of nrosEnArchivo) {
                 if (!nrosEnDB.has(nroFactura)) {
@@ -402,11 +405,13 @@ export class ActualizacionesProcessor implements ICategoryProcessor {
                     if (importeFactura > 0) deudaAgregada += importeFactura;
                 } else if (datos.importe !== undefined) {
                     const facExistente = facturasEnDB.find(f => f.nroFactura === nroFactura)!;
-                    if (Math.abs(facExistente.importe - datos.importe) > 0.001) {
+                    const delta = datos.importe - facExistente.importe;
+                    if (Math.abs(delta) > 0.001) {
                         await ctx.prisma.factura.update({
                             where: { id: facExistente.id },
                             data: { importe: datos.importe },
                         });
+                        deudaAgregada += delta;
                     }
                 }
             }
@@ -417,10 +422,11 @@ export class ActualizacionesProcessor implements ICategoryProcessor {
                 // el total, reconciliando contra el original y los pagos ya registrados.
                 await this.reconciliarSaldoTotal(deudorId, montoNuevo, ctx);
             } else if (deudaAgregada > 0) {
-                // Modelo "factura con importe": llegó una cuota nueva → la deuda total del deudor
-                // debe crecer por su importe (antes la factura se agregaba pero montoTotal quedaba
-                // en el valor de la carga original). Se setea el saldo directo porque la
-                // consolidación saltea a los deudores con Σpagos == 0.
+                // Modelo "factura con importe": llegó deuda nueva (cuota nueva y/o corrección al
+                // alza de una cuota existente) → la deuda total del deudor debe crecer por ese delta
+                // (antes la factura se agregaba/actualizaba pero montoTotal quedaba en el valor de la
+                // carga original). Se setea el saldo directo porque la consolidación saltea a los
+                // deudores con Σpagos == 0.
                 const d = await ctx.prisma.deudor.findUnique({
                     where: { id: deudorId }, select: { montoTotal: true },
                 });

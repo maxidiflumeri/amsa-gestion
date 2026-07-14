@@ -174,6 +174,19 @@ interface Parametro {
     grupo: string
 }
 
+/** Valores del combo "Formato / Separador" que NO son personalizados. `'\t'` es un tab real. */
+const SEP_ESTANDAR = ['|', ',', ';', '\t', 'EXCEL']
+
+/**
+ * Repara el separador guardado por versiones viejas del combo: el tabulador se guardaba
+ * como la cadena literal de 2 caracteres "\t" (barra + t) en vez del tab real (0x09), por
+ * eso al importar no separaba nada. Espejo del `resolveDelimiter` del backend.
+ */
+function normalizarSeparador(sep: string): string {
+    if (sep === '\\t' || sep === 'tab' || sep === 'TAB') return '\t'
+    return sep
+}
+
 const PlantillaEditor: React.FC = () => {
     const { id } = useParams<{ id?: string }>()
     const navigate = useNavigate()
@@ -186,6 +199,9 @@ const PlantillaEditor: React.FC = () => {
     const [categoria, setCategoria] = useState('DEUDORES')
     const [version, setVersion] = useState(1)
     const [separador, setSeparador] = useState('|')
+    // 'STD' = una opción del combo; 'OTRO' = separador personalizado (no se auto-cambia al
+    // tipear una coma). Explícito para no depender de si el valor "parece" estándar.
+    const [sepMode, setSepMode] = useState<'STD' | 'OTRO'>('STD')
     const [tieneHeader, setTieneHeader] = useState(false)
     const [matchKeys, setMatchKeys] = useState('empresaId,documento')
     const [fields, setFields] = useState<MappingField[]>([])
@@ -255,7 +271,9 @@ const PlantillaEditor: React.FC = () => {
             setNombre(p.nombre)
             setCategoria(p.categoria)
             setVersion(p.version)
-            setSeparador(p.separador)
+            const sepCargado = normalizarSeparador(p.separador ?? '|')
+            setSeparador(sepCargado)
+            setSepMode(SEP_ESTANDAR.includes(sepCargado) ? 'STD' : 'OTRO')
             setTieneHeader(p.tieneHeader)
             setMatchKeys(
                 (p.mappingJson?.matchKeys ?? ['empresaId', 'documento']).join(',')
@@ -467,33 +485,36 @@ const PlantillaEditor: React.FC = () => {
                     <FormControl sx={{ flex: '1 1 240px' }}>
                         <InputLabel>Formato / Separador</InputLabel>
                         <Select
-                            value={
-                                ['|', ',', ';', '\t', 'EXCEL'].includes(separador)
-                                    ? separador
-                                    : 'OTRO'
-                            }
+                            value={sepMode === 'OTRO' ? 'OTRO' : separador}
                             label="Formato / Separador"
                             onChange={(e) => {
-                                if (e.target.value !== 'OTRO') setSeparador(e.target.value)
+                                const v = e.target.value
+                                if (v === 'OTRO') {
+                                    setSepMode('OTRO')
+                                    setSeparador('') // vacío para tipear el separador
+                                } else {
+                                    setSepMode('STD')
+                                    setSeparador(v)
+                                }
                             }}
                         >
                             <MenuItem value="EXCEL">Excel (.xls, .xlsx)</MenuItem>
                             <MenuItem value=",">CSV - Coma (,)</MenuItem>
                             <MenuItem value=";">CSV - Punto y coma (;)</MenuItem>
                             <MenuItem value="|">TXT - Pipe (|)</MenuItem>
-                            <MenuItem value="\t">TXT - Tabulador (TAB)</MenuItem>
+                            <MenuItem value={'\t'}>TXT - Tabulador (TAB)</MenuItem>
                             <MenuItem value="OTRO">Otro personalizado...</MenuItem>
                         </Select>
                     </FormControl>
-                    {!['|', ',', ';', '\t', 'EXCEL'].includes(separador) &&
-                        separador !== 'OTRO' && (
-                            <TextField
-                                label="Separador personalizado"
-                                value={separador}
-                                onChange={(e) => setSeparador(e.target.value)}
-                                sx={{ flex: '1 1 240px' }}
-                            />
-                        )}
+                    {sepMode === 'OTRO' && (
+                        <TextField
+                            label="Separador personalizado"
+                            value={separador}
+                            onChange={(e) => setSeparador(e.target.value)}
+                            helperText="Un solo carácter (ej: coma, punto y coma, pipe)"
+                            sx={{ flex: '1 1 240px' }}
+                        />
+                    )}
                     <TextField
                         label="Versión"
                         type="number"

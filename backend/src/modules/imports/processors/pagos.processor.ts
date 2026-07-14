@@ -29,13 +29,17 @@ export class PagosProcessor implements ICategoryProcessor {
         const nroCliente = String(row.nro_cliente ?? '').trim();
         if (!nroCliente) throw new Error('nro_cliente es requerido para pagos');
 
-        // Buscar deudor por nro_cliente en camposAdicionales
+        // Buscar deudor en la remesa de origen (la de deudores), igual que facturas/contactos.
+        // Los pagos apuntan a una remesa origen distinta a la del propio archivo; usar ctx.remesaId
+        // acá hacía fallar la búsqueda con "Deudor no encontrado" aunque el nro_cliente fuera correcto.
+        const targetRemesaId = ctx.remesaOrigenId ?? ctx.remesaId;
+
         const deudorRows = await ctx.prisma.$queryRaw<{ id: number }[]>(
             Prisma.sql`
                 SELECT id
                 FROM deudor
                 WHERE empresaId = ${ctx.empresaId}
-                  AND remesaId = ${ctx.remesaId}
+                  AND remesaId = ${targetRemesaId}
                   AND nroCliente = ${nroCliente}
                 LIMIT 1
             `,

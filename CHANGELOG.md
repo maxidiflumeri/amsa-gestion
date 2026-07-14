@@ -6,6 +6,43 @@
 
 ---
 
+## [2026-07-14] — Fixes de imports: total de deuda en actualizaciones + búsqueda de deudor en pagos
+
+> ⚠️ **Redeploy back** (sin migración: solo código). Dos arreglos reportados sobre el lote del 2026-07-08
+> que no habían quedado del todo bien.
+
+**Backend**
+
+- **Actualizaciones — la deuda total ahora refleja el importe corregido de una cuota existente**
+  ([actualizaciones.processor.ts](backend/src/modules/imports/processors/actualizaciones.processor.ts)):
+  en el modelo "factura con importe", cuando una actualización trae una cuota nueva **y** además corrige
+  el importe de una cuota ya cargada, el `montoTotal` se recalculaba sumando el valor **viejo** de la cuota
+  corregida. Ahora la corrección aporta su **delta** (nuevo − viejo) a `deudaAgregada`, además del importe
+  de la cuota nueva. Ej. cuota 74 pasa de $385.974,85 a $387.605,54 y llega la cuota 75 de $399.999,99:
+  el total pasa de mostrar $785.974,84 (mal) a **$787.605,53** (correcto).
+
+- **Pagos — el deudor se busca en la remesa de origen, no en la del propio archivo**
+  ([pagos.processor.ts](backend/src/modules/imports/processors/pagos.processor.ts)): la búsqueda por
+  `nroCliente` usaba `ctx.remesaId` (la remesa del archivo de pagos) en vez de `ctx.remesaOrigenId ?? ctx.remesaId`
+  como hacen facturas/contactos/enriquecimiento. Por eso fallaba con "Deudor no encontrado para pago
+  (nro_cliente=…)" aunque el nro de cliente se viera bien en la vista previa. Ahora apunta a la remesa origen.
+
+- **Separador de plantillas — el tabulador y el separador personalizado dejaban todo en una columna**:
+  el combo "Formato / Separador" guardaba el tabulador como la cadena literal `"\t"` (2 caracteres:
+  barra + t), porque un atributo JSX `value="\t"` **no** interpreta secuencias de escape. `fast-csv`
+  necesita un delimitador de 1 solo carácter, así que ese `"\t"` nunca matcheaba → archivo en una columna.
+  Además la opción "Otro personalizado" era un callejón sin salida (nunca mostraba el campo) y tipear una
+  coma saltaba a "CSV - Coma".
+  - Frontend ([PlantillaEditor.tsx](frontend/src/pages/PlantillaEditor.tsx)): el `MenuItem` del tabulador
+    ahora usa un tab real (`value={'\t'}`); modo explícito `STD`/`OTRO` para que "personalizado" muestre el
+    campo y no se auto-cambie al tipear; al cargar una plantilla vieja se repara el `"\t"` literal.
+  - Backend ([utils/delimitador.ts](backend/src/modules/imports/utils/delimitador.ts) nuevo + los 4 puntos
+    de parseo en [imports.service.ts](backend/src/modules/imports/imports.service.ts)): `resolveDelimiter`
+    convierte `"\t"`/`"tab"`/`"TAB"` al carácter real antes de pasarlo a `fast-csv`. Repara también las
+    plantillas ya guardadas con el valor incorrecto (preview, validación y import real).
+
+---
+
 ## [2026-07-08] — Acciones masivas: comentario con plantilla de variables
 
 > ⚠️ **Redeploy back + front** (sin migración: es un campo más dentro de `mappingJson.acciones`).
