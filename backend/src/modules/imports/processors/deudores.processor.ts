@@ -1,12 +1,17 @@
 // processors/deudores.processor.ts
 import { ICategoryProcessor, MappedRow, ProcessContext, RowValidationResult } from './processor.interface';
 import { Prisma } from '@prisma/client';
+import { Logger } from '@nestjs/common';
 import { nroClienteDeFila } from '../utils/nro-cliente';
-import { documentoDeFila, esDocumentoPlaceholder } from '../utils/documento';
+import { documentoDeFila } from '../utils/documento';
 import { procesarBloquesDeudor } from '../utils/procesar-bloques';
+import { enriquecerContactosHistoricos } from '../utils/enriquecimiento-historico';
 
 export class DeudoresProcessor implements ICategoryProcessor {
     readonly category = 'DEUDORES';
+    private readonly logger = new Logger(DeudoresProcessor.name);
+    /** Contactos copiados desde el histórico en este batch (autoenriquecimiento). */
+    private contactosEnriquecidos = 0;
 
     private parseFloatSafe(val: any): number | undefined {
         if (val === null || val === undefined || val === '') return undefined;
@@ -94,35 +99,19 @@ export class DeudoresProcessor implements ICategoryProcessor {
         // Bloques repetitivos (facturas/contactos) → se procesan en cualquier categoría.
         await procesarBloquesDeudor(deudor.id, row._blocks, ctx);
 
-        // -- ENRIQUECIMIENTO HISTÓRICO GLOBAL (Cross-Empresa / Cross-Remesa) --
-        // Se saltea con placeholder (deudor sin DNI): no hay histórico que matchear
-        // hasta que llegue el DNI real por la actualización.
-        if (isNewForThisRemesa && documentoStr && !esDocumentoPlaceholder(documentoStr)) {
-            const historicContacts = await ctx.prisma.contacto.findMany({
-                where: {
-                    deudor: {
-                        documento: documentoStr,
-                        remesaId: { not: ctx.remesaId }
-                    }
-                },
-                distinct: ['tipo', 'valor'],
-                select: { tipo: true, valor: true, subtipo: true, prioridad: true, validado: true, whatsapp: true }
-            });
-
-            if (historicContacts.length > 0) {
-                await ctx.prisma.contacto.createMany({
-                    data: historicContacts.map(hc => ({
-                        deudorId: deudor.id,
-                        tipo: hc.tipo,
-                        valor: hc.valor,
-                        subtipo: hc.subtipo,
-                        prioridad: hc.prioridad,
-                        validado: hc.validado,
-                        whatsapp: hc.whatsapp
-                    })),
-                    skipDuplicates: true
-                });
-            }
+        // Autoenriquecimiento de contactos desde la propia base (histórico por DNI).
+        // Solo para deudores nuevos en esta remesa; el helper saltea placeholders (sin DNI).
+        if (isNewForThisRemesa) {
+            this.contactosEnriquecidos += await enriquecerContactosHistoricos(ctx, deudor.id, documentoStr);
         }
+    }
+
+    async afterAll(_ctx: ProcessContext): Promise<void> {
+        if (this.contactosEnriquecidos > 0) {
+            this.logger.log(
+                `Autoenriquecimiento histórico: ${this.contactosEnriquecidos} contactos copiados desde la base.`,
+            );
+        }
+        this.contactosEnriquecidos = 0;
     }
 }

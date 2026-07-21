@@ -6,6 +6,7 @@ import { normalizarTelefonoArgentino, esPosibleTelefono } from '../../../common/
 import { reconciliarSaldo, reconciliarAusente } from '../utils/reconciliar-actualizacion';
 import { esDocumentoPlaceholder } from '../utils/documento';
 import { mergeAdicionales } from '../utils/campos-adicionales';
+import { enriquecerContactosHistoricos } from '../utils/enriquecimiento-historico';
 import { AuditModulo, AuditTipo } from '../../transacciones/audit.enums';
 
 /**
@@ -48,6 +49,8 @@ export class ActualizacionesProcessor implements ICategoryProcessor {
     private sit050IdCache: number | null | undefined = undefined;
     /** Deudores re-asignados en este batch (venían desasignados y volvieron al archivo). */
     private reasignadosCount = 0;
+    /** Contactos copiados desde el histórico al crear casos nuevos (autoenriquecimiento). */
+    private contactosEnriquecidos = 0;
 
     /** Limpia el estado acumulado del batch. */
     private reset(): void {
@@ -57,6 +60,7 @@ export class ActualizacionesProcessor implements ICategoryProcessor {
         this.desasignadoIdCache = undefined;
         this.sit050IdCache = undefined;
         this.reasignadosCount = 0;
+        this.contactosEnriquecidos = 0;
     }
 
     /** Resuelve (y cachea) el id del parámetro GES-094 "Desasignado". null si no está seedeado. */
@@ -428,20 +432,8 @@ export class ActualizacionesProcessor implements ICategoryProcessor {
             },
         });
 
-        // Enriquecimiento histórico de contactos
-        if (documentoStr && !documentoStr.startsWith('SIN_DOC')) {
-            const historicContacts = await ctx.prisma.contacto.findMany({
-                where: { deudor: { documento: documentoStr, remesaId: { not: ctx.remesaId } } },
-                distinct: ['tipo', 'valor'],
-                select: { tipo: true, valor: true, subtipo: true, prioridad: true, validado: true, whatsapp: true },
-            });
-            if (historicContacts.length > 0) {
-                await ctx.prisma.contacto.createMany({
-                    data: historicContacts.map(hc => ({ deudorId: deudor.id, ...hc })),
-                    skipDuplicates: true,
-                });
-            }
-        }
+        // Autoenriquecimiento de contactos desde la propia base (histórico por DNI).
+        this.contactosEnriquecidos += await enriquecerContactosHistoricos(ctx, deudor.id, documentoStr);
 
         // Insertar facturas del archivo
         if (row._blocks) {
@@ -686,6 +678,14 @@ export class ActualizacionesProcessor implements ICategoryProcessor {
      */
     async afterAll(ctx: ProcessContext): Promise<void> {
         if (!ctx.remesaOrigenId) return;
+
+        // Resumen de autoenriquecimiento (casos nuevos del escenario B). Se loguea antes de las
+        // ramas porque cada una llama a reset() (que pone el contador en 0).
+        if (this.contactosEnriquecidos > 0) {
+            this.logger.log(
+                `Autoenriquecimiento histórico: ${this.contactosEnriquecidos} contactos copiados desde la base.`,
+            );
+        }
 
         // En SOLO_DATOS (o si el archivo no trajo datos de deuda) no se reconcilia deuda de los
         // presentes ni se toca a los ausentes por "pagó todo". La desasignación sí puede correr.

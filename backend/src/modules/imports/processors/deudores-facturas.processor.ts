@@ -1,13 +1,16 @@
 import { ICategoryProcessor, MappedRow, ProcessContext, RowValidationResult } from './processor.interface';
 import { Prisma } from '@prisma/client';
+import { Logger } from '@nestjs/common';
 import { clearContactoImportCaches, prepararContactoImport } from '../utils/contacto-import';
 import { nroClienteDeFila } from '../utils/nro-cliente';
-import { documentoDeFila, esDocumentoPlaceholder } from '../utils/documento';
+import { documentoDeFila } from '../utils/documento';
 import { procesarBloquesDeudor } from '../utils/procesar-bloques';
 import { recalcularMontoTotalDesdeFacturas } from '../utils/monto-facturas';
+import { enriquecerContactosHistoricos } from '../utils/enriquecimiento-historico';
 
 export class DeudoresYFacturasProcessor implements ICategoryProcessor {
     readonly category = 'DEUDORES_Y_FACTURAS';
+    private readonly logger = new Logger(DeudoresYFacturasProcessor.name);
 
     // Caché simple en memoria por llamada executeRemesa para evitar
     // constantes Upserts si el archivo trae muchas filas del mismo deudor seguido.
@@ -15,6 +18,8 @@ export class DeudoresYFacturasProcessor implements ICategoryProcessor {
     private debtorCache: Map<string, number> = new Map();
     /** Deudores tocados en este batch → se recalcula su montoTotal en afterAll. */
     private touchedDeudorIds = new Set<number>();
+    /** Contactos copiados desde el histórico en este batch (autoenriquecimiento). */
+    private contactosEnriquecidos = 0;
 
     private parseFloatSafe(val: any): number | undefined {
         if (val === null || val === undefined || val === '') return undefined;
@@ -130,43 +135,10 @@ export class DeudoresYFacturasProcessor implements ICategoryProcessor {
         deudorId = deudor.id;
         this.touchedDeudorIds.add(deudorId);
 
-        // -- ENRIQUECIMIENTO HISTÓRICO GLOBAL --
+        // -- AUTOENRIQUECIMIENTO DE CONTACTOS DESDE LA PROPIA BASE (histórico por DNI) --
         if (isNewForThisRemesa && !this.debtorCache.has(documentoStr)) {
             this.debtorCache.set(documentoStr, deudorId);
-
-            // Se saltea con placeholder (sin DNI): no hay histórico que matchear todavía.
-            if (documentoStr && !esDocumentoPlaceholder(documentoStr)) {
-                // Buscamos TODOS los contactos históricos de cualquier deudor que comparta este DNI
-                const historicContacts = await ctx.prisma.contacto.findMany({
-                    where: {
-                        deudor: {
-                            documento: documentoStr,
-                            // Excluimos la remesa actual para no auto-clonar lo que recién insertamos/vamos a insertar
-                            remesaId: { not: ctx.remesaId }
-                        }
-                    },
-                    // Usamos distinct para no traer 5 teléfonos idénticos si apareció en 5 campañas pasadas
-                    distinct: ['tipo', 'valor'],
-                    select: { tipo: true, valor: true, subtipo: true, prioridad: true, validado: true, whatsapp: true }
-                });
-
-                if (historicContacts.length > 0) {
-                    // Preparamos el payload masivo ignorando duplicados si es necesario,
-                    // Prisma `createMany` con `skipDuplicates` es ideal aquí.
-                    await ctx.prisma.contacto.createMany({
-                        data: historicContacts.map(hc => ({
-                            deudorId: deudorId,
-                            tipo: hc.tipo,
-                            valor: hc.valor,
-                            subtipo: hc.subtipo,
-                            prioridad: hc.prioridad,
-                            validado: hc.validado,
-                            whatsapp: hc.whatsapp
-                        })),
-                        skipDuplicates: true
-                    });
-                }
-            }
+            this.contactosEnriquecidos += await enriquecerContactosHistoricos(ctx, deudorId, documentoStr);
         }
 
         // 2. Insertar / Actualizar la Factura Principal
@@ -244,8 +216,14 @@ export class DeudoresYFacturasProcessor implements ICategoryProcessor {
         // Reconciliar el importe del deudor con la suma real de facturas (según modo)
         // y consolidar saldo/situación. Idempotente.
         await recalcularMontoTotalDesdeFacturas(ctx, [...this.touchedDeudorIds]);
+        if (this.contactosEnriquecidos > 0) {
+            this.logger.log(
+                `Autoenriquecimiento histórico: ${this.contactosEnriquecidos} contactos copiados desde la base.`,
+            );
+        }
         clearContactoImportCaches();
         this.debtorCache.clear();
         this.touchedDeudorIds.clear();
+        this.contactosEnriquecidos = 0;
     }
 }

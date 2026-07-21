@@ -6,6 +6,36 @@
 
 ---
 
+## [2026-07-20] — Autoenriquecimiento de contactos desde la base: helper compartido en todos los processors
+
+> ⚠️ **Redeploy back** (solo código, sin migración). No cambia el comportamiento: unifica una lógica
+> que ya existía duplicada en 3 processors.
+
+El autoenriquecimiento (cuando entra un caso nuevo, se le arrastran los contactos históricos de la
+propia base que tengan el **mismo DNI** en otra remesa, sin duplicar) estaba **copiado y pegado en 3
+processors** con variantes sutiles (ej. ACTUALIZACIONES chequeaba el placeholder `SIN_DOC` y los otros
+`SIN-DNI-`). Se consolidó en un único helper para que corra **igual en todo processor que dé de alta
+deudores**.
+
+**Backend**
+- Nuevo [utils/enriquecimiento-historico.ts](backend/src/modules/imports/utils/enriquecimiento-historico.ts):
+  `enriquecerContactosHistoricos(ctx, deudorId, documento)` — match **exacto por DNI**, cross-empresa y
+  cross-remesa (excluye la remesa actual), `distinct` por (tipo, valor), `createMany skipDuplicates` sobre
+  el unique (deudorId, tipo, valor). Saltea placeholders (`SIN-DNI-` / `SIN_DOC`). Devuelve la cantidad copiada.
+- Reemplaza el bloque inline en [deudores.processor.ts](backend/src/modules/imports/processors/deudores.processor.ts),
+  [deudores-facturas.processor.ts](backend/src/modules/imports/processors/deudores-facturas.processor.ts) y
+  [actualizaciones.processor.ts](backend/src/modules/imports/processors/actualizaciones.processor.ts) (escenario
+  "caso nuevo"). Cada uno acumula un contador y loguea un **resumen por importación** (`log`): "Autoenriquecimiento
+  histórico: N contactos copiados desde la base" — para poder verificar en prod si trajo datos.
+- Tests: [enriquecimiento-historico.spec.ts](backend/src/modules/imports/utils/enriquecimiento-historico.spec.ts)
+  (match exacto, sin histórico, placeholders, trim). Verificado además end-to-end contra la DB con el processor real.
+
+> **Nota diagnóstica**: el match es por **string exacto** de `documento`. Si el mismo DNI está guardado con
+> formatos distintos entre cargas (CUIL vs DNI, espacios, ceros a la izquierda), no matchea — se resuelve
+> normalizando el documento en las transformaciones de la plantilla, no acá.
+
+---
+
 ## [2026-07-17] — Actualización diaria de gestión: ausentes → desasignado (GES-094) en vez de "pagó todo"
 
 > ⚠️ **Redeploy back + front + `npx prisma db push`** (columna nullable nueva, no destructiva).
