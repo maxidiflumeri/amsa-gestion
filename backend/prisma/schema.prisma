@@ -63,6 +63,10 @@ model deudor {
   fechaVencimiento       DateTime?
   estadoSituacionId      Int?
   estadoGestionId        Int?
+  // Guarda el estadoGestionId previo cuando el deudor se DESASIGNA (GES-094) por una
+  // actualización diaria de gestión, para poder revertir la desasignación si reaparece.
+  // null salvo mientras esté desasignado. Ver imports-actualizacion-diaria-*-spec.md (Feature A).
+  estadoGestionPrevioAId Int?
   motivoNoPagoId         Int?
   camposAdicionales      Json?
   createdAt         DateTime      @default(now())
@@ -73,6 +77,7 @@ model deudor {
   empresa           empresa       @relation(fields: [empresaId], references: [id], map: "Deudor_empresaId_fkey")
   remesa            remesa        @relation(fields: [remesaId], references: [id], map: "Deudor_remesaId_fkey")
   estadoGestion     parametro?    @relation("DeudorEstadoGestion", fields: [estadoGestionId], references: [id])
+  estadoGestionPrevio parametro?  @relation("DeudorEstadoGestionPrevio", fields: [estadoGestionPrevioAId], references: [id])
   estadoSituacion   parametro?    @relation("DeudorEstadoSituacion", fields: [estadoSituacionId], references: [id])
   motivoNoPago      parametro?    @relation("DeudorMotivoNoPago", fields: [motivoNoPagoId], references: [id])
   facturas          factura[]
@@ -89,6 +94,7 @@ model deudor {
   @@index([empresaId, remesaId, nroCliente], map: "Deudor_empresaId_remesaId_nroCliente_idx")
   @@index([fechaVencimiento], map: "Deudor_fechaVencimiento_idx")
   @@index([estadoGestionId], map: "Deudor_estadoGestionId_fkey")
+  @@index([estadoGestionPrevioAId], map: "Deudor_estadoGestionPrevioAId_idx")
   @@index([estadoSituacionId], map: "Deudor_estadoSituacionId_fkey")
   @@index([estadoSituacionId, empresaId], map: "Deudor_estadoSituacion_empresa_idx")
   @@index([motivoNoPagoId], map: "Deudor_motivoNoPagoId_fkey")
@@ -207,6 +213,7 @@ model parametro {
   parametroPadre              parametro?          @relation("CondicionParametro", fields: [padreId], references: [id])
   subParametros               parametro[]         @relation("CondicionParametro")
   deudoresConEstaGestion      deudor[]            @relation("DeudorEstadoGestion")
+  deudoresConGestionPrevia    deudor[]            @relation("DeudorEstadoGestionPrevio")
   deudoresConEstaSituacion    deudor[]            @relation("DeudorEstadoSituacion")
   deudoresConEsteMotivoNoPago deudor[]            @relation("DeudorMotivoNoPago")
   empresas                    empresa_parametro[]

@@ -6,6 +6,7 @@ import { normalizarTelefonoArgentino, esPosibleTelefono } from '../../../common/
 import { reconciliarSaldo, reconciliarAusente } from '../utils/reconciliar-actualizacion';
 import { esDocumentoPlaceholder } from '../utils/documento';
 import { mergeAdicionales } from '../utils/campos-adicionales';
+import { AuditModulo, AuditTipo } from '../../transacciones/audit.enums';
 
 /**
  * Procesador ACTUALIZACIONES — tres escenarios:
@@ -39,11 +40,149 @@ export class ActualizacionesProcessor implements ICategoryProcessor {
      */
     private sawReconciliationData = false;
 
+    /**
+     * Caches por batch de los parámetros GES-094 (desasignado) y SIT-050 (cancelado).
+     * `undefined` = sin resolver aún; `null` = resuelto pero no seedeado (modo degradado).
+     */
+    private desasignadoIdCache: number | null | undefined = undefined;
+    private sit050IdCache: number | null | undefined = undefined;
+    /** Deudores re-asignados en este batch (venían desasignados y volvieron al archivo). */
+    private reasignadosCount = 0;
+
     /** Limpia el estado acumulado del batch. */
     private reset(): void {
         this.processedDeudorIds.clear();
         this.pagosDeudorIds.clear();
         this.sawReconciliationData = false;
+        this.desasignadoIdCache = undefined;
+        this.sit050IdCache = undefined;
+        this.reasignadosCount = 0;
+    }
+
+    /** Resuelve (y cachea) el id del parámetro GES-094 "Desasignado". null si no está seedeado. */
+    private async resolverParametroDesasignado(ctx: ProcessContext): Promise<number | null> {
+        if (this.desasignadoIdCache !== undefined) return this.desasignadoIdCache;
+        const p = await ctx.prisma.parametro.findUnique({
+            where: { clave: 'GES-094' },
+            select: { id: true },
+        });
+        if (!p) {
+            this.logger.warn(
+                'GES-094 no seedeado — la acción de ausentes "Desasignar" queda inactiva en este batch. ' +
+                'Correr seed-codigos-curados.ts para habilitarla.',
+            );
+        }
+        this.desasignadoIdCache = p?.id ?? null;
+        return this.desasignadoIdCache;
+    }
+
+    /** Resuelve (y cachea) el id del parámetro SIT-050 "Cancelado". null si no está seedeado. */
+    private async resolverParametroSit050(ctx: ProcessContext): Promise<number | null> {
+        if (this.sit050IdCache !== undefined) return this.sit050IdCache;
+        const p = await ctx.prisma.parametro.findUnique({
+            where: { clave: 'SIT-050' },
+            select: { id: true },
+        });
+        this.sit050IdCache = p?.id ?? null;
+        return this.sit050IdCache;
+    }
+
+    /**
+     * Re-asignación (inverso de la desasignación): si un deudor presente en el archivo venía
+     * DESASIGNADO (GES-094), se le restaura el estado de gestión previo (`estadoGestionPrevioAId`,
+     * o el default de la plantilla si el previo ya no existe) y se limpia el campo previo.
+     * Los deudores en SIT-050 no se tocan. Idempotente: si no estaba desasignado, no hace nada.
+     */
+    private async reasignarSiCorresponde(deudorId: number, ctx: ProcessContext): Promise<void> {
+        const desasignadoId = await this.resolverParametroDesasignado(ctx);
+        if (desasignadoId == null) return; // modo degradado
+
+        const deudor = await ctx.prisma.deudor.findUnique({
+            where: { id: deudorId },
+            select: { estadoGestionId: true, estadoGestionPrevioAId: true, estadoSituacionId: true },
+        });
+        if (!deudor) return;
+        if (deudor.estadoGestionId !== desasignadoId) return; // no estaba desasignado
+
+        const sit050Id = await this.resolverParametroSit050(ctx);
+        if (sit050Id != null && deudor.estadoSituacionId === sit050Id) {
+            this.logger.log(`Deudor ${deudorId} en SIT-050 — no se re-asigna.`);
+            return;
+        }
+
+        // Restaurar el previo. Si apunta a un parámetro de gestión que ya no existe → default.
+        let nuevoGestionId = deudor.estadoGestionPrevioAId ?? ctx.defaults.estadoGestionId;
+        if (deudor.estadoGestionPrevioAId != null) {
+            const previoValido = await ctx.prisma.parametro.findFirst({
+                where: { id: deudor.estadoGestionPrevioAId, grupo: 'gestion' },
+                select: { id: true },
+            });
+            if (!previoValido) nuevoGestionId = ctx.defaults.estadoGestionId;
+        }
+
+        await ctx.prisma.deudor.update({
+            where: { id: deudorId },
+            data: { estadoGestionId: nuevoGestionId || null, estadoGestionPrevioAId: null },
+        });
+        this.reasignadosCount++;
+    }
+
+    /**
+     * Desasigna (GES-094) los deudores de la remesa origen que NO aparecieron en el archivo.
+     * Guarda el estado de gestión previo en `estadoGestionPrevioAId` para poder revertir.
+     * No toca deuda/pagos/facturas/situación. Ignora cancelados (SIT-050) y ya desasignados.
+     */
+    private async desasignarAusentes(ctx: ProcessContext): Promise<void> {
+        const desasignadoId = await this.resolverParametroDesasignado(ctx);
+        if (desasignadoId == null) return; // degradado (ya logueó warn)
+
+        const sit050Id = await this.resolverParametroSit050(ctx);
+
+        const deudores = await ctx.prisma.deudor.findMany({
+            where: { remesaId: ctx.remesaOrigenId, empresaId: ctx.empresaId },
+            select: { id: true, estadoGestionId: true, estadoSituacionId: true },
+        });
+
+        const paraDesasignar: Array<{ id: number; previo: number | null }> = [];
+        for (const d of deudores) {
+            if (this.processedDeudorIds.has(d.id)) continue;                    // vino en el archivo
+            if (sit050Id != null && d.estadoSituacionId === sit050Id) continue; // cancelado
+            if (d.estadoGestionId === desasignadoId) continue;                  // ya desasignado
+            paraDesasignar.push({ id: d.id, previo: d.estadoGestionId ?? null });
+        }
+
+        if (paraDesasignar.length === 0) {
+            this.logger.log(`Actualización diaria remesa=${ctx.remesaId}: sin deudores nuevos para desasignar.`);
+            return;
+        }
+
+        // Un UPDATE por deudor (cada uno guarda un previo distinto) → chunks transaccionales de 500.
+        const CHUNK = 500;
+        for (let i = 0; i < paraDesasignar.length; i += CHUNK) {
+            const chunk = paraDesasignar.slice(i, i + CHUNK);
+            await ctx.prisma.$transaction(
+                chunk.map((d) =>
+                    ctx.prisma.deudor.update({
+                        where: { id: d.id },
+                        data: { estadoGestionId: desasignadoId, estadoGestionPrevioAId: d.previo },
+                    }),
+                ),
+            );
+        }
+
+        this.logger.log(
+            `Actualización diaria remesa=${ctx.remesaId}: ${paraDesasignar.length} deudores desasignados (GES-094).`,
+        );
+        await ctx.auditoria.log({
+            modulo: AuditModulo.IMPORT,
+            entidad: 'remesa',
+            entidadId: ctx.remesaId,
+            tipo: AuditTipo.UPDATE,
+            usuarioId: ctx.usuarioId ?? null,
+            empresaId: ctx.empresaId,
+            resumen: `Desasignación masiva por actualización diaria: ${paraDesasignar.length} deudores → GES-094`,
+            data: { count: paraDesasignar.length, remesaId: ctx.remesaId, remesaOrigenId: ctx.remesaOrigenId ?? null },
+        });
     }
 
     /** Σpagos actual de un deudor (para reconciliar sin duplicar). */
@@ -176,6 +315,12 @@ export class ActualizacionesProcessor implements ICategoryProcessor {
 
         // Registrar que este deudor fue visto en el archivo
         this.processedDeudorIds.add(deudorId);
+
+        // Re-asignación: si venía DESASIGNADO (GES-094) y hoy volvió a aparecer en el archivo,
+        // se le restaura la gestión previa. Solo aplica en modo DESASIGNAR (archivo diario).
+        if (ctx.accionAusente === 'DESASIGNAR') {
+            await this.reasignarSiCorresponde(deudorId, ctx);
+        }
 
         // ── ESCENARIO A: Deudor existente ─────────────────────────────────────────
         // Siempre se completa DNI (pisa el placeholder) + se mergean los datos adicionales.
@@ -542,6 +687,50 @@ export class ActualizacionesProcessor implements ICategoryProcessor {
     async afterAll(ctx: ProcessContext): Promise<void> {
         if (!ctx.remesaOrigenId) return;
 
+        // En SOLO_DATOS (o si el archivo no trajo datos de deuda) no se reconcilia deuda de los
+        // presentes ni se toca a los ausentes por "pagó todo". La desasignación sí puede correr.
+        const skipReconciliacionDeuda =
+            ctx.modoActualizacion === 'SOLO_DATOS' || !this.sawReconciliationData;
+
+        // ── RAMA DESASIGNAR / IGNORAR (archivo diario de gestión) ──────────────────
+        // Los ausentes no "pagaron todo": se desasignan (GES-094) o se ignoran. La reconciliación
+        // de deuda de los presentes ya corrió fila a fila en processRow; acá solo consolidamos.
+        if (ctx.accionAusente === 'DESASIGNAR' || ctx.accionAusente === 'IGNORAR') {
+            if (ctx.accionAusente === 'DESASIGNAR') {
+                await this.desasignarAusentes(ctx);
+            }
+
+            if (this.reasignadosCount > 0) {
+                this.logger.log(
+                    `Actualización diaria remesa=${ctx.remesaId}: ${this.reasignadosCount} deudores re-asignados.`,
+                );
+                await ctx.auditoria.log({
+                    modulo: AuditModulo.IMPORT,
+                    entidad: 'remesa',
+                    entidadId: ctx.remesaId,
+                    tipo: AuditTipo.UPDATE,
+                    usuarioId: ctx.usuarioId ?? null,
+                    empresaId: ctx.empresaId,
+                    resumen: `Re-asignación masiva por actualización diaria: ${this.reasignadosCount} deudores`,
+                    data: { count: this.reasignadosCount, remesaId: ctx.remesaId, remesaOrigenId: ctx.remesaOrigenId ?? null },
+                });
+            }
+
+            if (!skipReconciliacionDeuda) {
+                await ctx.consolidacion.consolidar({ tipo: 'REMESA', remesaId: ctx.remesaOrigenId });
+                if (ctx.remesaId !== ctx.remesaOrigenId) {
+                    await ctx.consolidacion.consolidar({ tipo: 'REMESA', remesaId: ctx.remesaId });
+                }
+                if (this.pagosDeudorIds.size > 0) {
+                    await ctx.promesas.cerrarCumplidas([...this.pagosDeudorIds]);
+                }
+            }
+
+            this.reset();
+            return;
+        }
+
+        // ── RAMA PAGO_TODO (comportamiento clásico) ────────────────────────────────
         // Guard: en modo SOLO_DATOS (o si el archivo no trajo ningún dato de deuda) NO se
         // marca a los ausentes como "pagó todo" ni se reconcilia deuda. Solo se actualizaron
         // identidad/adicionales de los deudores presentes en el archivo.

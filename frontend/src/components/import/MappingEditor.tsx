@@ -328,6 +328,18 @@ export default function MappingEditor({
         [separador, tieneHeader, notify]
     );
 
+    // Re-parsear el preview cuando cambia el separador (o el header) y ya hay un archivo
+    // cargado. Sin esto, cambiar el separador DESPUÉS de subir el archivo dejaba la vista
+    // previa parseada con el separador viejo — típicamente el default "|" — mostrando todo
+    // en una sola columna aunque el archivo fuera CSV por coma (ver IVR_ANA_MAYA.txt).
+    useEffect(() => {
+        if (previewFile) {
+            handleFileUpload(previewFile);
+        }
+        // handleFileUpload se recrea con el nuevo separador/header; sólo re-disparamos al cambiar esos.
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [separador, tieneHeader]);
+
     // ─── Field handlers ───────────────────────────────────────────────────────
 
     const handleAddField = (isExtra: boolean) => {

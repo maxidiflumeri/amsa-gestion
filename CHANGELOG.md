@@ -6,6 +6,88 @@
 
 ---
 
+## [2026-07-17] — Actualización diaria de gestión: ausentes → desasignado (GES-094) en vez de "pagó todo"
+
+> ⚠️ **Redeploy back + front + `npx prisma db push`** (columna nullable nueva, no destructiva).
+> Feature A del spec [imports-actualizacion-diaria-y-multirregistro-spec.md](docs/imports-actualizacion-diaria-y-multirregistro-spec.md).
+> Retrocompatible: el default de `accionAusente` es `PAGO_TODO` (comportamiento clásico), las plantillas
+> existentes no cambian.
+
+Para los archivos diarios de gestión (Fiat MT / Prelegal y análogos), un deudor que **no viene** en el
+archivo del día **no pagó**: hay que sacarlo de la gestión del día, no marcarlo como cancelado. Se agrega
+el flag **`accionAusente`** a ACTUALIZACIONES con 3 valores: `PAGO_TODO` (default, clásico → SIT-050),
+`DESASIGNAR` (→ GES-094) e `IGNORAR`.
+
+**Prisma**
+- Nueva columna `deudor.estadoGestionPrevioAId Int?` (+ relación `DeudorEstadoGestionPrevio` + índice):
+  guarda el estado de gestión previo al desasignar, para poder **revertir** la desasignación cuando el
+  deudor reaparece. `db push` aplicado.
+
+**Backend**
+- [mapping-types.ts](backend/src/modules/imports/mapping-types.ts): tipo `AccionAusenteActualizacion` +
+  campo `accionAusente?` en `MappingJson`. [processor.interface.ts](backend/src/modules/imports/processors/processor.interface.ts):
+  `accionAusente` en `ProcessContext`.
+- [actualizaciones.processor.ts](backend/src/modules/imports/processors/actualizaciones.processor.ts):
+  - `afterAll` con 3 ramas. En `DESASIGNAR`, los deudores de la remesa origen ausentes del archivo →
+    `estadoGestionId = GES-094` (guardando el previo). **No** toca deuda/pagos/facturas/situación. Ignora
+    cancelados (SIT-050) y ya-desasignados. Updates en transacciones chunked de 500.
+  - **Re-asignación** (`reasignarSiCorresponde`): un deudor presente que venía en GES-094 se restaura a su
+    gestión previa (o al default de la plantilla si el previo ya no existe). Idempotente.
+  - Modo degradado si GES-094 no está seedeado (warn + skip). Auditoría resumen (1 evento por batch).
+- [imports.service.ts](backend/src/modules/imports/imports.service.ts): resuelve el flag con default
+  seguro `PAGO_TODO`; rechaza la combinación incoherente `SOLO_DATOS` + `PAGO_TODO` al guardar plantilla.
+- Tests: [actualizaciones-desasignacion.spec.ts](backend/src/modules/imports/processors/actualizaciones-desasignacion.spec.ts)
+  (8 casos: desasignación, guard SIT-050, idempotencia, modo degradado, re-asignación + fallback).
+
+**Frontend**
+- [PlantillaEditor.tsx](frontend/src/pages/PlantillaEditor.tsx): RadioGroup "Deudores ausentes del archivo"
+  en la sección ACTUALIZACIONES (visible en ambos modos; en "Solo datos" se ocultan las opciones
+  incompatibles y se coacciona `PAGO_TODO` → `IGNORAR`).
+
+**Flujo operativo**: la 1ª carga de la cartera va con categoría DEUDORES (remesa madre); a partir de ahí
+los diarios usan una plantilla ACTUALIZACIONES con `accionAusente=DESASIGNAR` apuntando a esa remesa origen.
+
+> Pendiente: **Feature B** (parser TXT multi-registro Toyota GES/CLI/DET/BAJ, con BAJ → GES-090) — spec
+> listo, sin implementar.
+
+---
+
+## [2026-07-17] — Fixes de imports: preview por coma, dedup de pagos, multi-remesa origen, filtro de empresa exacto
+
+> ⚠️ **Redeploy back + front** (sin migración: todos los cambios son de código). Lote de 4 arreglos
+> reportados. Además queda el spec de dos features nuevas (archivo diario de gestión + TXT multi-registro
+> Toyota) en [docs/imports-actualizacion-diaria-y-multirregistro-spec.md](docs/imports-actualizacion-diaria-y-multirregistro-spec.md), pendiente de implementar.
+
+**Frontend**
+
+- **Preview del mapeo no respetaba el separador elegido después de subir el archivo**
+  ([MappingEditor.tsx](frontend/src/components/import/MappingEditor.tsx)): el preview sólo se parseaba
+  al subir el archivo de muestra. Si se cambiaba el separador *después* (típico: default `|` → CSV por
+  coma), la vista previa quedaba con el separador viejo y mostraba todo en **una sola columna** (caso
+  `IVR_ANA_MAYA.txt`, CSV por coma mostrado como 1 columna). Ahora un `useEffect` re-parsea el archivo
+  ya cargado cada vez que cambia el separador o el header.
+- **Pagos — selector de VARIAS remesas origen** ([ImportWizard.tsx](frontend/src/pages/ImportWizard.tsx)):
+  para la categoría PAGOS el selector de remesa origen pasa a ser múltiple (checkboxes). Un archivo de
+  pagos que abarca toda la empresa (N remesas) se corre **una sola vez** en vez de N. El resto de
+  categorías siguen con selección simple.
+
+**Backend**
+
+- **Pagos — dedup acumulativo** ([pagos.processor.ts](backend/src/modules/imports/processors/pagos.processor.ts)):
+  reimportar un archivo de pagos acumulativo (que repite pagos ya cargados) **ya no duplica**. Antes de
+  crear un `IMPORT_PAGOS` se chequea si ya existe uno idéntico (mismo deudor, mismo día e importe) y se
+  saltea. La comparación es por día (no timestamp) para el caso en que la fecha no viene mapeada.
+- **Pagos — matcheo multi-remesa** ([pagos.processor.ts](backend/src/modules/imports/processors/pagos.processor.ts)):
+  el deudor se busca por `nroCliente` con `remesaId IN (...)` sobre todas las remesas origen elegidas
+  (nuevo `remesaOrigenIds` en `ProcessContext`, hilado por controller → service → BullMQ processor). Si
+  no vienen, cae al comportamiento clásico de una sola `remesaOrigenId`.
+- **Filtro de empresa — match EXACTO** ([deudores.service.ts](backend/src/modules/deudores/deudores.service.ts)):
+  la búsqueda avanzada usaba `contains` sobre el nombre de la empresa, así "FIAT" también traía "FIAT PLAN"
+  y "TELECOM" traía "TELECOM_PERSONAL". Como el valor sale de un combo de empresas (no texto libre), pasa
+  a `equals`.
+
+---
+
 ## [2026-07-14] — Fixes de imports: total de deuda en actualizaciones + búsqueda de deudor en pagos
 
 > ⚠️ **Redeploy back** (sin migración: solo código). Dos arreglos reportados sobre el lote del 2026-07-08

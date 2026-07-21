@@ -3,7 +3,7 @@ import { PrismaService } from 'src/prisma/prisma.service';
 import { ConsolidacionSituacionService } from '../../consolidacion/consolidacion.service';
 import { PromesasService } from '../../promesas/promesas.service';
 import { AuditoriaHelper } from '../../transacciones/auditoria.helper';
-import { AccionesConfig, ComportamientoDeudaMayor, ModoActualizacion, MontoDeudorMode } from '../mapping-types';
+import { AccionAusenteActualizacion, AccionesConfig, ComportamientoDeudaMayor, ModoActualizacion, MontoDeudorMode } from '../mapping-types';
 
 /**
  * Resultado de validar una fila.
@@ -25,6 +25,13 @@ export interface ProcessContext {
     usuarioId?: number;
     /** ID de la remesa de deudores a la que se vincula (para FACTURAS, CONTACTOS, PAGOS) */
     remesaOrigenId?: number;
+    /**
+     * PAGOS: varias remesas de deudores origen para una sola corrida. Permite que un archivo
+     * de pagos que abarca toda la empresa (N remesas) se procese una sola vez en vez de N.
+     * Si viene con elementos, el deudor se busca por nroCliente en cualquiera de esas remesas.
+     * Si está vacío/ausente, se usa `remesaOrigenId` (comportamiento clásico de una sola remesa).
+     */
+    remesaOrigenIds?: number[];
     /** Si true, los domicilios se validan/normalizan contra Georef (más lento). Si false, se cargan con formato sin verificar. */
     validarDomicilios?: boolean;
     /** IDs de parámetros por defecto */
@@ -62,6 +69,11 @@ export interface ProcessContext {
      * (no se crea deudor nuevo). Leído de `mappingJson.crearNuevosCasos` (default `true`).
      */
     crearNuevosCasos: boolean;
+    /**
+     * ACTUALIZACIONES: acción sobre deudores de la remesa origen ausentes del archivo.
+     * Leído de `mappingJson.accionAusente` (default `PAGO_TODO`). Ver {@link AccionAusenteActualizacion}.
+     */
+    accionAusente: AccionAusenteActualizacion;
 }
 
 /**

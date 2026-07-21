@@ -40,7 +40,24 @@ export class ImportService {
     ) { }
 
     // --- PLANTILLAS ---
+    /**
+     * Valida coherencia del `mappingJson` al guardar/editar una plantilla.
+     * Combinación prohibida: `modoActualizacion=SOLO_DATOS` + `accionAusente=PAGO_TODO`
+     * (contradictorio: SOLO_DATOS no reconcilia deuda, así que no puede "marcar como pagó todo").
+     */
+    private validarMappingPlantilla(mappingJson: any): void {
+        const mapping = mappingJson as MappingJson | null | undefined;
+        if (!mapping) return;
+        if (mapping.modoActualizacion === 'SOLO_DATOS' && mapping.accionAusente === 'PAGO_TODO') {
+            throw new BadRequestException(
+                'Modo "Solo datos" es incompatible con la acción de ausentes "Marcar como pagó todo". ' +
+                'Elegí "Desasignar" o "No hacer nada".',
+            );
+        }
+    }
+
     async createPlantilla(dto: CreatePlantillaDto) {
+        this.validarMappingPlantilla(dto.mappingJson);
         return this.prisma.plantillaimport.create({
             data: {
                 empresaId: dto.empresaId,
@@ -152,6 +169,8 @@ export class ImportService {
     async updatePlantilla(id: number, data: Partial<CreatePlantillaDto>) {
         const existing = await this.prisma.plantillaimport.findUnique({ where: { id } });
         if (!existing) throw new NotFoundException('Plantilla no encontrada');
+
+        if (data.mappingJson !== undefined) this.validarMappingPlantilla(data.mappingJson);
 
         return this.prisma.plantillaimport.update({
             where: { id },
@@ -604,7 +623,7 @@ export class ImportService {
     }
 
     // --- EJECUTAR (Encuela el trabajo en BullMQ) ---
-    async executeRemesa(remesaId: number, usuarioId?: number, remesaOrigenId?: number) {
+    async executeRemesa(remesaId: number, usuarioId?: number, remesaOrigenId?: number, remesaOrigenIds?: number[]) {
 
         const remesa = await this.prisma.remesa.findUnique({
             where: { id: remesaId },
@@ -653,6 +672,7 @@ export class ImportService {
         await this.importQueue.add('process-import', {
             remesaId,
             remesaOrigenId,
+            remesaOrigenIds,
             usuarioId,
             _ctx: ctx ? { requestId: ctx.requestId, usuarioId: ctx.usuarioId } : undefined,
         });
@@ -701,7 +721,7 @@ export class ImportService {
     }
 
     // --- WORKER DE IMPORTACIÓN LÓGICA PESADA ---
-    async processImportJob(job: Job, remesaId: number, remesaOrigenId?: number) {
+    async processImportJob(job: Job, remesaId: number, remesaOrigenId?: number, remesaOrigenIds?: number[]) {
         const usuarioId: number | undefined = job.data?.usuarioId;
         const startedAt = new Date();
 
@@ -762,12 +782,20 @@ export class ImportService {
         // (default seguro: true = comportamiento clásico). Solo se desactiva con el flag explícito.
         const crearNuevosCasos = mapping?.crearNuevosCasos !== false;
 
+        // ACTUALIZACIONES: acción para deudores ausentes del archivo (default seguro: PAGO_TODO
+        // = comportamiento clásico, retrocompatible). DESASIGNAR = archivo diario de gestión.
+        const accionAusente =
+            mapping?.accionAusente === 'DESASIGNAR' ? 'DESASIGNAR' :
+            mapping?.accionAusente === 'IGNORAR' ? 'IGNORAR' :
+            'PAGO_TODO';
+
         const ctx: ProcessContext = {
             prisma: this.prisma,
             remesaId: remesa.id,
             empresaId: remesa.empresaId,
             usuarioId: ownerId ?? undefined,
             remesaOrigenId,
+            remesaOrigenIds: remesaOrigenIds?.length ? remesaOrigenIds : undefined,
             validarDomicilios: remesa.validarDomicilios ?? false,
             defaults: {
                 estadoSituacionId: defaultEstadoSituacionId ?? 0,
@@ -780,6 +808,7 @@ export class ImportService {
             modoActualizacion,
             comportamientoDeudaMayor,
             crearNuevosCasos,
+            accionAusente,
             accionesConfig: mapping?.acciones,
         };
 

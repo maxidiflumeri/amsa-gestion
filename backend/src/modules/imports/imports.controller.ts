@@ -210,8 +210,17 @@ export class ImportController {
         @Param('id', ParseIntPipe) id: number,
         @UsuarioActual() user: UsuarioJwt,
         @Body('remesaOrigenId') remesaOrigenId?: number,
+        @Body('remesaOrigenIds') remesaOrigenIds?: number[],
     ) {
-        return this.service.executeRemesa(id, user.sub, remesaOrigenId ? Number(remesaOrigenId) : undefined);
+        const ids = Array.isArray(remesaOrigenIds)
+            ? remesaOrigenIds.map(Number).filter((n) => Number.isFinite(n))
+            : undefined;
+        return this.service.executeRemesa(
+            id,
+            user.sub,
+            remesaOrigenId ? Number(remesaOrigenId) : undefined,
+            ids && ids.length ? ids : undefined,
+        );
     }
 
     @Get('en-curso')

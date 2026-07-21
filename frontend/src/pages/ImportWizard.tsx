@@ -10,8 +10,11 @@ import {
     Typography,
     MenuItem,
     Select,
+    Checkbox,
+    ListItemText,
     FormControl,
     FormControlLabel,
+    FormHelperText,
     InputLabel,
     LinearProgress,
     Stack,
@@ -70,8 +73,12 @@ export default function ImportWizard() {
     // Remesa de deudores origen
     const [remesasDeudores, setRemesasDeudores] = useState<any[]>([]);
     const [remesaOrigenId, setRemesaOrigenId] = useState<number | null>(null);
+    // PAGOS: se pueden elegir VARIAS remesas origen (archivo de pagos para toda la empresa),
+    // así una sola corrida cubre las N remesas en vez de correr el archivo una vez por cada una.
+    const [remesaOrigenIds, setRemesaOrigenIds] = useState<number[]>([]);
     // ACCIONES: la remesa origen es OPCIONAL (sin elegir = toda la base de la empresa).
     const esAcciones = categoria === "ACCIONES";
+    const multiOrigen = categoria === "PAGOS";
     const needsOrigen = categoria !== "" && categoria !== "DEUDORES" && categoria !== "DEUDORES_Y_FACTURAS" && !esAcciones;
 
     // Paso 2 – preview
@@ -201,7 +208,8 @@ export default function ImportWizard() {
 
         try {
             await api.post(`/import/ejecutar/${remesaId}`, {
-                remesaOrigenId: remesaOrigenId ?? undefined,
+                remesaOrigenId: multiOrigen ? undefined : (remesaOrigenId ?? undefined),
+                remesaOrigenIds: multiOrigen && remesaOrigenIds.length ? remesaOrigenIds : undefined,
             });
         } catch (err: any) {
             notify.error(err);
@@ -225,6 +233,7 @@ export default function ImportWizard() {
         setFile(null);
         setRemesaId(null);
         setRemesaOrigenId(null);
+        setRemesaOrigenIds([]);
         setRemesasDeudores([]);
         setPreview([]);
         setPreviewStats({ total: 0, ok: 0, err: 0 });
@@ -239,7 +248,9 @@ export default function ImportWizard() {
             case 0:
                 return !!categoria;
             case 1:
-                return !!file && !!selectedPlantilla && (!needsOrigen || !!remesaOrigenId);
+                if (!file || !selectedPlantilla) return false;
+                if (!needsOrigen) return true;
+                return multiOrigen ? remesaOrigenIds.length > 0 : !!remesaOrigenId;
             default:
                 return false;
         }
@@ -394,8 +405,53 @@ export default function ImportWizard() {
                             </Box>
                         )}
 
-                        {/* Selector de remesa de deudores origen */}
-                        {(needsOrigen || esAcciones) && (
+                        {/* PAGOS: selector MÚLTIPLE de remesas origen (archivo para toda la empresa) */}
+                        {multiOrigen && (
+                            <FormControl fullWidth>
+                                <InputLabel id="remesa-origen-multi-label">
+                                    Vincular a remesas de deudores
+                                </InputLabel>
+                                <Select
+                                    labelId="remesa-origen-multi-label"
+                                    label="Vincular a remesas de deudores"
+                                    multiple
+                                    value={remesaOrigenIds}
+                                    onChange={(e) => {
+                                        const val = e.target.value;
+                                        setRemesaOrigenIds(
+                                            typeof val === "string"
+                                                ? val.split(",").map(Number)
+                                                : (val as number[])
+                                        );
+                                    }}
+                                    renderValue={(selected) =>
+                                        (selected as number[]).length === 1
+                                            ? "1 remesa seleccionada"
+                                            : `${(selected as number[]).length} remesas seleccionadas`
+                                    }
+                                >
+                                    {remesasDeudores.length === 0 && (
+                                        <MenuItem disabled value="">
+                                            No hay remesas de deudores finalizadas
+                                        </MenuItem>
+                                    )}
+                                    {remesasDeudores.map((r: any) => (
+                                        <MenuItem key={r.id} value={r.id}>
+                                            <Checkbox checked={remesaOrigenIds.indexOf(r.id) > -1} />
+                                            <ListItemText
+                                                primary={`[${r.categoria}] ${r.nombre} — ${r.totalFilas ?? 0} deudores — ${new Date(r.createdAt).toLocaleDateString()}`}
+                                            />
+                                        </MenuItem>
+                                    ))}
+                                </Select>
+                                <FormHelperText>
+                                    El archivo de pagos se aplica a todas las remesas elegidas en una sola corrida.
+                                </FormHelperText>
+                            </FormControl>
+                        )}
+
+                        {/* Selector de remesa de deudores origen (single) */}
+                        {!multiOrigen && (needsOrigen || esAcciones) && (
                             <FormControl fullWidth>
                                 <InputLabel id="remesa-origen-label">
                                     {esAcciones ? "Aplicar solo a una remesa (opcional)" : "Vincular a remesa de deudores"}

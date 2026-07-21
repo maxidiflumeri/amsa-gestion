@@ -29,17 +29,22 @@ export class PagosProcessor implements ICategoryProcessor {
         const nroCliente = String(row.nro_cliente ?? '').trim();
         if (!nroCliente) throw new Error('nro_cliente es requerido para pagos');
 
-        // Buscar deudor en la remesa de origen (la de deudores), igual que facturas/contactos.
+        // Buscar deudor en la(s) remesa(s) de origen (las de deudores), igual que facturas/contactos.
         // Los pagos apuntan a una remesa origen distinta a la del propio archivo; usar ctx.remesaId
         // acá hacía fallar la búsqueda con "Deudor no encontrado" aunque el nro_cliente fuera correcto.
-        const targetRemesaId = ctx.remesaOrigenId ?? ctx.remesaId;
+        //
+        // Tema 2: si vienen varias remesas origen (archivo de pagos para toda la empresa), se busca
+        // el nroCliente en cualquiera de ellas → una sola corrida cubre las N remesas.
+        const targetRemesaIds = ctx.remesaOrigenIds?.length
+            ? ctx.remesaOrigenIds
+            : [ctx.remesaOrigenId ?? ctx.remesaId];
 
         const deudorRows = await ctx.prisma.$queryRaw<{ id: number }[]>(
             Prisma.sql`
                 SELECT id
                 FROM deudor
                 WHERE empresaId = ${ctx.empresaId}
-                  AND remesaId = ${targetRemesaId}
+                  AND remesaId IN (${Prisma.join(targetRemesaIds)})
                   AND nroCliente = ${nroCliente}
                 LIMIT 1
             `,
@@ -85,6 +90,32 @@ export class PagosProcessor implements ICategoryProcessor {
                 },
             });
         } else {
+            // Anti-dup acumulativo (Tema 2): si ya existe un pago importado idéntico
+            // (mismo deudor, mismo día e importe) NO se reinserta. Hace idempotente
+            // reimportar un archivo de pagos acumulativo (que repite pagos ya cargados).
+            // La comparación es por día (no por timestamp exacto) porque cuando la fecha no
+            // viene mapeada se usa `new Date()` y cada corrida tendría una hora distinta.
+            const inicioDia = new Date(fechaPago);
+            inicioDia.setHours(0, 0, 0, 0);
+            const finDia = new Date(fechaPago);
+            finDia.setHours(23, 59, 59, 999);
+
+            const yaImportado = await ctx.prisma.pago.findFirst({
+                where: {
+                    deudorId: deudor.id,
+                    origen: 'IMPORT_PAGOS',
+                    importe,
+                    fecha: { gte: inicioDia, lte: finDia },
+                },
+                select: { id: true },
+            });
+
+            if (yaImportado) {
+                // Pago ya cargado en una importación previa → skip idempotente.
+                // No se toca el deudor: no hubo movimiento, no hace falta consolidar.
+                return;
+            }
+
             await ctx.prisma.pago.create({
                 data: {
                     deudorId: deudor.id,

@@ -6,9 +6,12 @@ import {
     FormControl,
     FormControlLabel,
     FormHelperText,
+    FormLabel,
     InputLabel,
     MenuItem,
     Paper,
+    Radio,
+    RadioGroup,
     Select,
     Stack,
     Switch,
@@ -215,6 +218,8 @@ const PlantillaEditor: React.FC = () => {
     const [comportamientoDeudaMayor, setComportamientoDeudaMayor] =
         useState<'FACTURA_NUEVA' | 'ACTUALIZAR_SALDO'>('FACTURA_NUEVA')
     const [crearNuevosCasos, setCrearNuevosCasos] = useState(true)
+    const [accionAusente, setAccionAusente] =
+        useState<'PAGO_TODO' | 'DESASIGNAR' | 'IGNORAR'>('PAGO_TODO')
 
     const [accionesConfig, setAccionesConfig] = useState<AccionesConfig>({
         matchMode: 'DEUDOR',
@@ -287,6 +292,7 @@ const PlantillaEditor: React.FC = () => {
             setModoActualizacion(p.mappingJson?.modoActualizacion ?? 'RECONCILIAR')
             setComportamientoDeudaMayor(p.mappingJson?.comportamientoDeudaMayor ?? 'FACTURA_NUEVA')
             setCrearNuevosCasos(p.mappingJson?.crearNuevosCasos !== false)
+            setAccionAusente(p.mappingJson?.accionAusente ?? 'PAGO_TODO')
             if (p.mappingJson?.acciones) setAccionesConfig(p.mappingJson.acciones)
         } catch (err) {
             notify.error(err as Error)
@@ -371,6 +377,11 @@ const PlantillaEditor: React.FC = () => {
             ;(mappingJson as Record<string, unknown>).modoActualizacion = modoActualizacion
             ;(mappingJson as Record<string, unknown>).comportamientoDeudaMayor = comportamientoDeudaMayor
             ;(mappingJson as Record<string, unknown>).crearNuevosCasos = crearNuevosCasos
+            // SOLO_DATOS es incompatible con "pagó todo" (el backend lo rechaza) → coerción a IGNORAR.
+            ;(mappingJson as Record<string, unknown>).accionAusente =
+                modoActualizacion === 'SOLO_DATOS' && accionAusente === 'PAGO_TODO'
+                    ? 'IGNORAR'
+                    : accionAusente
         }
         if (esAcciones) {
             ;(mappingJson as Record<string, unknown>).acciones = accionesConfig
@@ -651,11 +662,13 @@ const PlantillaEditor: React.FC = () => {
                             control={
                                 <Switch
                                     checked={modoActualizacion === 'SOLO_DATOS'}
-                                    onChange={(e) =>
-                                        setModoActualizacion(
-                                            e.target.checked ? 'SOLO_DATOS' : 'RECONCILIAR'
-                                        )
-                                    }
+                                    onChange={(e) => {
+                                        const solo = e.target.checked
+                                        setModoActualizacion(solo ? 'SOLO_DATOS' : 'RECONCILIAR')
+                                        // SOLO_DATOS no admite "pagó todo" → caer a "No hacer nada".
+                                        if (solo && accionAusente === 'PAGO_TODO')
+                                            setAccionAusente('IGNORAR')
+                                    }}
                                 />
                             }
                             label="Solo actualizar datos (DNI / adicionales) — no reconciliar deuda"
@@ -667,6 +680,43 @@ const PlantillaEditor: React.FC = () => {
                             "pagó todo" y NO se crean deudores nuevos. Dejalo desactivado para las
                             actualizaciones normales de deuda.
                         </FormHelperText>
+
+                        {/* Acción para deudores ausentes del archivo (visible en ambos modos). */}
+                        <FormControl sx={{ mb: 2 }}>
+                            <FormLabel sx={{ fontWeight: 600 }}>
+                                Deudores ausentes del archivo
+                            </FormLabel>
+                            <RadioGroup
+                                value={accionAusente}
+                                onChange={(_, v) =>
+                                    setAccionAusente(v as 'PAGO_TODO' | 'DESASIGNAR' | 'IGNORAR')
+                                }
+                            >
+                                {modoActualizacion === 'RECONCILIAR' && (
+                                    <FormControlLabel
+                                        value="PAGO_TODO"
+                                        control={<Radio />}
+                                        label="Marcar como pagó todo (SIT-050) — comportamiento clásico"
+                                    />
+                                )}
+                                <FormControlLabel
+                                    value="DESASIGNAR"
+                                    control={<Radio />}
+                                    label="Desasignar (GES-094) — para archivos de gestión diaria"
+                                />
+                                <FormControlLabel
+                                    value="IGNORAR"
+                                    control={<Radio />}
+                                    label="No hacer nada con los ausentes"
+                                />
+                            </RadioGroup>
+                            <FormHelperText>
+                                Qué hacer con los deudores de la remesa vinculada que NO aparecen en este
+                                archivo. En "Desasignar", el deudor vuelve a su estado de gestión anterior
+                                si reaparece en un archivo posterior; los deudores cancelados (SIT-050)
+                                siempre se ignoran.
+                            </FormHelperText>
+                        </FormControl>
 
                         {modoActualizacion === 'RECONCILIAR' && (
                             <>

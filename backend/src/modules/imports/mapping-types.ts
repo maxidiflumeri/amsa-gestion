@@ -39,6 +39,18 @@ export type ModoActualizacion = 'RECONCILIAR' | 'SOLO_DATOS';
  */
 export type ComportamientoDeudaMayor = 'FACTURA_NUEVA' | 'ACTUALIZAR_SALDO';
 
+/**
+ * Acción sobre los deudores de la remesa origen que NO aparecen en el archivo de ACTUALIZACIONES.
+ * - `PAGO_TODO` (default): comportamiento clásico. Todas sus facturas → PAGADA, pago por el total,
+ *   la consolidación posterior los deja en SIT-050 (cancelado/pagó todo).
+ * - `DESASIGNAR`: se les setea `estadoGestionId = GES-094` (guardando el previo en
+ *   `estadoGestionPrevioAId` para poder revertir). NO toca deuda, pagos, facturas ni situación.
+ *   Los deudores cancelados (SIT-050) se ignoran. Pensado para archivos diarios de gestión
+ *   (Fiat MT / Prelegal): el que no viene hoy no pagó, simplemente sale de la gestión del día.
+ * - `IGNORAR`: no se hace nada con los ausentes (archivos parciales o pruebas).
+ */
+export type AccionAusenteActualizacion = 'PAGO_TODO' | 'DESASIGNAR' | 'IGNORAR';
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Categoría ACCIONES (acciones masivas): matcheo + catálogo cerrado de operaciones.
 // ─────────────────────────────────────────────────────────────────────────────
@@ -87,6 +99,11 @@ export interface MappingJson {
     modoActualizacion?: ModoActualizacion;
     /** Comportamiento ante deuda mayor en ACTUALIZACIONES (default `FACTURA_NUEVA`). */
     comportamientoDeudaMayor?: ComportamientoDeudaMayor;
+    /**
+     * ACTUALIZACIONES: qué hacer con los deudores de la remesa origen ausentes del archivo.
+     * Default `PAGO_TODO` (comportamiento clásico). Ver {@link AccionAusenteActualizacion}.
+     */
+    accionAusente?: AccionAusenteActualizacion;
     /**
      * ACTUALIZACIONES: si `false`, NO se crean deudores nuevos cuando el registro no matchea
      * la remesa origen — solo se actualizan los existentes y se ignoran los no encontrados.

@@ -20,7 +20,7 @@ export class ImportsProcessor extends WorkerHost {
   }
 
   async process(job: Job<any, any, string>): Promise<any> {
-    const { remesaId, remesaOrigenId, usuarioId, _ctx } = job.data ?? {};
+    const { remesaId, remesaOrigenId, remesaOrigenIds, usuarioId, _ctx } = job.data ?? {};
 
     const parentCtx = _ctx as { requestId?: string; usuarioId?: number } | undefined;
     const ctx = {
@@ -31,10 +31,10 @@ export class ImportsProcessor extends WorkerHost {
       queue: job.queueName,
     };
 
-    return this.requestContext.run(ctx, () => this.realProcess(job, remesaId, remesaOrigenId, usuarioId));
+    return this.requestContext.run(ctx, () => this.realProcess(job, remesaId, remesaOrigenId, remesaOrigenIds, usuarioId));
   }
 
-  private async realProcess(job: Job<any, any, string>, remesaId: number, remesaOrigenId: number | undefined, usuarioId: number | undefined): Promise<any> {
+  private async realProcess(job: Job<any, any, string>, remesaId: number, remesaOrigenId: number | undefined, remesaOrigenIds: number[] | undefined, usuarioId: number | undefined): Promise<any> {
     this.logger.log(`Iniciando importación remesa=${remesaId} usuario=${usuarioId ?? 'SYS'} job=${job.id}`);
 
     try {
@@ -46,6 +46,7 @@ export class ImportsProcessor extends WorkerHost {
         job,
         remesaId,
         remesaOrigenId,
+        remesaOrigenIds,
       );
 
       this.logger.log(`Importación completada remesa=${remesaId} job=${job.id}`);

@@ -90,7 +90,9 @@ export class DeudoresService {
             andConditions.push({ documento: { contains: dto.documento } });
         }
         if (dto.empresa) {
-            andConditions.push({ empresa: { nombre: { contains: dto.empresa } } });
+            // Match EXACTO: el valor viene de un combo de empresas, no de texto libre. Con `contains`,
+            // filtrar "FIAT" también traía "FIAT PLAN" y "TELECOM" traía "TELECOM_PERSONAL".
+            andConditions.push({ empresa: { nombre: { equals: dto.empresa } } });
         }
         if (dto.nroCliente) {
             // Columna principal nroCliente + fallback a datos viejos (campoExtras / camposAdicionales)
