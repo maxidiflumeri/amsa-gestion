@@ -18,7 +18,9 @@ import { AuditModulo, AuditTipo } from '../../transacciones/audit.enums';
  *    - montoTotal es INMUTABLE (Fase 3): no se actualiza (spec §1 regla 7)
  *
  * B) Deudor en el archivo pero NO en remesa origen → NUEVO CASO
- *    - Se crea como deudor nuevo (en la remesa de la actualización)
+ *    - Se crea como deudor nuevo. Flujo clásico: en la remesa de la actualización. Flujo diario
+ *      (accionAusente=DESASIGNAR): en la MISMA remesa origen, para que no se duplique al día
+ *      siguiente y quede en la cartera. Vale también en SOLO_DATOS (alta sin tocar deuda).
  *    - Se procesan sus facturas, contactos, etc.
  *
  * C) [afterAll] Deudor en remesa origen que NO apareció en el archivo → PAGÓ TODO
@@ -30,8 +32,19 @@ export class ActualizacionesProcessor implements ICategoryProcessor {
     readonly category = 'ACTUALIZACIONES';
     private readonly logger = new Logger(ActualizacionesProcessor.name);
 
-    /** IDs de deudores de la remesa origen que fueron procesados en este batch */
+    /**
+     * IDs de deudores considerados PRESENTES en el archivo de este batch (no se desasignan):
+     * los que matchearon un deudor existente de la remesa origen y —en el flujo diario— los
+     * casos nuevos que se dieron de alta en esa misma remesa origen.
+     */
     private processedDeudorIds = new Set<number>();
+    /**
+     * Cantidad de filas que matchearon un deudor EXISTENTE de la remesa origen. Se usa como
+     * guard de seguridad de la desasignación: si ninguna fila del archivo matcheó la cartera
+     * (archivo mal mapeado, empresa/remesa equivocada o batch fallido), NO se desasigna a nadie
+     * para no borrar la cartera entera. Distinto de `processedDeudorIds`, que además cuenta altas.
+     */
+    private matchedExistingCount = 0;
     /** IDs de deudores a los que se les generó un pago en este batch (para cerrar promesas cumplidas) */
     private pagosDeudorIds = new Set<number>();
     /**
@@ -55,6 +68,7 @@ export class ActualizacionesProcessor implements ICategoryProcessor {
     /** Limpia el estado acumulado del batch. */
     private reset(): void {
         this.processedDeudorIds.clear();
+        this.matchedExistingCount = 0;
         this.pagosDeudorIds.clear();
         this.sawReconciliationData = false;
         this.desasignadoIdCache = undefined;
@@ -139,6 +153,20 @@ export class ActualizacionesProcessor implements ICategoryProcessor {
     private async desasignarAusentes(ctx: ProcessContext): Promise<void> {
         const desasignadoId = await this.resolverParametroDesasignado(ctx);
         if (desasignadoId == null) return; // degradado (ya logueó warn)
+
+        // Guard de seguridad: si NINGUNA fila del archivo matcheó un deudor existente de la
+        // remesa origen, el archivo no corresponde a esta cartera (mal mapeado, empresa/remesa
+        // equivocada o batch fallido). Desasignar acá borraría la cartera entera. Se aborta.
+        // (Este es el bug que desasignó 342.792 deudores de Toyota cuando todas las filas
+        // fallaron la validación de deuda — ver CHANGELOG 2026-07-21.)
+        if (this.matchedExistingCount === 0) {
+            this.logger.warn(
+                `Desasignación ABORTADA (remesa=${ctx.remesaId}, origen=${ctx.remesaOrigenId}): ` +
+                `0 filas del archivo matchearon la cartera. No se desasigna a nadie para no borrar la cartera. ` +
+                `Revisá el mapeo/separador/empresa del archivo.`,
+            );
+            return;
+        }
 
         const sit050Id = await this.resolverParametroSit050(ctx);
 
@@ -298,13 +326,10 @@ export class ActualizacionesProcessor implements ICategoryProcessor {
         }
 
         // ── ESCENARIO B: Deudor nuevo, no estaba en la remesa origen ─────────────
+        // `crearNuevosCasos` es ORTOGONAL al modo: también en SOLO_DATOS se pueden dar de alta
+        // los casos nuevos (sin tocar deuda). Es el flujo de atención al cliente (Toyota): el
+        // archivo trae la lista de casos + DNI sin saldo y los nuevos se suman a la cartera.
         if (!deudorId) {
-            // En modo "solo datos" no se crean deudores: es una actualización de existentes.
-            if (soloDatos) {
-                const ref = row.documento ? `documento=${row.documento}` : `nro_cliente=${row.nro_cliente}`;
-                this.logger.warn(`Deudor no encontrado en la remesa origen (${ref}) — se omite (modo solo datos).`);
-                return;
-            }
             // Flag crearNuevosCasos=false: solo actualizar existentes; los no encontrados en la
             // remesa origen se ignoran (no se crea deudor nuevo). Útil para archivos que cubren
             // varias remesas y se aplican una por una sin duplicar los de las otras.
@@ -317,8 +342,9 @@ export class ActualizacionesProcessor implements ICategoryProcessor {
             return;
         }
 
-        // Registrar que este deudor fue visto en el archivo
+        // Registrar que este deudor existente fue visto en el archivo (presente + match real)
         this.processedDeudorIds.add(deudorId);
+        this.matchedExistingCount++;
 
         // Re-asignación: si venía DESASIGNADO (GES-094) y hoy volvió a aparecer en el archivo,
         // se le restaura la gestión previa. Solo aplica en modo DESASIGNAR (archivo diario).
@@ -417,10 +443,17 @@ export class ActualizacionesProcessor implements ICategoryProcessor {
             }
         }
 
+        // En el flujo diario (DESASIGNAR) los casos nuevos se suman a la MISMA cartera (la remesa
+        // origen), no a la remesa de la actualización: así al día siguiente se matchean (no se
+        // duplican) y quedan junto al resto de la cartera. En el resto de flujos siguen yendo a la
+        // remesa del import (comportamiento clásico del escenario B).
+        const esDiario = ctx.accionAusente === 'DESASIGNAR' && !!ctx.remesaOrigenId;
+        const remesaDestinoId = esDiario ? (ctx.remesaOrigenId as number) : ctx.remesaId;
+
         const deudor = await ctx.prisma.deudor.create({
             data: {
                 empresaId: ctx.empresaId,
-                remesaId: ctx.remesaId,  // actualizaciones remesa
+                remesaId: remesaDestinoId,
                 documento: documentoStr,
                 nombre: row.nombre ?? '',
                 apellido: row.apellido ?? '',
@@ -431,6 +464,10 @@ export class ActualizacionesProcessor implements ICategoryProcessor {
                 estadoGestionId: ctx.defaults.estadoGestionId,
             },
         });
+
+        // Alta en la remesa origen del flujo diario → marcarlo PRESENTE para que la desasignación
+        // de ausentes (afterAll) no lo tome: recién creado, obviamente vino en el archivo de hoy.
+        if (esDiario) this.processedDeudorIds.add(deudor.id);
 
         // Autoenriquecimiento de contactos desde la propia base (histórico por DNI).
         this.contactosEnriquecidos += await enriquecerContactosHistoricos(ctx, deudor.id, documentoStr);

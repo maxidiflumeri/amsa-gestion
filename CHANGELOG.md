@@ -6,6 +6,52 @@
 
 ---
 
+## [2026-07-21] — Actualización diaria sin saldo (atención al cliente): alta de casos nuevos en SOLO_DATOS + guard anti-desasignación masiva
+
+> ⚠️ **Redeploy back + front** (solo código, sin migración). **Post-deploy**: reconfigurar la plantilla
+> `TOYOTA 0800 DIARIO` (id 51) a `modoActualizacion: SOLO_DATOS` (hoy `RECONCILIAR`).
+
+**Incidente en prod (resuelto).** Toyota 0800 es una gestión de **atención al cliente**, no de cobranza:
+el archivo diario trae solo `[CUIL, DNI, nombre]`, sin saldo ni facturas. La plantilla quedó en modo
+`RECONCILIAR` (exige factura/`montoTotal` por fila) → las **351.943 filas fallaron** la validación
+(`"Debe incluir bloques con nroFactura o el campo montoTotal"`). Como ninguna fila entró a
+`processedDeudorIds`, el `afterAll` (DESASIGNAR) tomó a **toda la cartera como ausente** y desasignó
+**342.792 deudores → GES-094**. Recuperado por SSM: revert de los 342.792 a su gestión previa (GES-001,
+guardada en `estadoGestionPrevioAId`) y destrabe de una remesa fantasma (id 51, `VALIDANDO` sin job).
+
+**Causa raíz — 2 problemas:**
+- **A (footgun):** `desasignarAusentes` desasignaba a cualquiera fuera de `processedDeudorIds`. Un archivo
+  que falla entero (validación, separador/mapeo/empresa equivocada) borraba la cartera completa.
+- **B (capacidad faltante):** no existía config válida para "gestión sin saldo que igual crea casos nuevos".
+  `SOLO_DATOS` no creaba nuevos y `RECONCILIAR` exigía saldo → el operador puso `RECONCILIAR` y explotó.
+
+**Backend** ([actualizaciones.processor.ts](backend/src/modules/imports/processors/actualizaciones.processor.ts))
+- **Guard de seguridad:** nuevo contador `matchedExistingCount` (filas que matchearon un deudor
+  existente de la remesa origen). Si es **0**, `desasignarAusentes` **aborta** con `warn` — no borra la
+  cartera cuando el archivo no le corresponde. Distinto de `processedDeudorIds`, que ahora también incluye
+  las altas del flujo diario.
+- **`crearNuevosCasos` es ortogonal al modo:** se quitó el corte temprano `if (soloDatos) return` en el alta.
+  Ahora `SOLO_DATOS` también da de alta casos nuevos (sin tocar deuda) cuando `crearNuevosCasos=true`.
+- **Altas del flujo diario van a la remesa madre:** en `accionAusente=DESASIGNAR`, `crearNuevoDeudor` crea el
+  deudor en la **remesa origen** (no en la del import) y lo marca **presente** (`processedDeudorIds`), para
+  que mañana se matchee (no se duplique) y no se auto-desasigne. El resto de flujos (escenario B clásico)
+  siguen creando en la remesa del import.
+
+**Frontend** ([PlantillaEditor.tsx](frontend/src/pages/PlantillaEditor.tsx))
+- El toggle "crear casos nuevos" ahora se muestra en **ambos modos** (antes solo en `RECONCILIAR`). Textos
+  de ayuda actualizados: `SOLO_DATOS` ya no dice "no se crean nuevos"; se aclara que en "Desasignar" los
+  nuevos se suman a la remesa vinculada. El selector "si el saldo es mayor" queda solo en `RECONCILIAR`.
+
+**Tests** ([actualizaciones-desasignacion.spec.ts](backend/src/modules/imports/processors/actualizaciones-desasignacion.spec.ts))
+- +3 casos: guard con 0 matches (no desasigna), alta `SOLO_DATOS` en remesa origen + marcado presente, y
+  alta clásica en la remesa del import. 11/11 verdes; 50/50 en todo `imports`.
+
+> **Combinación destino de Toyota:** `SOLO_DATOS` + `accionAusente=DESASIGNAR` + `crearNuevosCasos=true`.
+> Efecto: presentes → actualiza identidad/adicionales y re-asigna si venían de GES-094; nuevos → alta en la
+> cartera; ausentes → GES-094; **no toca deuda/pagos/situación**.
+
+---
+
 ## [2026-07-20] — Autoenriquecimiento de contactos desde la base: helper compartido en todos los processors
 
 > ⚠️ **Redeploy back** (solo código, sin migración). No cambia el comportamiento: unifica una lógica

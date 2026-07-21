@@ -675,10 +675,12 @@ const PlantillaEditor: React.FC = () => {
                         />
                         <FormHelperText sx={{ mb: 2 }}>
                             Activá esta opción para archivos que solo completan el DNI faltante y/o
-                            datos adicionales de deudores ya cargados (match por Nº Cliente). En este
-                            modo NO se generan pagos automáticos, NO se marca a los ausentes como
-                            "pagó todo" y NO se crean deudores nuevos. Dejalo desactivado para las
-                            actualizaciones normales de deuda.
+                            datos adicionales de deudores ya cargados. En este modo NO se generan
+                            pagos automáticos ni se reconcilia deuda, y NO se marca a los ausentes
+                            como "pagó todo". Los casos nuevos igual se dan de alta si dejás activada
+                            la opción "crear casos nuevos" (útil para gestiones sin saldo, ej.
+                            atención al cliente). Dejalo desactivado para las actualizaciones
+                            normales de deuda.
                         </FormHelperText>
 
                         {/* Acción para deudores ausentes del archivo (visible en ambos modos). */}
@@ -718,23 +720,26 @@ const PlantillaEditor: React.FC = () => {
                             </FormHelperText>
                         </FormControl>
 
+                        {/* Crear casos nuevos: ortogonal al modo (vale también en SOLO_DATOS). */}
+                        <FormControlLabel
+                            control={
+                                <Switch
+                                    checked={!crearNuevosCasos}
+                                    onChange={(e) => setCrearNuevosCasos(!e.target.checked)}
+                                />
+                            }
+                            label="No crear casos nuevos — solo actualizar deudores existentes"
+                        />
+                        <FormHelperText sx={{ mb: 2 }}>
+                            Activá esta opción cuando un mismo archivo abarca varias remesas y lo
+                            aplicás una por una: los registros que no pertenecen a la remesa elegida
+                            se ignoran en vez de cargarse como deudores nuevos. Dejalo desactivado
+                            para que los no encontrados se den de alta. En "Desasignar" (gestión
+                            diaria) los casos nuevos se suman a la remesa vinculada, así no se
+                            duplican al día siguiente.
+                        </FormHelperText>
+
                         {modoActualizacion === 'RECONCILIAR' && (
-                            <>
-                            <FormControlLabel
-                                control={
-                                    <Switch
-                                        checked={!crearNuevosCasos}
-                                        onChange={(e) => setCrearNuevosCasos(!e.target.checked)}
-                                    />
-                                }
-                                label="No crear casos nuevos — solo actualizar deudores existentes"
-                            />
-                            <FormHelperText sx={{ mb: 2 }}>
-                                Activá esta opción cuando un mismo archivo abarca varias remesas y lo
-                                aplicás una por una: los registros que no pertenecen a la remesa elegida
-                                se ignoran en vez de cargarse como deudores nuevos. Dejalo desactivado
-                                para las actualizaciones normales (los no encontrados se dan de alta).
-                            </FormHelperText>
                             <FormControl sx={{ flex: '1 1 360px', maxWidth: 520, mb: 2 }}>
                                 <InputLabel>Si el saldo informado es mayor al actual</InputLabel>
                                 <Select
@@ -760,7 +765,6 @@ const PlantillaEditor: React.FC = () => {
                                     generar una factura por día si el deudor tiene una sola factura).
                                 </FormHelperText>
                             </FormControl>
-                            </>
                         )}
                     </>
                 )}

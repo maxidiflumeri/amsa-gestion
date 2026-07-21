@@ -19,6 +19,7 @@ const DEFAULT_GESTION = 200;
 
 function makeCtx(overrides: Partial<ProcessContext> = {}) {
     const deudorUpdate = jest.fn().mockResolvedValue({});
+    const deudorCreate = jest.fn().mockResolvedValue({ id: 777 });
     const parametroFindUnique = jest.fn().mockImplementation(({ where }: any) => {
         if (where.clave === 'GES-094') return Promise.resolve({ id: GES_094 });
         if (where.clave === 'SIT-050') return Promise.resolve({ id: SIT_050 });
@@ -32,8 +33,17 @@ function makeCtx(overrides: Partial<ProcessContext> = {}) {
         deudor: {
             findMany: jest.fn().mockResolvedValue([]),
             findUnique: jest.fn().mockResolvedValue(null),
+            findFirst: jest.fn().mockResolvedValue(null),
             update: deudorUpdate,
+            create: deudorCreate,
         },
+        contacto: {
+            findMany: jest.fn().mockResolvedValue([]),
+            createMany: jest.fn().mockResolvedValue({ count: 0 }),
+            upsert: jest.fn().mockResolvedValue({}),
+        },
+        factura: { create: jest.fn().mockResolvedValue({}) },
+        $queryRaw: jest.fn().mockResolvedValue([]),
         $transaction: jest.fn((arr: any[]) => Promise.resolve(arr)),
     };
     const ctx = {
@@ -53,7 +63,7 @@ function makeCtx(overrides: Partial<ProcessContext> = {}) {
         accionAusente: 'DESASIGNAR',
         ...overrides,
     } as unknown as ProcessContext;
-    return { ctx, prisma, deudorUpdate };
+    return { ctx, prisma, deudorUpdate, deudorCreate };
 }
 
 describe('ActualizacionesProcessor — accionAusente=DESASIGNAR (afterAll)', () => {
@@ -67,8 +77,9 @@ describe('ActualizacionesProcessor — accionAusente=DESASIGNAR (afterAll)', () 
             { id: 3, estadoGestionId: GES_094, estadoSituacionId: null }, // ya desasignado → skip
             { id: 4, estadoGestionId: 210, estadoSituacionId: null }, // presente en el archivo → skip
         ]);
-        // Marcar al deudor 4 como visto en el archivo
+        // Marcar al deudor 4 como visto en el archivo (match real contra la cartera)
         (proc as any).processedDeudorIds.add(4);
+        (proc as any).matchedExistingCount = 1;
 
         await proc.afterAll(ctx);
 
@@ -92,6 +103,7 @@ describe('ActualizacionesProcessor — accionAusente=DESASIGNAR (afterAll)', () 
             { id: 1, estadoGestionId: GES_094, estadoSituacionId: null },
             { id: 2, estadoGestionId: GES_094, estadoSituacionId: null },
         ]);
+        (proc as any).matchedExistingCount = 1; // hubo match real → el guard no aplica
 
         await proc.afterAll(ctx);
 
@@ -110,6 +122,23 @@ describe('ActualizacionesProcessor — accionAusente=DESASIGNAR (afterAll)', () 
         expect(deudorUpdate).not.toHaveBeenCalled();
     });
 
+    it('GUARD: si 0 filas matchearon la cartera (archivo fallido) NO desasigna a nadie', async () => {
+        const proc = new ActualizacionesProcessor();
+        const { ctx, prisma, deudorUpdate } = makeCtx();
+
+        // La remesa origen tiene deudores, pero ninguna fila del archivo matcheó (matchedExistingCount=0,
+        // el estado por defecto de un batch en el que todo falló la validación). No se debe tocar nada.
+        prisma.deudor.findMany.mockResolvedValue([
+            { id: 1, estadoGestionId: 210, estadoSituacionId: null },
+            { id: 2, estadoGestionId: 210, estadoSituacionId: null },
+        ]);
+
+        await proc.afterAll(ctx);
+
+        expect(deudorUpdate).not.toHaveBeenCalled();
+        expect(ctx.auditoria.log).not.toHaveBeenCalled();
+    });
+
     it('IGNORAR: no desasigna a ningún ausente', async () => {
         const proc = new ActualizacionesProcessor();
         const { ctx, prisma, deudorUpdate } = makeCtx({ accionAusente: 'IGNORAR' } as any);
@@ -121,6 +150,45 @@ describe('ActualizacionesProcessor — accionAusente=DESASIGNAR (afterAll)', () 
         await proc.afterAll(ctx);
 
         expect(deudorUpdate).not.toHaveBeenCalled();
+    });
+});
+
+describe('ActualizacionesProcessor — alta de casos nuevos (escenario B)', () => {
+    it('SOLO_DATOS + crearNuevosCasos: da de alta el caso nuevo en la MISMA remesa origen y lo marca presente', async () => {
+        const proc = new ActualizacionesProcessor();
+        const { ctx, prisma, deudorCreate } = makeCtx({
+            modoActualizacion: 'SOLO_DATOS',
+            accionAusente: 'DESASIGNAR',
+            crearNuevosCasos: true,
+        } as any);
+
+        // No existe en la remesa origen → se crea (escenario B).
+        prisma.deudor.findUnique.mockResolvedValue(null);
+
+        await proc.processRow({ documento: '30111222', nombre: 'JUANA' } as any, ctx);
+
+        // Alta en la remesa ORIGEN (5), no en la del import (10) → cartera unificada, sin duplicar mañana.
+        expect(deudorCreate).toHaveBeenCalledTimes(1);
+        expect(deudorCreate.mock.calls[0][0].data.remesaId).toBe(5);
+        // Marcado como presente (no se auto-desasigna en el afterAll) sin contar como match real.
+        expect((proc as any).processedDeudorIds.has(777)).toBe(true);
+        expect((proc as any).matchedExistingCount).toBe(0);
+    });
+
+    it('flujo clásico (RECONCILIAR, sin DESASIGNAR): el caso nuevo va a la remesa del import', async () => {
+        const proc = new ActualizacionesProcessor();
+        const { ctx, prisma, deudorCreate } = makeCtx({
+            modoActualizacion: 'RECONCILIAR',
+            accionAusente: 'PAGO_TODO',
+            crearNuevosCasos: true,
+        } as any);
+        prisma.deudor.findUnique.mockResolvedValue(null);
+
+        await proc.processRow({ documento: '30111222', nombre: 'JUANA', montoTotal: '1000' } as any, ctx);
+
+        expect(deudorCreate).toHaveBeenCalledTimes(1);
+        expect(deudorCreate.mock.calls[0][0].data.remesaId).toBe(10); // remesa del import
+        expect((proc as any).processedDeudorIds.has(777)).toBe(false); // no se marca presente
     });
 });
 
