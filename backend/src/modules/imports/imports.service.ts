@@ -23,6 +23,23 @@ import { PromesasService } from '../promesas/promesas.service';
 import { AuditoriaHelper } from '../transacciones/auditoria.helper';
 import { normalizarTelefonoArgentino } from '../../common/utils/phone-utils';
 
+/**
+ * Filas que el runner acumula antes de procesarlas juntas.
+ *
+ * Para los processors que implementan `processBatch` (hoy ACTUALIZACIONES) es además el tamaño
+ * del `IN (...)` del prefetch y el de la transacción de updates, así que gobierna cuántas idas y
+ * vueltas a la base cuesta un archivo: un lote más grande = menos queries. También marca cada
+ * cuánto se refresca el progreso en la UI y se persisten `okFilas`/`errFilas`.
+ *
+ * Configurable con `IMPORTS_BATCH_SIZE` (default 1000). Se acota a [1, 5000]: un valor mal cargado
+ * no debe degradar el import ni inflar la transacción hasta retener locks de más.
+ */
+export const IMPORTS_BATCH_SIZE = (() => {
+    const raw = Number(process.env.IMPORTS_BATCH_SIZE);
+    if (!Number.isFinite(raw) || raw < 1) return 1000;
+    return Math.min(Math.floor(raw), 5000);
+})();
+
 @Injectable()
 export class ImportService {
     private readonly logger = new Logger(ImportService.name);
@@ -815,8 +832,13 @@ export class ImportService {
         const sep = resolveDelimiter(remesa.plantilla.separador ?? '|');
         const hasHeader = !!remesa.plantilla.tieneHeader;
 
-        const BATCH_SIZE = 200;
+        const BATCH_SIZE = IMPORTS_BATCH_SIZE;
         const batch: Array<{ row: any; idx: number }> = [];
+
+        this.logger.log(
+            `Procesando remesa=${remesaId} categoria=${remesa.categoria} ` +
+            `lote=${BATCH_SIZE} porLote=${processor.processBatch ? 'si' : 'no'}`,
+        );
 
         await this.prisma.remesa.update({
             where: { id: remesaId },

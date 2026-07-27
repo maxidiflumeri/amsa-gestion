@@ -124,9 +124,15 @@ pagos (importe, origen). **Los 9 escenarios dieron idéntico**:
 > (no hay infraestructura de tests para ese servicio). Conviene mirar el resultado de la primera corrida
 > real: `okFilas`/`errFilas` de la remesa deben coincidir con lo de siempre.
 >
-> **Próximo paso posible si hiciera falta más**: subir `BATCH_SIZE` (hoy 200) reduciría proporcionalmente
-> el prefetch y los `remesa.update` de progreso, que pasan a ser el costo dominante. No se tocó porque
-> afecta a todas las categorías y conviene medirlo con datos reales primero.
+**Tamaño de lote configurable**: el `BATCH_SIZE` hardcodeado en 200 pasa a la variable de entorno
+**`IMPORTS_BATCH_SIZE`**, con **default 1000** y acotada a `[1, 5000]` (un valor inválido o fuera de rango
+cae al default / al tope, no rompe el import). Subirlo divide proporcionalmente el prefetch y los
+`remesa.update` de progreso, que tras el batch lookup pasaron a ser el costo dominante: de 200 a 1000 son
+5x menos de ambos. A cambio, la transacción de updates es más larga (más tiempo de locks) y el progreso
+en la UI se refresca cada 1000 filas. Aplica a todas las categorías; las que no usan `processBatch` no
+cambian su velocidad de procesamiento pero igual bajan el overhead de progreso. El log de inicio de cada
+importación ahora dice el lote efectivo y si el processor usa el camino por lote
+(`lote=1000 porLote=si`), para poder verificarlo en prod.
 
 ---
 
