@@ -353,6 +353,25 @@ describe('ActualizacionesProcessor — processBatch (performance del archivo dia
         expect(prisma.$transaction).toHaveBeenCalledTimes(1);
     });
 
+    it('dos filas sin documento generan placeholders distintos (no chocan con el unique)', async () => {
+        const proc = new ActualizacionesProcessor();
+        const { ctx, deudorCreate } = makeCtx({ modoActualizacion: 'SOLO_DATOS' } as any);
+
+        await proc.processBatch(
+            [
+                { row: { nombre: 'SIN DNI 1' } as any, idx: 0 },
+                { row: { nombre: 'SIN DNI 2' } as any, idx: 1 },
+            ],
+            ctx,
+        );
+
+        expect(deudorCreate).toHaveBeenCalledTimes(2);
+        const doc1 = deudorCreate.mock.calls[0][0].data.documento;
+        const doc2 = deudorCreate.mock.calls[1][0].data.documento;
+        expect(doc1).not.toBe(doc2);
+        expect(doc1).toMatch(/^SIN_DOC_/);
+    });
+
     it('un documento nuevo repetido dentro del MISMO lote se da de alta una sola vez', async () => {
         const proc = new ActualizacionesProcessor();
         const { ctx, deudorCreate } = makeCtx({ modoActualizacion: 'SOLO_DATOS' } as any);
@@ -411,6 +430,24 @@ describe('ActualizacionesProcessor — processBatch (performance del archivo dia
             where: { id: 1 },
             data: { camposAdicionales: { DNI: 'CUIL0' } },
         });
+    });
+
+    it('devuelve UN error por fila aunque falle en dos fases (el runner cuenta por elemento)', async () => {
+        const proc = new ActualizacionesProcessor();
+        // RECONCILIAR: la fila pasa por el flush de identidad y por la reconciliación.
+        const { ctx, prisma, deudorUpdate, setCartera } = makeCtx({ modoActualizacion: 'RECONCILIAR' } as any);
+        setCartera([deudorEnCartera({ id: 1, documento: 'DOC0', camposAdicionales: { DNI: 'VIEJO' } })]);
+        prisma.factura.findMany = jest.fn().mockRejectedValue(new Error('falla al reconciliar'));
+        deudorUpdate.mockRejectedValue(new Error('falla el update'));
+
+        const fallos = await proc.processBatch(
+            [{ row: { documento: 'DOC0', camposAdicionales: { DNI: 'NUEVO' }, montoTotal: '100' } as any, idx: 0 }],
+            ctx,
+        );
+
+        // Un solo error para idx 0, no dos.
+        expect(fallos).toHaveLength(1);
+        expect(fallos[0].idx).toBe(0);
     });
 
     it('respeta crearNuevosCasos=false: no crea ni cuenta al ausente de la cartera', async () => {

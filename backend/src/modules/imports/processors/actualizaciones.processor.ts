@@ -95,6 +95,8 @@ export class ActualizacionesProcessor implements ICategoryProcessor {
     private reasignadosCount = 0;
     /** Contactos copiados desde el histórico al crear casos nuevos (autoenriquecimiento). */
     private contactosEnriquecidos = 0;
+    /** Secuencia para desambiguar los documentos placeholder de filas sin DNI. */
+    private placeholderSeq = 0;
 
     /** Limpia el estado acumulado del batch. */
     private reset(): void {
@@ -493,8 +495,11 @@ export class ActualizacionesProcessor implements ICategoryProcessor {
         }
 
         // ── 4. Reconciliación de deuda (solo RECONCILIAR): sigue siendo por deudor,
-        // porque lee y escribe facturas/pagos de cada uno.
+        // porque lee y escribe facturas/pagos de cada uno. Se saltean las filas que ya
+        // fallaron antes: su estado quedó a medias y ya están contadas como error.
+        const yaFallaron = new Set(errores.map((e) => e.idx));
         for (const { deudorId, row, idx } of aReconciliar) {
+            if (yaFallaron.has(idx)) continue;
             try {
                 await this.reconciliarDeudor(deudorId, row, ctx);
             } catch (e: any) {
@@ -502,7 +507,11 @@ export class ActualizacionesProcessor implements ICategoryProcessor {
             }
         }
 
-        return errores;
+        // Un error por fila: el runner cuenta `err` por elemento devuelto, así que dos
+        // errores del mismo idx descuadrarían el total (ok + err ≠ filas del lote).
+        const porIdx = new Map<number, BatchRowError>();
+        for (const e of errores) if (!porIdx.has(e.idx)) porIdx.set(e.idx, e);
+        return [...porIdx.values()];
     }
 
     /**
@@ -579,7 +588,12 @@ export class ActualizacionesProcessor implements ICategoryProcessor {
      * duplicarlo (el camino por fila lo conseguía porque cada fila releía la DB).
      */
     private async crearNuevoDeudor(row: MappedRow, ctx: ProcessContext): Promise<DeudorPrefetch> {
-        const documentoStr = row.documento ? String(row.documento).trim() : `SIN_DOC_${Date.now()}`;
+        // Placeholder para filas sin documento. Lleva un contador además del timestamp: dos altas
+        // seguidas caen en el mismo milisegundo (más aún ahora que el lote no intercala queries) y
+        // `SIN_DOC_${Date.now()}` a secas chocaba con el unique (empresaId, documento, remesaId).
+        const documentoStr = row.documento
+            ? String(row.documento).trim()
+            : `SIN_DOC_${Date.now()}_${++this.placeholderSeq}`;
         const montoNuevo = row.montoTotal ? this.parseFloatSafe(row.montoTotal) : 0;
 
         // Calcular sum de facturas del archivo si no hay montoTotal

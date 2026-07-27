@@ -70,9 +70,29 @@ cambió. Extrapolado a las 351.867 filas de Toyota: de 1.407.468 queries a **~1.
 A los 3,9 ms/query medidos en prod son **~7 s de base de datos**; el resto pasa a ser el parseo del CSV
 y el `remesa.update` de progreso por lote. **Estimado: 91 min → menos de 1 minuto.**
 
-**Tests**: 67 verdes en `imports` (+15). Nuevos: una sola lectura por lote, sin UPDATE cuando los datos
+**Dos correcciones que salieron de revisar el impacto colateral del cambio:**
+- **Un error por fila**: una fila podía acumular dos errores (el flush del update y la reconciliación),
+  y el runner cuenta `err` por elemento devuelto → `ok + err` no daba el total del lote. Ahora las filas
+  que ya fallaron se saltean en la reconciliación y el retorno se deduplica por `idx`.
+- **Placeholder de filas sin documento**: `SIN_DOC_${Date.now()}` chocaba con el unique
+  `(empresaId, documento, remesaId)` si dos altas caían en el mismo milisegundo. Ya podía pasar antes,
+  pero el lote lo hace más probable (no intercala queries entre altas). Se le sumó una secuencia.
+
+**Tests**: 69 verdes en `imports` (+17). Nuevos: una sola lectura por lote, sin UPDATE cuando los datos
 son idénticos, agrupación en transacción, dedupe intra-lote, aislamiento de la fila que falla, fallback
-del flush, `crearNuevosCasos=false`, match por `nro_cliente`, y 7 casos de `adicionalesEquivalentes`.
+del flush, un error por fila, placeholders distintos, `crearNuevosCasos=false`, match por `nro_cliente`,
+y 7 casos de `adicionalesEquivalentes`.
+
+**Verificación de que no se rompe nada más** (el cambio toca una interfaz compartida):
+- Ningún otro processor implementa `processBatch` → los 8 restantes siguen por `processRow`, sin cambios.
+- Los métodos renombrados (`reasignarSiCorresponde`, `actualizarIdentidadYAdicionales`) eran privados y
+  no tenían referencias fuera del processor. `mergeAdicionales` no se modificó (lo usa `acciones.processor`).
+- **Mismo deudor repetido en un lote**: da el mismo resultado que antes. `mapRow` genera siempre el mismo
+  conjunto de claves en `camposAdicionales` (recorre `mapping.extras` completo, aun con valores vacíos) y
+  el prefetch trae el JSON real de la DB, así que el merge conserva las claves preexistentes y el valor
+  final sigue siendo el de la última fila.
+- **Reordenar las fases es seguro**: `reconciliarDeudor` solo lee `montoTotal` y facturas — ninguno de los
+  campos que escribe el update de identidad (`documento`, `nombre`, `apellido`, `camposAdicionales`).
 
 > **Alcance**: las ALTAS de casos nuevos siguen siendo secuenciales (arrastran facturas, contactos y
 > autoenriquecimiento). En el flujo diario son una fracción mínima de las filas; en un archivo que sea
