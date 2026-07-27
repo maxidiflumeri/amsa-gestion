@@ -28,6 +28,7 @@ import MappingEditor, {
     MappingBlock,
 } from '../components/import/MappingEditor'
 import AccionesEditor, { AccionesConfig } from '../components/import/AccionesEditor'
+import MultirregistroEditor, { PRESET_TOYOTA_87 } from '../components/import/MultirregistroEditor'
 
 // ─── Constantes ──────────────────────────────────────────────────────────────
 
@@ -40,6 +41,7 @@ const CATEGORIAS = [
     'DEUDORES_Y_FACTURAS',
     'ACTUALIZACIONES',
     'ACCIONES',
+    'MULTIRREGISTRO',
 ]
 
 const ENTITY_MAP: Record<string, string> = {
@@ -51,6 +53,7 @@ const ENTITY_MAP: Record<string, string> = {
     DEUDORES_Y_FACTURAS: 'MIXTO',
     ACTUALIZACIONES: 'ACTUALIZACION',
     ACCIONES: 'ACCIONES',
+    MULTIRREGISTRO: 'MIXTO',
 }
 
 // ─── Helpers de mapeo ────────────────────────────────────────────────────────
@@ -209,6 +212,9 @@ const PlantillaEditor: React.FC = () => {
     const [matchKeys, setMatchKeys] = useState('empresaId,documento')
     const [fields, setFields] = useState<MappingField[]>([])
     const [blocks, setBlocks] = useState<MappingBlock[]>([])
+    const [multirregistroConfig, setMultirregistroConfig] = useState(
+        JSON.stringify(PRESET_TOYOTA_87, null, 2),
+    )
     const [defaultEstadoSituacionId, setDefaultEstadoSituacionId] = useState<number | ''>('')
     const [defaultEstadoGestionId, setDefaultEstadoGestionId] = useState<number | ''>('')
     const [montoDeudorDesdeFacturas, setMontoDeudorDesdeFacturas] =
@@ -233,6 +239,10 @@ const PlantillaEditor: React.FC = () => {
     const esFlujoFacturas = categoria === 'FACTURAS' || categoria === 'DEUDORES_Y_FACTURAS'
     const esActualizacion = categoria === 'ACTUALIZACIONES'
     const esAcciones = categoria === 'ACCIONES'
+    // MULTIRREGISTRO tampoco usa el mapeo columna→campo: el parser arma las filas y acá solo se
+    // configura el layout del archivo.
+    const esMultirregistro = categoria === 'MULTIRREGISTRO'
+    const sinMapeoDeColumnas = esAcciones || esMultirregistro
 
     // Empresa del editor: para creación la toma de la lista via state o default
     const [empresaId, setEmpresaId] = useState<number | null>(null)
@@ -294,6 +304,9 @@ const PlantillaEditor: React.FC = () => {
             setCrearNuevosCasos(p.mappingJson?.crearNuevosCasos !== false)
             setAccionAusente(p.mappingJson?.accionAusente ?? 'PAGO_TODO')
             if (p.mappingJson?.acciones) setAccionesConfig(p.mappingJson.acciones)
+            if (p.mappingJson?.multirregistro) {
+                setMultirregistroConfig(JSON.stringify(p.mappingJson.multirregistro, null, 2))
+            }
         } catch (err) {
             notify.error(err as Error)
             navigate('/plantillas')
@@ -349,6 +362,13 @@ const PlantillaEditor: React.FC = () => {
                     return
                 }
             }
+        } else if (esMultirregistro) {
+            try {
+                JSON.parse(multirregistroConfig)
+            } catch {
+                notify.error('El layout del archivo no es un JSON válido')
+                return
+            }
         } else if (fields.filter((f) => f.destField).length === 0) {
             notify.error('Agregá al menos un campo de mapeo')
             return
@@ -385,6 +405,9 @@ const PlantillaEditor: React.FC = () => {
         }
         if (esAcciones) {
             ;(mappingJson as Record<string, unknown>).acciones = accionesConfig
+        }
+        if (esMultirregistro) {
+            ;(mappingJson as Record<string, unknown>).multirregistro = JSON.parse(multirregistroConfig)
         }
 
         try {
@@ -771,7 +794,17 @@ const PlantillaEditor: React.FC = () => {
 
                 <Divider sx={{ my: 3 }} />
 
-                {esAcciones ? (
+                {esMultirregistro ? (
+                    <>
+                        <Typography variant="h6" sx={{ fontWeight: 600, mb: 2 }}>
+                            Layout del archivo multirregistro
+                        </Typography>
+                        <MultirregistroEditor
+                            value={multirregistroConfig}
+                            onChange={setMultirregistroConfig}
+                        />
+                    </>
+                ) : esAcciones ? (
                     <>
                         <Typography variant="h6" sx={{ fontWeight: 600, mb: 2 }}>
                             Acciones masivas

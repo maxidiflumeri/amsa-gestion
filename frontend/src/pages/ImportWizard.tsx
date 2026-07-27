@@ -71,6 +71,8 @@ export default function ImportWizard() {
     const isExcelFile = file?.name?.match(/\.(xls|xlsx)$/i);
 
     // Remesa de deudores origen
+    // MULTIRREGISTRO: resumen del parseo (tipos de línea, casos, facturas, bajas) para el preview.
+    const [multiResumen, setMultiResumen] = useState<any | null>(null);
     const [remesasDeudores, setRemesasDeudores] = useState<any[]>([]);
     const [remesaOrigenId, setRemesaOrigenId] = useState<number | null>(null);
     // PAGOS: se pueden elegir VARIAS remesas origen (archivo de pagos para toda la empresa),
@@ -78,8 +80,16 @@ export default function ImportWizard() {
     const [remesaOrigenIds, setRemesaOrigenIds] = useState<number[]>([]);
     // ACCIONES: la remesa origen es OPCIONAL (sin elegir = toda la base de la empresa).
     const esAcciones = categoria === "ACCIONES";
+    // MULTIRREGISTRO trae todo en un mismo archivo: los casos nuevos entran en la remesa de esta
+    // importación y los que ya existen se buscan por Nº Cliente en toda la empresa.
+    const esMultirregistro = categoria === "MULTIRREGISTRO";
     const multiOrigen = categoria === "PAGOS";
-    const needsOrigen = categoria !== "" && categoria !== "DEUDORES" && categoria !== "DEUDORES_Y_FACTURAS" && !esAcciones;
+    const needsOrigen =
+        categoria !== "" &&
+        categoria !== "DEUDORES" &&
+        categoria !== "DEUDORES_Y_FACTURAS" &&
+        !esAcciones &&
+        !esMultirregistro;
 
     // Paso 2 – preview
     const [remesaId, setRemesaId] = useState<number | null>(null);
@@ -151,7 +161,10 @@ export default function ImportWizard() {
                 "nombre",
                 nombreRemesa || `Remesa ${new Date().toLocaleString()}`
             );
-            formData.append("numeroRemesa", numeroRemesa || String(Date.now()));
+            // Si el operador no escribe un número, se manda vacío y el backend genera el
+            // correlativo de la empresa (00001, 00002, …). Antes acá se caía a Date.now(), que
+            // es el origen de los "números de remesa random" tipo 1784657478166.
+            formData.append("numeroRemesa", numeroRemesa.trim());
             if (fechaVencimiento) {
                 formData.append("fechaVencimiento", fechaVencimiento);
             }
@@ -178,6 +191,8 @@ export default function ImportWizard() {
                 ok: resValidar.data.ok ?? 0,
                 err: resValidar.data.err ?? 0,
             });
+
+            setMultiResumen(resValidar.data.multirregistro ?? null);
 
             if (categoria === "ACCIONES") {
                 try {
@@ -336,10 +351,10 @@ export default function ImportWizard() {
                                         label="Número de remesa"
                                         variant="outlined"
                                         fullWidth
-                                        placeholder="Ej: REM-123"
+                                        placeholder="Ej: 00007"
                                         value={numeroRemesa}
                                         onChange={(e) => setNumeroRemesa(e.target.value)}
-                                        helperText="Opcional: se generará uno automático si se deja vacío"
+                                        helperText="Opcional: si se deja vacío sigue el correlativo de la empresa (00001, 00002, …)"
                                     />
                                 </Stack>
 
@@ -508,6 +523,28 @@ export default function ImportWizard() {
                 {/* PASO 2 — Preview */}
                 {activeStep === 2 && (
                     <>
+                        {esMultirregistro && multiResumen && (
+                            <Alert severity={multiResumen.advertencias?.length ? "warning" : "info"} sx={{ mb: 2 }}>
+                                <AlertTitle>
+                                    {multiResumen.casos} casos · {multiResumen.facturas} avisos · {multiResumen.bajas} bajas
+                                </AlertTitle>
+                                Se leyeron {multiResumen.lineas} líneas
+                                {multiResumen.porTipo &&
+                                    ` (${Object.entries(multiResumen.porTipo)
+                                        .map(([k, v]) => `${k}: ${v}`)
+                                        .join(" · ")})`}
+                                {multiResumen.ignoradas > 0 && ` · ${multiResumen.ignoradas} líneas ignoradas`}.
+                                {multiResumen.advertencias?.length > 0 && (
+                                    <Box component="ul" sx={{ mt: 1, mb: 0, pl: 2.5 }}>
+                                        {multiResumen.advertencias.map((a: string, i: number) => (
+                                            <li key={i}>
+                                                <Typography variant="caption">{a}</Typography>
+                                            </li>
+                                        ))}
+                                    </Box>
+                                )}
+                            </Alert>
+                        )}
                         {categoria === "ACCIONES" && accionesImpacto && (
                             <Alert severity="warning" sx={{ mb: 2 }}>
                                 {accionesImpacto.matchMode === "CONTACTO" ? (

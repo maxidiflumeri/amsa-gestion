@@ -14,6 +14,7 @@ import ContactPhoneIcon from "@mui/icons-material/ContactPhone";
 import AutoFixHighIcon from "@mui/icons-material/AutoFixHigh";
 import SyncAltIcon from "@mui/icons-material/SyncAlt";
 import PlaylistAddCheckIcon from "@mui/icons-material/PlaylistAddCheck";
+import AccountTreeIcon from "@mui/icons-material/AccountTree";
 
 interface CategoryOption {
     value: string;
@@ -81,6 +82,14 @@ const CATEGORIES: CategoryOption[] = [
             "Sobre un listado: marcar situación/gestión, pisar campos, cargar datos adicionales o comentarios",
         icon: <PlaylistAddCheckIcon sx={{ fontSize: 40 }} />,
         color: "#6d4c41",
+    },
+    {
+        value: "MULTIRREGISTRO",
+        label: "Multirregistro",
+        description:
+            "Un solo archivo con varios tipos de línea (clientes, avisos, detalle, bajas) que se agrupan en cada caso",
+        icon: <AccountTreeIcon sx={{ fontSize: 40 }} />,
+        color: "#5e35b1",
     },
 ];
 

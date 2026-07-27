@@ -71,10 +71,36 @@ ninguna factura, que es lo correcto: sus avisos no vienen en el `GES`.
 **Tests**: 127 verdes en `imports` (+42). El spec del parser corre **contra el archivo real** del cedente
 y verifica que los 271 importes calculados coincidan con el total del `GES`, sin advertencias.
 
-> **Pendiente para operar**: (1) crear la plantilla en la empresa de Toyota 87 con el `mappingJson` de
-> [plantillas/toyota-87.ts](backend/src/modules/imports/plantillas/toyota-87.ts); (2) el selector de
-> categoría del frontend todavía no ofrece MULTIRREGISTRO; (3) la UI de facturas no muestra `externalId`
-> (contrato) ni `detalle` (desglose) — hay que agregarlos para que el gestor los vea.
+**Frontend** (completado en el mismo día — la feature queda operable de punta a punta)
+- [CategorySelector.tsx](frontend/src/components/import/CategorySelector.tsx): card **Multirregistro**.
+- [MultirregistroEditor.tsx](frontend/src/components/import/MultirregistroEditor.tsx) **(nuevo)**: editor
+  del layout en el `PlantillaEditor`, con botón **"Cargar layout de Toyota 87"** que deja el preset listo,
+  validación en vivo del JSON (avisa si falta un bloque obligatorio) y chips con los tipos de línea
+  detectados. Se edita como JSON a propósito: es config técnica que se toca una vez al dar de alta la
+  cartera. Reemplaza al mapeador de columnas para esta categoría, igual que hace ACCIONES con su editor.
+- [ImportWizard.tsx](frontend/src/pages/ImportWizard.tsx): MULTIRREGISTRO **no pide remesa origen** (el
+  archivo trae todo), y el paso de vista previa muestra un resumen del parseo —
+  *"162 casos · 271 avisos · 10 bajas · se leyeron 1.720 líneas (GES: 271 · CLI: 162 · DET: 1277 · BAJ: 10)"*—
+  con las advertencias listadas si las hubo.
+- [FichaFacturasTab.tsx](frontend/src/components/deudores/ficha/tabs/FichaFacturasTab.tsx): columna
+  **Contrato** (solo aparece si alguna factura lo trae, para no ensuciar el resto de las carteras) y el
+  **desglose desplegable** por factura, con un chip por concepto.
+- **Preview del backend** (`POST /import/validar/:id`): para MULTIRREGISTRO el preview no puede ser "las
+  primeras N filas del CSV" —una fila suelta no significa nada— así que devuelve los primeros **casos ya
+  armados** (cliente, nombre, cantidad de avisos, importe total, contratos) más el resumen del parseo.
+
+**Corrección del `numeroRemesa` en el wizard**: el frontend mandaba `Date.now()` cuando el operador dejaba
+el campo vacío, lo que **anulaba el correlativo nuevo**. Ahora manda vacío y decide el backend. El texto de
+ayuda del campo lo explica.
+
+> **Pendiente para operar**: crear la plantilla desde *Plantillas → Nueva → Multirregistro*, apretar
+> "Cargar layout de Toyota 87" y elegir los estados iniciales. **Ojo con la empresa**: en prod hay
+> `TOYOTA PLAN DE AHORRO`, `TOYOTA REFINANCIACION`, `TOYOTA RELEVAMIENTO` y `TOYOTA VENTA SEGUROS`, pero
+> ninguna identificada como la cuenta 87 — hay que definir cuál usar o darla de alta.
+>
+> El `prisma db push` lo corre solo el pipeline de deploy. Los cambios son aditivos (columna nullable +
+> valores de enum) y en prod hay 48.240 facturas sobre MySQL 8.0.45, donde `ADD COLUMN NULL` es instantáneo:
+> no debería trabar el deploy.
 
 ---
 

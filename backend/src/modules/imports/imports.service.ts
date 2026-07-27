@@ -405,6 +405,56 @@ export class ImportService {
         const preview: any[] = [];
         const isExcel = remesa.archivo.match(/\.(xls|xlsx)$/i);
 
+        // MULTIRREGISTRO: el preview no puede ser "las primeras N filas del CSV" porque una fila
+        // suelta no significa nada — hay que agrupar el archivo entero primero. Se muestran los
+        // primeros casos ya armados, que es lo que el operador necesita ver para confirmar.
+        if (remesa.categoria === 'MULTIRREGISTRO') {
+            const cfgMulti = mapping?.multirregistro;
+            if (!cfgMulti) {
+                throw new BadRequestException(
+                    'La plantilla es de categoría MULTIRREGISTRO pero no tiene el layout del archivo configurado.',
+                );
+            }
+            const { filas, advertencias, resumen } = parseMultirregistro(
+                fs.readFileSync(remesa.archivo),
+                cfgMulti,
+            );
+
+            for (const fila of filas.slice(0, sampleRows)) {
+                if (fila._tipo === 'BAJA') {
+                    preview.push({ row: preview.length, data: { tipo: 'BAJA', aviso: fila.aviso, motivo: fila.motivo }, error: null });
+                    continue;
+                }
+                const facturas = (fila._blocks ?? []).filter((b) => b.entity === 'FACTURA');
+                const contactos = (fila._blocks ?? []).filter((b) => b.entity === 'CONTACTO');
+                preview.push({
+                    row: preview.length,
+                    data: {
+                        tipo: 'CASO',
+                        nroCliente: fila.nroCliente,
+                        nombre: fila.nombre,
+                        avisos: facturas.length,
+                        importeTotal: facturas.reduce((a, f) => a + (Number(f.data.importe) || 0), 0),
+                        contratos: [...new Set(facturas.map((f) => f.data.contrato).filter(Boolean))].join(', '),
+                        contactos: contactos.length,
+                    },
+                    error: null,
+                });
+            }
+
+            totalRows = filas.length;
+            ok = filas.length;
+            err = 0;
+
+            return {
+                total: totalRows,
+                ok,
+                err,
+                sample: preview,
+                multirregistro: { ...resumen, advertencias: advertencias.slice(0, 20) },
+            };
+        }
+
         if (isExcel) {
             const workbook = xlsx.readFile(remesa.archivo, {
                 cellDates: true,
