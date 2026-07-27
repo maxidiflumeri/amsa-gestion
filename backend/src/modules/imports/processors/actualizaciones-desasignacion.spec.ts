@@ -175,7 +175,7 @@ describe('ActualizacionesProcessor — alta de casos nuevos (escenario B)', () =
         expect((proc as any).matchedExistingCount).toBe(0);
     });
 
-    it('flujo clásico (RECONCILIAR, sin DESASIGNAR): el caso nuevo va a la remesa del import', async () => {
+    it('RECONCILIAR + PAGO_TODO: el caso nuevo también va a la remesa origen y se marca presente', async () => {
         const proc = new ActualizacionesProcessor();
         const { ctx, prisma, deudorCreate } = makeCtx({
             modoActualizacion: 'RECONCILIAR',
@@ -186,9 +186,43 @@ describe('ActualizacionesProcessor — alta de casos nuevos (escenario B)', () =
 
         await proc.processRow({ documento: '30111222', nombre: 'JUANA', montoTotal: '1000' } as any, ctx);
 
+        // El destino ya no depende de accionAusente: siempre la cartera (5), no la del import (10).
         expect(deudorCreate).toHaveBeenCalledTimes(1);
-        expect(deudorCreate.mock.calls[0][0].data.remesaId).toBe(10); // remesa del import
-        expect((proc as any).processedDeudorIds.has(777)).toBe(false); // no se marca presente
+        expect(deudorCreate.mock.calls[0][0].data.remesaId).toBe(5);
+        expect((proc as any).processedDeudorIds.has(777)).toBe(true);
+        expect((proc as any).matchedExistingCount).toBe(0);
+    });
+
+    it('REGRESIÓN: un caso nuevo bajo PAGO_TODO no se marca "pagó todo" en el afterAll de la misma corrida', async () => {
+        const proc = new ActualizacionesProcessor();
+        const { ctx, prisma } = makeCtx({
+            modoActualizacion: 'RECONCILIAR',
+            accionAusente: 'PAGO_TODO',
+            crearNuevosCasos: true,
+        } as any);
+        const pagoCreate = jest.fn().mockResolvedValue({});
+        prisma.pago = { create: pagoCreate, aggregate: jest.fn().mockResolvedValue({ _sum: { importe: 0 } }) };
+        prisma.factura.updateMany = jest.fn().mockResolvedValue({ count: 0 });
+
+        // Fila 1: deudor existente de la cartera (match real) → presente.
+        prisma.deudor.findUnique.mockResolvedValueOnce({ id: 111 });
+        await proc.processRow({ documento: '20000001', montoTotal: '5000' } as any, ctx);
+        // Fila 2: no existe → alta en la remesa origen (id 777).
+        prisma.deudor.findUnique.mockResolvedValue(null);
+        await proc.processRow({ documento: '30111222', nombre: 'JUANA', montoTotal: '1000' } as any, ctx);
+
+        // El afterAll recorre la cartera: el 111 y el recién creado 777 están presentes; solo el 222
+        // estuvo ausente del archivo y es el único que debe reconciliarse como "pagó todo".
+        prisma.deudor.findMany.mockResolvedValue([
+            { id: 111, montoTotal: 5000 },
+            { id: 222, montoTotal: 3000 },
+            { id: 777, montoTotal: 1000 },
+        ]);
+
+        await proc.afterAll(ctx);
+
+        expect(pagoCreate).toHaveBeenCalledTimes(1);
+        expect(pagoCreate.mock.calls[0][0].data.deudorId).toBe(222);
     });
 });
 

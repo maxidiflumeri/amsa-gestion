@@ -18,9 +18,9 @@ import { AuditModulo, AuditTipo } from '../../transacciones/audit.enums';
  *    - montoTotal es INMUTABLE (Fase 3): no se actualiza (spec §1 regla 7)
  *
  * B) Deudor en el archivo pero NO en remesa origen → NUEVO CASO
- *    - Se crea como deudor nuevo. Flujo clásico: en la remesa de la actualización. Flujo diario
- *      (accionAusente=DESASIGNAR): en la MISMA remesa origen, para que no se duplique al día
- *      siguiente y quede en la cartera. Vale también en SOLO_DATOS (alta sin tocar deuda).
+ *    - Se crea SIEMPRE en la remesa origen (la cartera), no en la remesa del import: así queda
+ *      junto al resto de la cartera y mañana se matchea en vez de duplicarse. Vale en cualquier
+ *      modo (RECONCILIAR / SOLO_DATOS) y con cualquier accionAusente.
  *    - Se procesan sus facturas, contactos, etc.
  *
  * C) [afterAll] Deudor en remesa origen que NO apareció en el archivo → PAGÓ TODO
@@ -33,9 +33,9 @@ export class ActualizacionesProcessor implements ICategoryProcessor {
     private readonly logger = new Logger(ActualizacionesProcessor.name);
 
     /**
-     * IDs de deudores considerados PRESENTES en el archivo de este batch (no se desasignan):
-     * los que matchearon un deudor existente de la remesa origen y —en el flujo diario— los
-     * casos nuevos que se dieron de alta en esa misma remesa origen.
+     * IDs de deudores considerados PRESENTES en el archivo de este batch (no se desasignan ni se
+     * marcan como "pagó todo"): los que matchearon un deudor existente de la remesa origen y los
+     * casos nuevos dados de alta en esa misma remesa origen (escenario B).
      */
     private processedDeudorIds = new Set<number>();
     /**
@@ -427,7 +427,7 @@ export class ActualizacionesProcessor implements ICategoryProcessor {
 
     /**
      * ESCENARIO B: Crear un deudor completamente nuevo a partir de los datos del archivo.
-     * Se asocia a la remesa de la actualización (ctx.remesaId).
+     * Se asocia a la remesa ORIGEN (la cartera), no a la remesa del import.
      */
     private async crearNuevoDeudor(row: MappedRow, ctx: ProcessContext): Promise<void> {
         const documentoStr = row.documento ? String(row.documento).trim() : `SIN_DOC_${Date.now()}`;
@@ -443,12 +443,11 @@ export class ActualizacionesProcessor implements ICategoryProcessor {
             }
         }
 
-        // En el flujo diario (DESASIGNAR) los casos nuevos se suman a la MISMA cartera (la remesa
-        // origen), no a la remesa de la actualización: así al día siguiente se matchean (no se
-        // duplican) y quedan junto al resto de la cartera. En el resto de flujos siguen yendo a la
-        // remesa del import (comportamiento clásico del escenario B).
-        const esDiario = ctx.accionAusente === 'DESASIGNAR' && !!ctx.remesaOrigenId;
-        const remesaDestinoId = esDiario ? (ctx.remesaOrigenId as number) : ctx.remesaId;
+        // Los casos nuevos se suman SIEMPRE a la misma cartera (la remesa origen), no a la remesa
+        // del import: la remesa de un ACTUALIZACIONES es el contenedor del job, no una cartera. Así
+        // al día siguiente se matchean (no se duplican) y quedan junto al resto de la cartera.
+        // `processRow` ya garantiza que remesaOrigenId existe; el fallback es defensivo.
+        const remesaDestinoId = ctx.remesaOrigenId ?? ctx.remesaId;
 
         const deudor = await ctx.prisma.deudor.create({
             data: {
@@ -465,9 +464,10 @@ export class ActualizacionesProcessor implements ICategoryProcessor {
             },
         });
 
-        // Alta en la remesa origen del flujo diario → marcarlo PRESENTE para que la desasignación
-        // de ausentes (afterAll) no lo tome: recién creado, obviamente vino en el archivo de hoy.
-        if (esDiario) this.processedDeudorIds.add(deudor.id);
+        // Alta en la remesa origen → marcarlo PRESENTE, siempre. Recién creado, obviamente vino en
+        // el archivo de hoy: el afterAll no debe tomarlo ni para desasignar (DESASIGNAR) ni para
+        // marcarlo "pagó todo" (PAGO_TODO), que lo cancelaría (SIT-050) en la misma corrida.
+        this.processedDeudorIds.add(deudor.id);
 
         // Autoenriquecimiento de contactos desde la propia base (histórico por DNI).
         this.contactosEnriquecidos += await enriquecerContactosHistoricos(ctx, deudor.id, documentoStr);
@@ -831,7 +831,9 @@ export class ActualizacionesProcessor implements ICategoryProcessor {
         // Consolidar deudores de la remesa origen (escenario C + deudores del archivo que estaban en esa remesa)
         await ctx.consolidacion.consolidar({ tipo: 'REMESA', remesaId: ctx.remesaOrigenId });
 
-        // Si hay deudores nuevos del escenario B (ctx.remesaId !== ctx.remesaOrigenId), consolidarlos también
+        // Los casos nuevos ya caen en la remesa origen, así que la de arriba los cubre. Esta segunda
+        // consolidación queda como red para remesas de imports viejos (previos a este cambio) que sí
+        // tienen deudores propios; si está vacía es un no-op.
         if (ctx.remesaId !== ctx.remesaOrigenId) {
             await ctx.consolidacion.consolidar({ tipo: 'REMESA', remesaId: ctx.remesaId });
         }

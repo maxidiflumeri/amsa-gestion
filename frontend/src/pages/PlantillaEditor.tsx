@@ -734,9 +734,9 @@ const PlantillaEditor: React.FC = () => {
                             Activá esta opción cuando un mismo archivo abarca varias remesas y lo
                             aplicás una por una: los registros que no pertenecen a la remesa elegida
                             se ignoran en vez de cargarse como deudores nuevos. Dejalo desactivado
-                            para que los no encontrados se den de alta. En "Desasignar" (gestión
-                            diaria) los casos nuevos se suman a la remesa vinculada, así no se
-                            duplican al día siguiente.
+                            para que los no encontrados se den de alta. Los casos nuevos siempre se
+                            suman a la remesa vinculada (la cartera), así no se duplican al día
+                            siguiente ni quedan en una remesa aparte.
                         </FormHelperText>
 
                         {modoActualizacion === 'RECONCILIAR' && (

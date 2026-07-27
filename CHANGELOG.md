@@ -6,6 +6,58 @@
 
 ---
 
+## [2026-07-27] — ACTUALIZACIONES: los casos nuevos van SIEMPRE a la remesa origen (no a una remesa nueva)
+
+> ⚠️ **Redeploy back + front** (solo código, sin migración). Backfill de datos ya aplicado en prod
+> (ver abajo). Reportado por los usuarios que testearon el lote del 2026-07-21.
+
+**Reporte.** Toyota 0800 anduvo OK (los casos nuevos se sumaron a la remesa `00001`), pero **FIAT MORA
+TEMPRANA** repitió el síntoma viejo: los casos nuevos quedaron en una remesa aparte con un número
+"random" en vez de sumarse a la cartera.
+
+**Causa raíz.** El fix del 2026-07-21 dejó el destino del alta **atado a `accionAusente`**:
+
+```ts
+const esDiario = ctx.accionAusente === 'DESASIGNAR' && !!ctx.remesaOrigenId;
+const remesaDestinoId = esDiario ? ctx.remesaOrigenId : ctx.remesaId;
+```
+
+`TOYOTA 0800 DIARIO` (plantilla 51) está en `DESASIGNAR` → anduvo. `FIAT MORA TEMPRANA` (plantilla 43)
+está en `PAGO_TODO` → cayó en la rama clásica y creó 35 deudores en la remesa 53 (`numeroRemesa` =
+timestamp `1784657478166`, el "número random" del reporte) en vez de la remesa 17 (`00001`).
+
+**Backend** ([actualizaciones.processor.ts](backend/src/modules/imports/processors/actualizaciones.processor.ts))
+- **`crearNuevoDeudor` usa siempre `ctx.remesaOrigenId`.** La remesa de un import ACTUALIZACIONES es el
+  contenedor del job, no una cartera: los casos nuevos van a la cartera en cualquier modo
+  (`RECONCILIAR`/`SOLO_DATOS`) y con cualquier `accionAusente`. Se eliminó la bifurcación `esDiario`.
+- **Los nuevos se marcan PRESENTES siempre** (`processedDeudorIds`), no solo en el flujo diario. Es la
+  contracara imprescindible del cambio anterior: bajo `PAGO_TODO` el `afterAll` recorre la remesa origen
+  y reconcilia como "pagó todo" a todo el que no esté en ese set — sin esto, un caso nuevo se habría
+  creado y **cancelado (SIT-050) en la misma corrida**.
+- `matchedExistingCount` no se toca: el guard anti-desasignación masiva del 2026-07-21 sigue contando
+  solo matches reales contra la cartera.
+
+**Frontend** ([PlantillaEditor.tsx](frontend/src/pages/PlantillaEditor.tsx))
+- Texto de ayuda de "crear casos nuevos": ya no dice que el alta en la remesa vinculada pasa solo en
+  "Desasignar"; ahora aclara que es siempre.
+
+**Tests** ([actualizaciones-desasignacion.spec.ts](backend/src/modules/imports/processors/actualizaciones-desasignacion.spec.ts))
+- Se invirtió el caso "flujo clásico → remesa del import" (codificaba el comportamiento viejo) por
+  `RECONCILIAR + PAGO_TODO → remesa origen + presente`.
+- Nuevo test de **regresión**: con `PAGO_TODO`, un caso nuevo dado de alta no genera pago de "pagó todo"
+  en el `afterAll` de la misma corrida (solo lo genera el ausente real). 12/12 verdes; 51/51 en `imports`.
+
+**Backfill en prod (aplicado)**: los 35 deudores de la remesa 53 se movieron a la 17 (`00001`) y la
+remesa 53 se eliminó. Preview previo: 0 colisiones del unique `(empresaId, documento, remesaId)`, 0
+duplicados internos, 0 `jobimport`/`importerror` colgando. La `00001` pasó de 330 → **365 deudores**;
+las 35 facturas y 154 contactos viajaron con el deudor (cuelgan de `deudorId`).
+
+> **Decisión de negocio**: `FIAT MORA TEMPRANA` se **queda en `PAGO_TODO`** — el archivo trae la cartera
+> viva y el ausente efectivamente canceló. Los 31 SIT-050 de la remesa 17 son correctos y se dejaron como
+> están. (Distinto de Toyota, que es atención al cliente y usa `DESASIGNAR`.)
+
+---
+
 ## [2026-07-21] — Actualización diaria sin saldo (atención al cliente): alta de casos nuevos en SOLO_DATOS + guard anti-desasignación masiva
 
 > ⚠️ **Redeploy back + front** (solo código, sin migración). **Post-deploy**: reconfigurar la plantilla
