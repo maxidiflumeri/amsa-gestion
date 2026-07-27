@@ -418,6 +418,7 @@ export class ImportService {
             const { filas, advertencias, resumen } = parseMultirregistro(
                 fs.readFileSync(remesa.archivo),
                 cfgMulti,
+                sep,
             );
 
             for (const fila of filas.slice(0, sampleRows)) {
@@ -1059,6 +1060,7 @@ export class ImportService {
             const { filas, advertencias, resumen } = parseMultirregistro(
                 fs.readFileSync(remesa.archivo),
                 cfgMulti,
+                sep,
             );
             this.logger.log(
                 `Multirregistro remesa=${remesaId}: ${resumen.lineas} líneas ` +

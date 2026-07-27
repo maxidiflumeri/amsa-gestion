@@ -324,6 +324,15 @@ const PlantillaEditor: React.FC = () => {
         }
     }, [isEdit, loadPlantilla])
 
+    // Al pasar a MULTIRREGISTRO en una plantilla nueva, el separador correcto es ";" (el que usan
+    // estos archivos), no el "|" que viene por defecto: evita que el operador tenga que deducirlo.
+    useEffect(() => {
+        if (!isEdit && categoria === 'MULTIRREGISTRO' && separador === '|') {
+            setSeparador(';')
+            setSepMode('STD')
+        }
+    }, [categoria, isEdit])
+
     // Guardar empresaId en sessionStorage cuando cambia (modo creación)
     useEffect(() => {
         if (!isEdit && empresaId) {
@@ -802,6 +811,11 @@ const PlantillaEditor: React.FC = () => {
                         <MultirregistroEditor
                             value={multirregistroConfig}
                             onChange={setMultirregistroConfig}
+                            separador={separador}
+                            onSeparadorChange={(v) => {
+                                setSeparador(v)
+                                setSepMode('STD')
+                            }}
                         />
                     </>
                 ) : esAcciones ? (

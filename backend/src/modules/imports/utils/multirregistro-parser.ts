@@ -88,10 +88,19 @@ function armarDesglose(
  * Parsea el contenido completo del archivo. Recibe el buffer crudo porque la decodificación es
  * parte del contrato: Toyota manda Latin-1 y leerlo como UTF-8 rompe las Ñ y los acentos de los
  * nombres (y en Node ni siquiera falla: mete caracteres de reemplazo silenciosamente).
+ *
+ * @param separador Separador de columnas de la plantilla (default `;`).
  */
-export function parseMultirregistro(buffer: Buffer, cfg: MultirregistroConfig): ResultadoParseo {
+export function parseMultirregistro(
+    buffer: Buffer,
+    cfg: MultirregistroConfig,
+    separador = ';',
+): ResultadoParseo {
     const texto = buffer.toString(cfg.encoding === 'utf8' ? 'utf8' : 'latin1');
     const discrIdx = cfg.discriminadorIndex ?? 0;
+    // El separador sale de la plantilla (combo "Formato / Separador"), no está fijo: distintos
+    // cedentes usan distintos caracteres aunque el formato multirregistro sea el mismo.
+    const sep = separador || ';';
 
     const advertencias: string[] = [];
     const porTipo: Record<string, number> = {};
@@ -112,7 +121,7 @@ export function parseMultirregistro(buffer: Buffer, cfg: MultirregistroConfig): 
     for (const linea of lineas) {
         if (!linea.trim()) continue;
         lineasUtiles++;
-        const campos = linea.split(';');
+        const campos = linea.split(sep);
         const codigo = (campos[discrIdx] ?? '').trim().toUpperCase();
         porTipo[codigo] = (porTipo[codigo] ?? 0) + 1;
 

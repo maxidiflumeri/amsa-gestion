@@ -1,5 +1,5 @@
 import React, { useMemo } from 'react'
-import { Alert, Box, Button, Chip, Stack, TextField, Typography } from '@mui/material'
+import { Alert, Box, Button, Chip, Stack, TextField, Tooltip, Typography } from '@mui/material'
 import AutoFixHighIcon from '@mui/icons-material/AutoFixHigh'
 
 /**
@@ -44,9 +44,18 @@ export const PRESET_TOYOTA_87 = {
 interface Props {
     value: string
     onChange: (v: string) => void
+    /** Separador elegido arriba, en "Formato / Separador". El parser usa ese, no uno fijo. */
+    separador: string
+    /** Deja el separador correcto al aplicar un preset. */
+    onSeparadorChange: (v: string) => void
 }
 
-export default function MultirregistroEditor({ value, onChange }: Props) {
+/** Separador que usa el archivo de Toyota 87. */
+const SEPARADOR_TOYOTA = ';'
+
+export default function MultirregistroEditor({ value, onChange, separador, onSeparadorChange }: Props) {
+    const presetJson = JSON.stringify(PRESET_TOYOTA_87, null, 2)
+    const yaEsToyota = value.trim() === presetJson.trim() && separador === SEPARADOR_TOYOTA
     const { error, resumen } = useMemo(() => {
         if (!value.trim()) return { error: 'Falta la configuración del layout.', resumen: null }
         try {
@@ -71,22 +80,46 @@ export default function MultirregistroEditor({ value, onChange }: Props) {
 
     return (
         <Box>
-            <Alert severity="info" sx={{ mb: 2 }}>
-                Esta categoría es para archivos donde <strong>cada línea tiene un código de tipo</strong> y hay
-                que agrupar varias líneas para armar un caso. El backend ya sabe cómo se relacionan entre sí;
-                acá solo se indica <strong>en qué columna está cada dato</strong>, para poder corregirlo si el
-                cedente mueve algo sin avisar.
+            <Alert severity={yaEsToyota ? 'success' : 'info'} sx={{ mb: 2 }}>
+                {yaEsToyota ? (
+                    <>
+                        <strong>Listo para Toyota 87: no hace falta tocar nada.</strong> El layout de abajo ya
+                        viene cargado y el separador está en “;”. Solo completá el nombre y los estados
+                        iniciales, y guardá.
+                    </>
+                ) : (
+                    <>
+                        Esta categoría es para archivos donde <strong>cada línea tiene un código de tipo</strong> y
+                        hay que agrupar varias líneas para armar un caso. El backend ya sabe cómo se relacionan
+                        entre sí; acá solo se indica <strong>en qué columna está cada dato</strong>, para poder
+                        corregirlo si el cedente mueve algo sin avisar.
+                    </>
+                )}
             </Alert>
 
             <Stack direction="row" spacing={1} sx={{ mb: 2 }} alignItems="center" flexWrap="wrap" useFlexGap>
-                <Button
-                    size="small"
-                    variant="outlined"
-                    startIcon={<AutoFixHighIcon />}
-                    onClick={() => onChange(JSON.stringify(PRESET_TOYOTA_87, null, 2))}
+                <Tooltip
+                    title={
+                        yaEsToyota
+                            ? 'Ya está aplicado: el layout y el separador coinciden con los de Toyota 87'
+                            : 'Reemplaza el layout de abajo y pone el separador en ";"'
+                    }
                 >
-                    Cargar layout de Toyota 87
-                </Button>
+                    <span>
+                        <Button
+                            size="small"
+                            variant="outlined"
+                            startIcon={<AutoFixHighIcon />}
+                            disabled={yaEsToyota}
+                            onClick={() => {
+                                onChange(presetJson)
+                                onSeparadorChange(SEPARADOR_TOYOTA)
+                            }}
+                        >
+                            {yaEsToyota ? 'Layout de Toyota 87 aplicado' : 'Restaurar layout de Toyota 87'}
+                        </Button>
+                    </span>
+                </Tooltip>
                 {resumen && (
                     <>
                         <Typography variant="caption" color="text.secondary">Tipos de línea:</Typography>
@@ -94,6 +127,11 @@ export default function MultirregistroEditor({ value, onChange }: Props) {
                             <Chip key={c} label={c} size="small" variant="outlined" />
                         ))}
                         <Chip label={resumen.encoding} size="small" color="default" />
+                        <Chip
+                            label={`separador: ${separador === '\t' ? 'TAB' : separador}`}
+                            size="small"
+                            color={separador === SEPARADOR_TOYOTA ? 'default' : 'warning'}
+                        />
                     </>
                 )}
             </Stack>
