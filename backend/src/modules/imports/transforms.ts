@@ -95,6 +95,14 @@ const removeSpaces = (s: any) => (s == null ? null : String(s).replace(/\s+/g, '
 // Quita comillas simples: la recta ' y las tipográficas ' ' que a veces mete Excel
 // (ej: números exportados como texto con apóstrofo delante → '12345).
 const removeQuotes = (s: any) => (s == null ? null : String(s).replace(/['‘’]/g, ''));
+// Quita comillas dobles: la recta " y las tipográficas " " (Word/Excel las autocorrigen).
+// Útil cuando el CSV trae los valores entrecomillados y el parser no las saca.
+const removeDoubleQuotes = (s: any) => (s == null ? null : String(s).replace(/["“”]/g, ''));
+// Quita guiones. Pensada para importes que vienen con el signo negativo adelante (-1.234,56 →
+// 1.234,56): el pago se carga por su valor absoluto. Contempla las variantes que mete Excel
+// además del guión ASCII: hyphen ‐, en dash –, em dash — y el signo menos real −.
+// Ojo: quita TODOS los guiones del valor, no solo el del principio.
+const removeDashes = (s: any) => (s == null ? null : String(s).replace(/[-‐–—−]/g, ''));
 const removePrefix = (s: any, prefix: string) => {
     if (s == null) return null;
     const str = String(s);
@@ -129,6 +137,8 @@ export function applyTransforms(raw: any, tr?: string[]) {
         else if (t === 'title') v = title(v);
         else if (t === 'removeSpaces') v = removeSpaces(v);
         else if (t === 'removeQuotes') v = removeQuotes(v);
+        else if (t === 'removeDoubleQuotes') v = removeDoubleQuotes(v);
+        else if (t === 'removeDashes') v = removeDashes(v);
 
         else if (t.startsWith('removePrefix:')) {
             const prefix = t.substring('removePrefix:'.length);

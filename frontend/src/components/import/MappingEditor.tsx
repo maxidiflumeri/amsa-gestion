@@ -107,6 +107,8 @@ const AVAILABLE_TRANSFORMS = [
     { value: "trim", label: "Quitar espacios de los extremos" },
     { value: "removeSpaces", label: "Quitar todos los espacios" },
     { value: "removeQuotes", label: "Quitar comilla simple ( ' )" },
+    { value: "removeDoubleQuotes", label: 'Quitar comilla doble ( " )' },
+    { value: "removeDashes", label: "Quitar guiones ( - ) — ej. importes negativos" },
     { value: "removePrefix:CUI[LT][^0-9]*", label: "Quitar prefijo CUIL / CUIT" },
     { value: "upper", label: "MAYÚSCULAS" },
     { value: "title", label: "Título (Primera Letra)" },

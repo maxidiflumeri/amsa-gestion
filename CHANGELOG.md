@@ -6,6 +6,37 @@
 
 ---
 
+## [2026-07-27] — Transformaciones nuevas: quitar comilla doble y quitar guiones
+
+> ⚠️ **Redeploy back + front** (solo código, sin migración). Retrocompatible: las plantillas
+> existentes no cambian, son dos opciones más en el selector de transformaciones.
+
+Dos pedidos de los usuarios sobre el mapeo de columnas:
+
+**Backend** ([transforms.ts](backend/src/modules/imports/transforms.ts))
+- **`removeDoubleQuotes`** — quita la comilla doble recta `"` y las tipográficas `“ ”` (Word/Excel las
+  autocorrigen). Para CSV que traen los valores entrecomillados y el parser no las saca. Es la hermana
+  de `removeQuotes`, que sigue siendo solo para la comilla simple.
+- **`removeDashes`** — quita guiones. El caso que lo motivó: **pagos que vienen con el signo negativo
+  adelante** (`-1.234,56` → `1.234,56`), para cargarlos por su valor absoluto. Contempla las variantes
+  unicode además del guión ASCII: hyphen `‐`, en dash `–`, em dash `—` y el signo menos real `−`.
+  Quita **todos** los guiones del valor, no solo el del principio (aplicado a un CUIT
+  `20-12345678-9` devuelve `20123456789`).
+
+**Frontend** ([MappingEditor.tsx](frontend/src/components/import/MappingEditor.tsx))
+- Dos opciones nuevas en el selector: `Quitar comilla doble ( " )` y
+  `Quitar guiones ( - ) — ej. importes negativos`.
+
+**Tests**: nuevo [transforms.spec.ts](backend/src/modules/imports/transforms.spec.ts) (16 casos; antes
+no había spec de transformaciones). 85 verdes en `imports`.
+
+> ⚠️ **El orden importa** para el pago negativo: `removeDashes` tiene que ir **antes** de
+> `Número (coma decimal)`. Las transformaciones se aplican en secuencia, así que si `toNumber` corre
+> primero ya devolvió `-1234.56` y el guión no está más para quitar (queda `"1234.56"` como texto).
+> El orden correcto en la plantilla es: quitar comilla doble → quitar guiones → número.
+
+---
+
 ## [2026-07-27] — Performance de ACTUALIZACIONES: procesamiento por lote (91 min → menos de 1 min)
 
 > ⚠️ **Redeploy back** (solo código, sin migración). Sin cambios de comportamiento ni de UI:
