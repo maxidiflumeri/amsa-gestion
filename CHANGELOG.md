@@ -92,7 +92,28 @@ y 7 casos de `adicionalesEquivalentes`.
   el prefetch trae el JSON real de la DB, así que el merge conserva las claves preexistentes y el valor
   final sigue siendo el de la última fila.
 - **Reordenar las fases es seguro**: `reconciliarDeudor` solo lee `montoTotal` y facturas — ninguno de los
-  campos que escribe el update de identidad (`documento`, `nombre`, `apellido`, `camposAdicionales`).
+  campos que escribe el update de identidad (`documento`, `nombre`, `apellido`, `camposAdicionales`) — y
+  **relee todo de la DB** en vez de usar el prefetch, así que un deudor repetido sigue viendo el efecto de
+  la fila anterior.
+- **`afterAll` sin cambios de código**: la desasignación, el "pagó todo" de los ausentes, la consolidación
+  y el cierre de promesas quedaron intactos (solo se tocaron comentarios).
+
+**Verificación del modo RECONCILIAR contra la base** (lo usan 6 de las 7 plantillas). Se corrió el
+processor viejo (fila a fila, commit `0bf4b71`) y el nuevo sobre **carteras idénticas**, comparando el
+estado final de deudores (`montoTotal`, `saldo`, identidad, adicionales), facturas (importe, estado) y
+pagos (importe, origen). **Los 9 escenarios dieron idéntico**:
+
+| Escenario | Resultado |
+|---|---|
+| Cuota pagada (en DB, no en archivo) → PAGADA + pago | ✓ |
+| Cuota nueva → la deuda total crece | ✓ |
+| Corrección de importe de una cuota existente → delta | ✓ |
+| Saldo único (cuotas en 0) → un solo pago por la diferencia | ✓ |
+| Saldo que crece → ajuste de deuda + factura de ajuste | ✓ |
+| Modo B (valor único sin bloques) → reconciliación por saldo | ✓ |
+| Archivo idéntico a lo guardado → no pasa nada | ✓ |
+| Mismo deudor repetido en el lote (2 filas) | ✓ |
+| Completa DNI placeholder + mergea adicionales (match por `nro_cliente`) | ✓ |
 
 > **Alcance**: las ALTAS de casos nuevos siguen siendo secuenciales (arrastran facturas, contactos y
 > autoenriquecimiento). En el flujo diario son una fracción mínima de las filas; en un archivo que sea
