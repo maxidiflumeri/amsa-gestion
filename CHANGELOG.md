@@ -6,6 +6,78 @@
 
 ---
 
+## [2026-07-27] — Categoría MULTIRREGISTRO: archivo diario de Toyota cuenta 87 (backend)
+
+> ⚠️ **Redeploy back + `npx prisma db push`** (columna nueva `factura.detalle` + valor `MULTIRREGISTRO`
+> en los dos enums de categoría; ambos aditivos, no destructivos). **Sin frontend todavía**: la plantilla
+> se crea con el `mappingJson` a mano, como estaba previsto en la Fase B0 del spec.
+
+Toyota manda **un solo archivo diario con cuatro tipos de línea** (`GES`/`CLI`/`DET`/`BAJ`) que hay que
+agrupar para armar cada caso. El pipeline asume "1 fila = 1 registro", así que no encajaba.
+
+**Decisión de arquitectura**: híbrido, no motor genérico configurable. La **estructura** (qué tipo de
+línea es el deudor, cuál la factura, cómo se vinculan) vive en código, porque generalizar "N tipos de
+registro con M relaciones" es construir un ETL para un solo cedente — y el formato de config que proponía
+el spec ni siquiera podía expresar los dos saltos de vínculo del archivo real. El **layout** (qué índice
+de columna es cada dato), que es lo que puede moverse sin aviso, va en la plantilla y se corrige sin deploy.
+
+**Parser** ([utils/multirregistro-parser.ts](backend/src/modules/imports/utils/multirregistro-parser.ts))
+- Decodifica **Latin-1** (el cedente no manda UTF-8: leído mal se rompen las Ñ y los acentos), discrimina
+  por código de línea, agrupa y emite filas ya normalizadas: `CASO` (cliente + sus facturas + contactos) y
+  `BAJA` (aviso suelto). El pipeline las consume sin pasar por `mapRow`.
+- El importe de cada factura se **calcula sumando los `DET` con su signo** — hay 5 notas de crédito
+  negativas, una de −930.790,81 — en vez de leer el total del `GES`. Da idéntico (verificado en los 271
+  avisos) pero es robusto si el cedente cambia el total.
+- El desglose de conceptos se arma como texto, con los días de mora al final; se descarta el ruido del
+  formato (`Cargo por Pago Fuera de Termino`, que viene en los 271 avisos con importe 0 y un fijo de 180.90).
+- Devuelve advertencias por caso (cliente sin ficha, aviso repetido) que el runner guarda como errores de
+  la remesa para que queden visibles.
+
+**Processor** ([processors/multirregistro.processor.ts](backend/src/modules/imports/processors/multirregistro.processor.ts))
+- **El deudor se busca EMPRESA-WIDE por `nroCliente`**, no por remesa. Es la consecuencia directa de que
+  los casos nuevos entren en una remesa nueva por día (B-D6): buscarlo por remesa lo duplicaría a diario.
+- Las facturas se upsertean por `(deudorId, nroFactura=aviso)` y **solo se escriben si algo cambió** — en
+  un archivo diario la mayoría llega igual que ayer salvo los días de mora. El contrato va en `externalId`.
+- `montoTotal` del deudor = Σ de sus facturas. Los contactos se normalizan con el mismo criterio que el
+  resto de los processors (E.164 + descarte de basura).
+- Las bajas resuelven aviso → factura → deudor → **GES-090**, también empresa-wide, porque refieren a
+  avisos que no vienen en el `GES` del mismo archivo. Si el aviso no está cargado, avisa y sigue.
+
+**Correlativo de remesa** ([utils/numero-remesa.ts](backend/src/modules/imports/utils/numero-remesa.ts))
+- El `numeroRemesa` lo mandaba el frontend y, si el operador lo dejaba vacío, caía a `Date.now()` — el
+  origen de los "números de remesa random" (`1784657478166`) reportados hoy. Ahora el backend genera el
+  **correlativo de la empresa** (último + 1, conservando el ancho: `00001` → `00002`). Los timestamps
+  viejos se ignoran a propósito: si entraran al cálculo, el contador saltaría a 1784657478167 sin vuelta atrás.
+
+**Schema**: `factura.detalle` (Text, para el desglose) y `MULTIRREGISTRO` en `plantillaimport_categoria`
+y `remesa_categoria`.
+
+**Verificación end-to-end contra la base**, corriendo el archivo real (1.720 líneas) **dos veces seguidas**
+para simular dos días:
+
+| | Día 1 | Día 2 (mismo archivo) |
+|---|---|---|
+| Deudores | 162 | 162 — **no duplica** |
+| Facturas | 271 | 271 — **no duplica** |
+| Contactos | 370 | 370 — **no duplica** |
+| Remesa | `00001` | `00002` (correlativo) |
+
+Σ facturas = Σ `montoTotal` de los deudores = **26.759.681,60**. El aviso 170502 quedó con importe
+55.406,65, contrato `2009869` en `externalId` y desglose `Comisión Gestoria Multas: 45790.62 | Cob IVA ctr
+fin 346395: 9616.03 | Días de mora: 87`. El cliente 103966 (6 contratos) quedó como **un** caso con 6
+facturas. Los nombres con Ñ y acentos se guardaron bien (`ACUÑA HAEDO IVÁN`). Las 10 bajas no matchearon
+ninguna factura, que es lo correcto: sus avisos no vienen en el `GES`.
+
+**Tests**: 127 verdes en `imports` (+42). El spec del parser corre **contra el archivo real** del cedente
+y verifica que los 271 importes calculados coincidan con el total del `GES`, sin advertencias.
+
+> **Pendiente para operar**: (1) crear la plantilla en la empresa de Toyota 87 con el `mappingJson` de
+> [plantillas/toyota-87.ts](backend/src/modules/imports/plantillas/toyota-87.ts); (2) el selector de
+> categoría del frontend todavía no ofrece MULTIRREGISTRO; (3) la UI de facturas no muestra `externalId`
+> (contrato) ni `detalle` (desglose) — hay que agregarlos para que el gestor los vea.
+
+---
+
 ## [2026-07-27] — Transformaciones nuevas: quitar comilla doble y quitar guiones
 
 > ⚠️ **Redeploy back + front** (solo código, sin migración). Retrocompatible: las plantillas

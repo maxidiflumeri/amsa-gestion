@@ -113,4 +113,78 @@ export interface MappingJson {
     crearNuevosCasos?: boolean;
     /** Config de la categoría ACCIONES (acciones masivas). */
     acciones?: AccionesConfig;
+    /** Config de la categoría MULTIRREGISTRO (archivo con varios tipos de línea). */
+    multirregistro?: MultirregistroConfig;
+}
+
+/* ────────────────────────────────────────────────────────────────────────────
+ * MULTIRREGISTRO — archivos con varios tipos de línea en el mismo archivo
+ * ──────────────────────────────────────────────────────────────────────────── */
+
+/**
+ * Config de la categoría MULTIRREGISTRO (caso Toyota cuenta 87).
+ *
+ * La ESTRUCTURA del archivo (qué tipo de línea es el deudor, cuál la factura, cómo se vinculan
+ * entre sí) vive en el parser y el processor, porque es específica del formato y generalizarla
+ * sería construir un ETL. Acá va solo el **layout**: qué índice de columna ocupa cada dato, que es
+ * lo que puede moverse sin aviso y conviene poder corregir sin deploy.
+ *
+ * Spec: `docs/imports-actualizacion-diaria-y-multirregistro-spec.md` §B.
+ *
+ * Formato del archivo:
+ *   CLI;<nroCliente>;<nombre>;<calle>;...        → deudor + contactos
+ *   GES;...;<nroCliente>;<contrato>;...;<aviso>  → factura (una por aviso)
+ *   DET;<aviso>;<concepto>;<importe>;...         → desglose del importe de la factura
+ *   BAJ;<aviso>;<fecha>;<motivo>                 → baja del caso
+ *
+ * Vínculos (dos saltos, NO una clave única compartida):
+ *   CLI.nroCliente ── GES.nroCliente     y     GES.aviso ── DET.aviso / BAJ.aviso
+ */
+export interface MultirregistroConfig {
+    /** Índice de la columna que trae el código de tipo de línea (default 0). */
+    discriminadorIndex?: number;
+    /** Codificación del archivo. Toyota manda Latin-1; leerlo como UTF-8 rompe las Ñ y los acentos. */
+    encoding?: 'latin1' | 'utf8';
+    /** Layout de la línea del cliente → deudor + contactos. */
+    cli: {
+        codigo: string;
+        nroCliente: number;
+        nombre: number;
+        /** Índices que se concatenan para armar el domicilio, en orden. */
+        domicilio?: number[];
+        email?: number;
+        /** Índice del código de área, que se antepone a cada teléfono. */
+        codArea?: number;
+        telefonos?: number[];
+        /** Índices que se guardan en `camposAdicionales`, con el nombre a usar como clave. */
+        adicionales?: Record<string, number>;
+    };
+    /** Layout de la línea de aviso → factura. */
+    ges: {
+        codigo: string;
+        nroCliente: number;
+        contrato: number;
+        aviso: number;
+    };
+    /** Layout de la línea de detalle → desglose de la factura. */
+    det: {
+        codigo: string;
+        aviso: number;
+        concepto: number;
+        /** Importe que suma al total de la factura. Se toma CON su signo (hay negativos). */
+        importe: number;
+        /** Columna de cantidad de días (la usa el concepto de días de mora). */
+        dias?: number;
+        /** Conceptos que NO son cargos y no deben ir al desglose (match por "empieza con"). */
+        conceptosIgnorados?: string[];
+        /** Concepto que trae los días de mora; su valor se agrega al final del desglose. */
+        conceptoDiasMora?: string;
+    };
+    /** Layout de la línea de baja. */
+    baj: {
+        codigo: string;
+        aviso: number;
+        fecha?: number;
+        motivo?: number;
+    };
 }

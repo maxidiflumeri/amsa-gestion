@@ -17,6 +17,8 @@ import { ProcessContext, MappedRow } from './processors/processor.interface';
 import { RealtimeService } from '../realtime/realtime.service';
 import { NotificacionesService } from '../notificaciones/notificaciones.service';
 import { ProgressEmitter } from './utils/progress-emitter';
+import { parseMultirregistro } from './utils/multirregistro-parser';
+import { siguienteNumeroRemesa } from './utils/numero-remesa';
 import { RequestContextService } from 'src/common/logger/request-context';
 import { ConsolidacionSituacionService } from '../consolidacion/consolidacion.service';
 import { PromesasService } from '../promesas/promesas.service';
@@ -282,6 +284,18 @@ export class ImportService {
         return getSupportedCategories();
     }
 
+    /**
+     * Número de remesa a usar: el que escribió el operador, o el correlativo de la empresa.
+     * La lógica vive en `utils/numero-remesa.ts` (pura y testeada aparte).
+     */
+    private async resolverNumeroRemesa(empresaId: number, propuesto?: string): Promise<string> {
+        const previas = await this.prisma.remesa.findMany({
+            where: { empresaId },
+            select: { numeroRemesa: true },
+        });
+        return siguienteNumeroRemesa(previas.map((r) => r.numeroRemesa), propuesto);
+    }
+
     // --- REMESA / ARCHIVO ---
     async createRemesa(dto: CreateRemesaDto, file: any, usuarioCreadorId?: number) {
 
@@ -289,9 +303,10 @@ export class ImportService {
         if (!plantilla) throw new NotFoundException('Plantilla no encontrada');
 
         const saved = await this.files.saveBuffer(file, dto.empresaId, dto.categoria);
+        const numeroRemesa = await this.resolverNumeroRemesa(dto.empresaId, dto.numeroRemesa);
         const remesa = await this.prisma.remesa.create({
             data: {
-                numeroRemesa: dto.numeroRemesa,
+                numeroRemesa,
                 empresaId: dto.empresaId,
                 nombre: dto.nombre,
                 categoria: dto.categoria as any,
@@ -835,6 +850,11 @@ export class ImportService {
         const BATCH_SIZE = IMPORTS_BATCH_SIZE;
         const batch: Array<{ row: any; idx: number }> = [];
 
+        // MULTIRREGISTRO no es "una fila = un registro": el archivo trae varios tipos de línea que
+        // hay que agrupar antes de procesar. El parser las convierte en filas ya normalizadas, así
+        // que estas NO pasan por `mapRow` (que asume un array de columnas).
+        const esMultirregistro = remesa.categoria === 'MULTIRREGISTRO';
+
         this.logger.log(
             `Procesando remesa=${remesaId} categoria=${remesa.categoria} ` +
             `lote=${BATCH_SIZE} porLote=${processor.processBatch ? 'si' : 'no'}`,
@@ -898,7 +918,7 @@ export class ImportService {
 
             for (const { row, idx } of group) {
                 try {
-                    const obj = this.mapRow(row, mapping);
+                    const obj = esMultirregistro ? (row as MappedRow) : this.mapRow(row, mapping);
                     this.validateMappedRow(obj, mapping);
 
                     if (processor.validateRow) {
@@ -976,17 +996,58 @@ export class ImportService {
 
         const isExcel = remesa.archivo.match(/\.(xls|xlsx)$/i);
 
-        if (isExcel) {
+        if (esMultirregistro) {
+            // ── Archivo con varios tipos de línea (Toyota cuenta 87) ────────────────────
+            const cfgMulti = mapping?.multirregistro;
+            if (!cfgMulti) {
+                throw new Error(
+                    'La plantilla es de categoría MULTIRREGISTRO pero no tiene `mappingJson.multirregistro` configurado.',
+                );
+            }
+
+            const t0 = Date.now();
+            const { filas, advertencias, resumen } = parseMultirregistro(
+                fs.readFileSync(remesa.archivo),
+                cfgMulti,
+            );
+            this.logger.log(
+                `Multirregistro remesa=${remesaId}: ${resumen.lineas} líneas ` +
+                `(${JSON.stringify(resumen.porTipo)}) → ${resumen.casos} casos, ` +
+                `${resumen.facturas} facturas, ${resumen.bajas} bajas, ${resumen.ignoradas} ignoradas ` +
+                `en ${Date.now() - t0}ms`,
+            );
+
+            // Las advertencias del parseo (clientes sin ficha, avisos repetidos) se registran como
+            // errores de la remesa para que queden visibles en el detalle del import.
+            if (advertencias.length > 0) {
+                this.logger.warn(`Multirregistro remesa=${remesaId}: ${advertencias.length} advertencia(s) de parseo.`);
+                await this.prisma.importerror.createMany({
+                    data: advertencias.slice(0, 500).map((a) => ({
+                        remesaId,
+                        rowNumber: 0,
+                        rawRow: [] as any,
+                        errorMsg: `[parseo] ${a}`,
+                    })),
+                });
+            }
+
+            for (const fila of filas) {
+                batch.push({ row: fila, idx: total++ });
+                if (batch.length >= BATCH_SIZE) await processBatch();
+            }
+            if (batch.length > 0) await processBatch();
+
+        } else if (isExcel) {
             const workbook = xlsx.readFile(remesa.archivo, {
                 cellDates: true,
                 dateNF: 'yyyy-mm-dd'
             });
             const sheetName = remesa.hoja && workbook.SheetNames.includes(remesa.hoja) ? remesa.hoja : workbook.SheetNames[0];
-            const worksheet = workbook.Sheets[sheetName]; 
-            const excelRows: any[][] = xlsx.utils.sheet_to_json(worksheet, { 
-                header: 1, 
+            const worksheet = workbook.Sheets[sheetName];
+            const excelRows: any[][] = xlsx.utils.sheet_to_json(worksheet, {
+                header: 1,
                 defval: '',
-                raw: false 
+                raw: false
             });
 
             for (let i = hasHeader ? 1 : 0; i < excelRows.length; i++) {

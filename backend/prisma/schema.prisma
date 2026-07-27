@@ -128,7 +128,13 @@ model factura {
   fechaEmision DateTime
   vencimiento  DateTime
   estado       String?
+  // Identificador de la factura en el sistema del cedente. En MULTIRREGISTRO (Toyota 87) guarda
+  // el nro de CONTRATO al que pertenece el aviso.
   externalId   String?
+  // Desglose de los conceptos que componen el importe, en texto. Lo usa MULTIRREGISTRO para volcar
+  // los registros DET del aviso (multas, honorarios, IVA, días de mora). Ver
+  // imports-actualizacion-diaria-y-multirregistro-spec.md §B.1.3 (B-D4).
+  detalle      String?  @db.Text
   deudor       deudor   @relation(fields: [deudorId], references: [id], map: "Factura_deudorId_fkey")
 
   @@unique([deudorId, nroFactura], map: "Factura_deudorId_nroFactura_key")
@@ -418,6 +424,7 @@ enum plantillaimport_categoria {
   DEUDORES_Y_FACTURAS
   ACTUALIZACIONES
   ACCIONES
+  MULTIRREGISTRO
 }
 
 enum remesa_categoria {
@@ -429,6 +436,7 @@ enum remesa_categoria {
   DEUDORES_Y_FACTURAS
   ACTUALIZACIONES
   ACCIONES
+  MULTIRREGISTRO
 }
 
 model politica {
