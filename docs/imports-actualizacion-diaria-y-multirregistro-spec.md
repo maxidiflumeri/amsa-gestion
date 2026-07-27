@@ -9,6 +9,15 @@
 - **Feature A — IMPLEMENTADA** (2026-07-17). Ver CHANGELOG. Decisiones aplicadas: D1 flag separado, D2 columna, D3 selector visible en ambos modos, D4 sin comentario en timeline, D5 auditoría 1 por batch.
 - **Feature B — pendiente de implementar.** Decisión confirmada: **D6 = GES-090** para BAJ. Resto de decisiones (D7–D10) con el default recomendado del arquitecto.
 
+> ⚠️ **REVISIÓN 2026-07-27 sobre archivo real** (`deuda_agencia_20260724_203044.txt`, 1.720 registros).
+> El análisis original de B.1 estaba **equivocado en el mapeo de entidades**: asumía `GES → deudor` y
+> `DET → factura`, y una clave de agrupación única compartida por los 4 tipos de registro. Los datos
+> dicen otra cosa. **B.1 fue reescrita con verificación sobre el archivo real.**
+>
+> Consecuencia: **B.3.2 (config de ejemplo), B.4 (parser) y B.5 (processor) quedaron desactualizadas**
+> — su pseudocódigo asume el mapeo viejo y hay que rehacerlo sobre B.1 corregida antes de implementar.
+> B.2 (estrategia del adapter), B.6 (BAJ → GES-090) y B.7–B.11 siguen siendo válidas.
+
 ---
 
 ## 0. Resumen ejecutivo
@@ -405,22 +414,99 @@ Mostrar un chip "Desasignado (última: {fecha})" si `estadoGestionId == GES-094`
 
 ## B.1. Análisis del formato
 
-### B.1.1. Estructura del archivo
+### B.1.1. Estructura del archivo (verificado sobre archivo real)
 
-Cada línea tiene un **código de tipo de registro** al inicio (típicamente los primeros 3 caracteres, o la primera columna con separador). Cuatro tipos identificados:
+Archivo `.txt`, separador `;`, **CRLF**, líneas paddeadas con espacios a 700 caracteres, codificación
+**Latin-1 (ISO-8859-1) — NO UTF-8**. Cada línea empieza con un código de tipo de registro.
 
-| Código | Semántica | Entidad AMSA |
+Muestra del 2026-07-24: **1.720 líneas** → 271 `GES`, 162 `CLI`, 1.277 `DET`, 10 `BAJ`.
+
+| Código | Qué es | Entidad AMSA | Cant. |
+|---|---|---|---|
+| `CLI` | Ficha del cliente (nombre, domicilio, mail, teléfonos). | **`deudor` + `contacto[]`** | 162 |
+| `GES` | Un **aviso** (= una deuda a reclamar) de un contrato del cliente. | **`factura`** | 271 |
+| `DET` | Concepto que compone el importe de un aviso. | **desglose de la factura** | 1.277 |
+| `BAJ` | Baja de un aviso. | `estadoGestionId = GES-090` (ver B.6) | 10 |
+
+**Cadena de vínculos — dos saltos, NO una clave única compartida:**
+
+```
+CLI.col2  ──(nro cliente)──►  GES.col3
+                              GES.col6  ──(nro aviso)──►  DET.col2
+                                                          BAJ.col2
+```
+
+Verificaciones sobre el archivo real (todas exactas, sin excepciones):
+
+| Verificación | Resultado |
+|---|---|
+| `GES.col6` ↔ `DET.col2` | 271 = 271, **cero huérfanos en ambos sentidos** |
+| `GES.col3` ↔ `CLI.col2` | 162 = 162, correspondencia exacta |
+| Contratos compartidos entre clientes | **0** — el contrato identifica al cliente unívocamente |
+| `GES.col8` vs Σ `DET.col4` del mismo aviso | **coincide en los 271**, sin una sola diferencia |
+| `BAJ.col2` que matchea un `GES` del mismo archivo | **0 de 10** — las bajas refieren a avisos que ya no vienen |
+
+Cardinalidades reales: cliente → 1..6 contratos (145 con 1, 14 con 2, 1 con 4, 2 con 6);
+contrato → 1..7 avisos (136 con 1, hasta 7); aviso → N conceptos `DET`.
+
+#### Layout `GES` (confirmado por el cliente)
+
+| Col | Ejemplo | Destino |
 |---|---|---|
-| `GES` | Datos del contrato — deuda total, fecha, nro contrato. | `deudor` (campos principales) |
-| `CLI` | Datos del cliente — nombre, teléfonos, mails. | `deudor` (identidad) + `contacto[]` |
-| `DET` | Ítem de cargo — tipo de cargo + importe. | `factura` |
-| `BAJ` | Baja del contrato. | Ver B.5 (punto de decisión) |
+| 1 | `GES` | discriminador |
+| 2 | `100985` | ❌ **no cargar** — el cliente no sabe qué es |
+| 3 | `346395` | **CLIENTE** → clave de match del deudor |
+| 4 | `2009869` | **CONTRATO** → a cada factura |
+| 5 | `5344937` | ❌ no cargar (en el PDF figura como "Cta Tipo: 87 Nro: …") |
+| 6 | `170502` | **AVISO** → `factura.nroFactura`; clave de cruce con `DET` y `BAJ` |
+| 7 | `28/04/2026` | ❌ no cargar |
+| 8 | `55406.65` | ❌ no cargar — **se calcula sumando los `DET`** |
+| 9 | `06/05/2026` | ❌ no cargar |
 
-Un contrato se arma con una combinación:
-- **Alta / gestión normal**: 1 × `GES` + 1 × `CLI` + N × `DET`.
-- **Baja**: 1 × `BAJ` (puede o no traer los otros — a definir con el usuario).
+> `col2` y `col6` son ambos únicos y 1:1 entre sí (271 valores distintos cada uno). El **aviso operativo
+> — el que el cliente pregunta — es `col6`**, que además es el único que permite cruzar `DET` y `BAJ`.
 
-Todas las líneas de un mismo contrato comparten una **clave de agrupación** (nro de contrato / cuenta), configurable por tipo de registro (`GES.col3 == CLI.col3 == DET.col3 == BAJ.col3` en el ejemplo Toyota).
+#### Layout `CLI`
+
+`col2` nro cliente · `col3` razón social / nombre · `col4` calle · `col5` número · `col6` piso ·
+`col7` depto · `col8` CP · `col9` localidad · `col10` cód. provincia · `col11` provincia ·
+`col12` `J`/`F` (jurídica/física) · `col13` email · `col14` cód. área · `col15` teléfono · `col16` teléfono 2.
+
+#### Layout `DET`
+
+`col2` nro aviso · `col3` concepto · `col4` **importe (suma al total)** · `col5` importe secundario ·
+`col6` cantidad de días.
+
+Particularidades verificadas:
+- **Hay importes negativos** (5 líneas `ACR-Remanente Anticipo`, una de −930.790,81). **Restan** del total y
+  están incluidos en la suma que cuadra: hay que sumarlos **con su signo**. No aplicar `removeDashes` acá.
+- `Días de Mora` viene **1 por aviso** (271) con el valor en `col6` (rango 9..88) e importe 0. Es un dato de
+  gestión, no un cargo.
+- `Cargo por Pago Fuera de Termino` trae `col5 = 180.90` **constante en los 271** e importe 0. Ruido del formato.
+- El texto `(E12-U15 )Cob IVA ctr fin 406549` contiene el **nro de CLIENTE**, no el contrato (148/148
+  verificados, siempre igual al cliente del aviso). Es **redundante** — ya se deriva del aviso vía `GES`.
+  **No hay que parsear ese texto.**
+
+#### Layout `BAJ`
+
+`col2` nro aviso · `col3` fecha de baja · `col4` motivo. Motivos observados: `Días de Mora Excedidos` (9),
+`Pago de Cuota/Aviso` (1). Como los avisos de `BAJ` **no están en el `GES` del mismo archivo**, la baja se
+resuelve buscando la factura por nro de aviso **en toda la empresa**, no en la remesa del import.
+
+### B.1.3. Decisiones tomadas (2026-07-27)
+
+| # | Decisión | Implicancia |
+|---|---|---|
+| **B-D1** | El **aviso es `GES.col6`** y va como `factura.nroFactura`. `col2` no se carga. | El unique `(deudorId, nroFactura)` alcanza: un cliente con 6 contratos → 6 facturas. |
+| **B-D2** | El **importe de la factura se calcula sumando `DET.col4`** (con signo), no se lee `GES.col8`. | Da idéntico (verificado en 271/271), pero es robusto si el cedente cambia el total. |
+| **B-D3** | El **contrato (`GES.col4`) va en cada factura**. | `factura.externalId` está libre (sin uso en todo el código) y es el lugar natural. |
+| **B-D4** | El **desglose `DET` va concatenado en un campo de texto de la factura**, incluyendo los días de mora. | `factura` NO tiene campo de observación hoy → **requiere columna nueva** (`db push`). |
+| **B-D5** | **`BAJ` da de baja el caso completo** → `estadoGestionId = GES-090` (confirma D6). | Se resuelve por nro de aviso → factura → deudor, buscando cross-remesa. |
+| **B-D6** | Los **casos nuevos van a una remesa nueva por día**, con número correlativo al último (replica el proceso del estudio). | El match del deudor debe ser **empresa-wide por nro de cliente**, NO por remesa origen: un cliente ya cargado puede estar en cualquier remesa previa. |
+
+> **Pendiente que abre B-D6**: hoy `numeroRemesa` lo manda el frontend y, si el operador no lo escribe,
+> usa `Date.now()` (el "número random" reportado el 2026-07-27). Para el correlativo hay que generarlo
+> en el backend (`último + 1` por empresa).
 
 ### B.1.2. Por qué no encaja en el pipeline actual
 
