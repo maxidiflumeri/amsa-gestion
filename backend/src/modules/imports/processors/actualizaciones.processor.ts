@@ -1,11 +1,11 @@
 // processors/actualizaciones.processor.ts
-import { ICategoryProcessor, MappedRow, ProcessContext, RowValidationResult } from './processor.interface';
+import { BatchRow, BatchRowError, ICategoryProcessor, MappedRow, ProcessContext, RowValidationResult } from './processor.interface';
 import { Prisma } from '@prisma/client';
 import { Logger } from '@nestjs/common';
 import { normalizarTelefonoArgentino, esPosibleTelefono } from '../../../common/utils/phone-utils';
 import { reconciliarSaldo, reconciliarAusente } from '../utils/reconciliar-actualizacion';
 import { esDocumentoPlaceholder } from '../utils/documento';
-import { mergeAdicionales } from '../utils/campos-adicionales';
+import { adicionalesEquivalentes, mergeAdicionales } from '../utils/campos-adicionales';
 import { enriquecerContactosHistoricos } from '../utils/enriquecimiento-historico';
 import { AuditModulo, AuditTipo } from '../../transacciones/audit.enums';
 
@@ -28,6 +28,35 @@ import { AuditModulo, AuditTipo } from '../../transacciones/audit.enums';
  *    - Pago por el sum de esas facturas
  *    - montoTotal NO se toca (inmutable). ConsolidacionSituacionService lleva la situación a SIT-050.
  */
+/**
+ * Campos del deudor que el lote precarga. Con esto alcanza para decidir en memoria la
+ * re-asignación y la actualización de identidad/adicionales, sin releer la DB por fila.
+ */
+const PREFETCH_SELECT = {
+    id: true,
+    documento: true,
+    nroCliente: true,
+    nombre: true,
+    apellido: true,
+    camposAdicionales: true,
+    estadoGestionId: true,
+    estadoGestionPrevioAId: true,
+    estadoSituacionId: true,
+} as const;
+
+/** Deudor tal como lo trae el prefetch del lote. */
+type DeudorPrefetch = {
+    id: number;
+    documento: string;
+    nroCliente: string | null;
+    nombre: string;
+    apellido: string;
+    camposAdicionales: Prisma.JsonValue | null;
+    estadoGestionId: number | null;
+    estadoGestionPrevioAId: number | null;
+    estadoSituacionId: number | null;
+};
+
 export class ActualizacionesProcessor implements ICategoryProcessor {
     readonly category = 'ACTUALIZACIONES';
     private readonly logger = new Logger(ActualizacionesProcessor.name);
@@ -60,6 +89,8 @@ export class ActualizacionesProcessor implements ICategoryProcessor {
      */
     private desasignadoIdCache: number | null | undefined = undefined;
     private sit050IdCache: number | null | undefined = undefined;
+    /** IDs de parámetros del grupo "gestion" (para validar el previo al re-asignar). */
+    private gestionesValidasCache: Set<number> | undefined = undefined;
     /** Deudores re-asignados en este batch (venían desasignados y volvieron al archivo). */
     private reasignadosCount = 0;
     /** Contactos copiados desde el histórico al crear casos nuevos (autoenriquecimiento). */
@@ -73,6 +104,7 @@ export class ActualizacionesProcessor implements ICategoryProcessor {
         this.sawReconciliationData = false;
         this.desasignadoIdCache = undefined;
         this.sit050IdCache = undefined;
+        this.gestionesValidasCache = undefined;
         this.reasignadosCount = 0;
         this.contactosEnriquecidos = 0;
     }
@@ -106,43 +138,49 @@ export class ActualizacionesProcessor implements ICategoryProcessor {
     }
 
     /**
+     * IDs de los parámetros del grupo "gestion", cargados una sola vez por batch. Reemplaza al
+     * `findFirst` por deudor que hacía la re-asignación (una query por fila re-asignada).
+     */
+    private async resolverGestionesValidas(ctx: ProcessContext): Promise<Set<number>> {
+        if (this.gestionesValidasCache !== undefined) return this.gestionesValidasCache;
+        const gestiones = await ctx.prisma.parametro.findMany({
+            where: { grupo: 'gestion' },
+            select: { id: true },
+        });
+        this.gestionesValidasCache = new Set(gestiones.map((g) => g.id));
+        return this.gestionesValidasCache;
+    }
+
+    /**
      * Re-asignación (inverso de la desasignación): si un deudor presente en el archivo venía
      * DESASIGNADO (GES-094), se le restaura el estado de gestión previo (`estadoGestionPrevioAId`,
      * o el default de la plantilla si el previo ya no existe) y se limpia el campo previo.
      * Los deudores en SIT-050 no se tocan. Idempotente: si no estaba desasignado, no hace nada.
      */
-    private async reasignarSiCorresponde(deudorId: number, ctx: ProcessContext): Promise<void> {
+    private async calcularReasignacion(
+        deudor: DeudorPrefetch,
+        ctx: ProcessContext,
+    ): Promise<Prisma.deudorUncheckedUpdateInput | null> {
         const desasignadoId = await this.resolverParametroDesasignado(ctx);
-        if (desasignadoId == null) return; // modo degradado
-
-        const deudor = await ctx.prisma.deudor.findUnique({
-            where: { id: deudorId },
-            select: { estadoGestionId: true, estadoGestionPrevioAId: true, estadoSituacionId: true },
-        });
-        if (!deudor) return;
-        if (deudor.estadoGestionId !== desasignadoId) return; // no estaba desasignado
+        if (desasignadoId == null) return null; // modo degradado
+        if (deudor.estadoGestionId !== desasignadoId) return null; // no estaba desasignado
 
         const sit050Id = await this.resolverParametroSit050(ctx);
         if (sit050Id != null && deudor.estadoSituacionId === sit050Id) {
-            this.logger.log(`Deudor ${deudorId} en SIT-050 — no se re-asigna.`);
-            return;
+            this.logger.log(`Deudor ${deudor.id} en SIT-050 — no se re-asigna.`);
+            return null;
         }
 
         // Restaurar el previo. Si apunta a un parámetro de gestión que ya no existe → default.
         let nuevoGestionId = deudor.estadoGestionPrevioAId ?? ctx.defaults.estadoGestionId;
         if (deudor.estadoGestionPrevioAId != null) {
-            const previoValido = await ctx.prisma.parametro.findFirst({
-                where: { id: deudor.estadoGestionPrevioAId, grupo: 'gestion' },
-                select: { id: true },
-            });
-            if (!previoValido) nuevoGestionId = ctx.defaults.estadoGestionId;
+            const gestionesValidas = await this.resolverGestionesValidas(ctx);
+            if (!gestionesValidas.has(deudor.estadoGestionPrevioAId)) {
+                nuevoGestionId = ctx.defaults.estadoGestionId;
+            }
         }
 
-        await ctx.prisma.deudor.update({
-            where: { id: deudorId },
-            data: { estadoGestionId: nuevoGestionId || null, estadoGestionPrevioAId: null },
-        });
-        this.reasignadosCount++;
+        return { estadoGestionId: nuevoGestionId || null, estadoGestionPrevioAId: null };
     }
 
     /**
@@ -279,107 +317,210 @@ export class ActualizacionesProcessor implements ICategoryProcessor {
         return { valid: true };
     }
 
+    /**
+     * Camino de una sola fila. Delega en `processBatch` con un lote de 1 para que exista una
+     * única implementación (sin divergencias entre el camino por fila y el camino por lote).
+     */
     async processRow(row: MappedRow, ctx: ProcessContext): Promise<void> {
+        const [fallo] = await this.processBatch([{ row, idx: 0 }], ctx);
+        if (fallo) throw new Error(fallo.error);
+    }
+
+    /**
+     * Camino por LOTE (el que usa el runner). Resuelve las lecturas del lote entero con 1-2
+     * `findMany ... IN (...)` y agrupa las escrituras en una sola transacción, en vez de pagar
+     * 3-4 round-trips a la DB por fila.
+     *
+     * Motivación (CHANGELOG 2026-07-27): la actualización diaria de Toyota (~350k filas) tardaba
+     * 91 min porque cada fila hacía: findUnique del deudor + findUnique para re-asignar +
+     * findUnique para actualizar identidad + UPDATE. Las tres últimas eran redundantes (el mismo
+     * deudor ya traído, y un UPDATE que reescribía el mismo JSON).
+     *
+     * Las ALTAS (escenario B) siguen siendo secuenciales: arrastran facturas, contactos y
+     * autoenriquecimiento, y en el flujo diario son una fracción mínima de las filas.
+     */
+    async processBatch(rows: BatchRow[], ctx: ProcessContext): Promise<BatchRowError[]> {
         if (!ctx.remesaOrigenId) {
             throw new Error('ACTUALIZACIONES requiere una remesa de origen (remesaOrigenId)');
         }
 
+        const errores: BatchRowError[] = [];
         const soloDatos = ctx.modoActualizacion === 'SOLO_DATOS';
 
         // Registrar si el archivo trae datos de deuda (para el guard del escenario C).
-        const hasFacturaBlocks = row._blocks?.some(
-            b => (b.entity === 'FACTURA' || b.entity === 'DEUDORES_Y_FACTURAS') && b.data.nroFactura
-        );
-        const hasMontoTotal = row.montoTotal !== undefined && row.montoTotal !== null && row.montoTotal !== '';
-        if (hasFacturaBlocks || hasMontoTotal) this.sawReconciliationData = true;
-
-        // ── 1. Buscar deudor en la remesa de origen ───────────────────────────────
-        let deudorId: number | null = null;
-
-        if (row.documento) {
-            const documentoStr = String(row.documento).trim();
-            const found = await ctx.prisma.deudor.findUnique({
-                where: {
-                    empresaId_documento_remesaId: {
-                        empresaId: ctx.empresaId,
-                        documento: documentoStr,
-                        remesaId: ctx.remesaOrigenId,
-                    },
-                },
-                select: { id: true },
-            });
-            if (found) deudorId = found.id;
-        }
-
-        if (!deudorId && row.nro_cliente) {
-            const nroCliente = String(row.nro_cliente).trim();
-            const rows = await ctx.prisma.$queryRaw<{ id: number }[]>(
-                Prisma.sql`
-                    SELECT id FROM deudor
-                    WHERE empresaId = ${ctx.empresaId}
-                      AND remesaId = ${ctx.remesaOrigenId}
-                      AND nroCliente = ${nroCliente}
-                    LIMIT 1
-                `
+        for (const { row } of rows) {
+            const hasFacturaBlocks = row._blocks?.some(
+                b => (b.entity === 'FACTURA' || b.entity === 'DEUDORES_Y_FACTURAS') && b.data.nroFactura
             );
-            if (rows.length) deudorId = rows[0].id;
-        }
-
-        // ── ESCENARIO B: Deudor nuevo, no estaba en la remesa origen ─────────────
-        // `crearNuevosCasos` es ORTOGONAL al modo: también en SOLO_DATOS se pueden dar de alta
-        // los casos nuevos (sin tocar deuda). Es el flujo de atención al cliente (Toyota): el
-        // archivo trae la lista de casos + DNI sin saldo y los nuevos se suman a la cartera.
-        if (!deudorId) {
-            // Flag crearNuevosCasos=false: solo actualizar existentes; los no encontrados en la
-            // remesa origen se ignoran (no se crea deudor nuevo). Útil para archivos que cubren
-            // varias remesas y se aplican una por una sin duplicar los de las otras.
-            if (!ctx.crearNuevosCasos) {
-                const ref = row.documento ? `documento=${row.documento}` : `nro_cliente=${row.nro_cliente}`;
-                this.logger.warn(`Deudor no encontrado en la remesa origen (${ref}) — se omite (crearNuevosCasos=false).`);
-                return;
+            const hasMontoTotal = row.montoTotal !== undefined && row.montoTotal !== null && row.montoTotal !== '';
+            if (hasFacturaBlocks || hasMontoTotal) {
+                this.sawReconciliationData = true;
+                break;
             }
-            await this.crearNuevoDeudor(row, ctx);
-            return;
         }
 
-        // Registrar que este deudor existente fue visto en el archivo (presente + match real)
-        this.processedDeudorIds.add(deudorId);
-        this.matchedExistingCount++;
+        // ── 1. PREFETCH: una sola lectura por criterio para todo el lote ──────────
+        const porDocumento = new Map<string, DeudorPrefetch>();
+        const porNroCliente = new Map<string, DeudorPrefetch>();
 
-        // Re-asignación: si venía DESASIGNADO (GES-094) y hoy volvió a aparecer en el archivo,
-        // se le restaura la gestión previa. Solo aplica en modo DESASIGNAR (archivo diario).
-        if (ctx.accionAusente === 'DESASIGNAR') {
-            await this.reasignarSiCorresponde(deudorId, ctx);
+        const documentos = [
+            ...new Set(rows.filter(r => r.row.documento).map(r => String(r.row.documento).trim())),
+        ];
+        if (documentos.length > 0) {
+            const encontrados = await ctx.prisma.deudor.findMany({
+                where: {
+                    empresaId: ctx.empresaId,
+                    remesaId: ctx.remesaOrigenId,
+                    documento: { in: documentos },
+                },
+                select: PREFETCH_SELECT,
+            });
+            for (const d of encontrados) porDocumento.set(d.documento, d);
         }
 
-        // ── ESCENARIO A: Deudor existente ─────────────────────────────────────────
-        // Siempre se completa DNI (pisa el placeholder) + se mergean los datos adicionales.
-        await this.actualizarIdentidadYAdicionales(deudorId, row, ctx);
-
-        // La reconciliación de deuda solo corre en modo RECONCILIAR.
-        if (!soloDatos) {
-            await this.reconciliarDeudor(deudorId, row, ctx);
+        // Fallback por nro_cliente, igual que el camino por fila: solo para las filas que no
+        // matchearon por documento (o que no lo traen).
+        const nrosCliente = [
+            ...new Set(
+                rows
+                    .filter(r => {
+                        if (!r.row.nro_cliente) return false;
+                        const doc = r.row.documento ? String(r.row.documento).trim() : '';
+                        return !doc || !porDocumento.has(doc);
+                    })
+                    .map(r => String(r.row.nro_cliente).trim()),
+            ),
+        ];
+        if (nrosCliente.length > 0) {
+            const encontrados = await ctx.prisma.deudor.findMany({
+                where: {
+                    empresaId: ctx.empresaId,
+                    remesaId: ctx.remesaOrigenId,
+                    nroCliente: { in: nrosCliente },
+                },
+                select: PREFETCH_SELECT,
+            });
+            for (const d of encontrados) {
+                if (d.nroCliente && !porNroCliente.has(d.nroCliente)) porNroCliente.set(d.nroCliente, d);
+            }
         }
+
+        // ── 2. Resolver cada fila en memoria; acumular updates, crear las altas ───
+        /** Updates pendientes del lote, con el idx de la fila que los originó (para reportar). */
+        const updates: Array<{ idx: number; deudorId: number; data: Prisma.deudorUncheckedUpdateInput }> = [];
+        /** Existentes que además necesitan reconciliación de deuda (modo RECONCILIAR). */
+        const aReconciliar: Array<{ deudorId: number; row: MappedRow; idx: number }> = [];
+
+        for (const { row, idx } of rows) {
+            try {
+                const doc = row.documento ? String(row.documento).trim() : '';
+                let deudor = doc ? porDocumento.get(doc) : undefined;
+                if (!deudor && row.nro_cliente) {
+                    deudor = porNroCliente.get(String(row.nro_cliente).trim());
+                }
+
+                // ── ESCENARIO B: Deudor nuevo, no estaba en la remesa origen ─────
+                // `crearNuevosCasos` es ORTOGONAL al modo: también en SOLO_DATOS se dan de alta
+                // los casos nuevos (sin tocar deuda). Es el flujo de atención al cliente (Toyota).
+                if (!deudor) {
+                    // Flag crearNuevosCasos=false: solo actualizar existentes; los no encontrados
+                    // se ignoran. Útil para archivos que cubren varias remesas y se aplican una
+                    // por una sin duplicar los de las otras.
+                    if (!ctx.crearNuevosCasos) {
+                        const ref = row.documento ? `documento=${row.documento}` : `nro_cliente=${row.nro_cliente}`;
+                        this.logger.warn(`Deudor no encontrado en la remesa origen (${ref}) — se omite (crearNuevosCasos=false).`);
+                        continue;
+                    }
+                    // Alta secuencial. Se registra en el mapa del lote para que una fila repetida
+                    // más adelante en el MISMO lote lo encuentre en vez de duplicarlo (el camino
+                    // por fila lo lograba porque cada fila releía la DB).
+                    const creado = await this.crearNuevoDeudor(row, ctx);
+                    if (creado) {
+                        porDocumento.set(creado.documento, creado);
+                        if (creado.nroCliente) porNroCliente.set(creado.nroCliente, creado);
+                    }
+                    continue;
+                }
+
+                // Registrar que este deudor existente fue visto en el archivo (presente + match real)
+                this.processedDeudorIds.add(deudor.id);
+                this.matchedExistingCount++;
+
+                // Re-asignación: si venía DESASIGNADO (GES-094) y hoy volvió a aparecer en el
+                // archivo, se le restaura la gestión previa. Solo en modo DESASIGNAR.
+                if (ctx.accionAusente === 'DESASIGNAR') {
+                    const reasignacion = await this.calcularReasignacion(deudor, ctx);
+                    if (reasignacion) {
+                        updates.push({ idx, deudorId: deudor.id, data: reasignacion });
+                        this.reasignadosCount++;
+                    }
+                }
+
+                // ── ESCENARIO A: Deudor existente ────────────────────────────────
+                // Siempre se completa DNI (pisa el placeholder) + se mergean los adicionales.
+                const cambios = await this.calcularIdentidadYAdicionales(deudor, row, ctx);
+                if (cambios) {
+                    updates.push({ idx, deudorId: deudor.id, data: cambios });
+                }
+
+                if (!soloDatos) aReconciliar.push({ deudorId: deudor.id, row, idx });
+            } catch (e: any) {
+                errores.push({ idx, error: e?.message ?? 'Error desconocido' });
+            }
+        }
+
+        // ── 3. Flush de las escrituras: N updates en UN solo round-trip ───────────
+        if (updates.length > 0) {
+            try {
+                await ctx.prisma.$transaction(
+                    updates.map((u) => ctx.prisma.deudor.update({ where: { id: u.deudorId }, data: u.data })),
+                );
+            } catch (e: any) {
+                // La transacción es todo-o-nada: un update roto (ej. un documento que choca con
+                // el unique) tumbaría el lote entero. Se reintenta uno por uno para que solo la
+                // fila culpable quede como error, igual que en el camino fila a fila.
+                this.logger.warn(
+                    `Flush del lote falló (${updates.length} updates): ${e?.message}. Reintentando fila por fila.`,
+                );
+                for (const u of updates) {
+                    try {
+                        await ctx.prisma.deudor.update({ where: { id: u.deudorId }, data: u.data });
+                    } catch (e2: any) {
+                        errores.push({ idx: u.idx, error: e2?.message ?? 'Error desconocido' });
+                    }
+                }
+            }
+        }
+
+        // ── 4. Reconciliación de deuda (solo RECONCILIAR): sigue siendo por deudor,
+        // porque lee y escribe facturas/pagos de cada uno.
+        for (const { deudorId, row, idx } of aReconciliar) {
+            try {
+                await this.reconciliarDeudor(deudorId, row, ctx);
+            } catch (e: any) {
+                errores.push({ idx, error: e?.message ?? 'Error desconocido' });
+            }
+        }
+
+        return errores;
     }
 
     /**
-     * Completa la identidad y los datos adicionales de un deudor existente.
+     * Calcula los cambios de identidad y datos adicionales de un deudor existente. Devuelve el
+     * `data` del update, o `null` si no hay NADA que cambiar (para no gastar un UPDATE de más).
      * - DNI: si la fila trae documento y el deudor tiene un placeholder (cargado sin DNI),
      *   se pisa con el DNI real (salvo que otro deudor de la remesa ya tenga ese DNI).
      * - camposAdicionales: merge "gana el valor nuevo" (reemplaza claves existentes).
      * - nombre/apellido: se rellenan solo si están vacíos (no se pisan datos buenos).
+     *
+     * El deudor llega ya cargado por el prefetch del lote: no se relee la DB.
      */
-    private async actualizarIdentidadYAdicionales(
-        deudorId: number,
+    private async calcularIdentidadYAdicionales(
+        actual: DeudorPrefetch,
         row: MappedRow,
         ctx: ProcessContext,
-    ): Promise<void> {
-        const actual = await ctx.prisma.deudor.findUnique({
-            where: { id: deudorId },
-            select: { documento: true, nombre: true, apellido: true, camposAdicionales: true },
-        });
-        if (!actual) return;
-
+    ): Promise<Prisma.deudorUpdateInput | null> {
+        const deudorId = actual.id;
         const data: Prisma.deudorUpdateInput = {};
 
         // DNI real del archivo → completa el placeholder.
@@ -411,25 +552,33 @@ export class ActualizacionesProcessor implements ICategoryProcessor {
             }
         }
 
-        // Datos adicionales: merge con "gana el valor nuevo".
+        // Datos adicionales: merge con "gana el valor nuevo". Solo se incluye en el update si el
+        // merge REALMENTE cambia algo: en un archivo diario las mismas columnas llegan idénticas
+        // día tras día, y `mergeAdicionales` siempre devuelve un objeto nuevo — sin este chequeo
+        // se gastaba un UPDATE por fila para reescribir el mismo JSON (ver CHANGELOG 2026-07-27).
         if (row.camposAdicionales && Object.keys(row.camposAdicionales).length > 0) {
-            data.camposAdicionales = mergeAdicionales(actual.camposAdicionales, row.camposAdicionales);
+            const merged = mergeAdicionales(actual.camposAdicionales, row.camposAdicionales);
+            if (!adicionalesEquivalentes(actual.camposAdicionales, merged)) {
+                data.camposAdicionales = merged;
+            }
         }
 
         // Nombre/apellido: rellenar solo si el actual está vacío.
         if (row.nombre && !String(actual.nombre ?? '').trim()) data.nombre = String(row.nombre);
         if (row.apellido && !String(actual.apellido ?? '').trim()) data.apellido = String(row.apellido);
 
-        if (Object.keys(data).length > 0) {
-            await ctx.prisma.deudor.update({ where: { id: deudorId }, data });
-        }
+        return Object.keys(data).length > 0 ? data : null;
     }
 
     /**
      * ESCENARIO B: Crear un deudor completamente nuevo a partir de los datos del archivo.
      * Se asocia a la remesa ORIGEN (la cartera), no a la remesa del import.
+     *
+     * Devuelve el deudor creado para que el lote lo registre en su mapa: si el mismo documento
+     * vuelve a aparecer más adelante en el MISMO lote, se trata como existente en vez de
+     * duplicarlo (el camino por fila lo conseguía porque cada fila releía la DB).
      */
-    private async crearNuevoDeudor(row: MappedRow, ctx: ProcessContext): Promise<void> {
+    private async crearNuevoDeudor(row: MappedRow, ctx: ProcessContext): Promise<DeudorPrefetch> {
         const documentoStr = row.documento ? String(row.documento).trim() : `SIN_DOC_${Date.now()}`;
         const montoNuevo = row.montoTotal ? this.parseFloatSafe(row.montoTotal) : 0;
 
@@ -491,6 +640,18 @@ export class ActualizacionesProcessor implements ICategoryProcessor {
                 }
             }
         }
+
+        return {
+            id: deudor.id,
+            documento: deudor.documento,
+            nroCliente: deudor.nroCliente,
+            nombre: deudor.nombre,
+            apellido: deudor.apellido,
+            camposAdicionales: deudor.camposAdicionales,
+            estadoGestionId: deudor.estadoGestionId,
+            estadoGestionPrevioAId: deudor.estadoGestionPrevioAId,
+            estadoSituacionId: deudor.estadoSituacionId,
+        };
     }
 
     /**

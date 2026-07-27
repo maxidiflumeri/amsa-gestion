@@ -19,19 +19,53 @@ const DEFAULT_GESTION = 200;
 
 function makeCtx(overrides: Partial<ProcessContext> = {}) {
     const deudorUpdate = jest.fn().mockResolvedValue({});
-    const deudorCreate = jest.fn().mockResolvedValue({ id: 777 });
+    const deudorCreate = jest.fn().mockResolvedValue({
+        id: 777,
+        documento: '30111222',
+        nroCliente: null,
+        nombre: 'JUANA',
+        apellido: '',
+        camposAdicionales: null,
+        estadoGestionId: DEFAULT_GESTION,
+        estadoGestionPrevioAId: null,
+        estadoSituacionId: 100,
+    });
     const parametroFindUnique = jest.fn().mockImplementation(({ where }: any) => {
         if (where.clave === 'GES-094') return Promise.resolve({ id: GES_094 });
         if (where.clave === 'SIT-050') return Promise.resolve({ id: SIT_050 });
         return Promise.resolve(null);
     });
+
+    // La cartera que ve el PREFETCH del lote (findMany con documento/nroCliente IN). Vacía por
+    // defecto = el deudor no existe en la remesa origen → escenario B.
+    const carteraPrefetch = new Map<string, any>();
+    /** Lo que devuelve el findMany "listado de la remesa" que usa el afterAll. */
+    let listadoAfterAll: any[] = [];
+
+    const deudorFindMany = jest.fn().mockImplementation(({ where }: any) => {
+        if (where?.documento?.in) {
+            return Promise.resolve(
+                (where.documento.in as string[]).map((d) => carteraPrefetch.get(d)).filter(Boolean),
+            );
+        }
+        if (where?.nroCliente?.in) {
+            return Promise.resolve(
+                [...carteraPrefetch.values()].filter(
+                    (d) => d.nroCliente && (where.nroCliente.in as string[]).includes(d.nroCliente),
+                ),
+            );
+        }
+        return Promise.resolve(listadoAfterAll);
+    });
+
     const prisma: any = {
         parametro: {
             findUnique: parametroFindUnique,
             findFirst: jest.fn().mockResolvedValue({ id: DEFAULT_GESTION }),
+            findMany: jest.fn().mockResolvedValue([{ id: DEFAULT_GESTION }, { id: 210 }]),
         },
         deudor: {
-            findMany: jest.fn().mockResolvedValue([]),
+            findMany: deudorFindMany,
             findUnique: jest.fn().mockResolvedValue(null),
             findFirst: jest.fn().mockResolvedValue(null),
             update: deudorUpdate,
@@ -44,7 +78,8 @@ function makeCtx(overrides: Partial<ProcessContext> = {}) {
         },
         factura: { create: jest.fn().mockResolvedValue({}) },
         $queryRaw: jest.fn().mockResolvedValue([]),
-        $transaction: jest.fn((arr: any[]) => Promise.resolve(arr)),
+        // Consume las promesas del array, como hace la transacción real: si alguna falla, falla.
+        $transaction: jest.fn((arr: any[]) => Promise.all(arr)),
     };
     const ctx = {
         prisma,
@@ -63,7 +98,32 @@ function makeCtx(overrides: Partial<ProcessContext> = {}) {
         accionAusente: 'DESASIGNAR',
         ...overrides,
     } as unknown as ProcessContext;
-    return { ctx, prisma, deudorUpdate, deudorCreate };
+    /** Carga la cartera que verá el prefetch del lote (deudores existentes en la remesa origen). */
+    const setCartera = (deudores: any[]) => {
+        for (const d of deudores) carteraPrefetch.set(d.documento, d);
+    };
+    /** Define lo que devuelve el findMany "listado de la remesa" del afterAll. */
+    const setListado = (deudores: any[]) => {
+        listadoAfterAll = deudores;
+    };
+
+    return { ctx, prisma, deudorUpdate, deudorCreate, setCartera, setListado };
+}
+
+/** Deudor de cartera con los campos que trae el prefetch. */
+function deudorEnCartera(over: Partial<Record<string, any>> = {}) {
+    return {
+        id: 111,
+        documento: '20000001',
+        nroCliente: null,
+        nombre: 'PEDRO',
+        apellido: 'GOMEZ',
+        camposAdicionales: null,
+        estadoGestionId: 210,
+        estadoGestionPrevioAId: null,
+        estadoSituacionId: null,
+        ...over,
+    };
 }
 
 describe('ActualizacionesProcessor — accionAusente=DESASIGNAR (afterAll)', () => {
@@ -156,15 +216,13 @@ describe('ActualizacionesProcessor — accionAusente=DESASIGNAR (afterAll)', () 
 describe('ActualizacionesProcessor — alta de casos nuevos (escenario B)', () => {
     it('SOLO_DATOS + crearNuevosCasos: da de alta el caso nuevo en la MISMA remesa origen y lo marca presente', async () => {
         const proc = new ActualizacionesProcessor();
-        const { ctx, prisma, deudorCreate } = makeCtx({
+        const { ctx, deudorCreate } = makeCtx({
             modoActualizacion: 'SOLO_DATOS',
             accionAusente: 'DESASIGNAR',
             crearNuevosCasos: true,
         } as any);
 
-        // No existe en la remesa origen → se crea (escenario B).
-        prisma.deudor.findUnique.mockResolvedValue(null);
-
+        // Cartera vacía → el prefetch no lo encuentra → se crea (escenario B).
         await proc.processRow({ documento: '30111222', nombre: 'JUANA' } as any, ctx);
 
         // Alta en la remesa ORIGEN (5), no en la del import (10) → cartera unificada, sin duplicar mañana.
@@ -177,12 +235,11 @@ describe('ActualizacionesProcessor — alta de casos nuevos (escenario B)', () =
 
     it('RECONCILIAR + PAGO_TODO: el caso nuevo también va a la remesa origen y se marca presente', async () => {
         const proc = new ActualizacionesProcessor();
-        const { ctx, prisma, deudorCreate } = makeCtx({
+        const { ctx, deudorCreate } = makeCtx({
             modoActualizacion: 'RECONCILIAR',
             accionAusente: 'PAGO_TODO',
             crearNuevosCasos: true,
         } as any);
-        prisma.deudor.findUnique.mockResolvedValue(null);
 
         await proc.processRow({ documento: '30111222', nombre: 'JUANA', montoTotal: '1000' } as any, ctx);
 
@@ -195,7 +252,7 @@ describe('ActualizacionesProcessor — alta de casos nuevos (escenario B)', () =
 
     it('REGRESIÓN: un caso nuevo bajo PAGO_TODO no se marca "pagó todo" en el afterAll de la misma corrida', async () => {
         const proc = new ActualizacionesProcessor();
-        const { ctx, prisma } = makeCtx({
+        const { ctx, prisma, setCartera, setListado } = makeCtx({
             modoActualizacion: 'RECONCILIAR',
             accionAusente: 'PAGO_TODO',
             crearNuevosCasos: true,
@@ -203,17 +260,24 @@ describe('ActualizacionesProcessor — alta de casos nuevos (escenario B)', () =
         const pagoCreate = jest.fn().mockResolvedValue({});
         prisma.pago = { create: pagoCreate, aggregate: jest.fn().mockResolvedValue({ _sum: { importe: 0 } }) };
         prisma.factura.updateMany = jest.fn().mockResolvedValue({ count: 0 });
+        prisma.factura.findMany = jest.fn().mockResolvedValue([]);
 
-        // Fila 1: deudor existente de la cartera (match real) → presente.
-        prisma.deudor.findUnique.mockResolvedValueOnce({ id: 111 });
-        await proc.processRow({ documento: '20000001', montoTotal: '5000' } as any, ctx);
-        // Fila 2: no existe → alta en la remesa origen (id 777).
-        prisma.deudor.findUnique.mockResolvedValue(null);
-        await proc.processRow({ documento: '30111222', nombre: 'JUANA', montoTotal: '1000' } as any, ctx);
+        // El 111 ya está en la cartera; el 30111222 no (será alta con id 777).
+        setCartera([deudorEnCartera({ id: 111, documento: '20000001' })]);
+
+        // Un solo lote con las dos filas, como lo llama el runner.
+        const fallos = await proc.processBatch(
+            [
+                { row: { documento: '20000001', montoTotal: '5000' } as any, idx: 0 },
+                { row: { documento: '30111222', nombre: 'JUANA', montoTotal: '1000' } as any, idx: 1 },
+            ],
+            ctx,
+        );
+        expect(fallos).toEqual([]);
 
         // El afterAll recorre la cartera: el 111 y el recién creado 777 están presentes; solo el 222
         // estuvo ausente del archivo y es el único que debe reconciliarse como "pagó todo".
-        prisma.deudor.findMany.mockResolvedValue([
+        setListado([
             { id: 111, montoTotal: 5000 },
             { id: 222, montoTotal: 3000 },
             { id: 777, montoTotal: 1000 },
@@ -226,71 +290,229 @@ describe('ActualizacionesProcessor — alta de casos nuevos (escenario B)', () =
     });
 });
 
-describe('ActualizacionesProcessor — re-asignación (reasignarSiCorresponde)', () => {
+describe('ActualizacionesProcessor — processBatch (performance del archivo diario)', () => {
+    /** Lote típico de Toyota: SOLO_DATOS, todos existentes, mismos datos que ayer. */
+    function loteToyota(n: number) {
+        return Array.from({ length: n }, (_, i) => ({
+            row: { documento: `DOC${i}`, nombre: 'JUAN', camposAdicionales: { DNI: `CUIL${i}` } } as any,
+            idx: i,
+        }));
+    }
+
+    it('resuelve todo el lote con UNA sola lectura, no una por fila', async () => {
+        const proc = new ActualizacionesProcessor();
+        const { ctx, prisma, setCartera } = makeCtx({ modoActualizacion: 'SOLO_DATOS' } as any);
+        setCartera(
+            Array.from({ length: 50 }, (_, i) =>
+                deudorEnCartera({ id: 1000 + i, documento: `DOC${i}`, camposAdicionales: { DNI: `CUIL${i}` } }),
+            ),
+        );
+
+        const fallos = await proc.processBatch(loteToyota(50), ctx);
+
+        expect(fallos).toEqual([]);
+        // Un findMany para las 50 filas (antes: 50 findUnique + 50 + 50).
+        expect(prisma.deudor.findMany).toHaveBeenCalledTimes(1);
+        expect(prisma.deudor.findUnique).not.toHaveBeenCalled();
+        expect((proc as any).matchedExistingCount).toBe(50);
+    });
+
+    it('no gasta un UPDATE cuando los datos del archivo son idénticos a los guardados', async () => {
+        const proc = new ActualizacionesProcessor();
+        const { ctx, prisma, setCartera } = makeCtx({ modoActualizacion: 'SOLO_DATOS' } as any);
+        setCartera(
+            Array.from({ length: 50 }, (_, i) =>
+                deudorEnCartera({ id: 1000 + i, documento: `DOC${i}`, camposAdicionales: { DNI: `CUIL${i}` } }),
+            ),
+        );
+
+        await proc.processBatch(loteToyota(50), ctx);
+
+        // Nada cambió → ni un update ni una transacción. Éste es el grueso del ahorro diario.
+        expect(prisma.deudor.update).not.toHaveBeenCalled();
+        expect(prisma.$transaction).not.toHaveBeenCalled();
+    });
+
+    it('sí actualiza (y agrupa en una transacción) cuando el archivo trae un dato distinto', async () => {
+        const proc = new ActualizacionesProcessor();
+        const { ctx, prisma, setCartera } = makeCtx({ modoActualizacion: 'SOLO_DATOS' } as any);
+        setCartera([
+            deudorEnCartera({ id: 1, documento: 'DOC0', camposAdicionales: { DNI: 'VIEJO' } }),
+            deudorEnCartera({ id: 2, documento: 'DOC1', camposAdicionales: { DNI: 'CUIL1' } }),
+        ]);
+
+        await proc.processBatch(loteToyota(2), ctx);
+
+        // Solo el primero cambió (DNI VIEJO → CUIL0); el segundo ya estaba igual.
+        expect(prisma.deudor.update).toHaveBeenCalledTimes(1);
+        expect(prisma.deudor.update).toHaveBeenCalledWith({
+            where: { id: 1 },
+            data: { camposAdicionales: { DNI: 'CUIL0' } },
+        });
+        // Los updates del lote viajan en una sola transacción.
+        expect(prisma.$transaction).toHaveBeenCalledTimes(1);
+    });
+
+    it('un documento nuevo repetido dentro del MISMO lote se da de alta una sola vez', async () => {
+        const proc = new ActualizacionesProcessor();
+        const { ctx, deudorCreate } = makeCtx({ modoActualizacion: 'SOLO_DATOS' } as any);
+
+        // El prefetch corre una vez por lote, así que sin dedupe interno la segunda fila
+        // volvería a crear el mismo deudor.
+        await proc.processBatch(
+            [
+                { row: { documento: '30111222', nombre: 'JUANA' } as any, idx: 0 },
+                { row: { documento: '30111222', nombre: 'JUANA' } as any, idx: 1 },
+            ],
+            ctx,
+        );
+
+        expect(deudorCreate).toHaveBeenCalledTimes(1);
+    });
+
+    it('una fila que falla no arrastra al resto del lote', async () => {
+        const proc = new ActualizacionesProcessor();
+        const { ctx, deudorCreate, setCartera } = makeCtx({ modoActualizacion: 'SOLO_DATOS' } as any);
+        setCartera([deudorEnCartera({ id: 1, documento: 'DOC0', camposAdicionales: { DNI: 'CUIL0' } })]);
+        deudorCreate.mockRejectedValueOnce(new Error('documento inválido'));
+
+        const fallos = await proc.processBatch(
+            [
+                { row: { documento: 'DOC0', camposAdicionales: { DNI: 'CUIL0' } } as any, idx: 0 },
+                { row: { documento: 'NUEVO', nombre: 'X' } as any, idx: 1 },
+            ],
+            ctx,
+        );
+
+        expect(fallos).toEqual([{ idx: 1, error: 'documento inválido' }]);
+        // La fila buena igual se procesó (quedó marcada como presente).
+        expect((proc as any).processedDeudorIds.has(1)).toBe(true);
+    });
+
+    it('si la transacción del flush falla, solo cae la fila culpable (no el lote entero)', async () => {
+        const proc = new ActualizacionesProcessor();
+        const { ctx, deudorUpdate, setCartera } = makeCtx({ modoActualizacion: 'SOLO_DATOS' } as any);
+        setCartera([
+            deudorEnCartera({ id: 1, documento: 'DOC0', camposAdicionales: { DNI: 'VIEJO' } }),
+            deudorEnCartera({ id: 2, documento: 'DOC1', camposAdicionales: { DNI: 'VIEJO' } }),
+        ]);
+
+        // El update del deudor 2 falla → tumba la transacción del lote; en el reintento
+        // individual el 1 pasa y solo el 2 queda como error.
+        deudorUpdate.mockImplementation(({ where }: any) =>
+            where.id === 2 ? Promise.reject(new Error('Unique constraint failed')) : Promise.resolve({}),
+        );
+
+        const fallos = await proc.processBatch(loteToyota(2), ctx);
+
+        expect(fallos).toEqual([{ idx: 1, error: 'Unique constraint failed' }]);
+        // El deudor 1 sí se actualizó en el reintento.
+        expect(deudorUpdate).toHaveBeenCalledWith({
+            where: { id: 1 },
+            data: { camposAdicionales: { DNI: 'CUIL0' } },
+        });
+    });
+
+    it('respeta crearNuevosCasos=false: no crea ni cuenta al ausente de la cartera', async () => {
+        const proc = new ActualizacionesProcessor();
+        const { ctx, deudorCreate } = makeCtx({
+            modoActualizacion: 'SOLO_DATOS',
+            crearNuevosCasos: false,
+        } as any);
+
+        const fallos = await proc.processBatch([{ row: { documento: 'NUEVO' } as any, idx: 0 }], ctx);
+
+        expect(fallos).toEqual([]);
+        expect(deudorCreate).not.toHaveBeenCalled();
+        expect((proc as any).matchedExistingCount).toBe(0);
+    });
+
+    it('cae al match por nro_cliente cuando el documento no está en la cartera', async () => {
+        const proc = new ActualizacionesProcessor();
+        const { ctx, prisma, setCartera } = makeCtx({ modoActualizacion: 'SOLO_DATOS' } as any);
+        setCartera([deudorEnCartera({ id: 55, documento: 'OTRO-DOC', nroCliente: 'C-99' })]);
+
+        await proc.processBatch(
+            [{ row: { documento: 'NO-ESTA', nro_cliente: 'C-99' } as any, idx: 0 }],
+            ctx,
+        );
+
+        // Dos lecturas: una por documento y otra por nroCliente para las que no matchearon.
+        expect(prisma.deudor.findMany).toHaveBeenCalledTimes(2);
+        expect((proc as any).processedDeudorIds.has(55)).toBe(true);
+        expect((proc as any).matchedExistingCount).toBe(1);
+    });
+});
+
+describe('ActualizacionesProcessor — re-asignación (calcularReasignacion)', () => {
     it('restaura el estado de gestión previo de un deudor que venía en GES-094', async () => {
         const proc = new ActualizacionesProcessor();
-        const { ctx, prisma, deudorUpdate } = makeCtx();
+        const { ctx } = makeCtx();
 
-        prisma.deudor.findUnique.mockResolvedValue({
-            estadoGestionId: GES_094,
-            estadoGestionPrevioAId: 210,
-            estadoSituacionId: null,
-        });
+        const data = await (proc as any).calcularReasignacion(
+            deudorEnCartera({ id: 7, estadoGestionId: GES_094, estadoGestionPrevioAId: 210 }),
+            ctx,
+        );
 
-        await (proc as any).reasignarSiCorresponde(7, ctx);
-
-        expect(deudorUpdate).toHaveBeenCalledWith({
-            where: { id: 7 },
-            data: { estadoGestionId: 210, estadoGestionPrevioAId: null },
-        });
+        expect(data).toEqual({ estadoGestionId: 210, estadoGestionPrevioAId: null });
     });
 
     it('cae al default cuando el previo apunta a un parámetro inexistente', async () => {
         const proc = new ActualizacionesProcessor();
-        const { ctx, prisma, deudorUpdate } = makeCtx();
+        const { ctx, prisma } = makeCtx();
+        // El set de gestiones válidas no incluye al 999.
+        prisma.parametro.findMany.mockResolvedValue([{ id: DEFAULT_GESTION }, { id: 210 }]);
 
-        prisma.deudor.findUnique.mockResolvedValue({
-            estadoGestionId: GES_094,
-            estadoGestionPrevioAId: 999,
-            estadoSituacionId: null,
-        });
-        prisma.parametro.findFirst.mockResolvedValue(null); // previo 999 ya no existe
+        const data = await (proc as any).calcularReasignacion(
+            deudorEnCartera({ id: 7, estadoGestionId: GES_094, estadoGestionPrevioAId: 999 }),
+            ctx,
+        );
 
-        await (proc as any).reasignarSiCorresponde(7, ctx);
-
-        expect(deudorUpdate).toHaveBeenCalledWith({
-            where: { id: 7 },
-            data: { estadoGestionId: DEFAULT_GESTION, estadoGestionPrevioAId: null },
-        });
+        expect(data).toEqual({ estadoGestionId: DEFAULT_GESTION, estadoGestionPrevioAId: null });
     });
 
     it('no re-asigna a un deudor cancelado (SIT-050)', async () => {
         const proc = new ActualizacionesProcessor();
-        const { ctx, prisma, deudorUpdate } = makeCtx();
+        const { ctx } = makeCtx();
 
-        prisma.deudor.findUnique.mockResolvedValue({
-            estadoGestionId: GES_094,
-            estadoGestionPrevioAId: 210,
-            estadoSituacionId: SIT_050,
-        });
+        const data = await (proc as any).calcularReasignacion(
+            deudorEnCartera({
+                id: 7,
+                estadoGestionId: GES_094,
+                estadoGestionPrevioAId: 210,
+                estadoSituacionId: SIT_050,
+            }),
+            ctx,
+        );
 
-        await (proc as any).reasignarSiCorresponde(7, ctx);
-
-        expect(deudorUpdate).not.toHaveBeenCalled();
+        expect(data).toBeNull();
     });
 
     it('no hace nada si el deudor no estaba desasignado', async () => {
         const proc = new ActualizacionesProcessor();
-        const { ctx, prisma, deudorUpdate } = makeCtx();
+        const { ctx } = makeCtx();
 
-        prisma.deudor.findUnique.mockResolvedValue({
-            estadoGestionId: 210, // no es GES-094
-            estadoGestionPrevioAId: null,
-            estadoSituacionId: null,
+        const data = await (proc as any).calcularReasignacion(
+            deudorEnCartera({ id: 7, estadoGestionId: 210, estadoGestionPrevioAId: null }),
+            ctx,
+        );
+
+        expect(data).toBeNull();
+    });
+
+    it('la re-asignación se emite como update dentro del lote', async () => {
+        const proc = new ActualizacionesProcessor();
+        const { ctx, prisma, setCartera } = makeCtx({ modoActualizacion: 'SOLO_DATOS' } as any);
+        setCartera([
+            deudorEnCartera({ id: 7, documento: '20000001', estadoGestionId: GES_094, estadoGestionPrevioAId: 210 }),
+        ]);
+
+        await proc.processBatch([{ row: { documento: '20000001' } as any, idx: 0 }], ctx);
+
+        expect(prisma.deudor.update).toHaveBeenCalledWith({
+            where: { id: 7 },
+            data: { estadoGestionId: 210, estadoGestionPrevioAId: null },
         });
-
-        await (proc as any).reasignarSiCorresponde(7, ctx);
-
-        expect(deudorUpdate).not.toHaveBeenCalled();
+        expect((proc as any).reasignadosCount).toBe(1);
     });
 });

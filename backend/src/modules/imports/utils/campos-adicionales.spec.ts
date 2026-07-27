@@ -1,4 +1,4 @@
-import { mergeAdicionales } from './campos-adicionales';
+import { adicionalesEquivalentes, mergeAdicionales } from './campos-adicionales';
 
 describe('utils/campos-adicionales — mergeAdicionales', () => {
     it('gana el valor nuevo ante clave repetida', () => {
@@ -31,5 +31,46 @@ describe('utils/campos-adicionales — mergeAdicionales', () => {
         mergeAdicionales(base, nuevos);
         expect(base).toEqual({ a: '1' });
         expect(nuevos).toEqual({ b: '2' });
+    });
+});
+
+describe('utils/campos-adicionales — adicionalesEquivalentes', () => {
+    it('detecta que un merge sin cambios equivale al original (caso archivo diario)', () => {
+        // El escenario que hacía gastar un UPDATE por fila todos los días: el archivo repite
+        // exactamente los mismos valores que ya están guardados.
+        const actual = { DNI: '20-12345678-9', SUCURSAL: 'CENTRO' };
+        expect(adicionalesEquivalentes(actual, mergeAdicionales(actual, { DNI: '20-12345678-9' }))).toBe(true);
+    });
+
+    it('detecta que un merge con un valor distinto NO equivale', () => {
+        const actual = { DNI: '20-12345678-9' };
+        expect(adicionalesEquivalentes(actual, mergeAdicionales(actual, { DNI: '27-99999999-1' }))).toBe(false);
+    });
+
+    it('detecta que agregar una clave nueva NO equivale', () => {
+        const actual = { DNI: '1' };
+        expect(adicionalesEquivalentes(actual, mergeAdicionales(actual, { EMAIL: 'x@y.z' }))).toBe(false);
+    });
+
+    it('ignora el orden de las claves', () => {
+        expect(adicionalesEquivalentes({ a: '1', b: '2' }, { b: '2', a: '1' })).toBe(true);
+    });
+
+    it('compara en profundidad objetos y arrays anidados', () => {
+        expect(adicionalesEquivalentes({ a: { b: [1, 2] } }, { a: { b: [1, 2] } })).toBe(true);
+        expect(adicionalesEquivalentes({ a: { b: [1, 2] } }, { a: { b: [2, 1] } })).toBe(false);
+        expect(adicionalesEquivalentes({ a: { b: [1] } }, { a: { b: [1, 2] } })).toBe(false);
+    });
+
+    it('trata null/undefined/no-objeto como vacío, igual que mergeAdicionales', () => {
+        expect(adicionalesEquivalentes(null, {})).toBe(true);
+        expect(adicionalesEquivalentes(undefined, null)).toBe(true);
+        expect(adicionalesEquivalentes('foo', {})).toBe(true);
+        expect(adicionalesEquivalentes(null, { a: '1' })).toBe(false);
+    });
+
+    it('distingue tipos que se verían iguales al comparar como texto', () => {
+        expect(adicionalesEquivalentes({ a: 1 }, { a: '1' })).toBe(false);
+        expect(adicionalesEquivalentes({ a: null }, { a: undefined })).toBe(false);
     });
 });

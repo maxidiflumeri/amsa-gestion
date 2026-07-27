@@ -6,6 +6,89 @@
 
 ---
 
+## [2026-07-27] — Performance de ACTUALIZACIONES: procesamiento por lote (91 min → menos de 1 min)
+
+> ⚠️ **Redeploy back** (solo código, sin migración). Sin cambios de comportamiento ni de UI:
+> mismo resultado, muchísimas menos idas y vueltas a la base.
+
+**Reporte.** La actualización diaria de Toyota 0800 (archivo de 3 columnas — CUIL/DNI/nombre — y
+~350k filas) tardaba **~2 horas**. Medido en prod: la remesa 52 del 21/07 procesó 351.943 filas en
+**91,7 minutos**.
+
+**Causa raíz — no eran queries lentas, eran queries de más.** Por cada fila que matcheaba un deudor
+existente, el processor hacía **4 round-trips secuenciales**:
+
+| # | Query | ¿Necesaria? |
+|---|---|---|
+| 1 | `findUnique` del deudor por `(empresa, documento, remesa)` | sí |
+| 2 | `findUnique` **del mismo deudor** en `reasignarSiCorresponde` | no — ya lo trajo la 1 |
+| 3 | `findUnique` **del mismo deudor** en `actualizarIdentidadYAdicionales` | no — ya lo trajo la 1 |
+| 4 | `UPDATE` de `camposAdicionales` | no — reescribía el mismo JSON |
+
+351.867 × 4 = **1,4M round-trips** en 5.502 s = **3,9 ms cada uno**: el costo era íntegramente la ida
+y vuelta a RDS. La query 4 salía siempre porque `mergeAdicionales` devuelve un objeto nuevo aunque el
+contenido sea idéntico, y la plantilla de Toyota mapea la columna 1 como campo adicional (`DNI`) —
+o sea que todos los días se reescribía el mismo valor para las 350k filas.
+
+**Backend**
+- [processor.interface.ts](backend/src/modules/imports/processors/processor.interface.ts): nuevo hook
+  **opcional** `processBatch(rows, ctx)` (+ tipos `BatchRow` / `BatchRowError`). Si un processor lo
+  implementa, el runner le pasa el lote entero; devuelve un error por fila fallida. Los 8 processors
+  que no lo implementan siguen exactamente igual por `processRow`.
+- [imports.service.ts](backend/src/modules/imports/imports.service.ts): el runner acumula las filas que
+  pasaron mapeo + validación y, si el processor tiene `processBatch`, las manda todas juntas. El conteo
+  `ok`/`err` sale de lo que devuelve el hook; si el hook tira una excepción, se reporta el lote entero.
+- [actualizaciones.processor.ts](backend/src/modules/imports/processors/actualizaciones.processor.ts):
+  - **`processRow` ahora delega en `processBatch`** con un lote de 1 → una sola implementación, sin
+    divergencias entre ambos caminos.
+  - **Prefetch del lote**: 1 `findMany ... documento IN (...)` (+1 por `nroCliente` solo para las filas
+    que no matchearon) trayendo de una todos los campos que antes pedían las queries 2 y 3. Cubierto por
+    el unique `(empresaId, documento, remesaId)` y por el índice `(empresaId, remesaId, nroCliente)`.
+  - **`reasignarSiCorresponde` → `calcularReasignacion`** y **`actualizarIdentidadYAdicionales` →
+    `calcularIdentidadYAdicionales`**: funciones puras que deciden en memoria y devuelven el `data` del
+    update (o `null`). El `findFirst` de validación del estado previo se reemplazó por
+    `resolverGestionesValidas`, un set cacheado por batch.
+  - **Nuevo `adicionalesEquivalentes`** ([campos-adicionales.ts](backend/src/modules/imports/utils/campos-adicionales.ts)):
+    comparación profunda e independiente del orden de claves. Si el merge no cambia nada, no se emite
+    UPDATE. Éste solo es el grueso del ahorro en un archivo diario.
+  - **Escrituras agrupadas**: los updates del lote viajan en un `$transaction` (1 round-trip para N
+    updates). Con **fallback**: si la transacción falla, se reintenta fila por fila para que solo la
+    culpable quede como error y no se caiga el lote de 200.
+  - **Dedupe intra-lote en las altas**: el prefetch corre una vez por lote, así que un documento nuevo
+    repetido dentro del mismo lote se registra en el mapa al crearse y no se duplica (antes lo evitaba
+    el hecho de que cada fila releía la DB).
+
+**Medición** (benchmark contra MySQL real, 20.000 filas existentes sin cambios — el régimen diario):
+
+| Camino | Queries | Tiempo local |
+|---|---|---|
+| Viejo (fila a fila) | 160.008 | 119,9 s |
+| Nuevo (`processBatch`) | **101** | **0,4 s** |
+
+101 queries = 1 prefetch por lote de 200 + 1 del cache de parámetros, y **cero updates** porque nada
+cambió. Extrapolado a las 351.867 filas de Toyota: de 1.407.468 queries a **~1.761** (≈800x menos).
+A los 3,9 ms/query medidos en prod son **~7 s de base de datos**; el resto pasa a ser el parseo del CSV
+y el `remesa.update` de progreso por lote. **Estimado: 91 min → menos de 1 minuto.**
+
+**Tests**: 67 verdes en `imports` (+15). Nuevos: una sola lectura por lote, sin UPDATE cuando los datos
+son idénticos, agrupación en transacción, dedupe intra-lote, aislamiento de la fila que falla, fallback
+del flush, `crearNuevosCasos=false`, match por `nro_cliente`, y 7 casos de `adicionalesEquivalentes`.
+
+> **Alcance**: las ALTAS de casos nuevos siguen siendo secuenciales (arrastran facturas, contactos y
+> autoenriquecimiento). En el flujo diario son una fracción mínima de las filas; en un archivo que sea
+> casi todo altas, el tiempo se parece al de antes. La reconciliación de deuda (modo `RECONCILIAR`)
+> también sigue por deudor: ahí se ganan las queries 1-3 pero no las de facturas/pagos.
+>
+> **Sin test automatizado del runner**: el cableado de `processBatch` en `imports.service` no tiene test
+> (no hay infraestructura de tests para ese servicio). Conviene mirar el resultado de la primera corrida
+> real: `okFilas`/`errFilas` de la remesa deben coincidir con lo de siempre.
+>
+> **Próximo paso posible si hiciera falta más**: subir `BATCH_SIZE` (hoy 200) reduciría proporcionalmente
+> el prefetch y los `remesa.update` de progreso, que pasan a ser el costo dominante. No se tocó porque
+> afecta a todas las categorías y conviene medirlo con datos reales primero.
+
+---
+
 ## [2026-07-27] — ACTUALIZACIONES: los casos nuevos van SIEMPRE a la remesa origen (no a una remesa nueva)
 
 > ⚠️ **Redeploy back + front** (solo código, sin migración). Backfill de datos ya aplicado en prod

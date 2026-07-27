@@ -87,6 +87,18 @@ export interface MappedRow {
     _raw?: any[];
 }
 
+/** Fila ya mapeada y validada, lista para procesar, con su número de fila en el archivo. */
+export interface BatchRow {
+    row: MappedRow;
+    idx: number;
+}
+
+/** Error de una fila puntual dentro de un lote (el resto del lote sigue adelante). */
+export interface BatchRowError {
+    idx: number;
+    error: string;
+}
+
 /**
  * Interfaz que debe implementar cada procesador de categoría.
  */
@@ -96,6 +108,21 @@ export interface ICategoryProcessor {
     validateRow?(row: MappedRow, ctx: ProcessContext): RowValidationResult;
 
     processRow(row: MappedRow, ctx: ProcessContext): Promise<void>;
+
+    /**
+     * Hook OPCIONAL de procesamiento por lote. Si un processor lo implementa, el runner le pasa
+     * todo el lote de filas válidas de una sola vez en vez de llamar a `processRow` una por una.
+     *
+     * Existe por performance: permite resolver las lecturas con un `findMany ... IN (...)` por lote
+     * y agrupar las escrituras, en vez de pagar un round-trip a la DB por fila. En archivos grandes
+     * (cientos de miles de filas contra RDS) la diferencia es de horas a minutos.
+     *
+     * Devuelve un error por cada fila que falló; las que no aparecen se consideran OK. Un throw
+     * hace fallar el lote entero, así que conviene capturar por fila y reportar acá.
+     *
+     * Los processors que no lo implementan siguen funcionando igual vía `processRow`.
+     */
+    processBatch?(rows: BatchRow[], ctx: ProcessContext): Promise<BatchRowError[]>;
 
     /**
      * Hook opcional que se ejecuta UNA SOLA VEZ al finalizar el procesamiento

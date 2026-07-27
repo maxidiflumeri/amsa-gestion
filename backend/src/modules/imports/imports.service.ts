@@ -871,6 +871,9 @@ export class ImportService {
             const group = batch.splice(0, batch.length);
             const errorBatch: Array<{ remesaId: number; rowNumber: number; rawRow: any; errorMsg: string }> = [];
 
+            // Filas que pasaron mapeo + validación, para el camino por lote.
+            const validas: Array<{ row: any; idx: number; mapped: any }> = [];
+
             for (const { row, idx } of group) {
                 try {
                     const obj = this.mapRow(row, mapping);
@@ -881,6 +884,13 @@ export class ImportService {
                         if (!result.valid) {
                             throw new Error(result.error ?? 'Validación de fila fallida');
                         }
+                    }
+
+                    if (processor.processBatch) {
+                        // El processor resuelve el lote entero de una vez (lecturas y escrituras
+                        // agrupadas). El conteo ok/err se hace después, con lo que devuelva.
+                        validas.push({ row, idx, mapped: obj });
+                        continue;
                     }
 
                     await processor.processRow(obj, ctx);
@@ -894,6 +904,34 @@ export class ImportService {
                         errorMsg: e.message ?? 'Error desconocido',
                     });
                 }
+            }
+
+            if (processor.processBatch && validas.length > 0) {
+                const porIdx = new Map(validas.map((v) => [v.idx, v]));
+                let fallos: Array<{ idx: number; error: string }> = [];
+                try {
+                    fallos = await processor.processBatch(
+                        validas.map((v) => ({ row: v.mapped, idx: v.idx })),
+                        ctx,
+                    );
+                } catch (e: any) {
+                    // Un throw del hook hace fallar el lote entero: se reportan todas sus filas.
+                    const msg = e?.message ?? 'Error desconocido en el lote';
+                    this.logger.error(`processBatch falló en remesa ${remesaId}: ${msg}`, e?.stack);
+                    fallos = validas.map((v) => ({ idx: v.idx, error: msg }));
+                }
+
+                for (const f of fallos) {
+                    const v = porIdx.get(f.idx);
+                    errorBatch.push({
+                        remesaId,
+                        rowNumber: f.idx,
+                        rawRow: v ? (Array.isArray(v.row) ? v.row : Object.values(v.row)) : [],
+                        errorMsg: f.error,
+                    });
+                }
+                err += fallos.length;
+                ok += validas.length - fallos.length;
             }
 
             if (errorBatch.length > 0) {
