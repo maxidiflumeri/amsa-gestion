@@ -20,9 +20,14 @@ export class CreateRemesaDto {
     @Type(() => Number)
     empresaId!: number;
 
+    /**
+     * Número de remesa. **Opcional**: si viene vacío, el backend genera el correlativo de la
+     * empresa (`00001`, `00002`, …) en `resolverNumeroRemesa`. Antes era obligatorio y el frontend
+     * lo rellenaba con `Date.now()`, que producía los "números de remesa random".
+     */
+    @IsOptional()
     @IsString()
-    @IsNotEmpty()
-    numeroRemesa!: string;
+    numeroRemesa?: string;
 
     @IsString()
     @IsNotEmpty()

@@ -93,6 +93,13 @@ y verifica que los 271 importes calculados coincidan con el total del `GES`, sin
 el campo vacío, lo que **anulaba el correlativo nuevo**. Ahora manda vacío y decide el backend. El texto de
 ayuda del campo lo explica.
 
+> ⚠️ **Bug del cambio anterior, corregido el mismo día** (reportado en la prueba): con el frontend ya
+> mandando el campo vacío, el DTO seguía con `@IsNotEmpty()` en `numeroRemesa`, así que crear la remesa
+> fallaba con **"numeroRemesa should not be empty"** antes de llegar al servicio. Los tests del correlativo
+> no lo detectaron porque prueban la función pura, no el contrato HTTP. `numeroRemesa` pasa a `@IsOptional()`
+> y se agrega [create-remesa.dto.spec.ts](backend/src/modules/imports/dtos/create-remesa.dto.spec.ts) que
+> valida el DTO con el campo vacío, ausente y cargado a mano.
+
 **La baja es POR AVISO, no por deudor** (2026-07-27, definido con los usuarios durante la prueba). Un
 cliente con 6 avisos al que le dan de baja 2 **sigue vigente con los otros 4**; antes un solo `BAJ`
 mandaba el caso entero a GES-090. Qué se hace con el aviso lo decide el **motivo**:
