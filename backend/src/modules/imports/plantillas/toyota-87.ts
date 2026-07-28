@@ -45,7 +45,7 @@ export const TOYOTA_87_MULTIRREGISTRO: MultirregistroConfig = {
         // es ruido del formato, no un cargo.
         conceptosIgnorados: ['Cargo por Pago Fuera de Termino'],
     },
-    baj: { codigo: 'BAJ', aviso: 2, fecha: 3, motivo: 4 },
+    baj: { codigo: 'BAJ', aviso: 2, fecha: 3, motivo: 4, motivosPago: ['Pago de Cuota'] },
 };
 
 /**

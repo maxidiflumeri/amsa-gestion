@@ -40,6 +40,11 @@ export class MultirregistroProcessor implements ICategoryProcessor {
     private bajasSinMatchCount = 0;
     /** Bajas que matchearon más de un deudor: no se aplican, hay que resolverlas a mano. */
     private bajasAmbiguasCount = 0;
+    /** Bajas por pago (se registró un pago) y bajas por retiro del cedente (sin pago). */
+    private bajasPagoCount = 0;
+    private bajasRetiradasCount = 0;
+    /** Deudores que quedaron sin ningún aviso vigente y salieron de gestión. */
+    private deudoresDadosDeBajaCount = 0;
     /** Contactos copiados del histórico al dar de alta un caso. */
     private contactosEnriquecidos = 0;
     /** id del parámetro GES-090; `null` = no seedeado (modo degradado). */
@@ -51,6 +56,9 @@ export class MultirregistroProcessor implements ICategoryProcessor {
         this.bajasCount = 0;
         this.bajasSinMatchCount = 0;
         this.bajasAmbiguasCount = 0;
+        this.bajasPagoCount = 0;
+        this.bajasRetiradasCount = 0;
+        this.deudoresDadosDeBajaCount = 0;
         this.contactosEnriquecidos = 0;
         this.bajaIdCache = undefined;
     }
@@ -220,9 +228,16 @@ export class MultirregistroProcessor implements ICategoryProcessor {
         }
     }
 
-    /** `montoTotal` del deudor = Σ de sus facturas (el archivo es la fuente de verdad de la deuda). */
+    /**
+     * `montoTotal` del deudor = Σ de sus facturas, **excluyendo las ANULADAS**: ésas son avisos que
+     * el cedente retiró de la gestión y ya no se reclaman, así que dejan de contar como deuda. Las
+     * PAGADAS sí siguen sumando —fueron deuda real— y es el pago registrado el que baja el saldo.
+     */
     private async recalcularMonto(deudorId: number, ctx: ProcessContext): Promise<void> {
-        const agg = await ctx.prisma.factura.aggregate({ where: { deudorId }, _sum: { importe: true } });
+        const agg = await ctx.prisma.factura.aggregate({
+            where: { deudorId, estado: { not: 'ANULADA' } },
+            _sum: { importe: true },
+        });
         const total = agg._sum.importe ?? 0;
         await ctx.prisma.deudor.update({ where: { id: deudorId }, data: { montoTotal: total } });
     }
@@ -244,7 +259,7 @@ export class MultirregistroProcessor implements ICategoryProcessor {
         // equivocado es un error silencioso que le saca de gestión un caso activo.
         const facturas = await ctx.prisma.factura.findMany({
             where: { nroFactura: aviso, deudor: { empresaId: ctx.empresaId } },
-            select: { deudorId: true },
+            select: { id: true, deudorId: true, importe: true },
             take: 2,
         });
 
@@ -265,17 +280,68 @@ export class MultirregistroProcessor implements ICategoryProcessor {
             return;
         }
 
-        await ctx.prisma.deudor.update({
-            where: { id: facturas[0].deudorId },
-            data: { estadoGestionId: bajaId },
+        const { id: facturaId, deudorId, importe } = facturas[0];
+        const motivo = row.motivo ? String(row.motivo).trim() : '';
+
+        // El motivo decide si el aviso se cerró porque el cliente PAGÓ o porque el cedente lo retiró
+        // de la gestión. En el archivo de Toyota 9 de cada 10 bajas son "Días de Mora Excedidos",
+        // que NO es un pago: registrar uno inventaría plata que nunca entró.
+        const motivosPago = ctx.multirregistroConfig?.baj?.motivosPago ?? [];
+        const esPago = motivosPago.some((m) => motivo.toLowerCase().startsWith(m.toLowerCase()));
+
+        if (esPago) {
+            await ctx.prisma.pago.create({
+                data: {
+                    deudorId,
+                    fecha: this.parseFechaBaja(row.fecha) ?? new Date(),
+                    importe,
+                    origen: 'IMPORT_MULTIRREGISTRO',
+                    origenArchivo: `MULTIRREGISTRO_REMESA_${ctx.remesaId}`,
+                    observacion: `Baja del aviso ${aviso}: ${motivo || 'pago'}`,
+                },
+            });
+            await ctx.prisma.factura.update({ where: { id: facturaId }, data: { estado: 'PAGADA' } });
+            this.bajasPagoCount++;
+        } else {
+            // Retirado de la gestión: la factura deja de contar para la deuda (ver recalcularMonto).
+            await ctx.prisma.factura.update({ where: { id: facturaId }, data: { estado: 'ANULADA' } });
+            this.bajasRetiradasCount++;
+        }
+
+        // La deuda del deudor se recalcula sobre los avisos que siguen vigentes.
+        await this.recalcularMonto(deudorId, ctx);
+
+        // El deudor sale de gestión SOLO si se quedó sin ningún aviso vigente: si tenía 6 avisos y
+        // bajaron 2, sigue trabajándose por los otros 4.
+        const vigentes = await ctx.prisma.factura.count({
+            where: { deudorId, estado: { notIn: ['PAGADA', 'ANULADA'] } },
         });
+        if (vigentes === 0) {
+            await ctx.prisma.deudor.update({
+                where: { id: deudorId },
+                data: { estadoGestionId: bajaId },
+            });
+            this.deudoresDadosDeBajaCount++;
+        }
+
         this.bajasCount++;
+    }
+
+    /** Fecha de la baja (`DD/MM/YYYY`). Si no viene o no parsea, se usa la del día. */
+    private parseFechaBaja(raw: unknown): Date | null {
+        const s = raw ? String(raw).trim() : '';
+        const m = s.match(/^(\d{2})\/(\d{2})\/(\d{4})$/);
+        if (!m) return null;
+        const d = new Date(Number(m[3]), Number(m[2]) - 1, Number(m[1]));
+        return isNaN(d.getTime()) ? null : d;
     }
 
     async afterAll(ctx: ProcessContext): Promise<void> {
         this.logger.log(
             `MULTIRREGISTRO remesa=${ctx.remesaId}: ${this.altasCount} casos nuevos, ` +
-            `${this.actualizadosCount} actualizados, ${this.bajasCount} bajas aplicadas` +
+            `${this.actualizadosCount} actualizados, ${this.bajasCount} avisos dados de baja ` +
+            `(${this.bajasPagoCount} por pago, ${this.bajasRetiradasCount} retirados), ` +
+            `${this.deudoresDadosDeBajaCount} deudores sin avisos vigentes → GES-090` +
             (this.bajasSinMatchCount > 0 ? `, ${this.bajasSinMatchCount} bajas sin match` : '') +
             (this.bajasAmbiguasCount > 0 ? `, ${this.bajasAmbiguasCount} bajas ambiguas (sin aplicar)` : ''),
         );
@@ -292,13 +358,17 @@ export class MultirregistroProcessor implements ICategoryProcessor {
             empresaId: ctx.empresaId,
             resumen:
                 `Import multirregistro: ${this.altasCount} altas, ${this.actualizadosCount} actualizaciones, ` +
-                `${this.bajasCount} bajas`,
+                `${this.bajasCount} avisos de baja (${this.bajasPagoCount} por pago), ` +
+                `${this.deudoresDadosDeBajaCount} deudores fuera de gestión`,
             data: {
                 altas: this.altasCount,
                 actualizados: this.actualizadosCount,
                 bajas: this.bajasCount,
                 bajasSinMatch: this.bajasSinMatchCount,
                 bajasAmbiguas: this.bajasAmbiguasCount,
+                bajasPorPago: this.bajasPagoCount,
+                bajasRetiradas: this.bajasRetiradasCount,
+                deudoresDadosDeBaja: this.deudoresDadosDeBajaCount,
                 remesaId: ctx.remesaId,
             },
         });

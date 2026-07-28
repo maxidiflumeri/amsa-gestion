@@ -893,6 +893,7 @@ export class ImportService {
             crearNuevosCasos,
             accionAusente,
             accionesConfig: mapping?.acciones,
+            multirregistroConfig: mapping?.multirregistro,
         };
 
         const sep = resolveDelimiter(remesa.plantilla.separador ?? '|');

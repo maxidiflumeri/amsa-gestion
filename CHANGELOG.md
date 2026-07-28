@@ -93,6 +93,27 @@ y verifica que los 271 importes calculados coincidan con el total del `GES`, sin
 el campo vacío, lo que **anulaba el correlativo nuevo**. Ahora manda vacío y decide el backend. El texto de
 ayuda del campo lo explica.
 
+**La baja es POR AVISO, no por deudor** (2026-07-27, definido con los usuarios durante la prueba). Un
+cliente con 6 avisos al que le dan de baja 2 **sigue vigente con los otros 4**; antes un solo `BAJ`
+mandaba el caso entero a GES-090. Qué se hace con el aviso lo decide el **motivo**:
+
+| Motivo | Efecto |
+|---|---|
+| `Pago de Cuota/Aviso` (configurable en `baj.motivosPago`) | Se registra un **pago** por el importe del aviso (con la fecha del `BAJ`) y la factura queda `PAGADA`. |
+| Cualquier otro — en el archivo real, `Días de Mora Excedidos` | **No se registra pago.** La factura queda `ANULADA`: el cedente la retiró de la gestión y deja de sumar a la deuda. |
+
+> La distinción no es un detalle: en el archivo del 24/07, **9 de las 10 bajas son "Días de Mora
+> Excedidos"**. Cargar un pago por cada baja habría inventado plata que nunca entró — el mismo error que
+> causó el incidente del 2026-07-21.
+
+- `montoTotal` del deudor pasa a ser Σ de sus facturas **excluyendo las ANULADAS**. Las `PAGADA` sí siguen
+  sumando (fueron deuda real) y es el pago registrado el que baja el saldo vía consolidación.
+- El deudor pasa a **GES-090 solo cuando se queda sin ningún aviso vigente**.
+- El resumen del import y la auditoría discriminan: avisos dados de baja por pago, retirados, y deudores
+  que quedaron fuera de gestión.
+- Ficha de facturas: la `ANULADA` se muestra atenuada, con el importe tachado y un tooltip que aclara que
+  no se reclama ni suma a la deuda.
+
 **Baja segura ante números de factura ambiguos** (2026-07-27, salido de la prueba con usuarios): el
 registro `BAJ` trae **solo el nro de aviso**, sin cliente ni contrato, así que la baja se resuelve
 `aviso → factura → deudor`. El problema: el unique de `factura` es `(deudorId, nroFactura)`, **no** por

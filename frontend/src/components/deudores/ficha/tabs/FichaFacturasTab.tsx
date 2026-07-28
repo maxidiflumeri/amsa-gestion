@@ -27,12 +27,15 @@ interface Props {
 const FilaFactura: React.FC<{ fac: any; mostrarContrato: boolean }> = ({ fac, mostrarContrato }) => {
     const [abierta, setAbierta] = useState(false);
     const vto = new Date(fac.vencimiento);
-    const esVencida = vto < new Date() && fac.estado !== 'PAGADA';
+    // ANULADA = el cedente retiró el aviso de la gestión (baja sin pago). No se reclama más y no
+    // suma a la deuda, así que tampoco tiene sentido marcarla como vencida.
+    const esAnulada = fac.estado === 'ANULADA';
+    const esVencida = vto < new Date() && fac.estado !== 'PAGADA' && !esAnulada;
     const tieneDesglose = !!fac.detalle;
 
     return (
         <>
-            <TableRow hover>
+            <TableRow hover sx={esAnulada ? { opacity: 0.55 } : undefined}>
                 <TableCell sx={{ width: 40, p: 0.5 }}>
                     {tieneDesglose && (
                         <Tooltip title={abierta ? 'Ocultar desglose' : 'Ver desglose'}>
@@ -55,16 +58,29 @@ const FilaFactura: React.FC<{ fac: any; mostrarContrato: boolean }> = ({ fac, mo
                 >
                     {vto.toLocaleDateString()}
                 </TableCell>
-                <TableCell align="right" sx={{ fontWeight: 'bold' }}>
+                <TableCell
+                    align="right"
+                    sx={{ fontWeight: 'bold', textDecoration: esAnulada ? 'line-through' : 'none' }}
+                >
                     ${fac.importe.toLocaleString('es-AR', { minimumFractionDigits: 2 })}
                 </TableCell>
                 <TableCell>
-                    <Chip
-                        label={fac.estado || 'PENDIENTE'}
-                        size="small"
-                        color={fac.estado === 'PAGADA' ? 'success' : esVencida ? 'error' : 'warning'}
-                        variant="outlined"
-                    />
+                    <Tooltip title={esAnulada ? 'Dada de baja por el cedente: no se reclama ni suma a la deuda' : ''}>
+                        <Chip
+                            label={fac.estado || 'PENDIENTE'}
+                            size="small"
+                            color={
+                                fac.estado === 'PAGADA'
+                                    ? 'success'
+                                    : esAnulada
+                                        ? 'default'
+                                        : esVencida
+                                            ? 'error'
+                                            : 'warning'
+                            }
+                            variant="outlined"
+                        />
+                    </Tooltip>
                 </TableCell>
             </TableRow>
 

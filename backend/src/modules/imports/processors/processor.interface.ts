@@ -3,7 +3,7 @@ import { PrismaService } from 'src/prisma/prisma.service';
 import { ConsolidacionSituacionService } from '../../consolidacion/consolidacion.service';
 import { PromesasService } from '../../promesas/promesas.service';
 import { AuditoriaHelper } from '../../transacciones/auditoria.helper';
-import { AccionAusenteActualizacion, AccionesConfig, ComportamientoDeudaMayor, ModoActualizacion, MontoDeudorMode } from '../mapping-types';
+import { AccionAusenteActualizacion, AccionesConfig, ComportamientoDeudaMayor, ModoActualizacion, MontoDeudorMode, MultirregistroConfig } from '../mapping-types';
 
 /**
  * Resultado de validar una fila.
@@ -74,6 +74,12 @@ export interface ProcessContext {
      * Leído de `mappingJson.accionAusente` (default `PAGO_TODO`). Ver {@link AccionAusenteActualizacion}.
      */
     accionAusente: AccionAusenteActualizacion;
+    /**
+     * Config de la categoría MULTIRREGISTRO (leída de `mappingJson.multirregistro`). El processor
+     * la necesita para saber qué motivos de baja significan "pagó" y cuáles son un retiro del
+     * cedente sin pago.
+     */
+    multirregistroConfig?: MultirregistroConfig;
 }
 
 /**

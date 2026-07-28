@@ -186,5 +186,15 @@ export interface MultirregistroConfig {
         aviso: number;
         fecha?: number;
         motivo?: number;
+        /**
+         * Motivos que significan que el aviso **se pagó** (match por "empieza con", sin distinguir
+         * mayúsculas). Solo para éstos se registra un pago por el importe del aviso.
+         *
+         * El resto de los motivos —en el archivo de Toyota, 9 de cada 10 son "Días de Mora
+         * Excedidos"— NO son pagos: el cedente retira el aviso de la gestión y la deuda deja de
+         * reclamarse. Registrar un pago ahí inventaría plata que nunca entró (el mismo error que
+         * causó el incidente del 2026-07-21).
+         */
+        motivosPago?: string[];
     };
 }

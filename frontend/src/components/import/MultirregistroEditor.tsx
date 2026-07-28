@@ -38,7 +38,7 @@ export const PRESET_TOYOTA_87 = {
         conceptoDiasMora: 'Días de Mora',
         conceptosIgnorados: ['Cargo por Pago Fuera de Termino'],
     },
-    baj: { codigo: 'BAJ', aviso: 2, fecha: 3, motivo: 4 },
+    baj: { codigo: 'BAJ', aviso: 2, fecha: 3, motivo: 4, motivosPago: ['Pago de Cuota'] },
 }
 
 interface Props {
