@@ -51,6 +51,15 @@ export class MultirregistroProcessor implements ICategoryProcessor {
     private bajasRetiradasCount = 0;
     /** Deudores que quedaron sin ningún aviso vigente y salieron de gestión. */
     private deudoresDadosDeBajaCount = 0;
+    /**
+     * Deudores tocados en esta corrida (altas, actualizaciones y bajas), para consolidarlos al
+     * final. NO alcanza con consolidar la remesa del import: ahí solo están los casos nuevos del
+     * día, y un deudor de una remesa previa al que hoy se le registró un pago por baja quedaría
+     * sin recalcular el saldo ni pasar a cancelado.
+     */
+    private deudoresTocados = new Set<number>();
+    /** Deudores a los que se les registró un pago en esta corrida (para cerrar promesas cumplidas). */
+    private deudoresConPago = new Set<number>();
     /** Contactos copiados del histórico al dar de alta un caso. */
     private contactosEnriquecidos = 0;
     /** id del parámetro GES-090; `null` = no seedeado (modo degradado). */
@@ -67,6 +76,8 @@ export class MultirregistroProcessor implements ICategoryProcessor {
         this.bajasPagoCount = 0;
         this.bajasRetiradasCount = 0;
         this.deudoresDadosDeBajaCount = 0;
+        this.deudoresTocados.clear();
+        this.deudoresConPago.clear();
         this.contactosEnriquecidos = 0;
         this.bajaIdCache = undefined;
         this.avisoMotivosPagoEmitido = false;
@@ -156,6 +167,7 @@ export class MultirregistroProcessor implements ICategoryProcessor {
         await this.upsertFacturas(deudorId, row, ctx);
         await this.upsertContactos(deudorId, row, ctx);
         await this.recalcularMonto(deudorId, ctx);
+        this.deudoresTocados.add(deudorId);
     }
 
     /**
@@ -310,6 +322,7 @@ export class MultirregistroProcessor implements ICategoryProcessor {
                 },
             });
             await ctx.prisma.factura.update({ where: { id: facturaId }, data: { estado: 'PAGADA' } });
+            this.deudoresConPago.add(deudorId);
             this.bajasPagoCount++;
         } else {
             // Retirado de la gestión: la factura deja de contar para la deuda (ver recalcularMonto).
@@ -319,6 +332,7 @@ export class MultirregistroProcessor implements ICategoryProcessor {
 
         // La deuda del deudor se recalcula sobre los avisos que siguen vigentes.
         await this.recalcularMonto(deudorId, ctx);
+        this.deudoresTocados.add(deudorId);
 
         // El deudor sale de gestión SOLO si se quedó sin ningún aviso vigente: si tenía 6 avisos y
         // bajaron 2, sigue trabajándose por los otros 4.
@@ -406,9 +420,25 @@ export class MultirregistroProcessor implements ICategoryProcessor {
             },
         });
 
-        // La situación de los casos nuevos y de los que cambiaron de deuda se recalcula igual que
-        // en el resto de las categorías.
-        await ctx.consolidacion.consolidar({ tipo: 'REMESA', remesaId: ctx.remesaId });
+        // Consolidación final: recalcula `saldo` y la situación (SIT-050 cancelado / SIT-041 pago
+        // parcial) de TODOS los deudores tocados, estén en la remesa de hoy o en una previa. Es el
+        // paso que convierte los pagos registrados por las bajas en saldo 0 + cancelado.
+        const ids = [...this.deudoresTocados];
+        if (ids.length > 0) {
+            const t0 = Date.now();
+            const r = await ctx.consolidacion.consolidar({ tipo: 'DEUDORES', deudorIds: ids });
+            this.logger.log(
+                `Consolidación de ${ids.length} deudores tocados: ${r.aSIT050} cancelados, ` +
+                `${r.aSIT041} pago parcial en ${Date.now() - t0}ms`,
+            );
+        }
+
+        // Las promesas de pago que hayan quedado cumplidas por los pagos de las bajas se cierran,
+        // igual que en el resto de las categorías que generan pagos.
+        if (this.deudoresConPago.size > 0) {
+            await ctx.promesas.cerrarCumplidas([...this.deudoresConPago]);
+        }
+
         this.reset();
     }
 }

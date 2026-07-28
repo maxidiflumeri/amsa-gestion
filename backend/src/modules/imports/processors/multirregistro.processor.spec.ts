@@ -54,7 +54,7 @@ function makeCtx(overrides: Partial<ProcessContext> = {}) {
         empresaId: 87,
         usuarioId: 9,
         defaults: { estadoSituacionId: DEFAULT_SITUACION, estadoGestionId: DEFAULT_GESTION },
-        consolidacion: { consolidar: jest.fn().mockResolvedValue(undefined) },
+        consolidacion: { consolidar: jest.fn().mockResolvedValue({ aSIT050: 0, aSIT041: 0, evaluados: 0, conPagos: 0 }) },
         promesas: { cerrarCumplidas: jest.fn().mockResolvedValue(undefined) },
         auditoria: { log: jest.fn().mockResolvedValue(undefined) },
         // Config real: en Toyota solo "Pago de Cuota/Aviso" significa que el aviso se pagó.
@@ -355,6 +355,44 @@ describe('MultirregistroProcessor — bajas', () => {
         await proc.processRow({ _tipo: 'BAJA', aviso: '171412' } as any, ctx);
 
         expect(deudorUpdate).not.toHaveBeenCalled();
+    });
+});
+
+describe('MultirregistroProcessor — consolidación final', () => {
+    it('consolida los deudores TOCADOS, no la remesa del import', async () => {
+        const proc = new MultirregistroProcessor();
+        const { ctx, prisma } = makeCtx();
+        // Un caso nuevo (id 777, remesa de hoy) y una baja de un deudor de una remesa previa (321).
+        await proc.processRow(caso() as any, ctx);
+        prisma.factura.findMany.mockResolvedValue([{ id: 11, deudorId: 321, importe: 100 }]);
+        prisma.factura.count.mockResolvedValue(1);
+        await proc.processRow({ _tipo: 'BAJA', aviso: '1', motivo: 'Días de Mora Excedidos' } as any, ctx);
+
+        await proc.afterAll!(ctx);
+
+        const scope = (ctx.consolidacion.consolidar as jest.Mock).mock.calls[0][0];
+        expect(scope.tipo).toBe('DEUDORES');
+        // El 321 está en una remesa vieja: consolidar solo la remesa del import lo dejaría afuera.
+        expect([...scope.deudorIds].sort()).toEqual([321, 777]);
+    });
+
+    it('cierra las promesas cumplidas de los deudores a los que se les registró un pago', async () => {
+        const proc = new MultirregistroProcessor();
+        const { ctx, prisma } = makeCtx();
+        prisma.factura.findMany.mockResolvedValue([{ id: 11, deudorId: 555, importe: 100 }]);
+        prisma.factura.count.mockResolvedValue(0);
+
+        await proc.processRow({ _tipo: 'BAJA', aviso: '1', motivo: 'Pago de Cuota/Aviso' } as any, ctx);
+        await proc.afterAll!(ctx);
+
+        expect(ctx.promesas.cerrarCumplidas).toHaveBeenCalledWith([555]);
+    });
+
+    it('no llama a consolidar si no se tocó ningún deudor', async () => {
+        const proc = new MultirregistroProcessor();
+        const { ctx } = makeCtx();
+        await proc.afterAll!(ctx);
+        expect(ctx.consolidacion.consolidar).not.toHaveBeenCalled();
     });
 });
 

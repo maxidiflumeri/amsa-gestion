@@ -142,6 +142,20 @@ rama "retirado por el cedente".
 > Las otras dos facturas anuladas de la empresa (`170724`, `170493`) sí corresponden a "Días de Mora
 > Excedidos" y quedaron bien.
 
+**La consolidación no alcanzaba a los deudores de remesas previas** (2026-07-27, detectado por los usuarios
+sobre el mismo caso: el pago quedó registrado pero el deudor seguía con `saldo` en null y sin pasar a
+cancelado). El `afterAll` consolidaba `{ tipo: 'REMESA', remesaId }` — o sea **solo la remesa del import**,
+donde únicamente están los casos nuevos del día. Como el match del deudor es empresa-wide y los nuevos
+entran en una remesa nueva cada día (B-D6), un deudor de una remesa previa al que hoy se le registra un
+pago por baja **nunca se recalculaba**: ni el saldo ni la situación.
+
+- El processor acumula ahora los **deudores tocados** (altas, actualizaciones y bajas) y al final consolida
+  `{ tipo: 'DEUDORES', deudorIds }`, sin importar en qué remesa esté cada uno. El log de cierre informa
+  cuántos quedaron cancelados y cuántos en pago parcial.
+- Se agrega el cierre de **promesas cumplidas** por los pagos que generan las bajas, igual que hacen PAGOS
+  y ACTUALIZACIONES.
+- **Corregido en prod**: el deudor 382060 quedó con `saldo` 0 y **SIT-050 (Cancelado / Pagado)**.
+
 **Baja segura ante números de factura ambiguos** (2026-07-27, salido de la prueba con usuarios): el
 registro `BAJ` trae **solo el nro de aviso**, sin cliente ni contrato, así que la baja se resuelve
 `aviso → factura → deudor`. El problema: el unique de `factura` es `(deudorId, nroFactura)`, **no** por
