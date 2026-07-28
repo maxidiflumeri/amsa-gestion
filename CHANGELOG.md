@@ -156,6 +156,23 @@ pago por baja **nunca se recalculaba**: ni el saldo ni la situación.
   y ACTUALIZACIONES.
 - **Corregido en prod**: el deudor 382060 quedó con `saldo` 0 y **SIT-050 (Cancelado / Pagado)**.
 
+**El caso dado de baja también marca la SITUACIÓN** (2026-07-27, pedido de los usuarios). Hasta ahora la
+baja solo tocaba la gestión (`GES-090`, "sale del circuito de trabajo"); faltaba decir **en qué terminó la
+deuda**. Al quedarse sin avisos vigentes, el deudor pasa además a **`SIT-071` (Dado de baja / Rescisión)**.
+
+El orden del `afterAll` resuelve solo la interacción con la consolidación, sin lógica extra:
+
+| Cómo se cerró el caso | Situación final |
+|---|---|
+| El cliente **pagó** el último aviso | Se pone SIT-071 y la consolidación lo **pisa con SIT-050** (Σpagos ≥ montoTotal) |
+| El cedente lo **retiró** por mora, sin pago | Σpagos = 0 → la consolidación lo **saltea** y queda **SIT-071** |
+
+Si `SIT-071` no estuviera seedeado, se loguea un `warn` y la baja de gestión se aplica igual: la situación
+es un dato de color, no debe frenar el cierre del caso.
+
+> **Corregido en prod**: el deudor 381877 (baja por mora, sin pagos) pasó de SIT-001 a **SIT-071**. El
+> 382060 se dejó en SIT-050 porque pagó.
+
 **Baja segura ante números de factura ambiguos** (2026-07-27, salido de la prueba con usuarios): el
 registro `BAJ` trae **solo el nro de aviso**, sin cliente ni contrato, así que la baja se resuelve
 `aviso → factura → deudor`. El problema: el unique de `factura` es `(deudorId, nroFactura)`, **no** por

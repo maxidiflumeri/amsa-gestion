@@ -33,6 +33,11 @@ import { AuditModulo, AuditTipo } from '../../transacciones/audit.enums';
  */
 const MOTIVOS_PAGO_DEFAULT = ['Pago'];
 
+/** Estado de GESTIÓN de un caso dado de baja: sale del circuito de trabajo. */
+const CLAVE_GESTION_BAJA = 'GES-090';
+/** Estado de SITUACIÓN de un caso dado de baja: refleja en qué terminó la deuda. */
+const CLAVE_SITUACION_BAJA = 'SIT-071';
+
 export class MultirregistroProcessor implements ICategoryProcessor {
     readonly category = 'MULTIRREGISTRO';
     private readonly logger = new Logger(MultirregistroProcessor.name);
@@ -62,8 +67,9 @@ export class MultirregistroProcessor implements ICategoryProcessor {
     private deudoresConPago = new Set<number>();
     /** Contactos copiados del histórico al dar de alta un caso. */
     private contactosEnriquecidos = 0;
-    /** id del parámetro GES-090; `null` = no seedeado (modo degradado). */
+    /** ids de GES-090 y SIT-071; `null` = no seedeado (modo degradado). */
     private bajaIdCache: number | null | undefined = undefined;
+    private situacionBajaIdCache: number | null | undefined = undefined;
     /** Para no repetir el aviso de "motivosPago sin configurar" una vez por baja. */
     private avisoMotivosPagoEmitido = false;
 
@@ -80,6 +86,7 @@ export class MultirregistroProcessor implements ICategoryProcessor {
         this.deudoresConPago.clear();
         this.contactosEnriquecidos = 0;
         this.bajaIdCache = undefined;
+        this.situacionBajaIdCache = undefined;
         this.avisoMotivosPagoEmitido = false;
     }
 
@@ -104,15 +111,39 @@ export class MultirregistroProcessor implements ICategoryProcessor {
     /** Resuelve (y cachea) el id de GES-090 "Dado de baja del sistema". */
     private async resolverParametroBaja(ctx: ProcessContext): Promise<number | null> {
         if (this.bajaIdCache !== undefined) return this.bajaIdCache;
-        const p = await ctx.prisma.parametro.findUnique({ where: { clave: 'GES-090' }, select: { id: true } });
+        const p = await ctx.prisma.parametro.findUnique({ where: { clave: CLAVE_GESTION_BAJA }, select: { id: true } });
         this.bajaIdCache = p?.id ?? null;
         if (this.bajaIdCache == null) {
             this.logger.warn(
-                'GES-090 no seedeado — las bajas del archivo quedan inactivas en este batch. ' +
+                `${CLAVE_GESTION_BAJA} no seedeado — las bajas del archivo quedan inactivas en este batch. ` +
                 'Correr seed-codigos-curados.ts para habilitarlas.',
             );
         }
         return this.bajaIdCache;
+    }
+
+    /**
+     * Resuelve (y cachea) el id de SIT-071 "Dado de baja / Rescisión".
+     *
+     * La gestión (GES-090) dice que el caso sale del circuito de trabajo; la situación dice en qué
+     * terminó la deuda. Si el caso se cerró por cobro, la consolidación del `afterAll` pisa esta
+     * situación con SIT-050 (cancelado); si el cedente lo retiró sin pago, Σpagos es 0, la
+     * consolidación lo saltea y queda SIT-071, que es lo correcto.
+     *
+     * Si no está seedeado se sigue adelante con la baja de gestión: es un dato de color, no debe
+     * frenar el cierre del caso.
+     */
+    private async resolverSituacionBaja(ctx: ProcessContext): Promise<number | null> {
+        if (this.situacionBajaIdCache !== undefined) return this.situacionBajaIdCache;
+        const p = await ctx.prisma.parametro.findUnique({ where: { clave: CLAVE_SITUACION_BAJA }, select: { id: true } });
+        this.situacionBajaIdCache = p?.id ?? null;
+        if (this.situacionBajaIdCache == null) {
+            this.logger.warn(
+                `${CLAVE_SITUACION_BAJA} no seedeado — los casos dados de baja conservan su situación ` +
+                'anterior. La baja de gestión se aplica igual.',
+            );
+        }
+        return this.situacionBajaIdCache;
     }
 
     /**
@@ -340,9 +371,13 @@ export class MultirregistroProcessor implements ICategoryProcessor {
             where: { deudorId, estado: { notIn: ['PAGADA', 'ANULADA'] } },
         });
         if (vigentes === 0) {
+            const situacionBajaId = await this.resolverSituacionBaja(ctx);
             await ctx.prisma.deudor.update({
                 where: { id: deudorId },
-                data: { estadoGestionId: bajaId },
+                data: {
+                    estadoGestionId: bajaId,
+                    ...(situacionBajaId != null ? { estadoSituacionId: situacionBajaId } : {}),
+                },
             });
             this.deudoresDadosDeBajaCount++;
         }

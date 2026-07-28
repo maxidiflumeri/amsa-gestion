@@ -12,6 +12,7 @@ import { MultirregistroProcessor } from './multirregistro.processor';
 import { ProcessContext } from './processor.interface';
 
 const GES_090 = 90;
+const SIT_071 = 71;
 const DEFAULT_GESTION = 200;
 const DEFAULT_SITUACION = 100;
 
@@ -30,9 +31,11 @@ function makeCtx(overrides: Partial<ProcessContext> = {}) {
 
     const prisma: any = {
         parametro: {
-            findUnique: jest.fn().mockImplementation(({ where }: any) =>
-                Promise.resolve(where.clave === 'GES-090' ? { id: GES_090 } : null),
-            ),
+            findUnique: jest.fn().mockImplementation(({ where }: any) => {
+                if (where.clave === 'GES-090') return Promise.resolve({ id: GES_090 });
+                if (where.clave === 'SIT-071') return Promise.resolve({ id: SIT_071 });
+                return Promise.resolve(null);
+            }),
         },
         deudor: { findFirst: deudorFindFirst, create: deudorCreate, update: deudorUpdate },
         factura: {
@@ -243,8 +246,27 @@ describe('MultirregistroProcessor — bajas', () => {
 
         await proc.processRow({ _tipo: 'BAJA', aviso: '170474', motivo: 'Días de Mora Excedidos' } as any, ctx);
 
-        expect(deudorUpdate).toHaveBeenCalledWith({ where: { id: 321 }, data: { estadoGestionId: GES_090 } });
+        // Gestión GES-090 (sale del circuito) + situación SIT-071 (en qué terminó la deuda).
+        expect(deudorUpdate).toHaveBeenCalledWith({
+            where: { id: 321 },
+            data: { estadoGestionId: GES_090, estadoSituacionId: SIT_071 },
+        });
         expect((proc as any).deudoresDadosDeBajaCount).toBe(1);
+    });
+
+    it('si SIT-071 no está seedeado igual aplica la baja de gestión', async () => {
+        const proc = new MultirregistroProcessor();
+        const { ctx, prisma, deudorUpdate } = makeCtx();
+        prisma.parametro.findUnique.mockImplementation(({ where }: any) =>
+            Promise.resolve(where.clave === 'GES-090' ? { id: GES_090 } : null),
+        );
+        prisma.factura.findMany.mockResolvedValue([facturaDeBaja]);
+        prisma.factura.count.mockResolvedValue(0);
+
+        await proc.processRow({ _tipo: 'BAJA', aviso: '170474', motivo: 'Días de Mora Excedidos' } as any, ctx);
+
+        // Sin SIT-071 no se pisa la situación previa, pero el caso igual sale de gestión.
+        expect(deudorUpdate).toHaveBeenCalledWith({ where: { id: 321 }, data: { estadoGestionId: GES_090 } });
     });
 
     it('el montoTotal se recalcula excluyendo las facturas anuladas', async () => {
