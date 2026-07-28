@@ -297,6 +297,55 @@ describe('MultirregistroProcessor — bajas', () => {
         expect(deudorUpdate).not.toHaveBeenCalled();
     });
 
+    it('REGRESIÓN: si la plantilla no declara motivosPago, una baja por pago NO se anula', async () => {
+        const proc = new MultirregistroProcessor();
+        // Config sin `motivosPago` — así estaba la plantilla de Toyota en prod el 2026-07-27: el
+        // aviso 171298 vino como "Pago de Cuota/Aviso" y terminó ANULADO, perdiendo el registro de
+        // un cobro de $82.706,87.
+        const { ctx, prisma, pagoCreate, facturaUpdate } = makeCtx({
+            multirregistroConfig: { baj: { codigo: 'BAJ', aviso: 2 } },
+        } as any);
+        prisma.factura.findMany.mockResolvedValue([{ id: 11, deudorId: 382060, importe: 82706.87 }]);
+        prisma.factura.count.mockResolvedValue(0);
+
+        await proc.processRow(
+            { _tipo: 'BAJA', aviso: '171298', fecha: '27/07/2026', motivo: 'Pago de Cuota/Aviso' } as any,
+            ctx,
+        );
+
+        expect(pagoCreate).toHaveBeenCalledTimes(1);
+        expect(pagoCreate.mock.calls[0][0].data.importe).toBeCloseTo(82706.87, 2);
+        expect(facturaUpdate).toHaveBeenCalledWith({ where: { id: 11 }, data: { estado: 'PAGADA' } });
+    });
+
+    it('una lista vacía explícita SÍ se respeta: ningún motivo cuenta como pago', async () => {
+        const proc = new MultirregistroProcessor();
+        // `[]` es una decisión deliberada, no un olvido de configuración.
+        const { ctx, prisma, pagoCreate, facturaUpdate } = makeCtx({
+            multirregistroConfig: { baj: { codigo: 'BAJ', aviso: 2, motivosPago: [] } },
+        } as any);
+        prisma.factura.findMany.mockResolvedValue([{ id: 11, deudorId: 321, importe: 100 }]);
+        prisma.factura.count.mockResolvedValue(1);
+
+        await proc.processRow({ _tipo: 'BAJA', aviso: '1', motivo: 'Pago de Cuota/Aviso' } as any, ctx);
+
+        expect(pagoCreate).not.toHaveBeenCalled();
+        expect(facturaUpdate).toHaveBeenCalledWith({ where: { id: 11 }, data: { estado: 'ANULADA' } });
+    });
+
+    it('el default no toma la mora excedida como pago', async () => {
+        const proc = new MultirregistroProcessor();
+        const { ctx, prisma, pagoCreate } = makeCtx({
+            multirregistroConfig: { baj: { codigo: 'BAJ', aviso: 2 } },
+        } as any);
+        prisma.factura.findMany.mockResolvedValue([{ id: 11, deudorId: 321, importe: 100 }]);
+        prisma.factura.count.mockResolvedValue(1);
+
+        await proc.processRow({ _tipo: 'BAJA', aviso: '1', motivo: 'Días de Mora Excedidos' } as any, ctx);
+
+        expect(pagoCreate).not.toHaveBeenCalled();
+    });
+
     it('modo degradado: sin GES-090 seedeado no toca a nadie', async () => {
         const proc = new MultirregistroProcessor();
         const { ctx, prisma, deudorUpdate } = makeCtx();

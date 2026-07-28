@@ -121,6 +121,27 @@ mandaba el caso entero a GES-090. Qué se hace con el aviso lo decide el **motiv
 - Ficha de facturas: la `ANULADA` se muestra atenuada, con el importe tachado y un tooltip que aclara que
   no se reclama ni suma a la deuda.
 
+**Bug en prod: una baja por cobro se anuló en vez de registrar el pago** (2026-07-27, detectado por los
+usuarios con un caso testigo). El aviso `171298` del deudor 382060 vino como `Pago de Cuota/Aviso` y
+terminó con la factura **ANULADA** y sin pago: se perdió el registro de un cobro de **$82.706,87**.
+
+No fue un error de la lógica de match sino de **configuración silenciosa**: la plantilla de Toyota se
+creó *antes* de que existiera `motivosPago`, así que el campo no estaba en su `mappingJson`. El código
+hacía `motivosPago ?? []` → lista vacía → ningún motivo contaba como pago → todas las bajas caían en la
+rama "retirado por el cedente".
+
+- **`resolverMotivosPago`**: si la plantilla **no trae el campo**, se cae a un default (`['Pago']`) y se
+  loguea un `warn` una vez por corrida, en vez de asumir en silencio que ninguna baja es un cobro. Un
+  array **vacío explícito** sí se respeta: eso es una decisión, no un olvido.
+- **Editor de plantilla**: avisa en amarillo si la config de bajas no declara `motivosPago`, y muestra un
+  chip con los motivos configurados.
+- **Corregido en prod**: la plantilla 57 ahora declara `motivosPago: ["Pago de Cuota"]`; la factura
+  `171298` pasó a `PAGADA`, se registró el pago de $82.706,87 con fecha 27/07 y el `montoTotal` del deudor
+  volvió a 82.706,87. El deudor queda en GES-090, que es correcto: era su único aviso y se cerró.
+
+> Las otras dos facturas anuladas de la empresa (`170724`, `170493`) sí corresponden a "Días de Mora
+> Excedidos" y quedaron bien.
+
 **Baja segura ante números de factura ambiguos** (2026-07-27, salido de la prueba con usuarios): el
 registro `BAJ` trae **solo el nro de aviso**, sin cliente ni contrato, así que la baja se resuelve
 `aviso → factura → deudor`. El problema: el unique de `factura` es `(deudorId, nroFactura)`, **no** por

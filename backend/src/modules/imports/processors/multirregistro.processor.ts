@@ -27,6 +27,12 @@ import { AuditModulo, AuditTipo } from '../../transacciones/audit.enums';
  *
  * Spec: `docs/imports-actualizacion-diaria-y-multirregistro-spec.md` §B.
  */
+/**
+ * Motivos que se toman como "el aviso se pagó" cuando la plantilla no configura `motivosPago`.
+ * Deliberadamente corto: solo lo que inequívocamente indica cobro.
+ */
+const MOTIVOS_PAGO_DEFAULT = ['Pago'];
+
 export class MultirregistroProcessor implements ICategoryProcessor {
     readonly category = 'MULTIRREGISTRO';
     private readonly logger = new Logger(MultirregistroProcessor.name);
@@ -49,6 +55,8 @@ export class MultirregistroProcessor implements ICategoryProcessor {
     private contactosEnriquecidos = 0;
     /** id del parámetro GES-090; `null` = no seedeado (modo degradado). */
     private bajaIdCache: number | null | undefined = undefined;
+    /** Para no repetir el aviso de "motivosPago sin configurar" una vez por baja. */
+    private avisoMotivosPagoEmitido = false;
 
     private reset(): void {
         this.altasCount = 0;
@@ -61,6 +69,7 @@ export class MultirregistroProcessor implements ICategoryProcessor {
         this.deudoresDadosDeBajaCount = 0;
         this.contactosEnriquecidos = 0;
         this.bajaIdCache = undefined;
+        this.avisoMotivosPagoEmitido = false;
     }
 
     validateRow(row: MappedRow): RowValidationResult {
@@ -286,7 +295,7 @@ export class MultirregistroProcessor implements ICategoryProcessor {
         // El motivo decide si el aviso se cerró porque el cliente PAGÓ o porque el cedente lo retiró
         // de la gestión. En el archivo de Toyota 9 de cada 10 bajas son "Días de Mora Excedidos",
         // que NO es un pago: registrar uno inventaría plata que nunca entró.
-        const motivosPago = ctx.multirregistroConfig?.baj?.motivosPago ?? [];
+        const motivosPago = this.resolverMotivosPago(ctx);
         const esPago = motivosPago.some((m) => motivo.toLowerCase().startsWith(m.toLowerCase()));
 
         if (esPago) {
@@ -325,6 +334,30 @@ export class MultirregistroProcessor implements ICategoryProcessor {
         }
 
         this.bajasCount++;
+    }
+
+    /**
+     * Motivos de baja que cuentan como pago.
+     *
+     * Si la plantilla **no trae el campo** (config creada antes de que existiera), se cae a un
+     * default razonable en vez de asumir que ninguna baja es un pago. Esa suposición ya rompió una
+     * vez en prod: la plantilla de Toyota se había creado sin `motivosPago` y el aviso 171298, que
+     * vino como "Pago de Cuota/Aviso", terminó ANULADO en vez de cobrado — se perdió el registro de
+     * un pago de $82.706,87. Un array vacío explícito sí se respeta: es una decisión, no un olvido.
+     */
+    private resolverMotivosPago(ctx: ProcessContext): string[] {
+        const configurados = ctx.multirregistroConfig?.baj?.motivosPago;
+        if (Array.isArray(configurados)) return configurados;
+
+        if (!this.avisoMotivosPagoEmitido) {
+            this.avisoMotivosPagoEmitido = true;
+            this.logger.warn(
+                `La plantilla no define "motivosPago" en la config de bajas: se usa el default ` +
+                `${JSON.stringify(MOTIVOS_PAGO_DEFAULT)}. Conviene declararlo explícitamente en la ` +
+                `plantilla con la lista de motivos que el cedente usa para las bajas por cobro.`,
+            );
+        }
+        return MOTIVOS_PAGO_DEFAULT;
     }
 
     /** Fecha de la baja (`DD/MM/YYYY`). Si no viene o no parsea, se usa la del día. */

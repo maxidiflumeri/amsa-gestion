@@ -56,8 +56,8 @@ const SEPARADOR_TOYOTA = ';'
 export default function MultirregistroEditor({ value, onChange, separador, onSeparadorChange }: Props) {
     const presetJson = JSON.stringify(PRESET_TOYOTA_87, null, 2)
     const yaEsToyota = value.trim() === presetJson.trim() && separador === SEPARADOR_TOYOTA
-    const { error, resumen } = useMemo(() => {
-        if (!value.trim()) return { error: 'Falta la configuración del layout.', resumen: null }
+    const { error, aviso, resumen } = useMemo(() => {
+        if (!value.trim()) return { error: 'Falta la configuración del layout.', aviso: null, resumen: null }
         try {
             const cfg = JSON.parse(value)
             const faltan: string[] = []
@@ -65,16 +65,22 @@ export default function MultirregistroEditor({ value, onChange, separador, onSep
             if (!cfg.ges?.codigo || !cfg.ges?.nroCliente || !cfg.ges?.aviso) faltan.push('ges (código, nroCliente y aviso)')
             if (!cfg.det?.codigo || !cfg.det?.aviso || !cfg.det?.importe) faltan.push('det (código, aviso e importe)')
             if (!cfg.baj?.codigo || !cfg.baj?.aviso) faltan.push('baj (código y aviso)')
-            if (faltan.length) return { error: `Falta configurar: ${faltan.join(', ')}`, resumen: null }
+            if (faltan.length) return { error: `Falta configurar: ${faltan.join(', ')}`, aviso: null, resumen: null }
             return {
                 error: null,
+                // Sin `motivosPago` el backend usa un default, pero conviene declararlo: una plantilla
+                // sin esta lista hizo que una baja por cobro se anulara en vez de registrar el pago.
+                aviso: Array.isArray(cfg.baj.motivosPago)
+                    ? null
+                    : 'La config de bajas no declara "motivosPago": el backend va a usar un default para decidir qué bajas son un cobro. Conviene poner la lista exacta de motivos que usa el cedente.',
                 resumen: {
                     codigos: [cfg.cli.codigo, cfg.ges.codigo, cfg.det.codigo, cfg.baj.codigo],
                     encoding: cfg.encoding ?? 'latin1',
+                    motivosPago: cfg.baj.motivosPago as string[] | undefined,
                 },
             }
         } catch (e: any) {
-            return { error: `JSON inválido: ${e.message}`, resumen: null }
+            return { error: `JSON inválido: ${e.message}`, aviso: null, resumen: null }
         }
     }, [value])
 
@@ -132,9 +138,22 @@ export default function MultirregistroEditor({ value, onChange, separador, onSep
                             size="small"
                             color={separador === SEPARADOR_TOYOTA ? 'default' : 'warning'}
                         />
+                        {resumen.motivosPago && (
+                            <Chip
+                                label={`bajas por pago: ${resumen.motivosPago.join(', ') || 'ninguna'}`}
+                                size="small"
+                                variant="outlined"
+                            />
+                        )}
                     </>
                 )}
             </Stack>
+
+            {aviso && (
+                <Alert severity="warning" sx={{ mb: 2 }}>
+                    {aviso}
+                </Alert>
+            )}
 
             <TextField
                 label="Layout del archivo (JSON)"
