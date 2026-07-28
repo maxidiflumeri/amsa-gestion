@@ -38,6 +38,8 @@ export class MultirregistroProcessor implements ICategoryProcessor {
     /** Bajas aplicadas y bajas cuyo aviso no se encontró. */
     private bajasCount = 0;
     private bajasSinMatchCount = 0;
+    /** Bajas que matchearon más de un deudor: no se aplican, hay que resolverlas a mano. */
+    private bajasAmbiguasCount = 0;
     /** Contactos copiados del histórico al dar de alta un caso. */
     private contactosEnriquecidos = 0;
     /** id del parámetro GES-090; `null` = no seedeado (modo degradado). */
@@ -48,6 +50,7 @@ export class MultirregistroProcessor implements ICategoryProcessor {
         this.actualizadosCount = 0;
         this.bajasCount = 0;
         this.bajasSinMatchCount = 0;
+        this.bajasAmbiguasCount = 0;
         this.contactosEnriquecidos = 0;
         this.bajaIdCache = undefined;
     }
@@ -234,20 +237,36 @@ export class MultirregistroProcessor implements ICategoryProcessor {
         const bajaId = await this.resolverParametroBaja(ctx);
         if (bajaId == null) return; // modo degradado, ya logueó
 
-        const factura = await ctx.prisma.factura.findFirst({
+        // Se traen DOS para poder detectar ambigüedad: el unique de `factura` es
+        // (deudorId, nroFactura), NO (empresaId, nroFactura), así que nada impide que dos deudores
+        // distintos de la misma empresa tengan el mismo número. Como el registro de baja solo trae
+        // el aviso —sin cliente ni contrato— no hay con qué desempatar, y dar de baja al deudor
+        // equivocado es un error silencioso que le saca de gestión un caso activo.
+        const facturas = await ctx.prisma.factura.findMany({
             where: { nroFactura: aviso, deudor: { empresaId: ctx.empresaId } },
             select: { deudorId: true },
+            take: 2,
         });
 
-        if (!factura) {
+        if (facturas.length === 0) {
             // Normal en la primera carga y en bajas de casos que nunca se gestionaron acá.
             this.bajasSinMatchCount++;
             this.logger.warn(`Baja del aviso ${aviso}: no se encontró la factura en la empresa — se omite.`);
             return;
         }
 
+        if (facturas.length > 1) {
+            this.bajasAmbiguasCount++;
+            this.logger.warn(
+                `Baja del aviso ${aviso}: hay más de un deudor con ese número de factura en la empresa ` +
+                `(${facturas.map((f) => f.deudorId).join(', ')}). No se da de baja a ninguno para no sacar ` +
+                `de gestión al equivocado — revisar a mano.`,
+            );
+            return;
+        }
+
         await ctx.prisma.deudor.update({
-            where: { id: factura.deudorId },
+            where: { id: facturas[0].deudorId },
             data: { estadoGestionId: bajaId },
         });
         this.bajasCount++;
@@ -257,7 +276,8 @@ export class MultirregistroProcessor implements ICategoryProcessor {
         this.logger.log(
             `MULTIRREGISTRO remesa=${ctx.remesaId}: ${this.altasCount} casos nuevos, ` +
             `${this.actualizadosCount} actualizados, ${this.bajasCount} bajas aplicadas` +
-            (this.bajasSinMatchCount > 0 ? `, ${this.bajasSinMatchCount} bajas sin match` : ''),
+            (this.bajasSinMatchCount > 0 ? `, ${this.bajasSinMatchCount} bajas sin match` : '') +
+            (this.bajasAmbiguasCount > 0 ? `, ${this.bajasAmbiguasCount} bajas ambiguas (sin aplicar)` : ''),
         );
         if (this.contactosEnriquecidos > 0) {
             this.logger.log(`Autoenriquecimiento histórico: ${this.contactosEnriquecidos} contactos copiados desde la base.`);
@@ -278,6 +298,7 @@ export class MultirregistroProcessor implements ICategoryProcessor {
                 actualizados: this.actualizadosCount,
                 bajas: this.bajasCount,
                 bajasSinMatch: this.bajasSinMatchCount,
+                bajasAmbiguas: this.bajasAmbiguasCount,
                 remesaId: ctx.remesaId,
             },
         });

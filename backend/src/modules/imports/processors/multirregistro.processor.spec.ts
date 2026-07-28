@@ -23,6 +23,7 @@ function makeCtx(overrides: Partial<ProcessContext> = {}) {
     const facturaUpdate = jest.fn().mockResolvedValue({});
     const facturaFindUnique = jest.fn().mockResolvedValue(null);
     const facturaFindFirst = jest.fn().mockResolvedValue(null);
+    const facturaFindMany = jest.fn().mockResolvedValue([]);
     const contactoCreateMany = jest.fn().mockResolvedValue({ count: 0 });
 
     const prisma: any = {
@@ -35,6 +36,7 @@ function makeCtx(overrides: Partial<ProcessContext> = {}) {
         factura: {
             findUnique: facturaFindUnique,
             findFirst: facturaFindFirst,
+            findMany: facturaFindMany,
             create: facturaCreate,
             update: facturaUpdate,
             aggregate: jest.fn().mockResolvedValue({ _sum: { importe: 0 } }),
@@ -54,7 +56,7 @@ function makeCtx(overrides: Partial<ProcessContext> = {}) {
         ...overrides,
     } as unknown as ProcessContext;
 
-    return { ctx, prisma, deudorCreate, deudorUpdate, deudorFindFirst, facturaCreate, facturaUpdate, facturaFindUnique, facturaFindFirst, contactoCreateMany };
+    return { ctx, prisma, deudorCreate, deudorUpdate, deudorFindFirst, facturaCreate, facturaUpdate, facturaFindUnique, facturaFindFirst, facturaFindMany, contactoCreateMany };
 }
 
 const caso = (over: Record<string, any> = {}) => ({
@@ -178,15 +180,30 @@ describe('MultirregistroProcessor — bajas', () => {
     it('resuelve aviso → factura → deudor y lo marca GES-090', async () => {
         const proc = new MultirregistroProcessor();
         const { ctx, prisma, deudorUpdate } = makeCtx();
-        prisma.factura.findFirst.mockResolvedValue({ deudorId: 321 });
+        prisma.factura.findMany.mockResolvedValue([{ deudorId: 321 }]);
 
         await proc.processRow({ _tipo: 'BAJA', aviso: '171412', motivo: 'Pago de Cuota/Aviso' } as any, ctx);
 
-        expect(prisma.factura.findFirst.mock.calls[0][0].where).toEqual({
+        expect(prisma.factura.findMany.mock.calls[0][0].where).toEqual({
             nroFactura: '171412',
             deudor: { empresaId: 87 },
         });
         expect(deudorUpdate).toHaveBeenCalledWith({ where: { id: 321 }, data: { estadoGestionId: GES_090 } });
+    });
+
+    it('NO da de baja si el aviso matchea a más de un deudor de la empresa', async () => {
+        const proc = new MultirregistroProcessor();
+        const { ctx, prisma, deudorUpdate } = makeCtx();
+        // El unique de factura es (deudorId, nroFactura), no por empresa: dos deudores distintos
+        // pueden tener el mismo número. La baja solo trae el aviso, así que no hay con qué
+        // desempatar — dar de baja a cualquiera sacaría de gestión a un caso activo.
+        prisma.factura.findMany.mockResolvedValue([{ deudorId: 321 }, { deudorId: 654 }]);
+
+        await proc.processRow({ _tipo: 'BAJA', aviso: '171412' } as any, ctx);
+
+        expect(deudorUpdate).not.toHaveBeenCalled();
+        expect((proc as any).bajasAmbiguasCount).toBe(1);
+        expect((proc as any).bajasCount).toBe(0);
     });
 
     it('si el aviso no está cargado avisa y sigue (no rompe el import)', async () => {
@@ -201,7 +218,7 @@ describe('MultirregistroProcessor — bajas', () => {
         const proc = new MultirregistroProcessor();
         const { ctx, prisma, deudorUpdate } = makeCtx();
         prisma.parametro.findUnique.mockResolvedValue(null);
-        prisma.factura.findFirst.mockResolvedValue({ deudorId: 321 });
+        prisma.factura.findMany.mockResolvedValue([{ deudorId: 321 }]);
 
         await proc.processRow({ _tipo: 'BAJA', aviso: '171412' } as any, ctx);
 

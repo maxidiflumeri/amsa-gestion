@@ -93,6 +93,16 @@ y verifica que los 271 importes calculados coincidan con el total del `GES`, sin
 el campo vacío, lo que **anulaba el correlativo nuevo**. Ahora manda vacío y decide el backend. El texto de
 ayuda del campo lo explica.
 
+**Baja segura ante números de factura ambiguos** (2026-07-27, salido de la prueba con usuarios): el
+registro `BAJ` trae **solo el nro de aviso**, sin cliente ni contrato, así que la baja se resuelve
+`aviso → factura → deudor`. El problema: el unique de `factura` es `(deudorId, nroFactura)`, **no** por
+empresa, así que dos deudores distintos pueden compartir el número — y en prod pasa a lo grande
+(`Saldo Impago` lo comparten **690 deudores** en la empresa 16, 419 en la 7; en la empresa 3 hay números
+`85`..`89` repetidos en ~60 deudores cada uno). Un `findFirst` habría dado de baja a uno al azar,
+sacando de gestión un caso activo sin que nadie se entere. Ahora, si el aviso matchea más de un deudor,
+**no se da de baja a ninguno**: se cuenta como `bajasAmbiguas`, se loguea con los ids involucrados y se
+resuelve a mano.
+
 > **Pendiente para operar**: crear la plantilla desde *Plantillas → Nueva → Multirregistro*, apretar
 > "Cargar layout de Toyota 87" y elegir los estados iniciales. **Ojo con la empresa**: en prod hay
 > `TOYOTA PLAN DE AHORRO`, `TOYOTA REFINANCIACION`, `TOYOTA RELEVAMIENTO` y `TOYOTA VENTA SEGUROS`, pero
