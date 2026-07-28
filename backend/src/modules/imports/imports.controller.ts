@@ -157,8 +157,9 @@ export class ImportController {
     listRemesas(
         @Param('empresaId', ParseIntPipe) empresaId: number,
         @Query('categoria') categoria?: string,
+        @Query('conDeudores') conDeudores?: string,
     ) {
-        return this.service.listRemesas(empresaId, categoria);
+        return this.service.listRemesas(empresaId, categoria, conDeudores === 'true');
     }
 
     @Post('validar/:id')

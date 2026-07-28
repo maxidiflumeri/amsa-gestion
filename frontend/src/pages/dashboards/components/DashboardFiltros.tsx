@@ -18,12 +18,13 @@ import {
 import RefreshIcon from '@mui/icons-material/Refresh';
 import RestartAltIcon from '@mui/icons-material/RestartAlt';
 import api from '../../../api/axios';
+import { etiquetaRemesa } from '../../../utils/remesa';
 import { useAuth } from '../../../context/AuthContext';
 import { useEmpresas } from '../../../hooks/useEmpresas';
 import type { Granularidad, SnapshotFiltros } from '../../../types/dashboards';
 import { daysAgoIso, todayIso } from '../utils';
 
-interface Remesa { id: number; nombre: string; empresaId: number; }
+interface Remesa { id: number; nombre: string; numeroRemesa?: string | null; createdAt?: string; empresaId: number; }
 interface Parametro { id: number; clave: string; descripcion: string; grupo: string; }
 
 interface Props {
@@ -76,7 +77,9 @@ const DashboardFiltros: React.FC<Props> = ({ value, onChange, onRefresh, loading
             setRemesas([]);
             return;
         }
-        api.get(`/import/remesas/empresa/${value.empresaId}`)
+        // Solo las remesas que tienen cartera cargada: filtrar el tablero por una remesa de PAGOS o
+        // ACTUALIZACIONES devuelve 0 casos, porque los deudores cuelgan de la remesa donde se crearon.
+        api.get(`/import/remesas/empresa/${value.empresaId}`, { params: { conDeudores: 'true' } })
             .then((r) => setRemesas(r.data))
             .catch(() => setRemesas([]));
     }, [value.empresaId]);
@@ -147,7 +150,7 @@ const DashboardFiltros: React.FC<Props> = ({ value, onChange, onRefresh, loading
                         >
                             <MenuItem value=""><em>Todas las remesas</em></MenuItem>
                             {remesas.map((r) => (
-                                <MenuItem key={r.id} value={r.id}>{r.nombre}</MenuItem>
+                                <MenuItem key={r.id} value={r.id}>{etiquetaRemesa(r)}</MenuItem>
                             ))}
                         </Select>
                     </FormControl>

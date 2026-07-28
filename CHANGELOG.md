@@ -6,6 +6,38 @@
 
 ---
 
+## [2026-07-27] — Tablero: el filtro de remesa muestra el número, y solo las que tienen cartera
+
+> ⚠️ **Redeploy back + front** (solo código, sin migración).
+
+Reportado por los usuarios: en el tablero, el combo de remesas de Toyota mostraba
+`Remesa 28/7/2026, 11:52:15` y `Remesa 28/7/2026, 11:48:13` — dos cargas del mismo día imposibles de
+distinguir. Ese texto es el **nombre**, que el wizard autogenera con la fecha cuando el operador no
+escribe uno; lo que la gente usa para referirse a una carga es el **número**.
+
+- Nuevo helper [utils/remesa.ts](frontend/src/utils/remesa.ts) `etiquetaRemesa()`, usado en el filtro del
+  tablero y en los dos selectores de remesa origen del wizard, para que no se desincronicen.
+- **El combo del tablero ahora lista solo las remesas con cartera cargada** (`?conDeudores=true` en
+  `GET /import/remesas/empresa/:id`). Filtrar el tablero por una remesa de PAGOS o ACTUALIZACIONES
+  devuelve 0 casos —los deudores cuelgan de la remesa donde se crearon—, así que eran opciones inútiles.
+
+Los datos de prod explican por qué esto además resuelve el problema de los números feos:
+
+| Categoría | Remesas | Con número timestamp | Con deudores |
+|---|---|---|---|
+| DEUDORES | 14 | **0** | 14 |
+| MULTIRREGISTRO | 3 | **0** | 3 |
+| ACTUALIZACIONES · PAGOS · FACTURAS · CONTACTOS · ACCIONES | 31 | **31** | **0** |
+
+Las **17 remesas con deudores tienen todas número legible** (`00102`, `00503`, `00606`, `00001`…); los
+`numeroRemesa` con timestamp del wizard viejo están exactamente en las categorías que no representan una
+cartera. Aun así el helper contempla el caso (muestra `s/n · fecha` en vez del chorizo de 13 dígitos),
+porque el selector del wizard sí puede toparse con ellas.
+
+> El combo de Toyota pasa a mostrar `00003` / `00002` / `00001`; TELECOM, `22222` / `00606`.
+
+---
+
 ## [2026-07-27] — Categoría MULTIRREGISTRO: archivo diario de Toyota cuenta 87 (backend)
 
 > ⚠️ **Redeploy back + `npx prisma db push`** (columna nueva `factura.detalle` + valor `MULTIRREGISTRO`

@@ -1345,11 +1345,20 @@ export class ImportService {
     }
 
     // --- LISTAR REMESAS ---
-    async listRemesas(empresaId: number, categoria?: string) {
+    /**
+     * Remesas de una empresa.
+     *
+     * `soloConDeudores` deja solo las que **tienen cartera cargada** — en la práctica, las de
+     * DEUDORES y MULTIRREGISTRO. Lo usa el filtro del tablero: una remesa de PAGOS o ACTUALIZACIONES
+     * no tiene deudores propios, así que filtrar por ella devuelve 0 casos y solo ensucia el combo
+     * (además son las que arrastran los `numeroRemesa` con timestamp del wizard viejo).
+     */
+    async listRemesas(empresaId: number, categoria?: string, soloConDeudores = false) {
         return this.prisma.remesa.findMany({
             where: {
                 empresaId,
                 ...(categoria ? { categoria: categoria as any } : {}),
+                ...(soloConDeudores ? { deudor: { some: {} } } : {}),
             },
             orderBy: { createdAt: 'desc' },
             include: { plantilla: { select: { nombre: true } } },

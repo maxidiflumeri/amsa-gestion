@@ -29,6 +29,7 @@ import api from "../api/axios";
 import { useEmpresas } from "../hooks/useEmpresas";
 import { useNotify } from "../hooks/useNotify";
 import { PageContainer, PageHeader, SectionCard } from "../components/ui";
+import { etiquetaRemesa } from "../utils/remesa";
 
 import CategorySelector from "../components/import/CategorySelector";
 import FileDropZone from "../components/import/FileDropZone";
@@ -454,7 +455,7 @@ export default function ImportWizard() {
                                         <MenuItem key={r.id} value={r.id}>
                                             <Checkbox checked={remesaOrigenIds.indexOf(r.id) > -1} />
                                             <ListItemText
-                                                primary={`[${r.categoria}] ${r.nombre} — ${r.totalFilas ?? 0} deudores — ${new Date(r.createdAt).toLocaleDateString()}`}
+                                                primary={`${etiquetaRemesa(r)} · [${r.categoria}] — ${r.totalFilas ?? 0} deudores — ${new Date(r.createdAt).toLocaleDateString()}`}
                                             />
                                         </MenuItem>
                                     ))}
@@ -491,7 +492,7 @@ export default function ImportWizard() {
                                     )}
                                     {remesasDeudores.map((r: any) => (
                                         <MenuItem key={r.id} value={r.id}>
-                                            [{r.categoria}] {r.nombre} — {r.totalFilas ?? 0} deudores —{" "}
+                                            {etiquetaRemesa(r)} · [{r.categoria}] — {r.totalFilas ?? 0} deudores —{" "}
                                             {new Date(r.createdAt).toLocaleDateString()}
                                         </MenuItem>
                                     ))}
