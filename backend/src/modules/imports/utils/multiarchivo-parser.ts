@@ -171,8 +171,10 @@ function armarDireccion(
     if (!cfg) return null;
 
     // Forma vieja (array de columnas a concatenar): se conserva para las plantillas ya guardadas.
+    // Da un texto suelto, sin CP/localidad/provincia por separado, así que Georef no puede filtrar
+    // — conviene regrabar la plantilla con el preset nuevo. Al menos se le sacan los rellenos.
     if (Array.isArray(cfg)) {
-        const valor = cfg.map((c) => col(archivo, fila, c)).filter(Boolean).join(' ');
+        const valor = cfg.map((c) => sinRelleno(col(archivo, fila, c))).filter(Boolean).join(' ');
         return valor ? { tipo: 'direccion', valor } : null;
     }
 
