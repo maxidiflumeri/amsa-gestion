@@ -209,6 +209,24 @@ export interface MultirregistroConfig {
 export type RolArchivoMultiarchivo = 'deudores' | 'detalle' | 'bajas' | 'codeudores';
 
 /**
+ * Columnas que componen el domicilio. Se carga como **contacto de tipo `direccion`** —no como dato
+ * adicional— para que aparezca en la sección de Direcciones de la ficha, se pueda editar y, si la
+ * remesa pide validar domicilios, se normalice contra Georef.
+ *
+ * Declararlo por partes (y no como un texto ya concatenado) es lo que le permite a Georef filtrar
+ * por localidad y provincia en vez de adivinar.
+ */
+export interface DomicilioMultiarchivo {
+    calle?: string;
+    numero?: string;
+    piso?: string;
+    departamento?: string;
+    cp?: string;
+    localidad?: string;
+    provincia?: string;
+}
+
+/**
  * Config de la categoría MULTIARCHIVO (caso Toyota TCFA).
  *
  * Misma división que {@link MultirregistroConfig}: la ESTRUCTURA (qué archivo es el deudor, cómo se
@@ -261,8 +279,12 @@ export interface MultiarchivoConfig {
         nombre: string;
         /** CUIT/CUIL. Si no viene, el processor cae a un placeholder derivado del nro de cliente. */
         documento?: string;
-        /** Columnas que se concatenan para armar el domicilio, en orden. */
-        domicilio?: string[];
+        /**
+         * Domicilio del titular → contacto de tipo `direccion`. Acepta la forma estructurada
+         * ({@link DomicilioMultiarchivo}) o, por compatibilidad con plantillas ya guardadas, un
+         * array de columnas que se concatenan en un texto suelto.
+         */
+        domicilio?: DomicilioMultiarchivo | string[];
         email?: string;
         /** Código de área, que se antepone a cada teléfono. */
         codArea?: string;
@@ -332,7 +354,8 @@ export interface MultiarchivoConfig {
         nroCodeudor: string;
         nombre: string;
         documento?: string;
-        domicilio?: string[];
+        /** Domicilio del codeudor → contacto `direccion` del titular, marcado como CODEUDOR. */
+        domicilio?: DomicilioMultiarchivo | string[];
         email?: string;
         codArea?: string;
         telefonos?: string[];

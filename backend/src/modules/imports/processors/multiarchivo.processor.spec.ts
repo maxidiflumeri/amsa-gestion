@@ -644,6 +644,55 @@ describe('MultiarchivoProcessor — re-asignación', () => {
     });
 });
 
+describe('MultiarchivoProcessor — domicilio', () => {
+    const conDireccion = (extra: Record<string, any> = {}) => caso({
+        _blocks: [
+            { entity: 'FACTURA', data: { nroFactura: 'C-1', importe: 1, contrato: 'C', detalle: '' } },
+            {
+                entity: 'CONTACTO',
+                data: {
+                    tipo: 'direccion', direccion_calle: 'AV SIEMPREVIVA', direccion_numero: '742',
+                    direccion_cp: '3600', direccion_localidad: 'FORMOSA', direccion_provincia: 'FORMOSA',
+                    ...extra,
+                },
+            },
+        ],
+    });
+
+    it('carga el domicilio como contacto de tipo direccion', async () => {
+        const { ctx, contactoCreateMany } = makeCtx();
+
+        await new MultiarchivoProcessor().processRow(conDireccion() as any, ctx);
+
+        const insertados = contactoCreateMany.mock.calls[0][0].data;
+        const dir = insertados.find((c: any) => c.tipo === 'direccion');
+        // El bloque no trae `valor` sino sus partes: el helper canónico arma el texto.
+        expect(dir.valor).toBe('AV SIEMPREVIVA 742, FORMOSA, FORMOSA (CP 3600)');
+        // Sin `validarDomicilios` no se llama a Georef, así que queda sin verificar.
+        expect(dir.validado).toBe(false);
+    });
+
+    it('marca la dirección del codeudor', async () => {
+        const { ctx, contactoCreateMany } = makeCtx();
+
+        await new MultiarchivoProcessor().processRow(conDireccion({ relacion: 'CODEUDOR' }) as any, ctx);
+
+        expect(contactoCreateMany.mock.calls[0][0].data.find((c: any) => c.tipo === 'direccion').relacion)
+            .toBe('CODEUDOR');
+    });
+
+    it('anexa piso y departamento al número', async () => {
+        const { ctx, contactoCreateMany } = makeCtx();
+
+        await new MultiarchivoProcessor().processRow(
+            conDireccion({ direccion_numero: '849 Piso 4 Dpto A' }) as any, ctx,
+        );
+
+        expect(contactoCreateMany.mock.calls[0][0].data.find((c: any) => c.tipo === 'direccion').valor)
+            .toContain('849 Piso 4 Dpto A');
+    });
+});
+
 describe('MultiarchivoProcessor — consolidación final', () => {
     it('consolida los deudores tocados, estén en la remesa de hoy o en una previa', async () => {
         const proc = new MultiarchivoProcessor();

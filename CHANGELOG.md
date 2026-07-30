@@ -6,6 +6,40 @@
 
 ---
 
+## [2026-07-30] — Toyota TCFA: el domicilio va como contacto, no como dato adicional
+
+> ⚠️ **Redeploy back + front.** Sin cambios de schema.
+
+Reportado al revisar la primera carga real: el domicilio se estaba guardando en
+`camposAdicionales.domicilio`, o sea en el cajón de "Datos Adicionales" de la ficha, cuando el
+sistema ya tiene un tipo de contacto `direccion` con su propia sección, editable y validable.
+
+Estaba además desaprovechando `prepararContactoImport()`, el helper canónico que usan el resto de las
+categorías: arma el texto a partir de calle/número/CP/localidad/provincia y, **solo si la remesa pidió
+validar domicilios**, lo normaliza contra Georef. Sin ese flag no hay llamadas de red.
+
+- El layout del domicilio pasa de una lista de columnas a concatenar a una **forma estructurada**
+  (`{ calle, numero, piso, departamento, cp, localidad, provincia }`). Es lo que le permite a Georef
+  filtrar por localidad y provincia en vez de adivinar. Se sigue aceptando la forma vieja (array) para
+  las plantillas ya guardadas.
+- El domicilio del **codeudor** también va como contacto `direccion`, marcado `relacion=CODEUDOR`.
+- Piso y departamento se anexan al número, que es el único lugar donde entran en el contacto.
+
+### Los rellenos del cedente
+
+Verificando contra el paquete real apareció que TCFA usa `0`, `S/N`, `SN`, `S/C` y `SIN_` como "este
+campo no aplica". Sin filtrarlos quedaban direcciones como
+`Barrio 7 de mayo mz 10 casa 25 **0 Dpto 0**` — que además de leerse mal arruina el matcheo con
+Georef. Se comparan **completos**, así que una calle llamada `JOSE LUIS DEVOTA S/N` conserva su texto.
+
+Resultado sobre el paquete del 29/05: **905 direcciones** (850 titulares + 55 codeudores). Los 4
+titulares sin dirección son los que vienen con calle `S/C` y número `0`: no tienen domicilio, y ahora
+no se les inventa uno. Los que traen piso/depto real bajaron de 100 a 69 (los otros 31 eran `0`).
+
+5 tests nuevos. 263 en imports.
+
+---
+
 ## [2026-07-30] — Toyota TCFA (fase 6): codeudores visibles en la ficha
 
 > ⚠️ **Redeploy back + front + `npx prisma db push`** (nueva columna `contacto.relacion`, aditiva).

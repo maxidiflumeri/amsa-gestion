@@ -5,6 +5,7 @@ import { Logger } from '@nestjs/common';
 import { normalizarTelefonoArgentino, esPosibleTelefono } from '../../../common/utils/phone-utils';
 import { mergeAdicionales, adicionalesEquivalentes } from '../utils/campos-adicionales';
 import { enriquecerContactosHistoricos } from '../utils/enriquecimiento-historico';
+import { prepararContactoImport } from '../utils/contacto-import';
 import { parseFechaCedente } from '../utils/fecha-cedente';
 import { AuditModulo, AuditTipo } from '../../transacciones/audit.enums';
 
@@ -557,16 +558,40 @@ export abstract class CasosCedenteProcessor implements ICategoryProcessor {
 
     /**
      * Inserta los contactos nuevos del caso; el unique (deudorId, tipo, valor) evita duplicar.
-     * Mismo criterio que el resto de los processors: se guarda el E.164 y se marca validado
-     * cuando el número normaliza; si no normaliza pero es plausible se guarda tal cual; la
-     * basura evidente (ceros, secuencias de relleno) se descarta.
+     *
+     * Teléfonos: se guarda el E.164 y se marca validado cuando el número normaliza; si no normaliza
+     * pero es plausible se guarda tal cual; la basura evidente (ceros, relleno) se descarta.
+     *
+     * Direcciones: las resuelve `prepararContactoImport`, el mismo helper que usan el resto de las
+     * categorías — arma el texto a partir de calle/número/CP/localidad/provincia y, **solo si la
+     * remesa pidió validar domicilios**, lo normaliza contra Georef. Sin ese flag no hay llamadas de
+     * red: es formateo puro.
      */
     private async upsertContactos(deudorId: number, row: MappedRow, ctx: ProcessContext): Promise<void> {
         const nuevos: Array<{ deudorId: number; tipo: string; valor: string; validado: boolean; relacion?: string }> = [];
 
         for (const b of row._blocks ?? []) {
-            if (b.entity !== 'CONTACTO' || !b.data.valor) continue;
+            if (b.entity !== 'CONTACTO') continue;
             const tipo = String(b.data.tipo ?? 'telefono');
+            // `relacion` dice de QUIÉN es el dato: TCFA manda los datos del codeudor junto con los
+            // del titular, y llamar a uno creyendo que es el otro es un problema real de gestión.
+            // Va en su propia columna y no en `subtipo`, que guarda el tipo de línea de ENACOM y
+            // decide si se puede marcar como WhatsApp.
+            const relacion = b.data.relacion ? String(b.data.relacion) : undefined;
+
+            if (tipo === 'direccion') {
+                // El bloque de dirección no trae `valor` sino sus partes, así que no puede pasar
+                // por el camino de abajo.
+                const preparado = await prepararContactoImport(b.data, ctx.validarDomicilios ?? false);
+                if (!preparado) continue;
+                nuevos.push({
+                    deudorId, tipo: preparado.tipo, valor: preparado.valor,
+                    validado: preparado.validado, ...(relacion ? { relacion } : {}),
+                });
+                continue;
+            }
+
+            if (!b.data.valor) continue;
             let valor = String(b.data.valor).trim();
             let validado = false;
 
@@ -580,11 +605,6 @@ export abstract class CasosCedenteProcessor implements ICategoryProcessor {
                 }
             }
             if (!valor) continue;
-            // `relacion` dice de QUIÉN es el dato: TCFA manda los teléfonos del codeudor junto con
-            // los del titular, y llamar a uno creyendo que es el otro es un problema real de
-            // gestión. Va en su propia columna y no en `subtipo`, que guarda el tipo de línea de
-            // ENACOM y decide si se puede marcar como WhatsApp.
-            const relacion = b.data.relacion ? String(b.data.relacion) : undefined;
             nuevos.push({ deudorId, tipo, valor, validado, ...(relacion ? { relacion } : {}) });
         }
 

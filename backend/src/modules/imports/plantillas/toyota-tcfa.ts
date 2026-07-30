@@ -42,7 +42,17 @@ export const TOYOTA_TCFA_MULTIARCHIVO: MultiarchivoConfig = {
         nombre: 'nombre',
         // CUIT/CUIL, presente y único en los 854 casos: no hacen falta placeholders acá.
         documento: 'codfiscal',
-        domicilio: ['calle', 'numero', 'piso', 'departamento'],
+        // Va como contacto de tipo `direccion`. Declarado por partes para que Georef pueda
+        // filtrar por localidad y provincia si la remesa pide validar domicilios.
+        domicilio: {
+            calle: 'calle',
+            numero: 'numero',
+            piso: 'piso',
+            departamento: 'departamento',
+            cp: 'codpostal',
+            localidad: 'ciudad',
+            provincia: 'provincia',
+        },
         email: 'email',
         codArea: 'ddd',
         telefonos: ['telefono1', 'telefono2'],
@@ -117,7 +127,15 @@ export const TOYOTA_TCFA_MULTIARCHIVO: MultiarchivoConfig = {
         nroCodeudor: 'ClienteCoDeudor',
         nombre: 'nombre',
         documento: 'CodFiscal',
-        domicilio: ['calle', 'numero', 'piso', 'departamento'],
+        domicilio: {
+            calle: 'calle',
+            numero: 'numero',
+            piso: 'piso',
+            departamento: 'departamento',
+            cp: 'codpostal',
+            localidad: 'ciudad',
+            provincia: 'Provincia',
+        },
         email: 'email',
         codArea: 'ddd',
         telefonos: ['telefono1', 'telefono2'],

@@ -81,7 +81,10 @@ const paquete = (
 });
 
 const facturasDe = (fila: any) => (fila._blocks ?? []).filter((b: any) => b.entity === 'FACTURA');
-const contactosDe = (fila: any) => (fila._blocks ?? []).filter((b: any) => b.entity === 'CONTACTO');
+const contactosDe = (fila: any) =>
+    (fila._blocks ?? []).filter((b: any) => b.entity === 'CONTACTO' && b.data.tipo !== 'direccion');
+const direccionesDe = (fila: any) =>
+    (fila._blocks ?? []).filter((b: any) => b.entity === 'CONTACTO' && b.data.tipo === 'direccion');
 
 /* ────────────────────────────────────────────────────────────────────────── */
 
@@ -171,6 +174,42 @@ describe('multiarchivo-parser — casos base', () => {
         expect(d).not.toContain('Seguro');
     });
 
+    it('ignora los rellenos del cedente en el domicilio', () => {
+        // El archivo usa "0", "S/N" y "S/C" como "no aplica". Sin filtrarlos quedaba
+        // "Barrio 7 de mayo mz 10 casa 25 0 Dpto 0", que además arruina el matcheo con Georef.
+        const conRelleno = [
+            '1', '1', 'PEREZ JUAN', 'Barrio 7 de mayo mz 10 casa 25', '0', '', '0',
+            '3600', 'FORMOSA', '09', 'FORMOSA', 'F', 'CUIT', '20123456789', 'RI', '',
+            '370', '', '', '29/5/2026 00:00:00', '1', '1000.00', '10',
+        ].join(';');
+        const r = parseMultiarchivo(
+            paquete([conRelleno], [cuota({ asig: '1', cli: '1', ctr: 'C1', cuota: '1', capital: '1.00' })]),
+            CFG,
+        );
+
+        expect(direccionesDe(r.filas[0])[0].data).toEqual({
+            tipo: 'direccion',
+            direccion_calle: 'Barrio 7 de mayo mz 10 casa 25',
+            direccion_cp: '3600',
+            direccion_localidad: 'FORMOSA',
+            direccion_provincia: 'FORMOSA',
+        });
+    });
+
+    it('no crea dirección si el caso no tiene calle ni número reales', () => {
+        // 4 casos del archivo real vienen con calle "S/C" y número "0": no tienen domicilio.
+        const sinDomicilio = [
+            '1', '1', 'GUZMAN JORGE', 'S/C', '0', '', '', '4743', 'ACONQUIJA', '03', 'CATAMARCA',
+            'F', 'CUIL', '20300061320', 'CF', '', '383', '4354155', '', '29/5/2026 00:00:00', '1', '1.00', '10',
+        ].join(';');
+        const r = parseMultiarchivo(
+            paquete([sinDomicilio], [cuota({ asig: '1', cli: '1', ctr: 'C1', cuota: '1', capital: '1.00' })]),
+            CFG,
+        );
+
+        expect(direccionesDe(r.filas[0])).toHaveLength(0);
+    });
+
     it('arma los contactos anteponiendo el código de área a cada teléfono', () => {
         const r = parseMultiarchivo(
             paquete(
@@ -187,7 +226,7 @@ describe('multiarchivo-parser — casos base', () => {
         ]);
     });
 
-    it('guarda el domicilio y los adicionales del deudor', () => {
+    it('carga el domicilio como contacto de tipo direccion, no como dato adicional', () => {
         const r = parseMultiarchivo(
             paquete(
                 [deudor({ asig: '1', cli: '1', total: '5000.00' })],
@@ -196,8 +235,24 @@ describe('multiarchivo-parser — casos base', () => {
             CFG,
         );
 
+        // Va por partes para que Georef pueda filtrar por localidad/provincia, y para que la ficha
+        // lo muestre en la sección de Direcciones en vez de en el cajón de datos adicionales.
+        expect(direccionesDe(r.filas[0])).toEqual([
+            {
+                entity: 'CONTACTO',
+                data: {
+                    tipo: 'direccion',
+                    direccion_calle: 'AV SIEMPREVIVA',
+                    direccion_numero: '742',
+                    direccion_cp: '3600',
+                    direccion_localidad: 'FORMOSA',
+                    direccion_provincia: 'FORMOSA',
+                },
+            },
+        ]);
+        expect(r.filas[0].camposAdicionales).not.toHaveProperty('domicilio');
+
         expect(r.filas[0].camposAdicionales).toMatchObject({
-            domicilio: 'AV SIEMPREVIVA 742',
             cp: '3600',
             localidad: 'FORMOSA',
             tipo_persona: 'F',
@@ -237,9 +292,13 @@ describe('multiarchivo-parser — codeudores', () => {
                 nro_cliente: '398673',
                 nombre: 'BOBADILLA PASCUAL CESAR',
                 documento: '27987654321',
-                domicilio: 'MITRE 100',
             }),
         ]);
+
+        // El domicilio del codeudor también va como contacto, marcado, para poder visitarlo.
+        const dirs = direccionesDe(r.filas[0]);
+        expect(dirs).toHaveLength(2);
+        expect(dirs[1].data).toMatchObject({ direccion_calle: 'MITRE', relacion: 'CODEUDOR' });
     });
 
     it('soporta más de un codeudor por titular', () => {
@@ -273,7 +332,9 @@ describe('multiarchivo-parser — codeudores', () => {
 
         expect(r.resumen.codeudores).toBe(0);
         expect(r.advertencias.join()).toContain('999');
+        // Solo queda la dirección del titular; nada del codeudor huérfano.
         expect(contactosDe(r.filas[0])).toHaveLength(0);
+        expect(direccionesDe(r.filas[0])).toHaveLength(1);
     });
 });
 

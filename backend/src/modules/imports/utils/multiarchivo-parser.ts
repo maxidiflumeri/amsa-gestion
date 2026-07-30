@@ -1,6 +1,6 @@
 // utils/multiarchivo-parser.ts
 import { MappedRow } from '../processors/processor.interface';
-import { MultiarchivoConfig, RolArchivoMultiarchivo } from '../mapping-types';
+import { DomicilioMultiarchivo, MultiarchivoConfig, RolArchivoMultiarchivo } from '../mapping-types';
 import { parseFechaCedente } from './fecha-cedente';
 
 /**
@@ -138,9 +138,63 @@ function col(archivo: ArchivoParseado, fila: string[], nombre: string | undefine
     return i == null ? '' : limpiar(fila[i]);
 }
 
-/** Concatena las columnas de domicilio que tengan valor, en el orden declarado. */
-function armarDomicilio(archivo: ArchivoParseado, fila: string[], columnas: string[] | undefined): string {
-    return (columnas ?? []).map((c) => col(archivo, fila, c)).filter(Boolean).join(' ');
+/**
+ * Rellenos que el cedente usa para "este campo no aplica" y que no son parte del domicilio.
+ *
+ * En el archivo real conviven `0`, `S/N`, `SN`, `S/C` (sin calle) y `SIN_`. Sin filtrarlos, un caso
+ * queda con la dirección "Barrio 7 de mayo mz 10 casa 25 **0 Dpto 0**", que además de leerse mal
+ * arruina el matcheo contra Georef. Se comparan **completos**: una calle que se llama
+ * "JOSE LUIS DEVOTA S/N" conserva su texto.
+ */
+const RELLENOS = /^(0+|S\/?N|S\/?C|SIN_?|-+|\.+)$/i;
+
+/** Devuelve '' si el valor es uno de los rellenos del cedente. */
+function sinRelleno(v: string): string {
+    return RELLENOS.test(v) ? '' : v;
+}
+
+/**
+ * Arma el bloque de contacto del domicilio.
+ *
+ * Va como contacto de tipo `direccion` y NO como dato adicional: así aparece en la sección de
+ * Direcciones de la ficha, se puede editar, y si la remesa pide validar domicilios el processor lo
+ * normaliza contra Georef (que necesita localidad y provincia por separado para filtrar).
+ *
+ * Piso y departamento se anexan al número porque el contacto no tiene campo para ellos; si Georef
+ * no matchea, el texto crudo que se guarda los conserva igual.
+ */
+function armarDireccion(
+    archivo: ArchivoParseado,
+    fila: string[],
+    cfg: DomicilioMultiarchivo | string[] | undefined,
+): Record<string, string> | null {
+    if (!cfg) return null;
+
+    // Forma vieja (array de columnas a concatenar): se conserva para las plantillas ya guardadas.
+    if (Array.isArray(cfg)) {
+        const valor = cfg.map((c) => col(archivo, fila, c)).filter(Boolean).join(' ');
+        return valor ? { tipo: 'direccion', valor } : null;
+    }
+
+    const calle = sinRelleno(col(archivo, fila, cfg.calle));
+    const numero = sinRelleno(col(archivo, fila, cfg.numero));
+    if (!calle && !numero) return null;
+
+    const piso = sinRelleno(col(archivo, fila, cfg.piso));
+    const depto = sinRelleno(col(archivo, fila, cfg.departamento));
+    const numeroCompleto = [numero, piso ? `Piso ${piso}` : '', depto ? `Dpto ${depto}` : '']
+        .filter(Boolean)
+        .join(' ');
+
+    const out: Record<string, string> = { tipo: 'direccion', direccion_calle: calle };
+    if (numeroCompleto) out.direccion_numero = numeroCompleto;
+    const cp = col(archivo, fila, cfg.cp);
+    const localidad = col(archivo, fila, cfg.localidad);
+    const provincia = col(archivo, fila, cfg.provincia);
+    if (cp) out.direccion_cp = cp;
+    if (localidad) out.direccion_localidad = localidad;
+    if (provincia) out.direccion_provincia = provincia;
+    return out;
 }
 
 /** Lee las columnas declaradas como adicionales, salteando las vacías. */
@@ -313,9 +367,10 @@ export function parseMultiarchivo(
         const email = col(fDeudores, fila, cfg.deudores.email);
         if (email) blocks.push({ entity: 'CONTACTO', data: { tipo: 'email', valor: email } });
 
+        const direccion = armarDireccion(fDeudores, fila, cfg.deudores.domicilio);
+        if (direccion) blocks.push({ entity: 'CONTACTO', data: direccion });
+
         const camposAdicionales: Record<string, any> = armarAdicionales(fDeudores, fila, cfg.deudores.adicionales);
-        const domicilio = armarDomicilio(fDeudores, fila, cfg.deudores.domicilio);
-        if (domicilio) camposAdicionales.domicilio = domicilio;
 
         // Codeudores: sus teléfonos y mail van como contacto del titular marcados con `relacion`
         // —para que el gestor sepa a quién está llamando— y su identidad queda en los adicionales.
@@ -345,6 +400,11 @@ export function parseMultiarchivo(
                     blocks.push({ entity: 'CONTACTO', data: { tipo: 'email', valor: cEmail, relacion: RELACION_CODEUDOR } });
                 }
 
+                const dir = armarDireccion(fCodeu!, cfila, cfg.codeudores.domicilio);
+                if (dir) {
+                    blocks.push({ entity: 'CONTACTO', data: { ...dir, relacion: RELACION_CODEUDOR } });
+                }
+
                 const ficha: Record<string, string> = {
                     nro_cliente: col(fCodeu!, cfila, cfg.codeudores.nroCodeudor),
                     nombre: col(fCodeu!, cfila, cfg.codeudores.nombre),
@@ -352,8 +412,6 @@ export function parseMultiarchivo(
                 };
                 const doc = col(fCodeu!, cfila, cfg.codeudores.documento);
                 if (doc) ficha.documento = doc;
-                const dom = armarDomicilio(fCodeu!, cfila, cfg.codeudores.domicilio);
-                if (dom) ficha.domicilio = dom;
                 fichas.push(ficha);
                 codeudoresEmitidos++;
             }
