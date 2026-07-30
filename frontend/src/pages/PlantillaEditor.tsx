@@ -29,6 +29,7 @@ import MappingEditor, {
 } from '../components/import/MappingEditor'
 import AccionesEditor, { AccionesConfig } from '../components/import/AccionesEditor'
 import MultirregistroEditor, { PRESET_TOYOTA_87 } from '../components/import/MultirregistroEditor'
+import MultiarchivoEditor, { PRESET_TOYOTA_TCFA } from '../components/import/MultiarchivoEditor'
 
 // ─── Constantes ──────────────────────────────────────────────────────────────
 
@@ -42,6 +43,7 @@ const CATEGORIAS = [
     'ACTUALIZACIONES',
     'ACCIONES',
     'MULTIRREGISTRO',
+    'MULTIARCHIVO',
 ]
 
 const ENTITY_MAP: Record<string, string> = {
@@ -54,6 +56,7 @@ const ENTITY_MAP: Record<string, string> = {
     ACTUALIZACIONES: 'ACTUALIZACION',
     ACCIONES: 'ACCIONES',
     MULTIRREGISTRO: 'MIXTO',
+    MULTIARCHIVO: 'MIXTO',
 }
 
 // ─── Helpers de mapeo ────────────────────────────────────────────────────────
@@ -212,6 +215,9 @@ const PlantillaEditor: React.FC = () => {
     const [matchKeys, setMatchKeys] = useState('empresaId,documento')
     const [fields, setFields] = useState<MappingField[]>([])
     const [blocks, setBlocks] = useState<MappingBlock[]>([])
+    const [multiarchivoConfig, setMultiarchivoConfig] = useState(
+        JSON.stringify(PRESET_TOYOTA_TCFA, null, 2),
+    )
     const [multirregistroConfig, setMultirregistroConfig] = useState(
         JSON.stringify(PRESET_TOYOTA_87, null, 2),
     )
@@ -242,7 +248,10 @@ const PlantillaEditor: React.FC = () => {
     // MULTIRREGISTRO tampoco usa el mapeo columna→campo: el parser arma las filas y acá solo se
     // configura el layout del archivo.
     const esMultirregistro = categoria === 'MULTIRREGISTRO'
-    const sinMapeoDeColumnas = esAcciones || esMultirregistro
+    // MULTIARCHIVO: igual que multirregistro, pero el layout se declara por nombre de columna
+    // porque los archivos del paquete traen encabezado.
+    const esMultiarchivo = categoria === 'MULTIARCHIVO'
+    const sinMapeoDeColumnas = esAcciones || esMultirregistro || esMultiarchivo
 
     // Empresa del editor: para creación la toma de la lista via state o default
     const [empresaId, setEmpresaId] = useState<number | null>(null)
@@ -304,6 +313,9 @@ const PlantillaEditor: React.FC = () => {
             setCrearNuevosCasos(p.mappingJson?.crearNuevosCasos !== false)
             setAccionAusente(p.mappingJson?.accionAusente ?? 'PAGO_TODO')
             if (p.mappingJson?.acciones) setAccionesConfig(p.mappingJson.acciones)
+            if (p.mappingJson?.multiarchivo) {
+                setMultiarchivoConfig(JSON.stringify(p.mappingJson.multiarchivo, null, 2))
+            }
             if (p.mappingJson?.multirregistro) {
                 setMultirregistroConfig(JSON.stringify(p.mappingJson.multirregistro, null, 2))
             }
@@ -327,7 +339,7 @@ const PlantillaEditor: React.FC = () => {
     // Al pasar a MULTIRREGISTRO en una plantilla nueva, el separador correcto es ";" (el que usan
     // estos archivos), no el "|" que viene por defecto: evita que el operador tenga que deducirlo.
     useEffect(() => {
-        if (!isEdit && categoria === 'MULTIRREGISTRO' && separador === '|') {
+        if (!isEdit && (categoria === 'MULTIRREGISTRO' || categoria === 'MULTIARCHIVO') && separador === '|') {
             setSeparador(';')
             setSepMode('STD')
         }
@@ -378,6 +390,18 @@ const PlantillaEditor: React.FC = () => {
                 notify.error('El layout del archivo no es un JSON válido')
                 return
             }
+        } else if (esMultiarchivo) {
+            try {
+                const cfg = JSON.parse(multiarchivoConfig)
+                // Sin los patrones de nombre no hay forma de saber qué archivo es cuál al subirlos.
+                if (!cfg?.archivos?.deudores || !cfg?.archivos?.detalle) {
+                    notify.error('El layout tiene que declarar los patrones de nombre de deudores y detalle')
+                    return
+                }
+            } catch {
+                notify.error('El layout del paquete no es un JSON válido')
+                return
+            }
         } else if (fields.filter((f) => f.destField).length === 0) {
             notify.error('Agregá al menos un campo de mapeo')
             return
@@ -417,6 +441,9 @@ const PlantillaEditor: React.FC = () => {
         }
         if (esMultirregistro) {
             ;(mappingJson as Record<string, unknown>).multirregistro = JSON.parse(multirregistroConfig)
+        }
+        if (esMultiarchivo) {
+            ;(mappingJson as Record<string, unknown>).multiarchivo = JSON.parse(multiarchivoConfig)
         }
 
         try {
@@ -803,7 +830,22 @@ const PlantillaEditor: React.FC = () => {
 
                 <Divider sx={{ my: 3 }} />
 
-                {esMultirregistro ? (
+                {esMultiarchivo ? (
+                    <>
+                        <Typography variant="h6" sx={{ fontWeight: 600, mb: 2 }}>
+                            Layout del paquete de archivos
+                        </Typography>
+                        <MultiarchivoEditor
+                            value={multiarchivoConfig}
+                            onChange={setMultiarchivoConfig}
+                            separador={separador}
+                            onSeparadorChange={(v) => {
+                                setSeparador(v)
+                                setSepMode('STD')
+                            }}
+                        />
+                    </>
+                ) : esMultirregistro ? (
                     <>
                         <Typography variant="h6" sx={{ fontWeight: 600, mb: 2 }}>
                             Layout del archivo multirregistro

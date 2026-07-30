@@ -15,6 +15,7 @@ import AutoFixHighIcon from "@mui/icons-material/AutoFixHigh";
 import SyncAltIcon from "@mui/icons-material/SyncAlt";
 import PlaylistAddCheckIcon from "@mui/icons-material/PlaylistAddCheck";
 import AccountTreeIcon from "@mui/icons-material/AccountTree";
+import FolderZipIcon from "@mui/icons-material/FolderZip";
 
 interface CategoryOption {
     value: string;
@@ -90,6 +91,14 @@ const CATEGORIES: CategoryOption[] = [
             "Un solo archivo con varios tipos de línea (clientes, avisos, detalle, bajas) que se agrupan en cada caso",
         icon: <AccountTreeIcon sx={{ fontSize: 40 }} />,
         color: "#5e35b1",
+    },
+    {
+        value: "MULTIARCHIVO",
+        label: "Multiarchivo",
+        description:
+            "Varios archivos que se cargan juntos (deudores, detalle de deuda, bajas y codeudores) y se cruzan entre sí",
+        icon: <FolderZipIcon sx={{ fontSize: 40 }} />,
+        color: "#ad1457",
     },
 ];
 

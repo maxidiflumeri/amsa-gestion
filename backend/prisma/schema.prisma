@@ -272,6 +272,9 @@ model remesa {
   empresaId        Int
   nombre           String
   archivo          String?
+  // MULTIARCHIVO: paths del paquete por rol ({ deudores, detalle, bajas, codeudores }).
+  // `archivo` sigue apuntando al principal (Deudores) para no romper el resto del código.
+  archivos         Json?
   estadoCarga      String?
   cantidadDeudores Int?
   createdAt        DateTime             @default(now())
@@ -425,6 +428,7 @@ enum plantillaimport_categoria {
   ACTUALIZACIONES
   ACCIONES
   MULTIRREGISTRO
+  MULTIARCHIVO
 }
 
 enum remesa_categoria {
@@ -437,6 +441,7 @@ enum remesa_categoria {
   ACTUALIZACIONES
   ACCIONES
   MULTIRREGISTRO
+  MULTIARCHIVO
 }
 
 model politica {

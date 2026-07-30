@@ -277,10 +277,11 @@ describe('MultirregistroProcessor — bajas', () => {
 
         await proc.processRow({ _tipo: 'BAJA', aviso: '170474', motivo: 'Días de Mora Excedidos' } as any, ctx);
 
-        expect(prisma.factura.aggregate).toHaveBeenCalledWith({
-            where: { deudorId: 321, estado: { not: 'ANULADA' } },
-            _sum: { importe: true },
-        });
+        // Lo que importa es el filtro, no la proyección (la base pide además `_count` para saber
+        // si el deudor se quedó sin facturas).
+        expect(prisma.factura.aggregate).toHaveBeenCalledWith(
+            expect.objectContaining({ where: { deudorId: 321, estado: { not: 'ANULADA' } } }),
+        );
     });
 
     it('busca el aviso en toda la empresa', async () => {

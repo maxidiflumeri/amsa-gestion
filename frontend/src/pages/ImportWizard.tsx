@@ -33,6 +33,7 @@ import { etiquetaRemesa } from "../utils/remesa";
 
 import CategorySelector from "../components/import/CategorySelector";
 import FileDropZone from "../components/import/FileDropZone";
+import MultiarchivoDropZone, { paqueteCompleto } from "../components/import/MultiarchivoDropZone";
 import PreviewTable from "../components/import/PreviewTable";
 import ImportProgress from "../components/import/ImportProgress";
 import ImportSummary from "../components/import/ImportSummary";
@@ -63,6 +64,9 @@ export default function ImportWizard() {
     const [plantillas, setPlantillas] = useState<any[]>([]);
     const [selectedPlantilla, setSelectedPlantilla] = useState<number | null>(null);
     const [file, setFile] = useState<File | null>(null);
+    // MULTIARCHIVO: el paquete se sube como varios archivos juntos; el rol de cada uno se
+    // resuelve por su nombre (acá para dar feedback, y en el backend de forma autoritativa).
+    const [archivosPaquete, setArchivosPaquete] = useState<File[]>([]);
     const [nombreRemesa, setNombreRemesa] = useState("");
     const [numeroRemesa, setNumeroRemesa] = useState("");
     const [fechaVencimiento, setFechaVencimiento] = useState("");
@@ -74,6 +78,8 @@ export default function ImportWizard() {
     // Remesa de deudores origen
     // MULTIRREGISTRO: resumen del parseo (tipos de línea, casos, facturas, bajas) para el preview.
     const [multiResumen, setMultiResumen] = useState<any | null>(null);
+    // MULTIARCHIVO: resumen del cruce de los archivos del paquete para el preview.
+    const [paqueteResumen, setPaqueteResumen] = useState<any | null>(null);
     const [remesasDeudores, setRemesasDeudores] = useState<any[]>([]);
     const [remesaOrigenId, setRemesaOrigenId] = useState<number | null>(null);
     // PAGOS: se pueden elegir VARIAS remesas origen (archivo de pagos para toda la empresa),
@@ -84,13 +90,21 @@ export default function ImportWizard() {
     // MULTIRREGISTRO trae todo en un mismo archivo: los casos nuevos entran en la remesa de esta
     // importación y los que ya existen se buscan por Nº Cliente en toda la empresa.
     const esMultirregistro = categoria === "MULTIRREGISTRO";
+    // MULTIARCHIVO se comporta igual que MULTIRREGISTRO respecto de la remesa origen: los casos
+    // nuevos entran en la remesa de esta importación y los que ya existen se buscan por Nº Cliente
+    // en toda la empresa.
+    const esMultiarchivo = categoria === "MULTIARCHIVO";
+    // Patrones de nombre de archivo de la plantilla elegida, para reconocer qué archivo es cuál.
+    const patronesArchivos = plantillas.find((p) => p.id === selectedPlantilla)
+        ?.mappingJson?.multiarchivo?.archivos as Record<string, string> | undefined;
     const multiOrigen = categoria === "PAGOS";
     const needsOrigen =
         categoria !== "" &&
         categoria !== "DEUDORES" &&
         categoria !== "DEUDORES_Y_FACTURAS" &&
         !esAcciones &&
-        !esMultirregistro;
+        !esMultirregistro &&
+        !esMultiarchivo;
 
     // Paso 2 – preview
     const [remesaId, setRemesaId] = useState<number | null>(null);
@@ -146,8 +160,19 @@ export default function ImportWizard() {
 
     // Paso 1 → 2: Crear remesa + validar
     const handleCrearYValidar = async () => {
-        if (!file || !selectedPlantilla || !categoria) {
-            notify.warning("Seleccioná categoría, plantilla y archivo.");
+        if (!selectedPlantilla || !categoria) {
+            notify.warning("Seleccioná categoría y plantilla.");
+            return;
+        }
+        if (esMultiarchivo) {
+            if (!paqueteCompleto(archivosPaquete, patronesArchivos)) {
+                notify.warning(
+                    "Revisá el paquete: falta algún archivo obligatorio o hay uno que no se reconoce.",
+                );
+                return;
+            }
+        } else if (!file) {
+            notify.warning("Seleccioná el archivo a importar.");
             return;
         }
 
@@ -169,7 +194,13 @@ export default function ImportWizard() {
             if (fechaVencimiento) {
                 formData.append("fechaVencimiento", fechaVencimiento);
             }
-            formData.append("file", file);
+            if (esMultiarchivo) {
+                // El backend acepta `file` (uno) o `files` (el paquete); el rol de cada archivo lo
+                // resuelve por el nombre, así que el orden en que se agregan no importa.
+                for (const f of archivosPaquete) formData.append("files", f);
+            } else {
+                formData.append("file", file!);
+            }
 
             if (isExcelFile && hojaExcel.trim() !== "") {
                 formData.append("hoja", hojaExcel.trim());
@@ -194,6 +225,7 @@ export default function ImportWizard() {
             });
 
             setMultiResumen(resValidar.data.multirregistro ?? null);
+            setPaqueteResumen(resValidar.data.multiarchivo ?? null);
 
             if (categoria === "ACCIONES") {
                 try {
@@ -247,6 +279,9 @@ export default function ImportWizard() {
         setPlantillas([]);
         setSelectedPlantilla(null);
         setFile(null);
+        setArchivosPaquete([]);
+        setPaqueteResumen(null);
+        setMultiResumen(null);
         setRemesaId(null);
         setRemesaOrigenId(null);
         setRemesaOrigenIds([]);
@@ -264,7 +299,14 @@ export default function ImportWizard() {
             case 0:
                 return !!categoria;
             case 1:
-                if (!file || !selectedPlantilla) return false;
+                if (!selectedPlantilla) return false;
+                // MULTIARCHIVO no sube un archivo sino un paquete: se habilita cuando están todos
+                // los obligatorios y ninguno quedó sin reconocer.
+                if (esMultiarchivo) {
+                    if (!paqueteCompleto(archivosPaquete, patronesArchivos)) return false;
+                } else if (!file) {
+                    return false;
+                }
                 if (!needsOrigen) return true;
                 return multiOrigen ? remesaOrigenIds.length > 0 : !!remesaOrigenId;
             default:
@@ -501,10 +543,18 @@ export default function ImportWizard() {
                         )}
 
                         {/* Drop zone */}
-                        <FileDropZone
-                            file={file}
-                            onFileSelect={handleFileSelect}
-                        />
+                        {esMultiarchivo ? (
+                            <MultiarchivoDropZone
+                                archivos={archivosPaquete}
+                                onChange={setArchivosPaquete}
+                                patrones={patronesArchivos}
+                            />
+                        ) : (
+                            <FileDropZone
+                                file={file}
+                                onFileSelect={handleFileSelect}
+                            />
+                        )}
 
                         {/* Excel Sheet Name Input */}
                         {isExcelFile && (
@@ -538,6 +588,40 @@ export default function ImportWizard() {
                                 {multiResumen.advertencias?.length > 0 && (
                                     <Box component="ul" sx={{ mt: 1, mb: 0, pl: 2.5 }}>
                                         {multiResumen.advertencias.map((a: string, i: number) => (
+                                            <li key={i}>
+                                                <Typography variant="caption">{a}</Typography>
+                                            </li>
+                                        ))}
+                                    </Box>
+                                )}
+                            </Alert>
+                        )}
+                        {esMultiarchivo && paqueteResumen && (
+                            <Alert severity={paqueteResumen.advertencias?.length ? "warning" : "info"} sx={{ mb: 2 }}>
+                                <AlertTitle>
+                                    {paqueteResumen.casos} casos · {paqueteResumen.facturas} cuotas ·{" "}
+                                    {paqueteResumen.bajas} bajas · {paqueteResumen.codeudores} codeudores
+                                </AlertTitle>
+                                Se leyeron{" "}
+                                {Object.entries(paqueteResumen.lineas ?? {})
+                                    .map(([k, v]) => `${k}: ${v}`)
+                                    .join(" · ")}
+                                .
+                                {paqueteResumen.cuotasDescartadas > 0 && (
+                                    <>
+                                        {" "}Se descartaron <strong>{paqueteResumen.cuotasDescartadas} cuotas</strong> de
+                                        asignaciones que ya no están vigentes.
+                                    </>
+                                )}
+                                {paqueteResumen.casosSinDetalle > 0 && (
+                                    <>
+                                        {" "}Hay <strong>{paqueteResumen.casosSinDetalle} casos</strong> sin detalle de
+                                        cuotas: se cargan con el total que declara el cedente.
+                                    </>
+                                )}
+                                {paqueteResumen.advertencias?.length > 0 && (
+                                    <Box component="ul" sx={{ mt: 1, mb: 0, pl: 2.5 }}>
+                                        {paqueteResumen.advertencias.map((a: string, i: number) => (
                                             <li key={i}>
                                                 <Typography variant="caption">{a}</Typography>
                                             </li>

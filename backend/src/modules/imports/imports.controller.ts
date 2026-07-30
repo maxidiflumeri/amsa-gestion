@@ -1,6 +1,6 @@
 // src/import/import.controller.ts
-import { Body, Controller, Delete, Get, Param, ParseIntPipe, Post, Put, Query, UploadedFile, UseInterceptors } from '@nestjs/common';
-import { FileInterceptor } from '@nestjs/platform-express';
+import { Body, Controller, Delete, Get, Param, ParseIntPipe, Post, Put, Query, UploadedFile, UploadedFiles, UseInterceptors } from '@nestjs/common';
+import { FileFieldsInterceptor, FileInterceptor } from '@nestjs/platform-express';
 import { ImportService } from './imports.service';
 import { CambiarEmpresaPlantillaDto, ClonarPlantillaDto, CreatePlantillaDto, CreateRemesaDto } from './dtos/import.dto';
 import { Permisos, UsuarioActual } from '../../auth/decorators';
@@ -138,8 +138,16 @@ export class ImportController {
     }
 
     // --- REMESAS ---
+    /**
+     * Alta de remesa. Acepta un archivo (`file`, el caso de siempre) o un paquete de varios
+     * (`files`, categoría MULTIARCHIVO). Se usa `FileFieldsInterceptor` en vez de cambiar el
+     * `FileInterceptor` por uno múltiple para no tocar el contrato de las categorías existentes.
+     */
     @Post('remesas')
-    @UseInterceptors(FileInterceptor('file'))
+    @UseInterceptors(FileFieldsInterceptor([
+        { name: 'file', maxCount: 1 },
+        { name: 'files', maxCount: 6 },
+    ]))
     @Audit({
         modulo: AuditModulo.IMPORT,
         entidad: 'Remesa',
@@ -147,10 +155,14 @@ export class ImportController {
         entidadIdFromResponse: 'id',
         empresaId: (res, req) => Number(req.body?.empresaId) || undefined,
         resumen: (res, req) => `Creó remesa para empresa ${req.body?.empresaId}`,
-        data: (res, req) => ({ params: { ...req.body, file: undefined }, after: res }),
+        data: (res, req) => ({ params: { ...req.body, file: undefined, files: undefined }, after: res }),
     })
-    createRemesa(@Body() dto: CreateRemesaDto, @UploadedFile() file: any) {
-        return this.service.createRemesa(dto, file);
+    createRemesa(
+        @Body() dto: CreateRemesaDto,
+        @UploadedFiles() archivos: { file?: any[]; files?: any[] },
+    ) {
+        const subidos = [...(archivos?.file ?? []), ...(archivos?.files ?? [])];
+        return this.service.createRemesa(dto, subidos);
     }
 
     @Get('remesas/empresa/:empresaId')

@@ -3,7 +3,7 @@ import { PrismaService } from 'src/prisma/prisma.service';
 import { ConsolidacionSituacionService } from '../../consolidacion/consolidacion.service';
 import { PromesasService } from '../../promesas/promesas.service';
 import { AuditoriaHelper } from '../../transacciones/auditoria.helper';
-import { AccionAusenteActualizacion, AccionesConfig, ComportamientoDeudaMayor, ModoActualizacion, MontoDeudorMode, MultirregistroConfig } from '../mapping-types';
+import { AccionAusenteActualizacion, AccionesConfig, ComportamientoDeudaMayor, ModoActualizacion, MontoDeudorMode, MultiarchivoConfig, MultirregistroConfig } from '../mapping-types';
 
 /**
  * Resultado de validar una fila.
@@ -23,6 +23,12 @@ export interface ProcessContext {
     empresaId: number;
     /** Usuario que disparó la importación (para autoría de comentarios y auditoría). */
     usuarioId?: number;
+    /**
+     * Plantilla con la que se está importando. MULTIARCHIVO la usa para acotar "la cartera" al
+     * desasignar ausentes: los casos de esa cartera son los que cargó esta misma plantilla, no
+     * todos los deudores de la empresa (que puede tener otras carteras cargadas por otras).
+     */
+    plantillaId?: number;
     /** ID de la remesa de deudores a la que se vincula (para FACTURAS, CONTACTOS, PAGOS) */
     remesaOrigenId?: number;
     /**
@@ -80,6 +86,12 @@ export interface ProcessContext {
      * cedente sin pago.
      */
     multirregistroConfig?: MultirregistroConfig;
+    /**
+     * Config de la categoría MULTIARCHIVO (leída de `mappingJson.multiarchivo`). El processor la
+     * necesita para saber qué códigos de motivo de baja significan "se cobró" y cuáles son un
+     * retiro del cedente sin pago.
+     */
+    multiarchivoConfig?: MultiarchivoConfig;
 }
 
 /**

@@ -6,6 +6,7 @@ import { applyTransforms } from './transforms';
 import { resolveDelimiter } from './utils/delimitador';
 import { FileStorageService } from './file-storage.service';
 import * as fs from 'fs';
+import * as crypto from 'crypto';
 import * as fastcsv from 'fast-csv';
 import * as xlsx from 'xlsx';
 import { Prisma } from '@prisma/client';
@@ -18,6 +19,8 @@ import { RealtimeService } from '../realtime/realtime.service';
 import { NotificacionesService } from '../notificaciones/notificaciones.service';
 import { ProgressEmitter } from './utils/progress-emitter';
 import { parseMultirregistro } from './utils/multirregistro-parser';
+import { ArchivosMultiarchivo, parseMultiarchivo } from './utils/multiarchivo-parser';
+import { resolverRolesArchivos } from './utils/roles-multiarchivo';
 import { siguienteNumeroRemesa } from './utils/numero-remesa';
 import { RequestContextService } from 'src/common/logger/request-context';
 import { ConsolidacionSituacionService } from '../consolidacion/consolidacion.service';
@@ -296,14 +299,99 @@ export class ImportService {
         return siguienteNumeroRemesa(previas.map((r) => r.numeroRemesa), propuesto);
     }
 
+    /**
+     * Lee del disco los archivos del paquete de una remesa MULTIARCHIVO.
+     *
+     * Las rutas quedan en `remesa.archivos` (rol → path) desde el alta. Se valida acá y no solo en
+     * el alta porque entre medio puede pasar cualquier cosa (limpieza de `uploads/`, restore de un
+     * backup de la DB sin los archivos) y el mensaje tiene que decir qué falta, no reventar con un
+     * ENOENT en el worker.
+     */
+    private leerPaqueteMultiarchivo(remesa: { archivos: unknown }): ArchivosMultiarchivo {
+        const paths = (remesa.archivos ?? {}) as Record<string, string>;
+        if (!paths.deudores || !paths.detalle) {
+            throw new BadRequestException(
+                'La remesa no tiene el paquete de archivos completo (faltan deudores y/o detalle de deuda). ' +
+                'Volvé a crearla subiendo los archivos juntos.',
+            );
+        }
+        const leer = (rol: string): Buffer | undefined => {
+            const p = paths[rol];
+            if (!p) return undefined;
+            if (!fs.existsSync(p)) {
+                throw new BadRequestException(`No se encuentra en el disco el archivo de ${rol} de la remesa (${p}).`);
+            }
+            return fs.readFileSync(p);
+        };
+        return {
+            deudores: leer('deudores')!,
+            detalle: leer('detalle')!,
+            bajas: leer('bajas'),
+            codeudores: leer('codeudores'),
+        };
+    }
+
     // --- REMESA / ARCHIVO ---
-    async createRemesa(dto: CreateRemesaDto, file: any, usuarioCreadorId?: number) {
+    /**
+     * Alta de remesa.
+     *
+     * @param archivos Archivos subidos. Las categorías clásicas mandan uno; MULTIARCHIVO manda el
+     *   paquete completo y el rol de cada uno se resuelve por su nombre (ver `roles-multiarchivo.ts`).
+     */
+    async createRemesa(dto: CreateRemesaDto, archivos: any, usuarioCreadorId?: number) {
 
         const plantilla = await this.prisma.plantillaimport.findUnique({ where: { id: dto.plantillaId } });
         if (!plantilla) throw new NotFoundException('Plantilla no encontrada');
 
-        const saved = await this.files.saveBuffer(file, dto.empresaId, dto.categoria);
+        // El controller manda siempre un array; se acepta un archivo suelto por compatibilidad con
+        // los llamadores internos (seeds, scripts) que todavía pasan el objeto de multer.
+        const lista: any[] = Array.isArray(archivos) ? archivos : archivos ? [archivos] : [];
+        if (lista.length === 0) throw new BadRequestException('No se subió ningún archivo.');
+
         const numeroRemesa = await this.resolverNumeroRemesa(dto.empresaId, dto.numeroRemesa);
+
+        let archivoPrincipal: string;
+        let archivoHash: string;
+        let paths: Record<string, string> | null = null;
+
+        if (dto.categoria === 'MULTIARCHIVO') {
+            const cfg = (plantilla.mappingJson as unknown as MappingJson)?.multiarchivo;
+            if (!cfg) {
+                throw new BadRequestException(
+                    'La plantilla es de categoría MULTIARCHIVO pero no tiene el layout del paquete configurado.',
+                );
+            }
+
+            let roles: ReturnType<typeof resolverRolesArchivos>;
+            try {
+                roles = resolverRolesArchivos(lista, cfg);
+            } catch (e: any) {
+                // Son errores de lo que subió el operador, no fallas del sistema: van como 400 con
+                // el mensaje tal cual, que ya explica qué archivo falta o sobra.
+                throw new BadRequestException(e.message);
+            }
+
+            paths = {};
+            const hashes: string[] = [];
+            for (const [rol, idx] of Object.entries(roles)) {
+                const saved = await this.files.saveBuffer(lista[idx as number], dto.empresaId, dto.categoria);
+                paths[rol] = saved.path;
+                hashes.push(`${rol}:${saved.hash}`);
+            }
+            archivoPrincipal = paths.deudores;
+            // Hash del paquete entero: determinístico para el mismo conjunto de archivos.
+            archivoHash = crypto.createHash('sha256').update(hashes.sort().join('|')).digest('hex');
+
+            this.logger.log(
+                `Remesa MULTIARCHIVO ${numeroRemesa}: ${Object.keys(roles).length} archivo(s) — ` +
+                Object.entries(roles).map(([rol, i]) => `${rol}=${lista[i as number].originalname}`).join(', '),
+            );
+        } else {
+            const saved = await this.files.saveBuffer(lista[0], dto.empresaId, dto.categoria);
+            archivoPrincipal = saved.path;
+            archivoHash = saved.hash;
+        }
+
         const remesa = await this.prisma.remesa.create({
             data: {
                 numeroRemesa,
@@ -311,8 +399,9 @@ export class ImportService {
                 nombre: dto.nombre,
                 categoria: dto.categoria as any,
                 plantillaId: dto.plantillaId,
-                archivo: saved.path,
-                archivoHash: saved.hash,
+                archivo: archivoPrincipal,
+                archivos: paths ?? Prisma.JsonNull,
+                archivoHash,
                 hoja: dto.hoja,
                 fechaVencimiento: dto.fechaVencimiento ? new Date(dto.fechaVencimiento) : null,
                 validarDomicilios: dto.validarDomicilios ?? false,
@@ -453,6 +542,73 @@ export class ImportService {
                 err,
                 sample: preview,
                 multirregistro: { ...resumen, advertencias: advertencias.slice(0, 20) },
+            };
+        }
+
+        // MULTIARCHIVO: mismo criterio que MULTIRREGISTRO — una fila suelta no significa nada, hay
+        // que cruzar los archivos del paquete primero y mostrar los casos ya armados.
+        if (remesa.categoria === 'MULTIARCHIVO') {
+            const cfgMulti = mapping?.multiarchivo;
+            if (!cfgMulti) {
+                throw new BadRequestException(
+                    'La plantilla es de categoría MULTIARCHIVO pero no tiene el layout del paquete configurado.',
+                );
+            }
+            const { filas, advertencias, resumen } = parseMultiarchivo(
+                this.leerPaqueteMultiarchivo(remesa),
+                cfgMulti,
+                sep,
+            );
+
+            for (const fila of filas.slice(0, sampleRows)) {
+                if (fila._tipo === 'BAJA') {
+                    preview.push({
+                        row: preview.length,
+                        data: {
+                            tipo: 'BAJA', nroCliente: fila.nroCliente,
+                            factura: fila.nroFactura, motivo: fila.motivo,
+                        },
+                        error: null,
+                    });
+                    continue;
+                }
+                const facturas = (fila._blocks ?? []).filter((b) => b.entity === 'FACTURA');
+                const contactos = (fila._blocks ?? []).filter((b) => b.entity === 'CONTACTO');
+                preview.push({
+                    row: preview.length,
+                    data: {
+                        tipo: 'CASO',
+                        nroCliente: fila.nroCliente,
+                        documento: fila.documento,
+                        nombre: fila.nombre,
+                        cuotas: facturas.length,
+                        // Si el caso no trae cuotas, el único dato de deuda es el del cedente.
+                        importeTotal: facturas.length > 0
+                            ? facturas.reduce((a, f) => a + (Number(f.data.importe) || 0), 0)
+                            : (fila.montoTotalDeclarado ?? 0),
+                        contratos: [...new Set(facturas.map((f) => f.data.contrato).filter(Boolean))].join(', '),
+                        contactos: contactos.length,
+                    },
+                    error: null,
+                });
+            }
+
+            totalRows = filas.length;
+            ok = filas.length;
+
+            // A diferencia de MULTIRREGISTRO, se persiste el total: es lo que usa el runner para
+            // calcular el % de progreso (sin esto la barra queda clavada en 0).
+            await this.prisma.remesa.update({
+                where: { id: remesaId },
+                data: { estadoProceso: 'VALIDANDO', totalFilas: totalRows, okFilas: ok, errFilas: 0 },
+            });
+
+            return {
+                total: totalRows,
+                ok,
+                err: 0,
+                sample: preview,
+                multiarchivo: { ...resumen, advertencias: advertencias.slice(0, 20) },
             };
         }
 
@@ -877,6 +1033,7 @@ export class ImportService {
             remesaId: remesa.id,
             empresaId: remesa.empresaId,
             usuarioId: ownerId ?? undefined,
+            plantillaId: remesa.plantillaId ?? undefined,
             remesaOrigenId,
             remesaOrigenIds: remesaOrigenIds?.length ? remesaOrigenIds : undefined,
             validarDomicilios: remesa.validarDomicilios ?? false,
@@ -894,6 +1051,7 @@ export class ImportService {
             accionAusente,
             accionesConfig: mapping?.acciones,
             multirregistroConfig: mapping?.multirregistro,
+            multiarchivoConfig: mapping?.multiarchivo,
         };
 
         const sep = resolveDelimiter(remesa.plantilla.separador ?? '|');
@@ -902,10 +1060,12 @@ export class ImportService {
         const BATCH_SIZE = IMPORTS_BATCH_SIZE;
         const batch: Array<{ row: any; idx: number }> = [];
 
-        // MULTIRREGISTRO no es "una fila = un registro": el archivo trae varios tipos de línea que
-        // hay que agrupar antes de procesar. El parser las convierte en filas ya normalizadas, así
-        // que estas NO pasan por `mapRow` (que asume un array de columnas).
+        // MULTIRREGISTRO y MULTIARCHIVO no son "una fila = un registro": hay que agrupar o cruzar
+        // los archivos antes de procesar. El parser devuelve filas ya normalizadas, así que estas
+        // NO pasan por `mapRow` (que asume un array de columnas).
         const esMultirregistro = remesa.categoria === 'MULTIRREGISTRO';
+        const esMultiarchivo = remesa.categoria === 'MULTIARCHIVO';
+        const esPreparsado = esMultirregistro || esMultiarchivo;
 
         this.logger.log(
             `Procesando remesa=${remesaId} categoria=${remesa.categoria} ` +
@@ -970,7 +1130,7 @@ export class ImportService {
 
             for (const { row, idx } of group) {
                 try {
-                    const obj = esMultirregistro ? (row as MappedRow) : this.mapRow(row, mapping);
+                    const obj = esPreparsado ? (row as MappedRow) : this.mapRow(row, mapping);
                     this.validateMappedRow(obj, mapping);
 
                     if (processor.validateRow) {
@@ -1074,6 +1234,49 @@ export class ImportService {
             // errores de la remesa para que queden visibles en el detalle del import.
             if (advertencias.length > 0) {
                 this.logger.warn(`Multirregistro remesa=${remesaId}: ${advertencias.length} advertencia(s) de parseo.`);
+                await this.prisma.importerror.createMany({
+                    data: advertencias.slice(0, 500).map((a) => ({
+                        remesaId,
+                        rowNumber: 0,
+                        rawRow: [] as any,
+                        errorMsg: `[parseo] ${a}`,
+                    })),
+                });
+            }
+
+            for (const fila of filas) {
+                batch.push({ row: fila, idx: total++ });
+                if (batch.length >= BATCH_SIZE) await processBatch();
+            }
+            if (batch.length > 0) await processBatch();
+
+        } else if (esMultiarchivo) {
+            // ── Paquete de varios archivos que se cruzan entre sí (Toyota TCFA) ─────────
+            const cfgMulti = mapping?.multiarchivo;
+            if (!cfgMulti) {
+                throw new Error(
+                    'La plantilla es de categoría MULTIARCHIVO pero no tiene `mappingJson.multiarchivo` configurado.',
+                );
+            }
+
+            const t0 = Date.now();
+            const { filas, advertencias, resumen } = parseMultiarchivo(
+                this.leerPaqueteMultiarchivo(remesa),
+                cfgMulti,
+                sep,
+            );
+            this.logger.log(
+                `Multiarchivo remesa=${remesaId}: ${JSON.stringify(resumen.lineas)} → ${resumen.casos} casos, ` +
+                `${resumen.facturas} cuotas, ${resumen.bajas} bajas, ${resumen.codeudores} codeudores ` +
+                `(${resumen.cuotasDescartadas} cuotas de asignaciones no vigentes descartadas, ` +
+                `${resumen.casosSinDetalle} casos sin detalle) en ${Date.now() - t0}ms`,
+            );
+
+            // Las advertencias del cruce (cuotas huérfanas, casos sin detalle, codeudores sin
+            // titular) se registran como errores de la remesa para que queden visibles en el
+            // detalle del import: son el dato que el operador necesita para reclamarle al cedente.
+            if (advertencias.length > 0) {
+                this.logger.warn(`Multiarchivo remesa=${remesaId}: ${advertencias.length} advertencia(s) de parseo.`);
                 await this.prisma.importerror.createMany({
                     data: advertencias.slice(0, 500).map((a) => ({
                         remesaId,

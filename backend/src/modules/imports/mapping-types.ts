@@ -115,6 +115,8 @@ export interface MappingJson {
     acciones?: AccionesConfig;
     /** Config de la categoría MULTIRREGISTRO (archivo con varios tipos de línea). */
     multirregistro?: MultirregistroConfig;
+    /** Config de la categoría MULTIARCHIVO (paquete de varios archivos que se cargan juntos). */
+    multiarchivo?: MultiarchivoConfig;
 }
 
 /* ────────────────────────────────────────────────────────────────────────────
@@ -196,5 +198,145 @@ export interface MultirregistroConfig {
          * causó el incidente del 2026-07-21).
          */
         motivosPago?: string[];
+    };
+}
+
+/* ────────────────────────────────────────────────────────────────────────────
+ * MULTIARCHIVO — un paquete de archivos que se cargan juntos como una sola remesa
+ * ──────────────────────────────────────────────────────────────────────────── */
+
+/** Rol de cada archivo dentro del paquete. `deudores` y `detalle` son obligatorios. */
+export type RolArchivoMultiarchivo = 'deudores' | 'detalle' | 'bajas' | 'codeudores';
+
+/**
+ * Config de la categoría MULTIARCHIVO (caso Toyota TCFA).
+ *
+ * Misma división que {@link MultirregistroConfig}: la ESTRUCTURA (qué archivo es el deudor, cómo se
+ * vinculan entre sí, qué significa una baja) vive en el parser y el processor porque es la lógica de
+ * negocio; acá va solo el **layout**, que es lo que el cedente puede mover sin avisar y conviene
+ * poder corregir desde la plantilla sin deploy.
+ *
+ * A diferencia de MULTIRREGISTRO, los archivos traen **header**, así que el layout se declara por
+ * **nombre de columna** (sin distinguir mayúsculas) en vez de por índice: es legible y no se rompe
+ * si el cedente agrega una columna al final.
+ *
+ * Spec: `docs/imports-toyota-tcfa-spec.md`.
+ *
+ * Los archivos del paquete y cómo se vinculan:
+ *
+ *   Deudores.txt      IdAsignacion;cliente;nombre;...;codfiscal;...;TotalDeuda    → deudor + contactos
+ *   DetalleDeuda.txt  IdAsignacion;cliente;contrato;cuota;FehcaVto;capital;...    → una factura por cuota
+ *   Bajas.txt         IdAsignacion;cliente;contrato;cuota;...;IDMotivo;Motivo     → baja de una cuota
+ *   CoDeudores.txt    IdAsignacion;ClienteTitular;ClienteCoDeudor;nombre;...      → contactos del titular
+ *
+ *   Deudores.IdAsignacion ──► Detalle.IdAsignacion       (join del día, ver aviso abajo)
+ *   Deudores.cliente      ──► CoDeudores.ClienteTitular
+ *   Bajas.(cliente, contrato, cuota) ──► factura ya cargada en una bajada anterior
+ *
+ * ⚠️ El detalle se joinea por **IdAsignacion**, NUNCA por cliente: el cedente sigue mandando cuotas
+ * de asignaciones viejas y un cliente puede tener asignaciones anteriores en el mismo archivo.
+ * Joineando por cliente, un caso del archivo real pasaba de $2.199.415 a $6.878.743 de deuda.
+ */
+export interface MultiarchivoConfig {
+    /** Codificación de los archivos. TCFA manda Latin-1: en UTF-8 se rompen las Ñ y los acentos. */
+    encoding?: 'latin1' | 'utf8';
+    /** Si los archivos traen fila de encabezado (default `true` — el layout se declara por nombre). */
+    tieneHeader?: boolean;
+    /**
+     * Patrón (regex, sin distinguir mayúsculas) que reconoce cada archivo del paquete por su nombre.
+     * El operador sube los archivos sueltos y el rol de cada uno se resuelve con esto.
+     */
+    archivos: {
+        deudores: string;
+        detalle: string;
+        bajas?: string;
+        codeudores?: string;
+    };
+    /** Layout de Deudores.txt → deudor + contactos. Es el snapshot de la cartera vigente. */
+    deudores: {
+        /** Columna que joinea con el detalle del mismo paquete. NO es la clave del deudor. */
+        claveAsignacion: string;
+        /** Clave ESTABLE del deudor entre bajadas (el IdAsignacion cambia al reasignarse). */
+        nroCliente: string;
+        nombre: string;
+        /** CUIT/CUIL. Si no viene, el processor cae a un placeholder derivado del nro de cliente. */
+        documento?: string;
+        /** Columnas que se concatenan para armar el domicilio, en orden. */
+        domicilio?: string[];
+        email?: string;
+        /** Código de área, que se antepone a cada teléfono. */
+        codArea?: string;
+        telefonos?: string[];
+        /** Deuda vigente declarada por el cedente. Se usa si el caso no trae ninguna cuota. */
+        montoTotal?: string;
+        /** Columnas que se guardan en `camposAdicionales`, con el nombre a usar como clave. */
+        adicionales?: Record<string, string>;
+    };
+    /** Layout de DetalleDeuda.txt → una factura por cuota vencida. */
+    detalle: {
+        /** Columna que joinea con `deudores.claveAsignacion`. */
+        claveAsignacion: string;
+        contrato: string;
+        cuota: string;
+        /** Vencimiento de la cuota (formato `D/M/YYYY`, con o sin hora). */
+        vencimiento?: string;
+        /**
+         * Columnas que se SUMAN para dar el importe de la cuota, con la etiqueta a mostrar en el
+         * desglose. El orden de las claves es el orden del desglose.
+         * Verificado contra el archivo real: la suma da exactamente el `TotalDeuda` del deudor.
+         */
+        conceptosImporte: Record<string, string>;
+        /** Columnas informativas que se agregan al final del desglose (score, débito, etc.). */
+        adicionales?: Record<string, string>;
+    };
+    /** Layout de Bajas.txt. Cada fila baja UNA cuota, no el caso entero. */
+    bajas?: {
+        nroCliente: string;
+        contrato: string;
+        cuota: string;
+        fecha?: string;
+        motivo?: string;
+        /** Código numérico del motivo. Más estable que el texto, que el cedente puede reescribir. */
+        motivoId?: string;
+        /**
+         * Códigos de `motivoId` que significan que la cuota **se cobró**. Solo para ésos se registra
+         * un pago. TCFA: `['1']` (Pago de Cuota). El resto —"Envio a Gestion Especial", "Contrato
+         * Finalizado"— son retiros del cedente: la cuota deja de reclamarse pero NO entró plata.
+         */
+        motivosPagoIds?: string[];
+        /** Fallback por texto (match por "empieza con") si el cedente no manda código. */
+        motivosPago?: string[];
+    };
+    /**
+     * Qué hacer con los casos de la cartera que **no vinieron** en el archivo de deudores.
+     *
+     * El archivo de TCFA es un snapshot completo de la cartera vigente (en la bajada del 29/05, solo
+     * 120 de 854 casos eran del día; el resto son reasignaciones), así que un caso que deja de venir
+     * es un caso que el cedente retiró de la gestión.
+     *
+     * - `IGNORAR` (**default**): no se toca a nadie. El caso se sigue gestionando aunque ya no venga.
+     * - `DESASIGNAR`: se les pone `estadoGestionId = GES-094` guardando el previo en
+     *   `estadoGestionPrevioAId`, para poder revertir si reaparecen. NO toca deuda, pagos, facturas
+     *   ni situación. Se saltean los cancelados (SIT-050) y los ya dados de baja (GES-090).
+     *
+     * ⚠️ El default es `IGNORAR` a propósito: **desasignar es destructivo a escala**. Un archivo que
+     * llegue parcial —o mal mapeado— saca de gestión media cartera de una. Ya pasó: el 2026-07-21 un
+     * batch fallido desasignó 342.792 deudores de Toyota. Activarlo requiere haber confirmado con el
+     * cedente que el archivo trae **siempre** la cartera completa.
+     */
+    accionAusente?: 'DESASIGNAR' | 'IGNORAR';
+    /** Layout de CoDeudores.txt → contactos y datos adicionales del titular. */
+    codeudores?: {
+        /** Nro de cliente del titular, que joinea con `deudores.nroCliente`. */
+        titular: string;
+        nroCodeudor: string;
+        nombre: string;
+        documento?: string;
+        domicilio?: string[];
+        email?: string;
+        codArea?: string;
+        telefonos?: string[];
+        /** Columnas que se guardan dentro de cada entrada de `camposAdicionales.codeudores`. */
+        adicionales?: Record<string, string>;
     };
 }

@@ -6,6 +6,329 @@
 
 ---
 
+## [2026-07-30] — Toyota TCFA (fase 5): desasignación de ausentes del snapshot
+
+> ⚠️ **Redeploy back + front.** Sin cambios de schema.
+> **La función queda APAGADA por default** — ver "Cómo se activa" abajo.
+
+Última fase funcional de la carga de TCFA. El archivo de deudores es un snapshot completo de la
+cartera vigente (en la bajada del 29/05, solo 120 de 854 casos eran del día), así que un caso que
+deja de venir es un caso que el cedente retiró de la gestión. Con esto pasa a `GES-094` (Desasignado)
+guardando su estado previo, y vuelve solo si reaparece.
+
+### Cuatro salvaguardas, porque es la operación más destructiva del import
+
+Un archivo que llegue parcial o mal mapeado saca de gestión media cartera de una. Ya pasó: el
+**2026-07-21 un batch fallido desasignó 342.792 deudores de Toyota**. Por eso:
+
+1. **Apagada por default.** `accionAusente` es `IGNORAR` si no se declara. La cuenta 87 —que comparte
+   la misma clase base— ni siquiera resuelve los parámetros: no paga el costo de una función que no usa.
+2. **Aborta si el archivo no matcheó nada.** Cero casos procesados → no se toca a nadie. Es el mismo
+   guard que se le agregó a ACTUALIZACIONES después del incidente.
+3. **Acotada a la cartera de la plantilla**, no a la empresa. Nuevo `ProcessContext.plantillaId`: el
+   universo son los deudores cuya remesa se cargó con **esta misma plantilla**. Si fuera `empresaId` a
+   secas, un import de TCFA desasignaría de rebote las otras carteras de la misma empresa.
+4. **Alerta de proporción.** Si se desasigna ≥50% de la cartera, un `warn` con los números
+   (desasignados / cartera / casos en el archivo) y la proporción queda también en la auditoría. No
+   frena —desasignar es una decisión explícita de la plantilla— pero deja el rastro que faltó en julio.
+
+Además no toca deuda, pagos, facturas ni situación, y saltea a los cancelados (SIT-050) y a los ya
+dados de baja (GES-090).
+
+### Re-asignación
+
+El inverso: un caso que venía en `GES-094` y vuelve a aparecer recupera su estado de gestión anterior
+(`estadoGestionPrevioAId`, o el default de la plantilla si el previo ya no existe) y se le limpia el
+campo. No se re-asigna a los cancelados. Es idempotente.
+
+Una sutileza que tiene su test: **una baja no cuenta como "presente"**. Que al caso le hayan bajado
+una cuota no significa que el cedente lo siga asignando, así que el conjunto de presentes
+(`deudoresEnSnapshot`) es distinto del de tocados (`deudoresTocados`).
+
+### Cómo se activa
+
+En el JSON de la plantilla: `"accionAusente": "DESASIGNAR"`. El preset de TCFA viene con `IGNORAR` y
+el editor muestra un **chip rojo** y una alerta explicando la consecuencia cuando está en DESASIGNAR.
+
+**Precondición para activarlo: confirmar con Toyota que el archivo de deudores trae SIEMPRE la cartera
+completa.** Si puede venir parcial, no alcanza con estas salvaguardas — haría falta el guard de
+variación porcentual bloqueante que se evaluó en la decisión D1.
+
+### Tests
+
+15 tests nuevos (39 en el processor de TCFA, 258 en imports): que está apagada por default y sin
+queries de más, que desasigna solo a los ausentes guardando el previo, que acota por plantilla, que
+saltea cancelados / dados de baja / ya desasignados, los dos abortos, el modo degradado sin GES-094,
+que una baja no cuenta como presente, la auditoría con la proporción, y los cuatro casos de
+re-asignación.
+
+---
+
+## [2026-07-30] — Toyota TCFA (fase 4): frontend del paquete multi-archivo
+
+> ⚠️ **Redeploy back + front + `npx prisma db push`** (el push viene de la fase 3, todavía falta en prod).
+
+Cuarta fase: la carga de Toyota TCFA queda operable desde la UI de punta a punta.
+
+### Frontend
+
+- **`MultiarchivoDropZone.tsx`** — zona de subida de varios archivos a la vez. Muestra un chip con el
+  **rol detectado de cada archivo** (Deudores / Detalle de deuda / Bajas / Codeudores) y avisa antes de
+  subir si falta un obligatorio, si hay uno sin reconocer, si sobra un duplicado o si alguno matchea
+  más de un patrón. Se pueden arrastrar de a uno o todos juntos, en cualquier orden, y quitar los que
+  sobren.
+- **`MultiarchivoEditor.tsx`** — editor del layout de la plantilla, con el preset de TCFA en un click
+  (mismo criterio que el editor de multirregistro: es config técnica que se toca al dar de alta la
+  cartera). Valida el JSON en vivo y avisa si las bajas no declaran qué motivos son un cobro.
+- **`CategorySelector`** — nueva tarjeta "Multiarchivo".
+- **`PlantillaEditor`** — cableado de la categoría (10 puntos: lista, entity, estado, carga, guardado,
+  separador por defecto en `;`, render).
+- **`ImportWizard`** — estado del paquete, `FormData` con `files`, alerta del resumen en el preview
+  (casos, cuotas, bajas, codeudores, cuotas descartadas y casos sin detalle) y las guardas de avance.
+
+La detección de roles del front usa los mismos patrones de la plantilla que el backend, pero es
+**solo para dar feedback**: decirle al operador "te falta DetalleDeuda" antes de subir es mejor que un
+400 después de esperar la carga. La validación que vale sigue siendo la del backend.
+
+### Un bug que casi se va con el cambio
+
+El wizard tenía **dos** validaciones del paso 1: la del handler y la del botón "Siguiente"
+(`canGoNext()`), que exigía `file` no nulo. Con MULTIARCHIVO `file` queda en `null` —el paquete va en
+otro estado—, así que el botón hubiera quedado **deshabilitado para siempre** y la categoría sería
+imposible de usar, sin ningún mensaje de error. Apareció revisando el diff, no probando.
+
+### Tests
+
+6 tests nuevos en `multiarchivo-wiring.spec.ts` sobre `createRemesa`, que era la última pieza del
+backend sin cubrir: guarda los 4 archivos con su mapa de roles, el hash del paquete no depende del
+orden de subida, rechaza el paquete incompleto / el archivo no clasificable / la plantilla sin layout,
+y una regresión de que las categorías de un solo archivo siguen guardando igual. Total en imports:
+**244 tests**.
+
+### Pendiente de probar a mano
+
+Todo está cubierto por tests, pero **el flujo real todavía no se corrió**: subir los 4 archivos desde
+el navegador y ejecutar la importación contra la base. Es lo que falta antes de darlo por bueno.
+
+### Deuda menor
+
+El preset de TCFA está duplicado entre `backend/.../plantillas/toyota-tcfa.ts` y
+`frontend/.../MultiarchivoEditor.tsx`, igual que el de la cuenta 87: el front necesita ofrecerlo sin
+pedirlo al backend. Lo que manda en producción es lo que quede guardado en la plantilla, así que la
+copia del front es solo el valor inicial — pero si se corrige un layout hay que tocar los dos.
+
+---
+
+## [2026-07-30] — Toyota TCFA (fase 3): cableado multi-archivo
+
+> ⚠️ **Redeploy back + `npx prisma db push`.** El schema cambia (aditivo: una columna nullable y dos
+> enums ampliados). Ya aplicado en la base de desarrollo; **falta correrlo en prod al deployar.**
+
+Tercera fase: la categoría `MULTIARCHIVO` queda operativa de punta a punta en el backend. Con esto se
+puede crear la remesa subiendo los 4 archivos, validarla y ejecutarla. Falta el frontend (fase 4).
+
+### Base de datos
+
+```sql
+ALTER TABLE remesa ADD COLUMN archivos JSON NULL;
+-- + MULTIARCHIVO en los enums remesa.categoria y plantillaimport.categoria
+```
+
+`remesa.archivos` guarda el mapa rol → path (`{ deudores, detalle, bajas, codeudores }`). `archivo`
+sigue apuntando al principal (Deudores) para no romper hash, borrado ni el resto del código que lo
+asume. El diff se verificó con `prisma migrate diff` antes de aplicarlo: sin drops ni pérdida de datos.
+
+### Backend
+
+- **`utils/roles-multiarchivo.ts`** + 12 tests — resuelve qué archivo es cuál por su nombre, con los
+  patrones de la plantilla. **Falla fuerte ante cualquier duda** en vez de adivinar: si falta un
+  obligatorio, si sobra uno que no matchea, si dos compiten por el mismo rol o si un archivo matchea
+  varios patrones, tira un 400 que nombra el archivo concreto. Cargar CoDeudores como si fuera
+  Deudores generaría 55 casos basura y le pisaría la deuda a la cartera; es más barato que el operador
+  vuelva a subir. Tolera sufijos de fecha (`Deudores_20260529.txt`) sin tocar código.
+- **`imports.controller.ts`** — `FileFieldsInterceptor` con los campos `file` (1) y `files` (hasta 6).
+  **Retrocompatible**: el frontend actual manda `file` y sigue funcionando igual.
+- **`imports.service.ts`** — `createRemesa` guarda el paquete y calcula un hash determinístico del
+  conjunto; `leerPaqueteMultiarchivo()` lo relee validando que siga en el disco; ramas nuevas de
+  preview y de worker; `ctx.multiarchivoConfig`.
+- **`processor-registry.ts`** — se registra `MultiarchivoProcessor` (el cabo suelto que dejó la fase 2),
+  ahora que el enum existe. Nuevo `processor-registry.spec.ts` que asserta las 10 categorías, para que
+  un processor sin registrar no vuelva a pasar desapercibido.
+- **`multiarchivo-wiring.spec.ts`** — 7 tests que ejercitan el service completo contra el paquete real
+  del 29/05 con `prisma` mockeado: el preview devuelve 854 casos, 920 cuotas, 85 bajas, 55 codeudores,
+  61 cuotas descartadas y 66 casos sin detalle, cruzando los 4 archivos de verdad.
+
+El preview de MULTIARCHIVO **persiste `totalFilas`**, que es lo que usa el runner para el % de
+progreso. MULTIRREGISTRO no lo hace (sale por un `return` temprano) y por eso su barra queda clavada
+en 0 — no se tocó para no cambiar el comportamiento de la cuenta 87 en una fase de TCFA.
+
+### Hallazgo: la mitad de la suite de tests no estaba corriendo
+
+Al escribir el test de wiring apareció que `jest` no tenía **`moduleNameMapper`**, así que cualquier
+spec que importara —aunque fuera transitivamente— un archivo con el estilo de path absoluto
+`src/prisma/prisma.service` (que usa medio backend) **moría al cargar el módulo**, sin llegar a correr
+un solo test.
+
+Se agregó `"moduleNameMapper": { "^src/(.*)$": "<rootDir>/$1" }` en `package.json`. Efecto medido:
+
+| | Suites en rojo | Tests en rojo | Pasando |
+|---|---|---|---|
+| Antes | 6 | 7 | 364 |
+| Solo con el mapper | las mismas 6 | **18** | 364 |
+| Con la fase 3 completa | las mismas 6 | 18 | **458** |
+
+O sea: **el mapper no rompió nada, destapó 11 fallas que ya existían y estaban ocultas.** Las 6 suites
+en rojo (reportes, comentarios, consolidación) son las mismas de siempre y ninguna es de imports —
+quedan pendientes de arreglar aparte, ahora con el detalle visible.
+
+---
+
+## [2026-07-30] — Toyota TCFA (fase 2): processor compartido con la cuenta 87
+
+> Sin impacto en runtime: el processor nuevo **todavía no está registrado** (ver "Cabo suelto").
+> El refactor de MULTIRREGISTRO sí toca código en producción — **requiere redeploy back**, sin migración.
+
+Segunda fase de la carga de Toyota TCFA (ver fase 1 abajo y
+[docs/imports-toyota-tcfa-spec.md](docs/imports-toyota-tcfa-spec.md)).
+
+La lógica de negocio de las dos carteras es la misma —casos completos + bajas por factura, con pago
+parcial— y ya estaba resuelta en `MultirregistroProcessor`, con varios incidentes de prod incorporados.
+Se extrajo a una base compartida en vez de duplicarla:
+
+```
+CasosCedenteProcessor (abstract)   ← toda la lógica de negocio
+├── MultirregistroProcessor        ← cuenta 87: motivos por texto, placeholder SIN_DOC_
+└── MultiarchivoProcessor          ← TCFA: motivos por código, placeholder canónico
+```
+
+Las subclases quedan en ~25 líneas cada una: solo declaran de dónde salen los motivos de baja y qué
+documento usar cuando el archivo no trae DNI. Los 29 tests de la cuenta 87 pasan sin cambios de
+comportamiento (una sola aserción ajustada, que fijaba la proyección del `aggregate`).
+
+### Backend
+
+- **`processors/casos-cedente.processor.ts`** — base nueva con la lógica compartida.
+- **`processors/multiarchivo.processor.ts`** — subclase de TCFA + 25 tests.
+- **`processors/multirregistro.processor.ts`** — pasa a ser una subclase fina.
+- **`processor.interface.ts`** — nuevo `ProcessContext.multiarchivoConfig`.
+
+### Los seis ajustes sobre la lógica de la cuenta 87
+
+1. **Documento real.** Si el archivo trae CUIT/CUIL se usa ése (TCFA lo trae en el 100%). Además, si
+   el caso ya estaba cargado **con placeholder**, se completa con el documento real. Nunca se pisa un
+   documento real con otro: eso es un cambio de identidad que tiene que revisar una persona.
+2. **Vencimiento real** de la factura, y se actualiza si el cedente lo corre. Antes se hardcodeaba
+   `new Date()` porque la cuenta 87 no manda vencimiento.
+3. **Baja resuelta por cliente.** TCFA dice de quién es la baja → se llega al deudor y a la factura por
+   su unique, sin ambigüedad. La cuenta 87 solo manda el nro de aviso y conserva el camino viejo
+   (búsqueda empresa-wide + guard que no da de baja a nadie si matchea a dos deudores).
+4. **Motivo de baja por código.** Se prefiere `IDMotivo` sobre el texto cuando la plantilla lo declara:
+   el cedente puede reescribir el texto, el código no. TCFA: solo el `1` (Pago de Cuota) es plata que
+   entró; el `4` (Envio a Gestion Especial) y el `3` (Contrato Finalizado) son retiros.
+5. **`montoTotal` de los casos sin cuotas.** Los 66 casos de TCFA que traen `TotalDeuda` pero ya no
+   traen detalle quedaban en deuda 0 y desaparecían de la cartera. Ahora se usa el total declarado —
+   pero **solo si el deudor no tiene ninguna factura cargada**: si las tiene todas anuladas, el saldo
+   real es 0 y restaurar el declarado resucitaría deuda que el cedente retiró. Hay un test para eso.
+6. **`subtipo` en los contactos.** El parser marca los del codeudor y ahora el processor lo persiste.
+   Llamar a un codeudor creyendo que es el titular es un problema real de gestión (la mitad visible,
+   en la ficha, queda para la fase 6).
+
+Además, `parseFechaBaja()` —el regex de ancho fijo que rompía con las fechas de TCFA— se reemplazó por
+`parseFechaCedente()` de la fase 1.
+
+### Cabo suelto deliberado
+
+**`MultiarchivoProcessor` NO está en `processor-registry.ts`.** `getCategories()` devuelve
+`getSupportedCategories()` y alimenta el combo de categorías del frontend: registrarlo ahora dejaría
+elegir una categoría que la DB todavía no puede guardar (falta el valor `MULTIARCHIVO` en los enums
+`remesa_categoria` y `plantillaimport_categoria`). **La fase 3 agrega enum + registro + endpoint juntos.**
+
+### Deuda técnica anotada
+
+La cuenta 87 genera su placeholder de documento como `SIN_DOC_${nroCliente}`, distinto del
+`placeholderDocumento()` canónico (`SIN-DNI-`) que usa el resto de las categorías. **Se dejó como
+estaba a propósito**: hay cartera en prod cargada con ese prefijo desde 2026-07 y cambiarlo dejaría la
+misma empresa con dos convenciones conviviendo, que es peor que una sola no estándar. Consecuencia:
+`esDocumentoPlaceholder()` no reconoce esos deudores (`enriquecimiento-historico.ts` sí contempla los
+dos prefijos). Unificar requiere un UPDATE puntual sobre los deudores ya cargados. TCFA arranca
+directamente con el canónico.
+
+---
+
+## [2026-07-30] — Toyota TCFA (fase 1): parser del paquete de 4 archivos
+
+> Sin impacto en runtime todavía: es código nuevo, sin cablear al pipeline. No requiere redeploy.
+
+Carga nueva de Toyota TCFA: el cedente manda **4 archivos separados** (`Deudores`, `DetalleDeuda`,
+`Bajas`, `CoDeudores`) en vez del TXT multirregistro de la cuenta 87. La semántica de negocio es la
+misma (cliente → contratos → cuotas, bajas por cuota con pago parcial o total), pero el formato y el
+modelo de claves no. Análisis completo y decisiones en
+[docs/imports-toyota-tcfa-spec.md](docs/imports-toyota-tcfa-spec.md).
+
+**Decisión de arquitectura: parser nuevo, processor reusado.** El parser de MULTIRREGISTRO no sirve
+(asume un archivo, discriminador por código de línea y clave de cruce simple); el processor sí, porque
+ya encapsula la lógica difícil de las bajas. El parser nuevo emite **las mismas filas normalizadas**
+(`_tipo: 'CASO' | 'BAJA'` con `_blocks`), así que la fase 2 solo tiene que adaptar el processor.
+
+### Backend
+
+- **`utils/multiarchivo-parser.ts`** — cruza los 4 archivos y emite las filas del pipeline. Layout por
+  **nombre de columna** (no por índice: los archivos traen header) y sin distinguir mayúsculas, porque
+  el cedente escribe `codprovincia` en un archivo y `CodProvincia` en otro.
+- **`utils/fecha-cedente.ts`** — `parseFechaCedente()`. Las fechas vienen `D/M/YYYY` **sin cero a la
+  izquierda** (`29/5/2026 00:00:00`, `1/12/2025 00:00:00`): el regex de ancho fijo que usa el processor
+  de la cuenta 87 fallaría en la mayoría y caería silenciosamente a la fecha del día. Valida además que
+  el día exista (`31/2/2026` → `null`, no 3 de marzo).
+- **`mapping-types.ts`** — `MultiarchivoConfig` + `MappingJson.multiarchivo`. Aditivo, sin tocar nada
+  existente.
+- **`plantillas/toyota-tcfa.ts`** — el layout real como referencia para crear la plantilla y testear.
+- 37 tests nuevos, incluido un bloque contra el paquete real del 2026-05-29 (se saltea si no está).
+
+### El hallazgo que define la carga
+
+**El detalle se joinea por `IdAsignacion`, nunca por `cliente`.** `DetalleDeuda.txt` trae cuotas de
+asignaciones viejas que el cedente sigue mandando, y un cliente reasignado tiene las suyas en el mismo
+archivo bajo otro `IdAsignacion`:
+
+| Join | `TotalDeuda` coincide con Σ cuotas | `CuotasVencidas` coincide |
+|---|---|---|
+| por `cliente` | 786 / 854 | 786 / 854 |
+| **por `IdAsignacion`** | **788 / 788** | **788 / 788** |
+
+Joineando por cliente, al `475931` se le pegan cuotas de 2025 y su deuda pasa de $2.199.415 a
+**$6.878.743**. Hay un test dedicado a esto y el bloque del archivo real lo asserta sobre los 788 casos.
+
+Corolario: **`IdAsignacion` no es estable entre bajadas** (el cliente `488744` tiene 366960 en la baja
+y 368366 hoy), así que sirve para joinear dentro del paquete pero **no** como clave del deudor. La clave
+estable es `cliente`, igual que en la cuenta 87.
+
+### Otros datos del paquete real (2026-05-29)
+
+854 deudores · 981 cuotas (920 vigentes + 61 descartadas) · 85 bajas · 55 codeudores.
+
+- Viene **CUIT/CUIL real en el 100%** (único en los 854) → a diferencia de la cuenta 87, no hacen falta
+  placeholders `SIN-DNI-`.
+- El importe de la cuota es la suma de **11 conceptos** (`capital`…`iva_mor_pun`). `saldocontrato` **no**
+  es el importe: sumarlo da mal en el 100% de los casos.
+- `nroFactura` se compone `contrato-cuota` (el archivo no trae identificador de cuota; el par es único
+  incluso a nivel global porque el contrato no se comparte entre clientes).
+- Las 85 bajas refieren a cuotas que **no** vienen en el detalle del día (0 de 85 matchean), igual que
+  en la cuenta 87 → se resuelven contra lo ya cargado. Motivos: `1` Pago de Cuota (65), `4` Envio a
+  Gestion Especial (18), `3` Contrato Finalizado (2). **Solo el 1 es plata que entró.**
+- 66 casos (todas asignaciones de 2020) no traen ninguna cuota: se cargan con el total declarado y sin
+  facturas.
+
+### Decisiones tomadas
+
+Ausentes del snapshot → `GES-094` (el archivo es snapshot completo: solo 120 de 854 son del día) ·
+bajas 3 y 4 → factura `ANULADA` + `GES-090`/`SIT-071` · codeudores → contactos con `subtipo='codeudor'`
++ `camposAdicionales` · subida → multi-select con rol detectado por nombre de archivo.
+
+**Pendiente antes de la fase 5:** confirmar con el cedente que `Deudores.txt` trae siempre la cartera
+completa. Si puede venir parcial, desasignar es peligroso y hace falta un guard de variación.
+
+---
+
 ## [2026-07-27] — Tablero: el filtro de remesa muestra el número, y solo las que tienen cartera
 
 > ⚠️ **Redeploy back + front** (solo código, sin migración).
