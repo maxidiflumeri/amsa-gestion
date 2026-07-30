@@ -408,22 +408,24 @@ describe('MultiarchivoProcessor — bajas resueltas por cliente', () => {
 });
 
 describe('MultiarchivoProcessor — contactos del codeudor', () => {
-    it('guarda el subtipo para distinguir al codeudor del titular', async () => {
+    it('guarda la relacion para distinguir al codeudor del titular', async () => {
         const { ctx, contactoCreateMany } = makeCtx();
 
         await new MultiarchivoProcessor().processRow(caso({
             _blocks: [
                 { entity: 'FACTURA', data: { nroFactura: 'C-1', importe: 1, contrato: 'C', detalle: '' } },
                 { entity: 'CONTACTO', data: { tipo: 'telefono', valor: '3416693578' } },
-                { entity: 'CONTACTO', data: { tipo: 'telefono', valor: '3704006898', subtipo: 'codeudor' } },
-                { entity: 'CONTACTO', data: { tipo: 'email', valor: 'co@mail.com', subtipo: 'codeudor' } },
+                { entity: 'CONTACTO', data: { tipo: 'telefono', valor: '3704006898', relacion: 'CODEUDOR' } },
+                { entity: 'CONTACTO', data: { tipo: 'email', valor: 'co@mail.com', relacion: 'CODEUDOR' } },
             ],
         }) as any, ctx);
 
         const insertados = contactoCreateMany.mock.calls[0][0].data;
         // Llamar a un codeudor creyendo que es el titular es un problema real de gestión.
-        expect(insertados.find((c: any) => c.valor === 'co@mail.com').subtipo).toBe('codeudor');
-        expect(insertados.find((c: any) => c.valor.endsWith('6693578')).subtipo).toBeUndefined();
+        expect(insertados.find((c: any) => c.valor === 'co@mail.com').relacion).toBe('CODEUDOR');
+        expect(insertados.find((c: any) => c.valor.endsWith('6693578')).relacion).toBeUndefined();
+        // `subtipo` es el tipo de línea de ENACOM: no se lo pisa con la relación.
+        expect(insertados.every((c: any) => c.subtipo === undefined)).toBe(true);
     });
 });
 

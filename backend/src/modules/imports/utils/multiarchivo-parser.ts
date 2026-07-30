@@ -60,6 +60,9 @@ interface ArchivoParseado {
     filas: string[][];
 }
 
+/** Marca de `contacto.relacion` para los datos que son del codeudor y no del titular. */
+export const RELACION_CODEUDOR = 'CODEUDOR';
+
 /** Cuántos ejemplos se listan en una advertencia agregada antes de cortar. */
 const MAX_EJEMPLOS = 5;
 
@@ -314,8 +317,13 @@ export function parseMultiarchivo(
         const domicilio = armarDomicilio(fDeudores, fila, cfg.deudores.domicilio);
         if (domicilio) camposAdicionales.domicilio = domicilio;
 
-        // Codeudores: sus teléfonos y mail van como contacto del titular marcados con `subtipo`
+        // Codeudores: sus teléfonos y mail van como contacto del titular marcados con `relacion`
         // —para que el gestor sepa a quién está llamando— y su identidad queda en los adicionales.
+        //
+        // Van DESPUÉS de los del titular a propósito: el unique de contacto es (deudorId, tipo,
+        // valor) y titular y codeudor comparten teléfono más de una vez en el archivo real (p. ej.
+        // el cliente 254056 y su codeudor 254057). Al insertarse con `skipDuplicates`, gana el
+        // primero, que es el del titular — que es lo correcto.
         if (cfg.codeudores) {
             const mios = codeudoresPorTitular.get(nroCliente) ?? [];
             if (mios.length > 0) titularesUsados.add(nroCliente);
@@ -328,13 +336,13 @@ export function parseMultiarchivo(
                     if (tel) {
                         blocks.push({
                             entity: 'CONTACTO',
-                            data: { tipo: 'telefono', valor: `${cCodArea}${tel}`, subtipo: 'codeudor' },
+                            data: { tipo: 'telefono', valor: `${cCodArea}${tel}`, relacion: RELACION_CODEUDOR },
                         });
                     }
                 }
                 const cEmail = col(fCodeu!, cfila, cfg.codeudores.email);
                 if (cEmail) {
-                    blocks.push({ entity: 'CONTACTO', data: { tipo: 'email', valor: cEmail, subtipo: 'codeudor' } });
+                    blocks.push({ entity: 'CONTACTO', data: { tipo: 'email', valor: cEmail, relacion: RELACION_CODEUDOR } });
                 }
 
                 const ficha: Record<string, string> = {

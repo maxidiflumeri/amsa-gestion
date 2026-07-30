@@ -211,7 +211,7 @@ describe('multiarchivo-parser — casos base', () => {
 });
 
 describe('multiarchivo-parser — codeudores', () => {
-    it('suma los contactos del codeudor marcados con subtipo y guarda su ficha', () => {
+    it('suma los contactos del codeudor marcados con relacion y guarda su ficha', () => {
         const r = parseMultiarchivo(
             paquete(
                 [deudor({ asig: '1', cli: '433700', tel1: '4702246        ' })],
@@ -223,11 +223,12 @@ describe('multiarchivo-parser — codeudores', () => {
         );
 
         const contactos = contactosDe(r.filas[0]);
-        // El del titular no lleva subtipo; los del codeudor sí, para que el gestor sepa a quién llama.
+        // Los del titular no llevan `relacion`; los del codeudor sí, para que el gestor sepa a quién
+        // llama. Y van después: si comparten teléfono, el unique deja el del titular (ver parser).
         expect(contactos).toEqual([
             { entity: 'CONTACTO', data: { tipo: 'telefono', valor: '3704702246' } },
-            { entity: 'CONTACTO', data: { tipo: 'telefono', valor: '3704006898', subtipo: 'codeudor' } },
-            { entity: 'CONTACTO', data: { tipo: 'email', valor: 'co@mail.com', subtipo: 'codeudor' } },
+            { entity: 'CONTACTO', data: { tipo: 'telefono', valor: '3704006898', relacion: 'CODEUDOR' } },
+            { entity: 'CONTACTO', data: { tipo: 'email', valor: 'co@mail.com', relacion: 'CODEUDOR' } },
         ]);
 
         expect(r.resumen.codeudores).toBe(1);

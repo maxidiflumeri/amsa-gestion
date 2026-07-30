@@ -3,12 +3,12 @@
 **Proyecto:** AMSA Gestión
 **Módulos involucrados:** `imports` (nueva categoría + parser + reuso del processor de MULTIRREGISTRO), `deudores`, `facturas`, `contactos`, frontend `PlantillaEditor` + alta de remesa.
 **Fecha:** 2026-07-30
-**Estado:** **fases 1 a 5 IMPLEMENTADAS** (2026-07-30, ver CHANGELOG). Decisiones D1, D3, D4 y D5
-tomadas; D2 y D6 abiertas con default aplicado. **La carga es operable desde la UI.**
-Falta la fase 6 (codeudores en la ficha del deudor), que no bloquea la operación.
+**Estado:** **COMPLETA — fases 1 a 6 IMPLEMENTADAS** (2026-07-30, ver CHANGELOG). Decisiones D1, D3,
+D4 y D5 tomadas; D2 y D6 abiertas con el default aplicado.
 
-> ⚠️ **Al deployar hace falta `npx prisma db push`** (aditivo: columna `remesa.archivos` + valor
-> `MULTIARCHIVO` en los dos enums de categoría). Ya aplicado en desarrollo, **falta en prod**.
+> ⚠️ **Al deployar hace falta `npx prisma db push`** (todo aditivo: columna `remesa.archivos`, columna
+> `contacto.relacion` y valor `MULTIARCHIVO` en los dos enums de categoría). Ya aplicado en
+> desarrollo, **falta en prod**.
 >
 > ⚠️ **Falta la prueba a mano**: subir los 4 archivos desde el navegador y ejecutar la importación
 > contra la base. Todo está cubierto por tests, pero el flujo real todavía no se corrió.
@@ -405,7 +405,7 @@ al operador (los archivos llegan sueltos). Ver **D5**.
 | **3** ✅ | Enum `MULTIARCHIVO` + columna `remesa.archivos`, registro del processor, `FileFieldsInterceptor`, `roles-multiarchivo.ts` (12 tests), ramas de preview y worker, `multiarchivo-wiring.spec.ts` (7 tests contra el paquete real). | Medio — toca el endpoint de alta de remesa. |
 | **4** ✅ | Frontend: `MultiarchivoDropZone` (subida múltiple con el rol detectado por archivo y diagnóstico previo), `MultiarchivoEditor` (layout + preset TCFA), categoría en el selector, cableado de `PlantillaEditor` e `ImportWizard`. + 6 tests de `createRemesa`. | Medio. |
 | **5** ✅ | Ausentes del snapshot → `GES-094` + re-asignación (D1), con 4 salvaguardas: apagada por default, aborta si el archivo no matcheó nada, acotada a la cartera de la plantilla (nuevo `ctx.plantillaId`) y alerta de proporción ≥50%. + 15 tests. | **Alto** — por eso queda apagada. Activarla requiere confirmar con el cedente que el archivo trae siempre la cartera completa, y probarla con dos bajadas reales consecutivas en una empresa de test. |
-| **6** | Codeudores: contactos con `subtipo='codeudor'` + `camposAdicionales` + **pintar el subtipo en `FichaContactosTab`** (D4). Se puede diferir sin bloquear la operación. | Bajo. |
+| **6** ✅ | Codeudores: nueva columna `contacto.relacion` (`subtipo` ya estaba ocupada por el tipo de línea de ENACOM — ver CHANGELOG), etiqueta CODEUDOR en cada contacto y tarjeta de codeudores en la ficha (D4). | Bajo. |
 
 Fases 1–4 dejan la carga operativa (altas, actualización diaria, bajas con pago parcial). 5 y 6 son
 incrementales.

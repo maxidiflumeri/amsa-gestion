@@ -40,7 +40,13 @@ model contacto {
   valor     String
   prioridad Int?
   validado  Boolean @default(false)
+  // Tipo de línea según los rangos de ENACOM ("MOBILE" | "FIXED_LINE" | ...). Lo usa la ficha para
+  // no dejar marcar un fijo como WhatsApp. NO confundir con `relacion`.
   subtipo   String?
+  // De QUIÉN es el dato: null = del titular; "CODEUDOR" = de un codeudor que informó el cedente
+  // (Toyota TCFA manda los teléfonos del codeudor junto con los del titular). Se muestra en la ficha
+  // para que el gestor sepa a quién está llamando antes de marcar.
+  relacion  String?
   whatsapp  Boolean @default(false)
   deudor    deudor  @relation(fields: [deudorId], references: [id], map: "Contacto_deudorId_fkey")
   llamadas  llamada_neotel[]

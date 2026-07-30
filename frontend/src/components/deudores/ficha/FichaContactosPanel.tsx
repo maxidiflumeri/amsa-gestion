@@ -19,6 +19,7 @@ import WhatsAppIcon from '@mui/icons-material/WhatsApp';
 import LanguageIcon from '@mui/icons-material/Language';
 import HomeIcon from '@mui/icons-material/Home';
 import InfoIcon from '@mui/icons-material/Info';
+import GroupIcon from '@mui/icons-material/Group';
 import AddCircleOutlineIcon from '@mui/icons-material/AddCircleOutline';
 import CheckCircleIcon from '@mui/icons-material/CheckCircle';
 import ErrorOutlineIcon from '@mui/icons-material/ErrorOutline';
@@ -44,6 +45,32 @@ interface Props {
 
 const TOOLTIP_CANCELADA = 'Cuenta cancelada — no se puede modificar';
 
+/** `contacto.relacion` de los datos que el cedente informó del codeudor, no del titular. */
+const RELACION_CODEUDOR = 'CODEUDOR';
+/** Clave de `camposAdicionales` donde el import de MULTIARCHIVO deja la ficha de los codeudores. */
+const CLAVE_CODEUDORES = 'codeudores';
+
+/**
+ * Marca visible en un contacto que NO es del titular.
+ *
+ * Sin esto el gestor no distingue el teléfono del deudor del de su codeudor —llegan mezclados en la
+ * misma lista— y termina reclamándole la deuda a la persona equivocada.
+ */
+const ChipRelacion: React.FC<{ relacion?: string | null }> = ({ relacion }) =>
+    relacion === RELACION_CODEUDOR ? (
+        <Tooltip title="Dato del codeudor, no del titular">
+            <Box
+                component="span"
+                sx={{
+                    ml: 0.5, px: 0.6, borderRadius: 1, fontSize: 10, fontWeight: 700,
+                    letterSpacing: 0.3, bgcolor: 'secondary.main', color: 'common.white',
+                }}
+            >
+                CODEUDOR
+            </Box>
+        </Tooltip>
+    ) : null;
+
 const FichaContactosPanel: React.FC<Props> = ({
     contactos,
     campoExtras,
@@ -68,11 +95,24 @@ const FichaContactosPanel: React.FC<Props> = ({
         }
     };
 
-    const hasExtras = useMemo(
+    // Los codeudores llegan como un array dentro de camposAdicionales; se muestran en su propia
+    // tarjeta y se sacan del grid generico, que los renderizaria como un JSON crudo ilegible.
+    const codeudores: any[] = useMemo(() => {
+        const v = camposAdicionales?.[CLAVE_CODEUDORES];
+        return Array.isArray(v) ? v : [];
+    }, [camposAdicionales]);
+
+    const adicionalesSimples = useMemo(
         () =>
-            (campoExtras && campoExtras.length > 0) ||
-            (camposAdicionales && Object.keys(camposAdicionales).length > 0),
-        [campoExtras, camposAdicionales],
+            Object.keys(camposAdicionales ?? {}).filter(
+                (k) => k !== CLAVE_CODEUDORES && camposAdicionales[k],
+            ),
+        [camposAdicionales],
+    );
+
+    const hasExtras = useMemo(
+        () => (campoExtras && campoExtras.length > 0) || adicionalesSimples.length > 0,
+        [campoExtras, adicionalesSimples],
     );
 
     const renderContactosList = (
@@ -121,6 +161,7 @@ const FichaContactosPanel: React.FC<Props> = ({
                                 label={
                                     <Stack direction="row" alignItems="center" spacing={0.25}>
                                         <Box component="span" sx={{ mr: 0.5 }}>{c.valor}</Box>
+                                        <ChipRelacion relacion={c.relacion} />
                                         <Tooltip title="Copiar al portapapeles">
                                             <IconButton
                                                 size="small"
@@ -251,6 +292,7 @@ const FichaContactosPanel: React.FC<Props> = ({
                                     label={
                                         <Stack direction="row" alignItems="center" spacing={0.25}>
                                             <Box component="span" sx={{ mr: 0.5 }}>{label}</Box>
+                                            <ChipRelacion relacion={c.relacion} />
                                             <Tooltip title={disabled ? TOOLTIP_CANCELADA : esPrincipal ? 'Quitar como principal' : 'Marcar como principal'}>
                                                 <span>
                                                     <IconButton
@@ -346,6 +388,42 @@ const FichaContactosPanel: React.FC<Props> = ({
                 </CardContent>
             </Card>
 
+            {codeudores.length > 0 && (
+                <Card elevation={2} sx={{ mb: 3, borderRadius: 3 }}>
+                    <CardHeader
+                        title={codeudores.length === 1 ? 'Codeudor' : 'Codeudores'}
+                        titleTypographyProps={{ variant: 'h6', fontWeight: 'bold' }}
+                        avatar={<GroupIcon color="secondary" />}
+                        subheader="Informados por el cedente. Sus telefonos y mails figuran arriba marcados como CODEUDOR."
+                        subheaderTypographyProps={{ variant: 'caption' }}
+                    />
+                    <Divider />
+                    <CardContent>
+                        <Stack spacing={2}>
+                            {codeudores.map((cd: any, i: number) => (
+                                <Box key={cd?.nro_cliente ?? i}>
+                                    <Typography variant="body2" fontWeight={600}>
+                                        {cd?.nombre || 'Sin nombre'}
+                                    </Typography>
+                                    <Stack direction="row" spacing={2} flexWrap="wrap" useFlexGap>
+                                        {Object.entries(cd ?? {})
+                                            .filter(([k, v]) => k !== 'nombre' && v)
+                                            .map(([k, v]) => (
+                                                <Typography key={k} variant="caption" color="text.secondary">
+                                                    <Box component="span" sx={{ textTransform: 'uppercase' }}>
+                                                        {k.replace(/_/g, ' ')}
+                                                    </Box>
+                                                    : {String(v)}
+                                                </Typography>
+                                            ))}
+                                    </Stack>
+                                </Box>
+                            ))}
+                        </Stack>
+                    </CardContent>
+                </Card>
+            )}
+
             {hasExtras && (
                 <Card elevation={2} sx={{ borderRadius: 3 }}>
                     <CardHeader
@@ -356,25 +434,23 @@ const FichaContactosPanel: React.FC<Props> = ({
                     <Divider />
                     <CardContent>
                         <Grid container spacing={2}>
-                            {camposAdicionales &&
-                                Object.keys(camposAdicionales).map((key) => {
-                                    const valor = camposAdicionales[key];
-                                    if (!valor) return null;
-                                    return (
-                                        <Grid item xs={6} key={key}>
-                                            <Typography
-                                                variant="caption"
-                                                color="text.secondary"
-                                                sx={{ textTransform: 'uppercase', display: 'block' }}
-                                            >
-                                                {key.replace(/_/g, ' ')}
-                                            </Typography>
-                                            <Typography variant="body2" fontWeight="500">
-                                                {typeof valor === 'object' ? JSON.stringify(valor) : valor}
-                                            </Typography>
-                                        </Grid>
-                                    );
-                                })}
+                            {adicionalesSimples.map((key) => {
+                                const valor = camposAdicionales[key];
+                                return (
+                                    <Grid item xs={6} key={key}>
+                                        <Typography
+                                            variant="caption"
+                                            color="text.secondary"
+                                            sx={{ textTransform: 'uppercase', display: 'block' }}
+                                        >
+                                            {key.replace(/_/g, ' ')}
+                                        </Typography>
+                                        <Typography variant="body2" fontWeight="500">
+                                            {typeof valor === 'object' ? JSON.stringify(valor) : valor}
+                                        </Typography>
+                                    </Grid>
+                                );
+                            })}
                             {campoExtras &&
                                 campoExtras.map((extra: any) => (
                                     <Grid item xs={6} key={extra.id}>

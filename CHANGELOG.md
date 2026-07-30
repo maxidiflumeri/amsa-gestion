@@ -6,6 +6,48 @@
 
 ---
 
+## [2026-07-30] — Toyota TCFA (fase 6): codeudores visibles en la ficha
+
+> ⚠️ **Redeploy back + front + `npx prisma db push`** (nueva columna `contacto.relacion`, aditiva).
+
+Última fase. Cierra la funcionalidad de TCFA: los codeudores que informa el cedente ya se cargaban,
+pero el gestor no los distinguía del titular en la ficha.
+
+### El bug que destapó: `subtipo` ya estaba ocupado
+
+La fase 2 marcaba los contactos del codeudor con `contacto.subtipo = 'codeudor'`. **Esa columna ya
+tiene dueño**: guarda el tipo de línea según los rangos de ENACOM (`MOBILE` / `FIXED_LINE`) y la ficha
+la usa para **no dejar marcar un teléfono fijo como WhatsApp**
+(`FichaContactosPanel`: `const esFijo = c.subtipo === 'FIXED_LINE'`).
+
+Pisarla con `'codeudor'` rompía ese guard justo para los teléfonos del codeudor: se podía marcar un
+fijo como WhatsApp y el envío iba a fallar en silencio. Apareció al abrir la ficha para la fase 6, no
+antes: en el backend las dos cosas convivían sin quejarse.
+
+**Arreglo: columna propia.** `contacto.relacion String?` — `null` = del titular, `"CODEUDOR"` = del
+codeudor. El schema documenta los dos campos y por qué no hay que confundirlos.
+
+### Backend
+
+- `contacto.relacion` (aditiva, nullable). El detalle del deudor la devuelve sola (`contactos: true`).
+- El parser emite `relacion: 'CODEUDOR'` y el processor la persiste; se sacó el paso de `subtipo`.
+- Los contactos del codeudor se emiten **después** de los del titular a propósito: el unique es
+  `(deudorId, tipo, valor)` y en el archivo real hay casos que comparten teléfono (el cliente 254056
+  y su codeudor 254057). Con `skipDuplicates` gana el primero, que es el del titular.
+
+### Frontend
+
+- Los contactos del codeudor llevan una etiqueta **CODEUDOR** al lado del valor, en teléfonos, mails,
+  direcciones y redes. Llamar a un codeudor creyendo que es el titular y reclamarle la deuda a la
+  persona equivocada es un problema de gestión real, no cosmético.
+- Tarjeta **Codeudores** con nombre, CUIT y domicilio de cada uno, desde
+  `camposAdicionales.codeudores`. Esa clave se saca del grid de "Datos Adicionales", donde caía en el
+  `JSON.stringify` del render genérico y se veía como un chorizo ilegible.
+
+Con esto la carga de Toyota TCFA queda completa (fases 1 a 6).
+
+---
+
 ## [2026-07-30] — Toyota TCFA (fase 5): desasignación de ausentes del snapshot
 
 > ⚠️ **Redeploy back + front.** Sin cambios de schema.

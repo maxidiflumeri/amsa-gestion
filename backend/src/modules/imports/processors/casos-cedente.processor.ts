@@ -562,7 +562,7 @@ export abstract class CasosCedenteProcessor implements ICategoryProcessor {
      * basura evidente (ceros, secuencias de relleno) se descarta.
      */
     private async upsertContactos(deudorId: number, row: MappedRow, ctx: ProcessContext): Promise<void> {
-        const nuevos: Array<{ deudorId: number; tipo: string; valor: string; validado: boolean; subtipo?: string }> = [];
+        const nuevos: Array<{ deudorId: number; tipo: string; valor: string; validado: boolean; relacion?: string }> = [];
 
         for (const b of row._blocks ?? []) {
             if (b.entity !== 'CONTACTO' || !b.data.valor) continue;
@@ -580,10 +580,12 @@ export abstract class CasosCedenteProcessor implements ICategoryProcessor {
                 }
             }
             if (!valor) continue;
-            // El `subtipo` distingue de quién es el dato: TCFA manda los teléfonos del codeudor
-            // junto con los del titular y llamar a uno creyendo que es el otro es un problema real.
-            const subtipo = b.data.subtipo ? String(b.data.subtipo) : undefined;
-            nuevos.push({ deudorId, tipo, valor, validado, ...(subtipo ? { subtipo } : {}) });
+            // `relacion` dice de QUIÉN es el dato: TCFA manda los teléfonos del codeudor junto con
+            // los del titular, y llamar a uno creyendo que es el otro es un problema real de
+            // gestión. Va en su propia columna y no en `subtipo`, que guarda el tipo de línea de
+            // ENACOM y decide si se puede marcar como WhatsApp.
+            const relacion = b.data.relacion ? String(b.data.relacion) : undefined;
+            nuevos.push({ deudorId, tipo, valor, validado, ...(relacion ? { relacion } : {}) });
         }
 
         if (nuevos.length > 0) {
