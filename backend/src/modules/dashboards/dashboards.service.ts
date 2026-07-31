@@ -4,6 +4,7 @@ import { PrismaService } from 'src/prisma/prisma.service';
 import { CODIGOS, RANGO_MAX_DIAS } from './codigos.constants';
 import { SnapshotDto } from './dtos/snapshot.dto';
 import { DrillDownDto } from './dtos/drill-down.dto';
+import { resolverRango } from './rango-fechas';
 import {
     BucketItem,
     DistribucionItem,
@@ -45,14 +46,9 @@ export class DashboardsService {
 
     async snapshot(dto: SnapshotDto, restrictEmpresaId: number | null): Promise<SnapshotResponse> {
         const t0 = Date.now();
-        const desde = new Date(dto.desde);
-        const hasta = new Date(dto.hasta);
-        if (isNaN(desde.getTime()) || isNaN(hasta.getTime())) {
-            throw new BadRequestException('Fechas inválidas');
-        }
-        if (desde > hasta) {
-            throw new BadRequestException('"desde" debe ser <= "hasta"');
-        }
+        // Días COMPLETOS en hora local: `new Date('2026-07-31')` es medianoche UTC y dejaba
+        // afuera todo el último día del rango. Ver `rango-fechas.ts`.
+        const { desde, hasta } = resolverRango(dto.desde, dto.hasta);
         const diffDias = Math.ceil((hasta.getTime() - desde.getTime()) / 86_400_000);
         if (diffDias > RANGO_MAX_DIAS) {
             throw new BadRequestException(`Rango máximo permitido: ${RANGO_MAX_DIAS} días`);
@@ -490,12 +486,7 @@ export class DashboardsService {
     // ── Drill-down ───────────────────────────────────────────────────────
 
     async drillDown(dto: DrillDownDto, restrictEmpresaId: number | null): Promise<DrillDownResponse> {
-        const desde = new Date(dto.desde);
-        const hasta = new Date(dto.hasta);
-        if (isNaN(desde.getTime()) || isNaN(hasta.getTime())) {
-            throw new BadRequestException('Fechas inválidas');
-        }
-        if (desde > hasta) throw new BadRequestException('"desde" debe ser <= "hasta"');
+        const { desde, hasta } = resolverRango(dto.desde, dto.hasta);
 
         const empresaIdEfectivo = restrictEmpresaId ?? dto.empresaId ?? null;
         const page = Math.max(1, dto.page ?? 1);

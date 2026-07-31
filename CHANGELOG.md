@@ -6,6 +6,52 @@
 
 ---
 
+## [2026-07-31] — Tablero: el rango de fechas se comía el último día (y subestimaba la cobranza)
+
+> ⚠️ **Redeploy back.** Sin cambios de schema ni de frontend.
+
+Reportado como una incongruencia visual: para una remesa, las tarjetas de arriba decían
+**"Pagos del período $0" y "Casos con pago 0"**, pero el funnel de más abajo decía **"Con pago 16"**.
+
+La causa no era el funnel: era el **rango de fechas**. `new Date('2026-07-31')` devuelve **medianoche
+UTC**, que en Argentina (UTC−3) son las **21:00 del 30/07**. O sea que el rango del tablero estaba
+corrido tres horas hacia atrás en las dos puntas:
+
+- **`hasta`**: todo lo del **último día del rango quedaba afuera**. Los pagos que genera el import
+  quedan a medianoche local (`2026-07-31T03:00:00Z`), o sea justo del lado de afuera.
+- **`desde`**: entraban de más las **últimas 3 horas del día anterior** al inicio del rango.
+
+### No era solo esa remesa: venía subestimando toda la cobranza
+
+Medido sobre producción con el rango 01/07–31/07:
+
+| Remesa | Antes | Después |
+|---|---|---|
+| 00003 | $0 · 0 casos | **$24.118.853 · 16 casos** |
+| 00001 | $54.305.123 · 28 casos | **$80.704.462 · 43 casos** |
+
+La 00001 no se veía "rota" —mostraba un número plausible— pero le faltaban **$26,4 M y 15 casos**.
+El síntoma visible fue la 00003 solo porque ahí *todos* los pagos caían el último día.
+
+El bug afectaba a todo lo que se filtra por fecha: pagos del período, % recupero, ticket promedio,
+casos con pago, mora promedio (que por eso mostraba "—"), y las series de pagos y de gestiones, a las
+que siempre les faltaba el último día.
+
+- Nuevo helper [rango-fechas.ts](backend/src/modules/dashboards/rango-fechas.ts): interpreta el
+  `YYYY-MM-DD` del front en hora **local** y devuelve el día completo (`00:00:00.000` a
+  `23:59:59.999`). Usado por `snapshot()` y por `drillDown()`, que tenían el mismo parseo duplicado.
+- 9 tests sobre los bordes, que es justamente donde fallaba.
+
+### Queda una diferencia de criterio (no es bug)
+
+El KPI **"Casos con pago"** cuenta deudores con un pago **dentro del período**; el funnel **"Con
+pago"** suma además los que están en situación *Pagando* o *Cancelado/Pagado*, **sin mirar la fecha**.
+Con el rango arreglado los dos dan 16 en el caso reportado, pero pueden seguir difiriendo: un caso
+cancelado en mayo cuenta en el funnel aunque se mire el tablero de julio. Es defendible (el funnel es
+estado acumulado, el KPI es actividad del período), pero los rótulos no lo dejan claro.
+
+---
+
 ## [2026-07-30] — Toyota TCFA: el domicilio va como contacto, no como dato adicional
 
 > ⚠️ **Redeploy back + front.** Sin cambios de schema.
