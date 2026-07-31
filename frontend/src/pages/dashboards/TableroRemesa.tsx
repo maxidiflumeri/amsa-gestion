@@ -135,7 +135,10 @@ const TableroRemesa: React.FC = () => {
                             </SectionCard>
                         </Grid>
                         <Grid item xs={12} md={6}>
-                            <SectionCard title="Funnel de gestión">
+                            <SectionCard
+                                title="Funnel de gestión"
+                                subtitle="Estado actual de la cartera — no depende del período seleccionado"
+                            >
                                 <FunnelGestion data={data.funnel} />
                             </SectionCard>
                         </Grid>

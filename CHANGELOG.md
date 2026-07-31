@@ -6,6 +6,51 @@
 
 ---
 
+## [2026-07-31] — Tablero: el funnel mide estado, los KPIs miden período
+
+> ⚠️ **Redeploy back + front.** Sin cambios de schema.
+
+Continuación del arreglo del rango de fechas (abajo). Resuelta la causa principal, quedaba una
+diferencia de criterio: el KPI **"Casos con pago"** contaba pagos *del período* y el funnel
+**"Con pago"** sumaba además los casos en situación *Pagando* / *Cancelado*, **sin mirar la fecha**.
+
+Mirando cómo se calculan los otros escalones, quedó claro cuál de los dos estaba fuera de lugar:
+
+| Escalón | Cómo se calculaba |
+|---|---|
+| Asignados | estado actual — sin fecha |
+| Contactados | situación categoría CONTACTADO — sin fecha |
+| Con promesa | situación/gestión de promesa — sin fecha |
+| **Con pago** | situación **+ pagos del período** ← el único mezclado |
+
+**El funnel pasa a ser íntegramente estado acumulado**: "con pago" = casos con *algún* pago
+registrado ∪ casos en situación Pagando/Cancelado, sin filtrar por fecha. Ahora los cuatro escalones
+miden lo mismo y sus proporciones son comparables entre sí.
+
+**No se hizo lo inverso** (que el funnel respete el período) porque **no hay dato para hacerlo bien**:
+no existe histórico de transiciones de estado, así que "contactado dentro de julio" habría que
+reconstruirlo desde la tabla de auditoría, que guarda el detalle en un JSON sin índice. Caro y frágil
+para algo que se recalcula en cada refresh.
+
+No son dos versiones del mismo número, son dos preguntas distintas — y las dos sirven:
+
+- **KPI** → *¿cuánto entró este mes?* Es lo que justifica el selector de fechas.
+- **Funnel** → *¿en qué estado está la cartera?* Foto acumulada.
+
+Por eso el cambio se completa **rotulándolo**, que era lo que faltaba: el KPI pasa a
+**"Casos con pago (período)"** con la aclaración *"Dentro del rango de fechas"*, y el funnel lleva el
+subtítulo *"Estado actual de la cartera — no depende del período seleccionado"*.
+
+De paso, el cálculo pasa de dos queries + un `Set` en memoria a **un solo `count` con `OR`**, que
+deduplica en la base.
+
+> Efecto a tener en cuenta: en carteras con pagos viejos, el "Con pago" del funnel va a mostrar más
+> que antes, porque ya no se limita a los del período. Es lo correcto —es coherente con "Contactados",
+> que siempre funcionó así— pero va a llamar la atención el primer día. En las dos remesas de Toyota
+> el número no cambia (16 y 43): todos sus pagos caen dentro del período.
+
+---
+
 ## [2026-07-31] — Tablero: el rango de fechas se comía el último día (y subestimaba la cobranza)
 
 > ⚠️ **Redeploy back.** Sin cambios de schema ni de frontend.

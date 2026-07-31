@@ -136,6 +136,7 @@ export class DashboardsService {
             moraRaw,
             funnelContactadosCount,
             funnelConPromesaCount,
+            funnelConPagoCount,
             topDeudoresRaw,
         ] = await Promise.all([
             this.prisma.deudor.count({ where }),
@@ -187,6 +188,20 @@ export class DashboardsService {
                     OR: [
                         ...(idsConPromesaEstado.length ? [{ estadoSituacionId: { in: idsConPromesaEstado } }] : []),
                         ...(idPromesaGestion > 0 ? [{ estadoGestionId: idPromesaGestion }] : []),
+                    ],
+                },
+            }),
+            // Funnel "Con pago": estado ACUMULADO, sin filtrar por período — igual que los otros
+            // tres escalones (asignados, contactados, con promesa), que son todos foto del estado
+            // actual. Antes acá se cruzaban los pagos DEL PERÍODO con la situación, así que el
+            // funnel mezclaba dos relojes y sus proporciones no eran comparables entre sí.
+            // El KPI "casos con pago" sí mira el período: responde otra pregunta.
+            this.prisma.deudor.count({
+                where: {
+                    ...where,
+                    OR: [
+                        { pagos: { some: {} } },
+                        ...(idsConPagoEstado.length ? [{ estadoSituacionId: { in: idsConPagoEstado } }] : []),
                     ],
                 },
             }),
@@ -268,17 +283,6 @@ export class DashboardsService {
             estadoSituacion: d.estadoSituacion?.descripcion ?? null,
         }));
 
-        // ── Funnel: con pago vía estado terminal + via pagos efectivos ────
-        const idsPagaron = new Set(casosConPagoArr.map(p => p.deudorId));
-        const conPagoPorEstado = idsConPagoEstado.length
-            ? await this.prisma.deudor.findMany({
-                where: { ...where, estadoSituacionId: { in: idsConPagoEstado } },
-                select: { id: true },
-            })
-            : [];
-        for (const d of conPagoPorEstado) idsPagaron.add(d.id);
-        const funnelConPago = idsPagaron.size;
-
         const pagosPeriodo = pagosAgg._sum.importe ?? 0;
         const deudaTotal = deudaAgg._sum.montoTotal ?? 0;
         const ticketPromedio = pagosAgg._avg.importe ?? 0;
@@ -320,7 +324,7 @@ export class DashboardsService {
                 asignados: cantidadCasos,
                 contactados: funnelContactadosCount,
                 conPromesa: funnelConPromesaCount,
-                conPago: funnelConPago,
+                conPago: funnelConPagoCount,
             },
             meta: {
                 empresaId: empresaRec?.id ?? null,

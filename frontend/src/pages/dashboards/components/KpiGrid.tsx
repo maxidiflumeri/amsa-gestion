@@ -37,7 +37,7 @@ const KpiGrid: React.FC<Props> = ({ kpis }) => {
             </Grid>
 
             <Grid item xs={6} sm={4} md={3}>
-                <KpiCard label="Casos con pago" value={fmtNumber(kpis.casosConPago)} icon={<GroupIcon />} />
+                <KpiCard label="Casos con pago (período)" value={fmtNumber(kpis.casosConPago)} hint="Dentro del rango de fechas" icon={<GroupIcon />} />
             </Grid>
             <Grid item xs={6} sm={4} md={3}>
                 <KpiCard label="Ticket promedio" value={fmtMoneyShort(kpis.ticketPromedio)} hint={fmtMoney(kpis.ticketPromedio)} icon={<ReceiptLongIcon />} />
