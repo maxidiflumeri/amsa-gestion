@@ -115,6 +115,32 @@ Filtro de filas: **`Imp. cobrado` > 0**. Sin eso se cargan 2.555 pagos de $0.
 | `nro_cliente` | `Cta. Cto.` |
 | `importe` | `Imp. cobrado` |
 | `fecha` | `F. cobro` |
+| `observacion` | `Nro. docum.` — **no es opcional**, ver abajo |
+
+#### El nº de partida no es un adorno: sin él se pierde el 13,3% de la cobranza
+
+`PagosProcessor` tiene un anti-duplicados que saltea un pago si ya existe otro **del mismo deudor,
+mismo día y mismo importe**. Existe para que reimportar un archivo acumulativo no duplique pagos, y
+con las otras carteras funciona bien.
+
+Con AYSA es destructivo, porque los clientes cancelan varias cuotas **iguales** de un plan el mismo
+día. Medido sobre el archivo del 25/07:
+
+| | |
+|---|---|
+| Filas con cobro | 1.997 · **$18.353.107,86** |
+| Combinaciones distintas de (cuenta, fecha, importe) | 1.192 |
+| Filas que el anti-duplicados saltearía | **805 → $2.443.138,61 (13,3%)** |
+
+El caso extremo: la cuenta `000003462007` canceló **36 partidas de $195,04 el 17/07** y quedaba
+registrada una sola.
+
+La solución es mapear `Nro. docum.` a `observacion`: el anti-duplicados lo incorpora al criterio, así
+que dos cobros del mismo día e importe pero de partidas distintas dejan de ser "el mismo pago". De
+paso, el gestor ve en la ficha qué factura pagó cada cobro.
+
+El comportamiento **no cambia para las plantillas que no mapean `observacion`**: ahí el criterio
+sigue siendo deudor + día + importe.
 
 ### 3.4 Desasignaciones + extinciones → ACCIONES
 
@@ -190,10 +216,9 @@ Contactos cargados: 21.335 direcciones, 13.762 teléfonos, 11.702 emails.
 Los 483 errores de las novedades son cuentas que no están en el paquete de junio: las novedades son de
 julio y la cartera cambió entre las dos bajadas. No es un problema de la carga.
 
-> Los 944 pagos sobre 1.514 filas procesadas son efecto del anti-duplicados de `PagosProcessor`, que
-> saltea un pago del mismo deudor, mismo día y mismo importe. En AYSA eso puede fusionar dos cuotas
-> distintas de un mismo plan cobradas juntas. Es comportamiento previo del processor, no de esta
-> carga, pero conviene tenerlo presente al conciliar.
+> Esa corrida se hizo **antes** de mapear `observacion`, así que los 944 pagos sobre 1.514 filas son
+> el anti-duplicados fusionando cuotas iguales del mismo día (§3.3). Con el mapeo corregido tiene que
+> registrar una fila por partida cobrada.
 
 ### Performance
 

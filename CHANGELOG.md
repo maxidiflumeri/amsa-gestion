@@ -6,6 +6,38 @@
 
 ---
 
+## [2026-08-10] — Pagos: el anti-duplicados se comía el 13,3% de la cobranza de AYSA
+
+> ⚠️ **Redeploy back.** Sin cambios de schema. Continuación de la entrada de abajo.
+
+Apareció al crear las plantillas de AYSA en producción, antes de la primera carga real.
+
+`PagosProcessor` saltea un pago si ya existe otro **del mismo deudor, mismo día y mismo importe**.
+Es el anti-duplicados que hace idempotente reimportar un archivo acumulativo, y con las otras
+carteras funciona bien.
+
+Con AYSA es destructivo, porque los clientes cancelan varias cuotas **iguales** de un plan de pago el
+mismo día. Sobre el archivo del 25/07:
+
+| | |
+|---|---|
+| Filas con cobro | 1.997 · **$18.353.107,86** |
+| Combinaciones distintas de (cuenta, fecha, importe) | 1.192 |
+| Filas que se saltearían | **805 → $2.443.138,61 (13,3%)** |
+
+El caso extremo: la cuenta `000003462007` canceló **36 partidas de $195,04 el 17/07** y quedaba una
+sola registrada.
+
+**El arreglo**: si la plantilla mapea un identificador del comprobante en `observacion`, ese campo
+entra en el criterio del anti-duplicados. Dos cobros del mismo día e importe pero de comprobantes
+distintos dejan de ser "el mismo pago", y reimportar el mismo comprobante sigue siendo idempotente.
+De paso, el gestor ve en la ficha qué factura pagó cada cobro.
+
+**Las plantillas que no mapean `observacion` no cambian**: ahí el criterio sigue siendo deudor + día
++ importe. 7 tests nuevos, incluido el caso de las 36 cuotas.
+
+---
+
 ## [2026-08-10] — AYSA: varios archivos por remesa + ancho fijo
 
 > ⚠️ **Redeploy back + front.** Sin cambios de schema (`remesa.archivos` ya existe desde TCFA fase 3).

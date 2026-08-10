@@ -61,6 +61,12 @@ export class PagosProcessor implements ICategoryProcessor {
 
         const importe = row.importe ?? row.monto ?? 0;
 
+        // Identificador del comprobante que cobró, si la plantilla lo mapea. Se guarda en el pago y
+        // participa del anti-duplicados de más abajo.
+        const observacion = row.observacion != null && String(row.observacion).trim() !== ''
+            ? String(row.observacion).trim()
+            : null;
+
         // Fecha del pago: se respeta la mapeada en la plantilla (campo `fecha`, o su alias
         // `fechaPago` que expone la UI). Si no vino o es inválida, se usa la fecha del día.
         const fechaRaw = row.fecha ?? row.fechaPago;
@@ -106,6 +112,19 @@ export class PagosProcessor implements ICategoryProcessor {
                     origen: 'IMPORT_PAGOS',
                     importe,
                     fecha: { gte: inicioDia, lte: finDia },
+                    // Si la plantilla mapea un identificador del comprobante en `observacion`, dos
+                    // cobros del mismo día y el mismo importe pero de comprobantes distintos NO son
+                    // el mismo pago: hay que registrar los dos.
+                    //
+                    // Sin esto, un cliente que cancela varias cuotas iguales de un plan el mismo día
+                    // queda con un solo pago registrado. Medido sobre el archivo de AYSA del 25/07:
+                    // de 1.997 cobros por $18.353.107, se guardaban 1.192 y se perdían $2.443.138
+                    // —el 13,3% de la cobranza—; una sola cuenta pagó 36 partidas de $195,04 el
+                    // mismo día.
+                    //
+                    // Las plantillas que no mapean `observacion` no cambian: el criterio sigue
+                    // siendo deudor + día + importe.
+                    ...(observacion ? { observacion } : {}),
                 },
                 select: { id: true },
             });
@@ -123,7 +142,7 @@ export class PagosProcessor implements ICategoryProcessor {
                     importe,
                     origen: 'IMPORT_PAGOS',
                     origenArchivo: row.origenArchivo ?? null,
-                    observacion: row.observacion ?? null,
+                    observacion,
                 },
             });
         }
