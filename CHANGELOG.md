@@ -6,6 +6,75 @@
 
 ---
 
+## [2026-08-10] — Neotel: la integración pasa a ser por la Toolbar (adiós softphone propio)
+
+> ⚠️ **Redeploy front.** Sin cambios de schema ni de backend. **El cambio de headers en CloudFront ya
+> está aplicado en producción** (ver abajo).
+
+Neotel resolvió lo que veníamos empujando desde mayo, pero por el lado opuesto: en vez de que nosotros
+metamos un softphone WebRTC en la app, **su Toolbar hostea AMSA Gestión en un iframe** y ella pone el
+audio. Spec completo en [docs/neotel-toolbar-spec.md](docs/neotel-toolbar-spec.md).
+
+| | Plan original | Toolbar |
+|---|---|---|
+| Quién contiene a quién | nosotros embebemos el softphone | la Toolbar nos embebe |
+| Audio | nuestro, JsSIP sobre WSS | de Neotel |
+| Estado, pausas, campañas | nuestros, contra la API ASMX | de Neotel |
+| Nuestro trabajo | todo | mostrar la ficha correcta cuando entra la llamada |
+
+**Queda descartado**: el Sprint 3 del plan viejo (softphone JsSIP), el upgrade de Asterisk a
+chan_pjsip + WSS, y el certificado de `sip.anamayasa.com`. El de `neotel.anamayasa.com` **sí** está en
+uso —sirve la Toolbar en el 8443— y **vence el 2026-09-24**.
+
+La capa de sesión / estado / campañas de `modules/neotel/` queda **en stand-by**, no eliminada: el
+agente maneja eso desde la Toolbar, y mostrar además nuestro panel llevaría a que la UI diga una cosa
+y la central otra.
+
+### Frontend
+
+- **`EmbeddedShell`** — el `AppShell` sin barra superior ni menú lateral. Dentro del iframe esos dos
+  solo comen el alto que el operador necesita para gestionar.
+- **`TelefoniaCaso`** (`/telefonia/caso?id=[[CLAVE]]&data=[[DATA]]`) — la ficha que abre la llamada.
+  `[[CLAVE]]` es el **id interno del deudor**, así que no hay que resolver por documento (que en varias
+  carteras no es único) ni por teléfono.
+- **`TelefoniaHome`** (`/telefonia/home`) — lo que ve el agente conectado sin llamada.
+- **`Login`** ahora vuelve a la ruta original en vez de a `/`: si al operador le tocaba loguearse justo
+  cuando entraba una llamada, terminaba en la home con menú en lugar de en la ficha del caso.
+
+### Infra: `frame-ancestors` en vez de `X-Frame-Options`
+
+CloudFront servía `x-frame-options: DENY` — cualquier iframe quedaba en blanco. No alcanzaba con
+`SAMEORIGIN` porque la Toolbar es otro origen, y ese header solo sabe decir "nadie" o "solo yo".
+La policy `amsa-gestion-security-headers` pasa a:
+
+```
+content-security-policy: frame-ancestors 'self' https://neotel.anamayasa.com:8443 https://neotel.anamayasa.com
+```
+
+`X-Frame-Options` se **removió**: varios navegadores le dan prioridad sobre el CSP y volvería a
+bloquear. Para el resto de la web quedamos más restrictivos que antes — solo esos dos orígenes.
+
+### El detalle que hace que esto funcione
+
+Los navegadores particionan `localStorage` por **sitio**, no por dirección exacta. Como la Toolbar está
+en `neotel.anamayasa.com` y nosotros en `amsagestion.anamayasa.com`, los dos son `anamayasa.com`: **el
+mismo sitio**, así que el iframe ve la sesión que el operador ya tiene abierta.
+
+Si la Toolbar quedara en `http://200.5.98.203` —la IP que aparece en la documentación de Neotel— eso
+sería *otro* sitio y **al operador le pediría login en cada llamada**. Mismo código, mismo navegador;
+lo único que cambia es la dirección. Por suerte ya estaba servida por su dominio.
+
+El puerto no altera el sitio (`:8443` sigue siendo `anamayasa.com`), pero **sí** importa en
+`frame-ancestors`, donde el origen se compara completo — de ahí que la directiva lo incluya.
+
+### Pendiente
+
+Probar con una campaña real, y preguntarle a Neotel si hay **`postMessage`** entre la Toolbar y el
+iframe. Sin eso la integración es de una sola vía: nos abren la ficha, pero no nos enteramos de cuándo
+se cortó la llamada.
+
+---
+
 ## [2026-08-10] — Pagos: el anti-duplicados se comía el 13,3% de la cobranza de AYSA
 
 > ⚠️ **Redeploy back.** Sin cambios de schema. Continuación de la entrada de abajo.

@@ -21,11 +21,25 @@ import UsuariosPage from '../pages/admin/UsuariosPage';
 import NeotelTestPage from '../pages/admin/NeotelTestPage';
 import AuditoriaPage from '../pages/auditoria/AuditoriaPage';
 import DashboardsPage from '../pages/dashboards/DashboardsPage';
+import EmbeddedShell from '../components/layout/EmbeddedShell';
+import TelefoniaCaso from '../pages/telefonia/TelefoniaCaso';
+import TelefoniaHome from '../pages/telefonia/TelefoniaHome';
 
 const AppRoutes = () => {
     return (
         <Routes>
             <Route path="/login" element={<Login />} />
+
+            {/*
+              Rutas que abre la toolbar de Neotel. Van con un layout sin menú ni barra superior
+              porque corren dentro de un iframe, donde ese espacio hace falta para gestionar.
+              Ver docs/neotel-toolbar-spec.md.
+            */}
+            <Route path="/telefonia" element={<PrivateRoute><EmbeddedShell /></PrivateRoute>}>
+                <Route index element={<TelefoniaHome />} />
+                <Route path="home" element={<TelefoniaHome />} />
+                <Route path="caso" element={<TelefoniaCaso />} />
+            </Route>
 
             <Route path="/" element={<PrivateRoute><AppShell /></PrivateRoute>}>
                 <Route index element={<Inicio />} />

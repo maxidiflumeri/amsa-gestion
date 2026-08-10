@@ -8,7 +8,7 @@ import {
     Typography,
     useTheme,
 } from '@mui/material';
-import { useNavigate } from 'react-router-dom';
+import { useLocation, useNavigate } from 'react-router-dom';
 import { GoogleLogin, CredentialResponse } from '@react-oauth/google';
 import { SectionCard } from '../components/ui';
 import { useNotify } from '../hooks/useNotify';
@@ -18,7 +18,17 @@ import logoAmsa from '../assets/logo-amsa-gestion.png';
 const Login: React.FC = () => {
     const theme = useTheme();
     const navigate = useNavigate();
+    const location = useLocation();
     const notify = useNotify();
+    /**
+     * Adónde volver después de entrar. `PrivateRoute` deja acá la ruta que el usuario quiso abrir.
+     *
+     * Importa sobre todo con la toolbar de Neotel: si al operador le toca loguearse justo cuando
+     * entra una llamada, tiene que volver a la ficha del caso (`/telefonia/caso?id=…`) y no a la
+     * home, que además viene con el menú que en el iframe no queremos.
+     */
+    const destino = (location.state as { from?: { pathname?: string; search?: string } } | null)?.from;
+    const volverA = destino?.pathname ? `${destino.pathname}${destino.search ?? ''}` : '/';
     const { login } = useAuth();
     const [loading, setLoading] = useState(false);
     const isDark = theme.palette.mode === 'dark';
@@ -32,7 +42,7 @@ const Login: React.FC = () => {
         setLoading(true);
         try {
             await login(idToken);
-            navigate('/');
+            navigate(volverA, { replace: true });
         } catch (err: any) {
             const mensaje =
                 err?.response?.data?.message ||

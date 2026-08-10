@@ -1,5 +1,13 @@
 # Plan de Integración Neotel → AMSA Gestión (AMSA Cobranzas)
 
+> ⚠️ **PLAN SUPERADO (2026-08-10).** Neotel resolvió la integración por su **Toolbar**, que ya tiene
+> softphone propio y hostea nuestra app en un iframe. El Sprint 3 (softphone WebRTC con JsSIP), el
+> upgrade de Asterisk y el certificado de `sip.anamayasa.com` **quedan descartados**.
+>
+> Lo vigente está en **[neotel-toolbar-spec.md](neotel-toolbar-spec.md)**. Este documento se conserva
+> como registro del análisis y de las decisiones de la capa de API, que sigue implementada.
+
+
 > **Objetivo:** reemplazar completamente XLite como softphone de los operadores de Ana Maya SA, integrando todas las funcionalidades de telefonía (audio, registro de estado, gestión de campañas, llamadas inbound/outbound, grabación, transferencias, etc.) dentro de la aplicación web AMSA Gestión.
 
 > **Stack destino:** NestJS + TypeScript + Prisma + MySQL (backend) / React + Vite + MUI v5 (frontend) / BullMQ + Redis (jobs y estado) / Socket.io (push real-time) / Winston (logging — nunca `console.log`).
