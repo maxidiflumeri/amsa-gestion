@@ -117,6 +117,96 @@ export interface MappingJson {
     multirregistro?: MultirregistroConfig;
     /** Config de la categoría MULTIARCHIVO (paquete de varios archivos que se cargan juntos). */
     multiarchivo?: MultiarchivoConfig;
+    /**
+     * Cómo están separados los campos del archivo. Ausente o `DELIMITADO` = comportamiento clásico
+     * (el separador de la plantilla, o las celdas si es un Excel). Aditivo: ninguna plantilla ya
+     * guardada cambia de comportamiento.
+     */
+    formato?: FormatoArchivo;
+    /** Layout de las columnas cuando `formato` es `ANCHO_FIJO`. Ver {@link AnchoFijoConfig}. */
+    anchoFijo?: AnchoFijoConfig;
+    /**
+     * Condiciones que una fila del archivo tiene que cumplir para importarse. Ver {@link FiltroFila}.
+     * Ausente o vacío = entran todas (comportamiento clásico).
+     */
+    filtroFilas?: FiltroFila[];
+}
+
+/* ────────────────────────────────────────────────────────────────────────────
+ * FILTRO DE FILAS — qué subconjunto del archivo se importa
+ * ──────────────────────────────────────────────────────────────────────────── */
+
+/**
+ * Comparadores del filtro de filas. Los de texto no distinguen mayúsculas; `MAYOR` y `MENOR`
+ * comparan como número y descartan la fila si el valor no lo es.
+ */
+export type OperadorFiltro =
+    | 'IGUAL' | 'DISTINTO' | 'CONTIENE'
+    | 'MAYOR' | 'MENOR'
+    | 'VACIO' | 'NO_VACIO';
+
+/**
+ * Una condición sobre una columna de la fila cruda. Las condiciones de `filtroFilas` se combinan
+ * con **Y**: la fila se importa solo si las cumple todas.
+ *
+ * El caso que lo motivó: el archivo de novedades de AYSA mezcla los cobros con los cambios de
+ * situación que no mueven plata. De 4.552 filas solo 1.997 traen importe cobrado; sin
+ * `{ fromIndex: <Imp. cobrado>, operador: 'MAYOR', valor: '0' }` el import genera 2.555 pagos de $0.
+ *
+ * Las filas descartadas **no cuentan como error**: no van a `importerror` ni suman a `errFilas`.
+ * Se informan por separado en el preview y en el log del worker.
+ *
+ * No aplica a MULTIRREGISTRO ni MULTIARCHIVO: esas categorías no tienen "una fila = un registro",
+ * sus parsers cruzan los archivos antes de llegar al pipeline.
+ */
+export interface FiltroFila {
+    /** Índice de columna del archivo (0-based), igual que en {@link MappingColumn}. */
+    fromIndex: number;
+    operador: OperadorFiltro;
+    /** Valor de comparación. No se usa con `VACIO` ni `NO_VACIO`. */
+    valor?: string;
+}
+
+/**
+ * Formato de los archivos de texto que manda el cedente.
+ * - `DELIMITADO` (default): campos separados por un carácter (`;`, `|`, tab…).
+ * - `ANCHO_FIJO`: cada campo ocupa siempre las mismas posiciones y no hay separador. Es lo que
+ *   exporta SAP (caso AYSA). El layout va en `mappingJson.anchoFijo`.
+ */
+export type FormatoArchivo = 'DELIMITADO' | 'ANCHO_FIJO';
+
+/* ────────────────────────────────────────────────────────────────────────────
+ * ANCHO FIJO — archivos sin separador, con los campos en posiciones fijas
+ * ──────────────────────────────────────────────────────────────────────────── */
+
+/** Una columna del layout de ancho fijo: dónde empieza (0-based) y cuántos caracteres ocupa. */
+export interface ColumnaAnchoFijo {
+    nombre: string;
+    /** Posición inicial en la línea, 0-based. */
+    inicio: number;
+    /** Cantidad de caracteres, incluido el relleno de espacios del campo. */
+    largo: number;
+}
+
+/**
+ * Layout de un archivo de ancho fijo.
+ *
+ * Mismo criterio que {@link MultiarchivoConfig}: acá va solo dónde está cada dato, que es lo que el
+ * cedente puede mover sin avisar y conviene poder corregir desde la plantilla sin deploy.
+ *
+ * El orden de `columnas` define el **índice** con el que la plantilla las referencia (`fromIndex`),
+ * igual que las columnas de un CSV. `nombre` es solo la etiqueta que se muestra en el editor de
+ * mapeo, no se usa para resolver nada.
+ *
+ * El parseo está en `utils/ancho-fijo.ts`.
+ */
+export interface AnchoFijoConfig {
+    /**
+     * Codificación del archivo. Los exports de SAP vienen en Latin-1; leerlos como UTF-8 rompe las
+     * Ñ y los acentos. Default `latin1`, igual que MULTIRREGISTRO y MULTIARCHIVO.
+     */
+    encoding?: 'latin1' | 'utf8';
+    columnas: ColumnaAnchoFijo[];
 }
 
 /* ────────────────────────────────────────────────────────────────────────────

@@ -14,6 +14,16 @@ interface UsuarioJwt {
     permisos: string[];
 }
 
+/** Parsea un campo JSON que llega dentro de un multipart. Devuelve `undefined` si no es válido. */
+function parseJsonOpcional<T>(raw: string | undefined): T | undefined {
+    if (!raw) return undefined;
+    try {
+        return JSON.parse(raw) as T;
+    } catch {
+        return undefined;
+    }
+}
+
 @Controller('import')
 @Permisos('importacion.ver_historial')
 export class ImportController {
@@ -68,11 +78,36 @@ export class ImportController {
         @UploadedFile() file: any,
         @Body('separador') separador?: string,
         @Body('tieneHeader') tieneHeader?: string,
+        @Body('anchoFijo') anchoFijo?: string,
     ) {
         return this.service.previewFile(
             file,
             separador || '|',
             tieneHeader === 'true',
+            undefined,
+            5,
+            // Viaja como JSON dentro del multipart. Si viene roto se ignora y el preview cae al
+            // camino delimitado, que es lo que el operador espera mientras arma el layout.
+            parseJsonOpcional(anchoFijo),
+        );
+    }
+
+    /**
+     * Propone un layout de ancho fijo a partir del archivo, para arrancar el editor de la plantilla.
+     * Ver `ImportService.inferirAnchoFijo`: es un punto de partida editable, no una detección exacta.
+     */
+    @Post('plantillas/inferir-ancho-fijo')
+    @Permisos('plantillas_import.ver')
+    @UseInterceptors(FileInterceptor('file'))
+    inferirAnchoFijo(
+        @UploadedFile() file: any,
+        @Body('tieneHeader') tieneHeader?: string,
+        @Body('encoding') encoding?: string,
+    ) {
+        return this.service.inferirAnchoFijo(
+            file,
+            tieneHeader !== 'false',
+            encoding === 'utf8' ? 'utf8' : 'latin1',
         );
     }
 
@@ -139,14 +174,17 @@ export class ImportController {
 
     // --- REMESAS ---
     /**
-     * Alta de remesa. Acepta un archivo (`file`, el caso de siempre) o un paquete de varios
-     * (`files`, categoría MULTIARCHIVO). Se usa `FileFieldsInterceptor` en vez de cambiar el
-     * `FileInterceptor` por uno múltiple para no tocar el contrato de las categorías existentes.
+     * Alta de remesa. Acepta un archivo (`file`, el caso de siempre) o varios (`files`): el paquete
+     * de roles distintos de MULTIARCHIVO, o N archivos del mismo formato que se recorren como uno
+     * solo. Se usa `FileFieldsInterceptor` en vez de cambiar el `FileInterceptor` por uno múltiple
+     * para no tocar el contrato de las categorías existentes.
+     *
+     * El tope de 100 archivos está puesto por AYSA, que manda 31 TXT por tanda (uno por sucursal).
      */
     @Post('remesas')
     @UseInterceptors(FileFieldsInterceptor([
         { name: 'file', maxCount: 1 },
-        { name: 'files', maxCount: 6 },
+        { name: 'files', maxCount: 100 },
     ]))
     @Audit({
         modulo: AuditModulo.IMPORT,

@@ -6,6 +6,111 @@
 
 ---
 
+## [2026-08-10] — AYSA: varios archivos por remesa + ancho fijo
+
+> ⚠️ **Redeploy back + front.** Sin cambios de schema (`remesa.archivos` ya existe desde TCFA fase 3).
+> Todo aditivo: ninguna plantilla ni remesa existente cambia de comportamiento.
+
+AYSA manda la cartera partida en **muchos TXT del mismo formato, uno por sucursal**: 31 de cuentas +
+31 de partidas por bajada, más ~56 de novedades y ~18 de bajas. Cargar una bajada eran ~100
+importaciones a mano. Spec completo en [docs/imports-aysa-spec.md](docs/imports-aysa-spec.md).
+
+Analizando el paquete real aparecieron **dos huecos**, no uno. La categoría `MULTIARCHIVO` ya existía
+pero resuelve otra cosa —N archivos con **roles distintos** que se cruzan entre sí (Toyota TCFA)—, y
+además estos archivos son **exports de SAP sin separador**, que el pipeline no sabía leer.
+
+Las dos piezas se construyeron **genéricas**: AYSA se carga con plantillas normales, armadas por el
+operador como cualquier otra cartera.
+
+### Backend
+
+- **`utils/ancho-fijo.ts`** — corta las líneas por posición y emite `string[]` por índice, **la misma
+  forma que fast-csv**: el mapeo, los transforms, los bloques y todos los processors funcionan sin
+  enterarse. Va por stream (el TXT de partidas más grande son 64 MB, el conjunto 250 MB). Incluye un
+  inferidor de layout para el editor de plantillas.
+- **`utils/recorrer-filas.ts`** — recorre N archivos como si fueran uno solo, en los tres formatos
+  (delimitado, Excel, ancho fijo). Reemplaza **tres copias** del mismo bucle en `validateRemesa`,
+  `previewAccionesImpacto` y `processImportJob`.
+- **`utils/archivos-homogeneos.ts`** — rechaza al subir el lote con un archivo repetido, con otro
+  encabezado o que mezcla Excel con texto. Es el caso que de verdad pasa: colar un TXT de partidas
+  entre los de cuentas.
+- **`utils/filtro-filas.ts`** — condiciones que una fila tiene que cumplir para importarse. Las
+  descartadas **no cuentan como error**.
+- **`createRemesa`** guarda la lista en `remesa.archivos.lista` con los nombres originales; `archivo`
+  sigue apuntando al primero. El hash del conjunto no depende del orden de subida.
+- Los errores de fila llevan **el archivo y la posición**: `[cuentas_072.txt:8891] Deudor no
+  encontrado`. Con 31 archivos, el índice global no sirve para encontrar nada.
+- **`plantillas/aysa.ts`** — los dos layouts como referencia.
+
+### Frontend
+
+`FileDropZone` acepta varios archivos (lista, quitar individual, aviso si mezcla Excel con texto);
+con uno solo se ve igual que antes. `AnchoFijoEditor` nuevo: layout como texto `nombre;inicio;largo`,
+botón "Inferir del archivo" y **preview de cómo queda cortada la primera fila** —que es lo que hace
+usable un editor de texto para esto—. `FiltroFilasEditor` nuevo. El wizard muestra en el preview qué
+archivos entraron y cuántas filas descartó el filtro.
+
+### Tres hallazgos de la corrida real
+
+**1. `toDate:auto` leía mal las fechas de SAP.** El formato `DD.MM.YYYY` separado por **puntos** no
+estaba soportado y caía al fallback flexible de dayjs:
+
+| Valor | Antes | Ahora |
+|---|---|---|
+| `10.05.2024` | 5 de **octubre** | 10 de **mayo** |
+| `21.06.2026` | `null` | 21 de junio |
+
+Los vencimientos con día ≤ 12 quedaban con mes y día invertidos, y el resto en nulo —que en
+`FacturasProcessor` se traduce en la fecha del día—. Afecta a cualquier cartera que mande fechas con
+puntos, no solo a AYSA.
+
+**2. El DNI de AYSA colapsaba casos.** `DeudoresProcessor` identifica por `(empresaId, documento,
+remesaId)`. El cedente manda `1`, `NO INFORMADO`, `10000000000` y `SIN TELEFONO` en el campo DNI, y
+además una persona puede tener varias cuentas de agua. Mapeando el DNI, **86 casos desaparecían de la
+cartera sin ningún error en el import**. La identidad pasa a ser la cuenta contrato (placeholder
+`SIN-DNI-`) y el DNI va a datos adicionales. Se detectó porque 1.207 filas daban 1.197 deudores.
+
+**3. `recorrerFilas` cierra una ventana de carrera que ya existía.** El `end` del stream no esperaba
+al último callback en vuelo: si el archivo terminaba justo cuando el lote llegaba a `BATCH_SIZE`, el
+`processBatch` final podía solaparse con el `afterAll`. Apareció con un test que verificaba el orden.
+
+### Performance: las partidas, de 165 s a 3,7 s
+
+`FacturasProcessor` hacía **2 queries por fila** — con 1,1M de partidas, horas. Ahora implementa
+`processBatch`: resuelve los deudores del lote con un `IN (...)` cacheado entre lotes y escribe con
+`INSERT … ON DUPLICATE KEY UPDATE` de a 500.
+
+El camino en bloque **solo se usa si la fila trae importe, emisión y vencimiento**: si falta alguno se
+cae al `upsert` de a una, que es el único que sabe "no toques esta columna". Por eso el hallazgo 1 y
+la performance eran el mismo problema — con las fechas rotas, el 100% de las filas iba de a una.
+
+### Corrida real (paquete completo del 22/06, oficina 9000001028)
+
+| Etapa | Archivos | Filas | Resultado | Tiempo |
+|---|---|---|---|---|
+| Cuentas | 31 | 21.335 | 21.335 deudores · 46.799 contactos · **0 errores** | 5,8 min |
+| Partidas | 31 | 1.115.323 | 1.115.322 facturas · **1 error** | **91 s** |
+| Novedades | 27 | 4.552 | 1.997 procesadas, 2.555 descartadas por el filtro | 8 s |
+| Bajas (desas. + extinciones) | 7 | 7 | 3 casos a GES-094 con comentario · **0 errores** | 1 s |
+
+**Σfacturas = `Imp. Asignado` en 21.334 de 21.335 deudores.** El único desvío y el único error son la
+misma fila: un ajuste sin número de comprobante e importe negativo en formato SAP (signo al final).
+
+Las desasignaciones y las extinciones van **juntas en una sola remesa** de ACCIONES: comparten layout
+y las dos significan lo mismo para la gestión. De las 7 cuentas dadas de baja el 20-21/07, solo 3
+estaban en el paquete del 22/06 — el resto son de asignaciones anteriores. El preview de impacto lo
+avisa antes de ejecutar.
+
+118 tests nuevos en imports (263 → 381), incluidos bloques que corren contra los TXT reales y se
+saltean si no están.
+
+### Pendiente
+
+Correr el flujo **desde el navegador** con los 31 archivos, y definir la oficina de cobro 9000000506
+(mismo formato; solo llegaron sus novedades y bajas).
+
+---
+
 ## [2026-07-31] — Tablero: el funnel mide estado, los KPIs miden período
 
 > ⚠️ **Redeploy back + front.** Sin cambios de schema.

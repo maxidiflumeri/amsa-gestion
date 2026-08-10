@@ -6,13 +6,14 @@ import { applyTransforms } from './transforms';
 import { resolveDelimiter } from './utils/delimitador';
 import { FileStorageService } from './file-storage.service';
 import * as fs from 'fs';
+import * as path from 'path';
 import * as crypto from 'crypto';
 import * as fastcsv from 'fast-csv';
 import * as xlsx from 'xlsx';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from 'src/prisma/prisma.service';
 import { ClonarPlantillaDto, CreatePlantillaDto, CreateRemesaDto } from './dtos/import.dto';
-import { MappingJson } from './mapping-types';
+import { AnchoFijoConfig, MappingJson } from './mapping-types';
 import { getProcessor, getSupportedCategories } from './processors/processor-registry';
 import { ProcessContext, MappedRow } from './processors/processor.interface';
 import { RealtimeService } from '../realtime/realtime.service';
@@ -21,6 +22,12 @@ import { ProgressEmitter } from './utils/progress-emitter';
 import { parseMultirregistro } from './utils/multirregistro-parser';
 import { ArchivosMultiarchivo, parseMultiarchivo } from './utils/multiarchivo-parser';
 import { resolverRolesArchivos } from './utils/roles-multiarchivo';
+import { conOrigen, recorrerFilas } from './utils/recorrer-filas';
+import {
+    anchoTotal, inferirColumnasAnchoFijo, parseLineaAnchoFijo, validarColumnasAnchoFijo,
+} from './utils/ancho-fijo';
+import { validarArchivosHomogeneos } from './utils/archivos-homogeneos';
+import { describirFiltros, pasaFiltro } from './utils/filtro-filas';
 import { siguienteNumeroRemesa } from './utils/numero-remesa';
 import { RequestContextService } from 'src/common/logger/request-context';
 import { ConsolidacionSituacionService } from '../consolidacion/consolidacion.service';
@@ -224,9 +231,36 @@ export class ImportService {
         return this.prisma.plantillaimport.delete({ where: { id } });
     }
 
-    async previewFile(file: any, separador: string, tieneHeader: boolean, hoja?: string, maxRows = 5) {
+    /**
+     * Primeras filas de un archivo, para que el editor de plantillas muestre las columnas.
+     *
+     * @param anchoFijo Layout de ancho fijo. Si viene, se corta por posición y el separador se
+     *   ignora — es el modo en que el operador ve, mientras arma el layout, cómo queda cortado.
+     */
+    async previewFile(
+        file: any,
+        separador: string,
+        tieneHeader: boolean,
+        hoja?: string,
+        maxRows = 5,
+        anchoFijo?: AnchoFijoConfig,
+    ) {
         const rows: any[] = [];
         const isExcel = file.originalname?.match(/\.(xls|xlsx)$/i);
+
+        if (anchoFijo && !isExcel) {
+            validarColumnasAnchoFijo(anchoFijo.columnas);
+            const texto = (file.buffer as Buffer).toString(anchoFijo.encoding === 'utf8' ? 'utf8' : 'latin1');
+            const lineas = texto.split(/\r?\n/).filter((l) => l.trim());
+            for (const l of lineas.slice(0, maxRows + (tieneHeader ? 1 : 0))) {
+                rows.push(parseLineaAnchoFijo(l, anchoFijo.columnas));
+            }
+            return {
+                totalColumns: anchoFijo.columnas.length,
+                columnas: anchoFijo.columnas.map((c) => c.nombre),
+                rows: tieneHeader && rows.length > 0 ? rows.slice(1) : rows,
+            };
+        }
 
         if (isExcel) {
             const workbook = xlsx.read(file.buffer, { 
@@ -281,6 +315,39 @@ export class ImportService {
         };
     }
 
+    /**
+     * Propone un layout de ancho fijo mirando el archivo, para arrancar el editor de la plantilla.
+     *
+     * Es un punto de partida, no una detección confiable: los campos que vienen pegados tanto en el
+     * encabezado como en los datos (en AYSA, `F. Desde` y `F. Hasta`) quedan fusionados y el
+     * operador los separa a mano. Por eso la respuesta trae también el encabezado y unas líneas
+     * crudas: es lo que le permite ver dónde cae cada corte.
+     */
+    async inferirAnchoFijo(file: any, tieneHeader: boolean, encoding?: 'latin1' | 'utf8') {
+        if (!file?.buffer) throw new BadRequestException('No se subió ningún archivo.');
+        if (/\.(xls|xlsx)$/i.test(file.originalname ?? '')) {
+            throw new BadRequestException(
+                'El ancho fijo aplica a archivos de texto. Una planilla de Excel ya viene con las columnas separadas.',
+            );
+        }
+
+        const columnas = inferirColumnasAnchoFijo(file.buffer, { encoding, tieneHeader });
+        const texto = (file.buffer as Buffer).toString(encoding === 'utf8' ? 'utf8' : 'latin1');
+        const lineas = texto.split(/\r?\n/).filter((l) => l.trim()).slice(0, 6);
+
+        this.logger.log(
+            `Inferencia de ancho fijo sobre "${file.originalname}": ${columnas.length} columna(s), ` +
+            `ancho ${anchoTotal(columnas)}.`,
+        );
+
+        return {
+            columnas,
+            ancho: anchoTotal(columnas),
+            /** Encabezado y primeras líneas tal cual, para que el editor muestre dónde cae cada corte. */
+            lineas,
+        };
+    }
+
 
     // --- CATEGORÍAS SOPORTADAS ---
     getCategories() {
@@ -331,12 +398,75 @@ export class ImportService {
         };
     }
 
+    /**
+     * Devuelve **todos** los archivos de una remesa de categoría clásica, en el orden en que se
+     * subieron.
+     *
+     * Una remesa puede traer varios archivos del mismo formato, que se recorren como si fueran uno
+     * solo: AYSA parte la cartera en 31 TXT (uno por sucursal) en vez de mandar uno grande. La lista
+     * queda en `remesa.archivos.lista` desde el alta; las remesas viejas (y las de un solo archivo)
+     * no tienen nada ahí y caen a `remesa.archivo`.
+     *
+     * La forma `{ lista: [...] }` no colisiona con el mapa rol → path (`{ deudores, detalle, … }`)
+     * que usa MULTIARCHIVO y lee {@link leerPaqueteMultiarchivo}.
+     *
+     * `nombres` son los nombres con los que el operador subió cada archivo: en el disco quedan como
+     * `<timestamp>_<hash>.txt` y así no sirven para ubicar un registro entre 31 archivos.
+     */
+    private archivosDeRemesa(
+        remesa: { archivo: string | null; archivos?: unknown },
+    ): { paths: string[]; nombres: string[] } {
+        const guardado = remesa.archivos as { lista?: unknown; nombres?: unknown } | null;
+        const lista = Array.isArray(guardado?.lista) && guardado.lista.length
+            ? (guardado.lista as string[])
+            : remesa.archivo
+                ? [remesa.archivo]
+                : [];
+
+        // Se valida acá y no solo en el alta porque entre medio puede pasar cualquier cosa (limpieza
+        // de `uploads/`, restore de un backup de la DB sin los archivos) y el mensaje tiene que decir
+        // cuál falta, no reventar con un ENOENT en el worker.
+        const faltantes = lista.filter((p) => !fs.existsSync(p));
+        if (faltantes.length > 0) {
+            throw new BadRequestException(
+                `No se encuentra(n) en el disco ${faltantes.length} archivo(s) de la remesa: ` +
+                `${faltantes.slice(0, 5).map((p) => path.basename(p)).join(', ')}` +
+                `${faltantes.length > 5 ? '…' : ''}. Volvé a crear la remesa subiendo los archivos.`,
+            );
+        }
+
+        const nombres = Array.isArray(guardado?.nombres)
+            ? (guardado.nombres as string[])
+            : lista.map((p) => path.basename(p));
+
+        return { paths: lista, nombres };
+    }
+
+    /**
+     * Layout de ancho fijo de la plantilla, ya validado, o `undefined` si el archivo es delimitado.
+     *
+     * Se valida en cada lectura (preview y worker) en vez de solo al guardar la plantilla: un layout
+     * roto no se detecta mirando el resultado, produce filas con los campos corridos que se importan
+     * sin error y quedan con datos de otra columna.
+     */
+    private layoutAnchoFijo(mapping: MappingJson | null | undefined): AnchoFijoConfig | undefined {
+        if (mapping?.formato !== 'ANCHO_FIJO') return undefined;
+        if (!mapping.anchoFijo) {
+            throw new BadRequestException(
+                'La plantilla declara formato de ancho fijo pero no tiene el layout de columnas configurado.',
+            );
+        }
+        validarColumnasAnchoFijo(mapping.anchoFijo.columnas);
+        return mapping.anchoFijo;
+    }
+
     // --- REMESA / ARCHIVO ---
     /**
      * Alta de remesa.
      *
-     * @param archivos Archivos subidos. Las categorías clásicas mandan uno; MULTIARCHIVO manda el
-     *   paquete completo y el rol de cada uno se resuelve por su nombre (ver `roles-multiarchivo.ts`).
+     * @param archivos Archivos subidos. MULTIARCHIVO manda un paquete de roles distintos que se
+     *   resuelven por nombre (ver `roles-multiarchivo.ts`); el resto de las categorías acepta uno o
+     *   varios archivos **del mismo formato**, que después se recorren como si fueran uno solo.
      */
     async createRemesa(dto: CreateRemesaDto, archivos: any, usuarioCreadorId?: number) {
 
@@ -386,10 +516,42 @@ export class ImportService {
                 `Remesa MULTIARCHIVO ${numeroRemesa}: ${Object.keys(roles).length} archivo(s) — ` +
                 Object.entries(roles).map(([rol, i]) => `${rol}=${lista[i as number].originalname}`).join(', '),
             );
-        } else {
+        } else if (lista.length === 1) {
             const saved = await this.files.saveBuffer(lista[0], dto.empresaId, dto.categoria);
             archivoPrincipal = saved.path;
             archivoHash = saved.hash;
+        } else {
+            // Varios archivos del mismo formato: se recorren como si fueran uno solo.
+            try {
+                validarArchivosHomogeneos(lista, { tieneHeader: plantilla.tieneHeader ?? undefined });
+            } catch (e: any) {
+                // Es un error de lo que subió el operador, no una falla del sistema: va como 400 con
+                // el mensaje tal cual, que ya explica qué archivo está de más o no corresponde.
+                throw new BadRequestException(e.message);
+            }
+
+            const guardados: string[] = [];
+            const hashes: string[] = [];
+            for (const f of lista) {
+                const saved = await this.files.saveBuffer(f, dto.empresaId, dto.categoria);
+                guardados.push(saved.path);
+                hashes.push(saved.hash);
+            }
+            paths = {
+                lista: guardados,
+                nombres: lista.map((f) => f.originalname ?? ''),
+            } as any;
+            // `archivo` sigue apuntando al primero: lo asumen el borrado, el chequeo de duplicados y
+            // todo el código que precede al multi-archivo.
+            archivoPrincipal = guardados[0];
+            // Hash del conjunto: determinístico para los mismos archivos, sin depender del orden en
+            // que el operador los arrastró.
+            archivoHash = crypto.createHash('sha256').update([...hashes].sort().join('|')).digest('hex');
+
+            this.logger.log(
+                `Remesa ${numeroRemesa} (${dto.categoria}): ${lista.length} archivos — ` +
+                lista.map((f) => f.originalname).join(', '),
+            );
         }
 
         const remesa = await this.prisma.remesa.create({
@@ -492,7 +654,6 @@ export class ImportService {
         let ok = 0;
         let err = 0;
         const preview: any[] = [];
-        const isExcel = remesa.archivo.match(/\.(xls|xlsx)$/i);
 
         // MULTIRREGISTRO: el preview no puede ser "las primeras N filas del CSV" porque una fila
         // suelta no significa nada — hay que agrupar el archivo entero primero. Se muestran los
@@ -612,75 +773,40 @@ export class ImportService {
             };
         }
 
-        if (isExcel) {
-            const workbook = xlsx.readFile(remesa.archivo, {
-                cellDates: true,
-                dateNF: 'yyyy-mm-dd'
-            });
-            const sheetName = hoja && workbook.SheetNames.includes(hoja) ? hoja : workbook.SheetNames[0];
-            const worksheet = workbook.Sheets[sheetName];
-            
-            // Defval para llenar celdas vacías, raw: false para fechas y números formateados
-            const excelRows: any[][] = xlsx.utils.sheet_to_json(worksheet, { 
-                header: 1, 
-                defval: '',
-                raw: false
-            });
-            
-            const processRow = (row: any[], index: number) => {
-                const idx = totalRows++;
-                if (idx < sampleRows) {
-                    try {
-                        const obj = this.mapRow(row, mapping);
-                        this.validateMappedRow(obj, mapping);
-                        preview.push({ row: idx, data: obj, error: null });
-                        ok++;
-                    } catch (e: any) {
-                        preview.push({ row: idx, data: null, error: e.message });
-                        err++;
-                    }
+        const { paths, nombres } = this.archivosDeRemesa(remesa);
+        // Las filas que el filtro de la plantilla descarta no son parte del import: no se cuentan
+        // en el total ni se procesan. Se informan aparte para que el operador confirme el criterio
+        // antes de ejecutar (ver `filtro-filas.ts`).
+        let descartadas = 0;
+
+        await recorrerFilas(
+            {
+                paths,
+                nombres,
+                tieneHeader: hasHeader,
+                separador: sep,
+                anchoFijo: this.layoutAnchoFijo(mapping),
+                hoja,
+            },
+            ({ valores, origen }) => {
+                if (!pasaFiltro(valores, mapping.filtroFilas)) {
+                    descartadas++;
+                    return;
                 }
-            };
-
-            for (let i = hasHeader ? 1 : 0; i < excelRows.length; i++) {
-                if (excelRows[i] && excelRows[i].length > 0) {
-                    processRow(excelRows[i], i);
+                const indice = totalRows++;
+                // El preview son las primeras N filas; el resto solo se cuenta.
+                if (indice >= sampleRows) return;
+                try {
+                    const obj = this.mapRow(valores, mapping);
+                    this.validateMappedRow(obj, mapping);
+                    preview.push({ row: indice, data: obj, error: null, origen });
+                    ok++;
+                } catch (e: any) {
+                    preview.push({ row: indice, data: null, error: conOrigen(e.message, origen), origen });
+                    err++;
                 }
-            }
-
-        } else {
-            const stream = fs.createReadStream(remesa.archivo);
-            const parser = fastcsv.parse({
-                headers: hasHeader,
-                delimiter: sep,
-                trim: false
-            });
-
-            await new Promise<void>((resolve, reject) => {
-                parser
-                    .on('error', (parseErr) => {
-                        this.logger.error(`Error parsing CSV remesa=${remesaId}: ${parseErr.message}`, parseErr.stack);
-                        reject(parseErr);
-                    })
-                    .on('data', (row: any) => {
-                        const idx = totalRows++;
-                        if (idx < sampleRows) {
-                            try {
-                                const obj = this.mapRow(row, mapping);
-                                this.validateMappedRow(obj, mapping);
-                                preview.push({ row: idx, data: obj, error: null });
-                                ok++;
-                            } catch (e: any) {
-                                preview.push({ row: idx, data: null, error: e.message });
-                                err++;
-                            }
-                        }
-                    })
-                    .on('end', () => resolve());
-
-                stream.pipe(parser);
-            });
-        }
+            },
+        );
 
         await this.prisma.remesa.update({
             where: { id: remesaId },
@@ -696,7 +822,10 @@ export class ImportService {
             total: totalRows,
             ok,
             err,
-            sample: preview
+            sample: preview,
+            archivos: paths.length > 1 ? nombres : undefined,
+            descartadas: descartadas || undefined,
+            filtro: descartadas ? describirFiltros(mapping.filtroFilas) : undefined,
         };
     }
 
@@ -726,26 +855,26 @@ export class ImportService {
         const valores = new Set<string>();
         let totalFilas = 0;
 
-        const push = (rowArr: any[]) => {
-            totalFilas++;
-            const v = String(rowArr?.[idx] ?? '').trim();
-            if (v) valores.add(v);
-        };
+        const { paths, nombres } = this.archivosDeRemesa(remesa);
 
-        if (remesa.archivo.match(/\.(xls|xlsx)$/i)) {
-            const wb = xlsx.readFile(remesa.archivo, { cellDates: true, dateNF: 'yyyy-mm-dd' });
-            const sheetName = hoja && wb.SheetNames.includes(hoja) ? hoja : wb.SheetNames[0];
-            const rows: any[][] = xlsx.utils.sheet_to_json(wb.Sheets[sheetName], { header: 1, defval: '', raw: false });
-            for (let i = hasHeader ? 1 : 0; i < rows.length; i++) if (rows[i]?.length) push(rows[i]);
-        } else {
-            await new Promise<void>((resolve, reject) => {
-                const parser = fastcsv.parse({ headers: hasHeader, delimiter: sep, trim: false });
-                parser.on('error', reject)
-                    .on('data', (row: any) => push(Array.isArray(row) ? row : Object.values(row)))
-                    .on('end', () => resolve());
-                fs.createReadStream(remesa.archivo!).pipe(parser);
-            });
-        }
+        await recorrerFilas(
+            {
+                paths,
+                nombres,
+                tieneHeader: hasHeader,
+                separador: sep,
+                anchoFijo: this.layoutAnchoFijo(mapping),
+                hoja,
+            },
+            ({ valores: fila }) => {
+                // Mismo criterio que el import: lo que el filtro descarta no impacta a nadie, así
+                // que tampoco tiene que aparecer en el conteo que el operador confirma.
+                if (!pasaFiltro(fila, mapping.filtroFilas)) return;
+                totalFilas++;
+                const v = String(fila?.[idx] ?? '').trim();
+                if (v) valores.add(v);
+            },
+        );
 
         const scopeDeudor: any = { empresaId: remesa.empresaId, ...(remesaOrigenId ? { remesaId: remesaOrigenId } : {}) };
 
@@ -1058,7 +1187,9 @@ export class ImportService {
         const hasHeader = !!remesa.plantilla.tieneHeader;
 
         const BATCH_SIZE = IMPORTS_BATCH_SIZE;
-        const batch: Array<{ row: any; idx: number }> = [];
+        // `origen` (`archivo.txt:1234`) solo viene cuando la remesa tiene más de un archivo; se
+        // antepone al mensaje de error para poder ubicar la fila entre los 31 TXT de una bajada.
+        const batch: Array<{ row: any; idx: number; origen?: string | null }> = [];
 
         // MULTIRREGISTRO y MULTIARCHIVO no son "una fila = un registro": hay que agrupar o cruzar
         // los archivos antes de procesar. El parser devuelve filas ya normalizadas, así que estas
@@ -1126,9 +1257,9 @@ export class ImportService {
             const errorBatch: Array<{ remesaId: number; rowNumber: number; rawRow: any; errorMsg: string }> = [];
 
             // Filas que pasaron mapeo + validación, para el camino por lote.
-            const validas: Array<{ row: any; idx: number; mapped: any }> = [];
+            const validas: Array<{ row: any; idx: number; mapped: any; origen?: string | null }> = [];
 
-            for (const { row, idx } of group) {
+            for (const { row, idx, origen } of group) {
                 try {
                     const obj = esPreparsado ? (row as MappedRow) : this.mapRow(row, mapping);
                     this.validateMappedRow(obj, mapping);
@@ -1143,7 +1274,7 @@ export class ImportService {
                     if (processor.processBatch) {
                         // El processor resuelve el lote entero de una vez (lecturas y escrituras
                         // agrupadas). El conteo ok/err se hace después, con lo que devuelva.
-                        validas.push({ row, idx, mapped: obj });
+                        validas.push({ row, idx, mapped: obj, origen });
                         continue;
                     }
 
@@ -1155,7 +1286,7 @@ export class ImportService {
                         remesaId,
                         rowNumber: idx,
                         rawRow: Array.isArray(row) ? row : Object.values(row),
-                        errorMsg: e.message ?? 'Error desconocido',
+                        errorMsg: conOrigen(e.message ?? 'Error desconocido', origen ?? null),
                     });
                 }
             }
@@ -1181,7 +1312,7 @@ export class ImportService {
                         remesaId,
                         rowNumber: f.idx,
                         rawRow: v ? (Array.isArray(v.row) ? v.row : Object.values(v.row)) : [],
-                        errorMsg: f.error,
+                        errorMsg: conOrigen(f.error, v?.origen ?? null),
                     });
                 }
                 err += fallos.length;
@@ -1205,8 +1336,6 @@ export class ImportService {
                 : 0;
             progressEmitter.tick(progreso, ok, err);
         };
-
-        const isExcel = remesa.archivo.match(/\.(xls|xlsx)$/i);
 
         if (esMultirregistro) {
             // ── Archivo con varios tipos de línea (Toyota cuenta 87) ────────────────────
@@ -1293,55 +1422,44 @@ export class ImportService {
             }
             if (batch.length > 0) await processBatch();
 
-        } else if (isExcel) {
-            const workbook = xlsx.readFile(remesa.archivo, {
-                cellDates: true,
-                dateNF: 'yyyy-mm-dd'
-            });
-            const sheetName = remesa.hoja && workbook.SheetNames.includes(remesa.hoja) ? remesa.hoja : workbook.SheetNames[0];
-            const worksheet = workbook.Sheets[sheetName];
-            const excelRows: any[][] = xlsx.utils.sheet_to_json(worksheet, {
-                header: 1,
-                defval: '',
-                raw: false
-            });
-
-            for (let i = hasHeader ? 1 : 0; i < excelRows.length; i++) {
-                if (excelRows[i] && excelRows[i].length > 0) {
-                    const idx = total++;
-                    batch.push({ row: excelRows[i], idx });
-                    
-                    if (batch.length >= BATCH_SIZE) {
-                        await processBatch();
-                    }
-                }
+        } else {
+            // Una fila = un registro. La remesa puede traer varios archivos del mismo formato, que
+            // se recorren como si fueran uno solo (AYSA parte la cartera en 31 TXT por sucursal).
+            const { paths, nombres } = this.archivosDeRemesa(remesa);
+            if (paths.length > 1) {
+                this.logger.log(`Remesa ${remesaId}: ${paths.length} archivos — ${nombres.join(', ')}`);
             }
+            let descartadas = 0;
+
+            await recorrerFilas(
+                {
+                    paths,
+                    nombres,
+                    tieneHeader: hasHeader,
+                    separador: sep,
+                    anchoFijo: this.layoutAnchoFijo(mapping),
+                    hoja: remesa.hoja ?? undefined,
+                },
+                ({ valores, origen }) => {
+                    // Las filas que el filtro de la plantilla descarta no son errores: no se
+                    // procesan, no van a `importerror` y no cuentan en el total.
+                    if (!pasaFiltro(valores, mapping?.filtroFilas)) {
+                        descartadas++;
+                        return;
+                    }
+                    batch.push({ row: valores, idx: total++, origen });
+                    // Devolver la promesa hace que el recorrido se pause hasta que el lote termine.
+                    if (batch.length >= BATCH_SIZE) return processBatch();
+                },
+            );
             if (batch.length > 0) await processBatch();
 
-        } else {
-            const stream = fs.createReadStream(remesa.archivo);
-            await new Promise<void>((resolve, reject) => {
-                const parser = fastcsv.parse({ headers: hasHeader, delimiter: sep, trim: false });
-                parser
-                    .on("error", reject)
-                    .on("data", (row: any) => {
-                        const idx = total++;
-                        batch.push({ row, idx });
-
-                        if (batch.length >= BATCH_SIZE) {
-                            parser.pause();
-                            processBatch()
-                                .then(() => parser.resume())
-                                .catch(reject);
-                        }
-                    })
-                    .on("end", async () => {
-                        if (batch.length > 0) await processBatch();
-                        resolve();
-                    });
-
-                stream.pipe(parser);
-            });
+            if (descartadas > 0) {
+                this.logger.log(
+                    `Remesa ${remesaId}: ${descartadas} fila(s) descartadas por el filtro de la ` +
+                    `plantilla (${describirFiltros(mapping.filtroFilas)}).`,
+                );
+            }
         }
 
         // Hook post-batch: lógica que corre después de todas las filas

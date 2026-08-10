@@ -63,9 +63,13 @@ export default function ImportWizard() {
     // Paso 1 – plantilla + archivo
     const [plantillas, setPlantillas] = useState<any[]>([]);
     const [selectedPlantilla, setSelectedPlantilla] = useState<number | null>(null);
-    const [file, setFile] = useState<File | null>(null);
-    // MULTIARCHIVO: el paquete se sube como varios archivos juntos; el rol de cada uno se
-    // resuelve por su nombre (acá para dar feedback, y en el backend de forma autoritativa).
+    // Archivos de la carga. Todas las categorías aceptan **varios del mismo formato**, que se
+    // importan como una sola remesa: hay cedentes que parten la cartera en un archivo por sucursal
+    // (AYSA manda 31 por bajada). Con uno solo el flujo es el de siempre.
+    const [archivos, setArchivos] = useState<File[]>([]);
+    // MULTIARCHIVO es otra cosa: un paquete de archivos con roles DISTINTOS que se cruzan entre sí
+    // (Toyota TCFA). El rol de cada uno se resuelve por su nombre (acá para dar feedback, y en el
+    // backend de forma autoritativa).
     const [archivosPaquete, setArchivosPaquete] = useState<File[]>([]);
     const [nombreRemesa, setNombreRemesa] = useState("");
     const [numeroRemesa, setNumeroRemesa] = useState("");
@@ -73,13 +77,18 @@ export default function ImportWizard() {
     const [hojaExcel, setHojaExcel] = useState<string>("");
     const [validarDomicilios, setValidarDomicilios] = useState(false);
 
-    const isExcelFile = file?.name?.match(/\.(xls|xlsx)$/i);
+    const isExcelFile = archivos[0]?.name?.match(/\.(xls|xlsx)$/i);
 
     // Remesa de deudores origen
     // MULTIRREGISTRO: resumen del parseo (tipos de línea, casos, facturas, bajas) para el preview.
     const [multiResumen, setMultiResumen] = useState<any | null>(null);
     // MULTIARCHIVO: resumen del cruce de los archivos del paquete para el preview.
     const [paqueteResumen, setPaqueteResumen] = useState<any | null>(null);
+    // Qué archivos entraron en la remesa y cuántas filas descartó el filtro de la plantilla. Es lo
+    // que el operador confirma antes de ejecutar cuando sube una tanda de archivos.
+    const [resumenArchivos, setResumenArchivos] = useState<
+        { archivos?: string[]; descartadas?: number; filtro?: string } | null
+    >(null);
     const [remesasDeudores, setRemesasDeudores] = useState<any[]>([]);
     const [remesaOrigenId, setRemesaOrigenId] = useState<number | null>(null);
     // PAGOS: se pueden elegir VARIAS remesas origen (archivo de pagos para toda la empresa),
@@ -145,8 +154,8 @@ export default function ImportWizard() {
         setCategoria(cat);
     };
 
-    const handleFileSelect = (f: File) => {
-        setFile(f);
+    const handleFilesChange = (fs: File[]) => {
+        setArchivos(fs);
         setHojaExcel("");
     };
 
@@ -171,7 +180,7 @@ export default function ImportWizard() {
                 );
                 return;
             }
-        } else if (!file) {
+        } else if (archivos.length === 0) {
             notify.warning("Seleccioná el archivo a importar.");
             return;
         }
@@ -195,11 +204,14 @@ export default function ImportWizard() {
                 formData.append("fechaVencimiento", fechaVencimiento);
             }
             if (esMultiarchivo) {
-                // El backend acepta `file` (uno) o `files` (el paquete); el rol de cada archivo lo
-                // resuelve por el nombre, así que el orden en que se agregan no importa.
+                // El backend acepta `file` (uno) o `files` (varios); el rol de cada archivo del
+                // paquete lo resuelve por el nombre, así que el orden en que se agregan no importa.
                 for (const f of archivosPaquete) formData.append("files", f);
+            } else if (archivos.length === 1) {
+                formData.append("file", archivos[0]);
             } else {
-                formData.append("file", file!);
+                // Varios archivos del mismo formato: se recorren en el orden en que se subieron.
+                for (const f of archivos) formData.append("files", f);
             }
 
             if (isExcelFile && hojaExcel.trim() !== "") {
@@ -226,6 +238,15 @@ export default function ImportWizard() {
 
             setMultiResumen(resValidar.data.multirregistro ?? null);
             setPaqueteResumen(resValidar.data.multiarchivo ?? null);
+            setResumenArchivos(
+                resValidar.data.archivos || resValidar.data.descartadas
+                    ? {
+                          archivos: resValidar.data.archivos,
+                          descartadas: resValidar.data.descartadas,
+                          filtro: resValidar.data.filtro,
+                      }
+                    : null,
+            );
 
             if (categoria === "ACCIONES") {
                 try {
@@ -278,9 +299,10 @@ export default function ImportWizard() {
         setCategoria("");
         setPlantillas([]);
         setSelectedPlantilla(null);
-        setFile(null);
+        setArchivos([]);
         setArchivosPaquete([]);
         setPaqueteResumen(null);
+        setResumenArchivos(null);
         setMultiResumen(null);
         setRemesaId(null);
         setRemesaOrigenId(null);
@@ -304,7 +326,7 @@ export default function ImportWizard() {
                 // los obligatorios y ninguno quedó sin reconocer.
                 if (esMultiarchivo) {
                     if (!paqueteCompleto(archivosPaquete, patronesArchivos)) return false;
-                } else if (!file) {
+                } else if (archivos.length === 0) {
                     return false;
                 }
                 if (!needsOrigen) return true;
@@ -551,8 +573,8 @@ export default function ImportWizard() {
                             />
                         ) : (
                             <FileDropZone
-                                file={file}
-                                onFileSelect={handleFileSelect}
+                                files={archivos}
+                                onFilesChange={handleFilesChange}
                             />
                         )}
 
@@ -627,6 +649,32 @@ export default function ImportWizard() {
                                             </li>
                                         ))}
                                     </Box>
+                                )}
+                            </Alert>
+                        )}
+                        {resumenArchivos && (
+                            <Alert severity="info" sx={{ mb: 2 }}>
+                                {resumenArchivos.archivos && (
+                                    <>
+                                        <AlertTitle>
+                                            {resumenArchivos.archivos.length} archivos en una sola remesa
+                                        </AlertTitle>
+                                        <Box component="ul" sx={{ mt: 0, mb: 0, pl: 2.5, maxHeight: 140, overflow: "auto" }}>
+                                            {resumenArchivos.archivos.map((a) => (
+                                                <li key={a}>
+                                                    <Typography variant="caption">{a}</Typography>
+                                                </li>
+                                            ))}
+                                        </Box>
+                                    </>
+                                )}
+                                {!!resumenArchivos.descartadas && (
+                                    <Typography variant="body2" sx={{ mt: resumenArchivos.archivos ? 1 : 0 }}>
+                                        Se descartaron <strong>{resumenArchivos.descartadas} filas</strong> que no
+                                        cumplen el filtro de la plantilla
+                                        {resumenArchivos.filtro && ` (${resumenArchivos.filtro})`}. No se importan y
+                                        no cuentan como error.
+                                    </Typography>
                                 )}
                             </Alert>
                         )}

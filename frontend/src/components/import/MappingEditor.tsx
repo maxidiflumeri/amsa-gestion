@@ -141,6 +141,12 @@ interface Props {
     tieneHeader: boolean;
     categoria: string;
     disabled?: boolean;
+    /**
+     * Layout de ancho fijo, si la plantilla lo declara. El preview corta el archivo por posición en
+     * vez de por separador y devuelve los nombres de las columnas, así el mapeo se hace eligiendo
+     * "Nro. DNI" en vez de "Col 54".
+     */
+    anchoFijo?: { encoding?: string; columnas: Array<{ nombre: string; inicio: number; largo: number }> };
 }
 
 // ─── Sub-componentes de celdas (reutilizables en desktop y mobile) ────────────
@@ -188,10 +194,17 @@ interface SourceColCellProps {
     field: MappingField;
     totalColumns: number;
     previewRows: string[][];
+    /** Nombres de las columnas cuando el archivo es de ancho fijo (el layout los declara). */
+    nombresColumnas?: string[];
     onChange: (key: keyof MappingField, value: unknown) => void;
 }
 
-function SourceColCell({ field, totalColumns, previewRows, onChange }: SourceColCellProps) {
+/** Etiqueta de una columna en los combos: el nombre del layout si lo hay, si no el índice. */
+function rotuloColumna(i: number, nombres?: string[]): string {
+    return nombres?.[i] ? `${i} — ${nombres[i]}` : `Col ${i}`;
+}
+
+function SourceColCell({ field, totalColumns, previewRows, nombresColumnas, onChange }: SourceColCellProps) {
     return (
         <FormControl size="small" fullWidth>
             <Select
@@ -200,7 +213,7 @@ function SourceColCell({ field, totalColumns, previewRows, onChange }: SourceCol
             >
                 {Array.from({ length: Math.max(totalColumns, 30) }).map((_, i) => (
                     <MenuItem key={i} value={i}>
-                        Col {i}
+                        {rotuloColumna(i, nombresColumnas)}
                         {previewRows.length > 0 && previewRows[0][i]
                             ? ` — "${String(previewRows[0][i]).substring(0, 25)}"`
                             : ""}
@@ -288,6 +301,7 @@ export default function MappingEditor({
     tieneHeader,
     categoria,
     disabled = false,
+    anchoFijo,
 }: Props) {
     const theme = useTheme();
     const isMobile = useMediaQuery(theme.breakpoints.down("md"));
@@ -298,6 +312,8 @@ export default function MappingEditor({
     const esFlujoFacturas = categoria === "FACTURAS" || categoria === "DEUDORES_Y_FACTURAS";
     const [previewRows, setPreviewRows] = useState<string[][]>([]);
     const [totalColumns, setTotalColumns] = useState(0);
+    /** Nombres de las columnas: solo los devuelve el preview de ancho fijo. */
+    const [nombresColumnas, setNombresColumnas] = useState<string[]>([]);
     const [previewFile, setPreviewFile] = useState<File | null>(null);
     const [loading, setLoading] = useState(false);
 
@@ -312,6 +328,10 @@ export default function MappingEditor({
                 formData.append("file", file);
                 formData.append("separador", separador);
                 formData.append("tieneHeader", String(tieneHeader));
+                // Con layout declarado, el backend corta por posición e ignora el separador.
+                if (anchoFijo?.columnas?.length) {
+                    formData.append("anchoFijo", JSON.stringify(anchoFijo));
+                }
 
                 const res = await api.post(
                     "/import/plantillas/preview",
@@ -321,13 +341,14 @@ export default function MappingEditor({
 
                 setPreviewRows(res.data.rows ?? []);
                 setTotalColumns(res.data.totalColumns ?? 0);
+                setNombresColumnas(res.data.columnas ?? []);
             } catch (e: unknown) {
                 notify.error(e as Error);
             }
 
             setLoading(false);
         },
-        [separador, tieneHeader, notify]
+        [separador, tieneHeader, anchoFijo, notify]
     );
 
     // Re-parsear el preview cuando cambia el separador (o el header) y ya hay un archivo
@@ -441,6 +462,7 @@ export default function MappingEditor({
                     field={field}
                     totalColumns={totalColumns}
                     previewRows={previewRows}
+                    nombresColumnas={nombresColumnas}
                     onChange={(key, val) => handleFieldChange(globalIdx, key, val)}
                 />
             </TableCell>
@@ -487,6 +509,7 @@ export default function MappingEditor({
                         field={field}
                         totalColumns={totalColumns}
                         previewRows={previewRows}
+                        nombresColumnas={nombresColumnas}
                         onChange={(key, val) => handleBlockFieldChange(bIdx, fIdx, key, val)}
                     />
                 </TableCell>
@@ -555,6 +578,7 @@ export default function MappingEditor({
                                 field={field}
                                 totalColumns={totalColumns}
                                 previewRows={previewRows}
+                                nombresColumnas={nombresColumnas}
                                 onChange={(key, val) => handleFieldChange(globalIdx, key, val)}
                             />
                         </Box>
@@ -624,6 +648,7 @@ export default function MappingEditor({
                                 field={field}
                                 totalColumns={totalColumns}
                                 previewRows={previewRows}
+                                nombresColumnas={nombresColumnas}
                                 onChange={(key, val) => handleBlockFieldChange(bIdx, fIdx, key, val)}
                             />
                         </Box>
@@ -787,7 +812,7 @@ export default function MappingEditor({
                                                 bgcolor: theme.palette.action.hover,
                                             }}
                                         >
-                                            Col {i}
+                                            {rotuloColumna(i, nombresColumnas)}
                                         </TableCell>
                                     ))}
                                 </TableRow>

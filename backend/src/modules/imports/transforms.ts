@@ -61,6 +61,13 @@ const toDateAuto = (input: any) => {
     const formats = [
         'YYYY-MM-DD',
         'DD/MM/YYYY',
+        // Separado por PUNTOS: es como exporta SAP (AYSA manda `21.06.2026`). Van antes del
+        // fallback flexible de dayjs, que con estas fechas hace dos destrozos silenciosos:
+        // `10.05.2024` lo lee como MM.DD y devuelve el 5 de octubre, y `21.06.2026` —cualquier día
+        // mayor a 12— lo devuelve nulo. Con el formato declarado, las dos salen bien.
+        // Un `MM.DD.YYYY` no existe como convención, así que no hay ambigüedad que resolver.
+        'DD.MM.YYYY',
+        'D.M.YYYY',
         'M/D/YY',
         'D/M/YY',
         'DD/MM/YY',

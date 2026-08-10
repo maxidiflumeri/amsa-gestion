@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState } from 'react'
+import React, { useCallback, useEffect, useMemo, useState } from 'react'
 import {
     Alert,
     Box,
@@ -30,6 +30,8 @@ import MappingEditor, {
 import AccionesEditor, { AccionesConfig } from '../components/import/AccionesEditor'
 import MultirregistroEditor, { PRESET_TOYOTA_87 } from '../components/import/MultirregistroEditor'
 import MultiarchivoEditor, { PRESET_TOYOTA_TCFA } from '../components/import/MultiarchivoEditor'
+import AnchoFijoEditor, { layoutATexto, parsearLayout } from '../components/import/AnchoFijoEditor'
+import FiltroFilasEditor, { FiltroFila } from '../components/import/FiltroFilasEditor'
 
 // ─── Constantes ──────────────────────────────────────────────────────────────
 
@@ -221,6 +223,12 @@ const PlantillaEditor: React.FC = () => {
     const [multirregistroConfig, setMultirregistroConfig] = useState(
         JSON.stringify(PRESET_TOYOTA_87, null, 2),
     )
+    // Archivos de ancho fijo (exports de SAP): los campos van por posición, no hay separador.
+    // El layout se edita como texto `nombre;inicio;largo` (ver AnchoFijoEditor).
+    const [anchoFijoLayout, setAnchoFijoLayout] = useState('')
+    const [anchoFijoEncoding, setAnchoFijoEncoding] = useState<'latin1' | 'utf8'>('latin1')
+    // Qué subconjunto del archivo se importa. Vacío = todas las filas (comportamiento clásico).
+    const [filtroFilas, setFiltroFilas] = useState<FiltroFila[]>([])
     const [defaultEstadoSituacionId, setDefaultEstadoSituacionId] = useState<number | ''>('')
     const [defaultEstadoGestionId, setDefaultEstadoGestionId] = useState<number | ''>('')
     const [montoDeudorDesdeFacturas, setMontoDeudorDesdeFacturas] =
@@ -252,6 +260,14 @@ const PlantillaEditor: React.FC = () => {
     // porque los archivos del paquete traen encabezado.
     const esMultiarchivo = categoria === 'MULTIARCHIVO'
     const sinMapeoDeColumnas = esAcciones || esMultirregistro || esMultiarchivo
+    // Ancho fijo es una opción del combo de formato, no una categoría: cualquier categoría de "una
+    // fila = un registro" puede venir en un archivo sin separador.
+    const esAnchoFijo = separador === 'ANCHO_FIJO'
+    // Nombres de las columnas del layout, para que el filtro las liste en vez de pedir un índice.
+    const columnasAnchoFijo = useMemo(
+        () => (esAnchoFijo ? parsearLayout(anchoFijoLayout).columnas.map((c) => c.nombre) : []),
+        [esAnchoFijo, anchoFijoLayout],
+    )
 
     // Empresa del editor: para creación la toma de la lista via state o default
     const [empresaId, setEmpresaId] = useState<number | null>(null)
@@ -319,6 +335,15 @@ const PlantillaEditor: React.FC = () => {
             if (p.mappingJson?.multirregistro) {
                 setMultirregistroConfig(JSON.stringify(p.mappingJson.multirregistro, null, 2))
             }
+            if (p.mappingJson?.formato === 'ANCHO_FIJO') {
+                // El formato viaja en el mappingJson, pero en la UI es una opción del combo de
+                // separador: es donde el operador espera elegir cómo viene el archivo.
+                setSeparador('ANCHO_FIJO')
+                setSepMode('STD')
+                setAnchoFijoLayout(layoutATexto(p.mappingJson.anchoFijo?.columnas ?? []))
+                setAnchoFijoEncoding(p.mappingJson.anchoFijo?.encoding === 'utf8' ? 'utf8' : 'latin1')
+            }
+            setFiltroFilas(p.mappingJson?.filtroFilas ?? [])
         } catch (err) {
             notify.error(err as Error)
             navigate('/plantillas')
@@ -445,6 +470,19 @@ const PlantillaEditor: React.FC = () => {
         if (esMultiarchivo) {
             ;(mappingJson as Record<string, unknown>).multiarchivo = JSON.parse(multiarchivoConfig)
         }
+        if (esAnchoFijo) {
+            const { columnas, error } = parsearLayout(anchoFijoLayout)
+            if (error) {
+                notify.error(`Revisá el layout de ancho fijo: ${error}`)
+                setLoading(false)
+                return
+            }
+            ;(mappingJson as Record<string, unknown>).formato = 'ANCHO_FIJO'
+            ;(mappingJson as Record<string, unknown>).anchoFijo = { encoding: anchoFijoEncoding, columnas }
+        }
+        if (filtroFilas.length > 0) {
+            ;(mappingJson as Record<string, unknown>).filtroFilas = filtroFilas
+        }
 
         try {
             if (isEdit && id) {
@@ -452,7 +490,9 @@ const PlantillaEditor: React.FC = () => {
                     nombre,
                     categoria,
                     version,
-                    separador,
+                    // En ancho fijo no hay separador: se guarda el default para que, si alguna vez
+                    // se saca el layout, la plantilla no quede con un delimitador imposible.
+                    separador: esAnchoFijo ? '|' : separador,
                     tieneHeader,
                     mappingJson,
                     defaultEstadoSituacionId: defaultEstadoSituacionId === '' ? null : Number(defaultEstadoSituacionId),
@@ -470,7 +510,9 @@ const PlantillaEditor: React.FC = () => {
                     nombre,
                     categoria,
                     version,
-                    separador,
+                    // En ancho fijo no hay separador: se guarda el default para que, si alguna vez
+                    // se saca el layout, la plantilla no quede con un delimitador imposible.
+                    separador: esAnchoFijo ? '|' : separador,
                     tieneHeader,
                     mappingJson,
                     defaultEstadoSituacionId: defaultEstadoSituacionId === '' ? null : Number(defaultEstadoSituacionId),
@@ -573,6 +615,7 @@ const PlantillaEditor: React.FC = () => {
                             <MenuItem value=";">CSV - Punto y coma (;)</MenuItem>
                             <MenuItem value="|">TXT - Pipe (|)</MenuItem>
                             <MenuItem value={'\t'}>TXT - Tabulador (TAB)</MenuItem>
+                            <MenuItem value="ANCHO_FIJO">TXT - Ancho fijo (sin separador)</MenuItem>
                             <MenuItem value="OTRO">Otro personalizado...</MenuItem>
                         </Select>
                     </FormControl>
@@ -828,6 +871,33 @@ const PlantillaEditor: React.FC = () => {
                     </>
                 )}
 
+                {esAnchoFijo && !esMultiarchivo && !esMultirregistro && (
+                    <>
+                        <Divider sx={{ my: 3 }} />
+                        <Typography variant="h6" sx={{ fontWeight: 600, mb: 2 }}>
+                            Columnas del archivo de ancho fijo
+                        </Typography>
+                        <AnchoFijoEditor
+                            value={anchoFijoLayout}
+                            onChange={setAnchoFijoLayout}
+                            encoding={anchoFijoEncoding}
+                            onEncodingChange={setAnchoFijoEncoding}
+                            tieneHeader={tieneHeader}
+                        />
+                    </>
+                )}
+
+                {!esMultiarchivo && !esMultirregistro && (
+                    <>
+                        <Divider sx={{ my: 3 }} />
+                        <FiltroFilasEditor
+                            value={filtroFilas}
+                            onChange={setFiltroFilas}
+                            columnas={columnasAnchoFijo}
+                        />
+                    </>
+                )}
+
                 <Divider sx={{ my: 3 }} />
 
                 {esMultiarchivo ? (
@@ -891,6 +961,14 @@ const PlantillaEditor: React.FC = () => {
                             tieneHeader={tieneHeader}
                             categoria={categoria}
                             disabled={false}
+                            anchoFijo={
+                                esAnchoFijo && columnasAnchoFijo.length
+                                    ? {
+                                          encoding: anchoFijoEncoding,
+                                          columnas: parsearLayout(anchoFijoLayout).columnas,
+                                      }
+                                    : undefined
+                            }
                         />
                     </>
                 )}

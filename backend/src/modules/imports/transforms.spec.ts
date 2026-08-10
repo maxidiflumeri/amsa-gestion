@@ -78,3 +78,42 @@ describe('transforms — pago negativo: el ORDEN importa', () => {
         expect(t('"-1.234,56"', 'removeDoubleQuotes', 'removeDashes', 'toNumber:es-AR')).toBe(1234.56);
     });
 });
+
+describe('transforms — toDate:auto con fechas separadas por puntos', () => {
+    /** Fecha local a medianoche, que es lo que devuelve el transform. */
+    const fecha = (a: number, m: number, d: number) => new Date(a, m - 1, d);
+
+    it('lee DD.MM.YYYY como día.mes.año (el formato de SAP)', () => {
+        // Antes esto devolvía el 5 de octubre: dayjs caía al fallback flexible y lo leía MM.DD.
+        expect(t('10.05.2024', 'toDate:auto')).toEqual(fecha(2024, 5, 10));
+        expect(t('08.02.2024', 'toDate:auto')).toEqual(fecha(2024, 2, 8));
+    });
+
+    it('lee los días mayores a 12, que antes quedaban en null', () => {
+        expect(t('21.06.2026', 'toDate:auto')).toEqual(fecha(2026, 6, 21));
+        expect(t('31.12.2025', 'toDate:auto')).toEqual(fecha(2025, 12, 31));
+        expect(t('28.06.2026', 'toDate:auto')).toEqual(fecha(2026, 6, 28));
+    });
+
+    it('acepta el día y el mes sin cero a la izquierda', () => {
+        expect(t('1.5.2024', 'toDate:auto')).toEqual(fecha(2024, 5, 1));
+    });
+
+    it('el "sin fecha" del cedente sigue dando null, no una fecha inventada', () => {
+        expect(t('00.00.0000', 'toDate:auto')).toBeNull();
+    });
+
+    it('descarta una fecha que no existe en vez de correrla al mes siguiente', () => {
+        expect(t('31.02.2026', 'toDate:auto')).toBeNull();
+    });
+
+    it('no cambia los formatos que ya funcionaban', () => {
+        expect(t('2024-05-10', 'toDate:auto')).toEqual(fecha(2024, 5, 10));
+        expect(t('10/05/2024', 'toDate:auto')).toEqual(fecha(2024, 5, 10));
+        expect(t('10-05-2024', 'toDate:auto')).toEqual(fecha(2024, 5, 10));
+    });
+
+    it('ignora la hora pegada atrás', () => {
+        expect(t('21.06.2026 00:00:00', 'toDate:auto')).toEqual(fecha(2026, 6, 21));
+    });
+});
