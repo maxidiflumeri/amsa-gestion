@@ -34,9 +34,15 @@ y la central otra.
 
 - **`EmbeddedShell`** — el `AppShell` sin barra superior ni menú lateral. Dentro del iframe esos dos
   solo comen el alto que el operador necesita para gestionar.
-- **`TelefoniaCaso`** (`/telefonia/caso?id=[[CLAVE]]&data=[[DATA]]`) — la ficha que abre la llamada.
-  `[[CLAVE]]` es el **id interno del deudor**, así que no hay que resolver por documento (que en varias
-  carteras no es único) ni por teléfono.
+- **`TelefoniaCaso`** (`/telefonia/caso?llamada=[[CLAVE]]&data=[[DATA]]`) — la ficha que abre la
+  llamada. `[[CLAVE]]` es el id del contacto **en Neotel**; **nuestro id de deudor viaja en `[[DATA]]`**,
+  así que la resolución arma una lista de candidatos y prueba hasta que uno exista, en vez de asumir
+  una posición fija.
+
+  La `CLAVE` se prueba **solo si `DATA` no aportó nada**, y avisando en pantalla: los dos ids son
+  enteros correlativos, así que tarde o temprano uno coincide con un deudor real y la Toolbar abriría
+  la ficha de **otra persona** en medio de una llamada. Gestionar sobre el caso equivocado es peor que
+  no abrir ninguno.
 - **`TelefoniaHome`** (`/telefonia/home`) — lo que ve el agente conectado sin llamada.
 - **`Login`** ahora vuelve a la ruta original en vez de a `/`: si al operador le tocaba loguearse justo
   cuando entraba una llamada, terminaba en la home con menú en lugar de en la ficha del caso.

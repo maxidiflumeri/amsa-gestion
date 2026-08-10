@@ -1,5 +1,5 @@
-import React, { useEffect, useState } from 'react'
-import { Alert, AlertTitle, Box, Button, Chip, Stack, Typography } from '@mui/material'
+import React, { useEffect, useMemo, useState } from 'react'
+import { Alert, AlertTitle, Box, Button, Chip, Stack, Tooltip, Typography } from '@mui/material'
 import PhoneInTalkIcon from '@mui/icons-material/PhoneInTalk'
 import SearchIcon from '@mui/icons-material/Search'
 import { useSearchParams } from 'react-router-dom'
@@ -7,116 +7,132 @@ import FichaDeudor from '../../components/deudores/ficha'
 import BuscadorAvanzadoModal from '../../components/deudores/BuscadorAvanzadoModal'
 import { LoadingSkeleton } from '../../components/ui'
 import api from '../../api/axios'
+import { resolverCaso } from './resolver-caso'
 
 /**
- * Ficha que abre la toolbar de Neotel cuando el operador atiende una llamada ("screen pop").
+ * Ficha que abre la Toolbar de Neotel cuando el operador atiende una llamada ("screen pop").
  *
  * Neotel arma la URL reemplazando las variables de la campaña:
  *
- *     https://amsagestion.anamayasa.com/telefonia/caso?id=[[CLAVE]]&data=[[DATA]]
+ *     https://amsagestion.anamayasa.com/telefonia/caso?llamada=[[CLAVE]]&data=[[DATA]]
  *
- * `[[CLAVE]]` es el **id interno del deudor** (así se carga la base en Neotel), lo que evita
- * cualquier ambigüedad: no hay que resolver por documento ni por teléfono. `[[DATA]]` es un campo
- * libre con información adicional del contacto; sus valores vienen unidos por el SEPARADOR que se
- * configura en la campaña.
+ * `[[CLAVE]]` es el identificador del contacto / de la llamada **en Neotel**, y `[[DATA]]` el campo
+ * libre donde viaja **nuestro id de deudor**. Como el contenido de `DATA` lo define quien carga la
+ * base, la resolución prueba varios candidatos en orden (ver `resolver-caso.ts`) en vez de asumir
+ * una posición fija.
  *
- * Si el caso no se encuentra, la pantalla **no queda en blanco**: muestra los datos crudos que mandó
- * Neotel y ofrece el buscador, para que el operador pueda atender igual mientras se corrige la base.
+ * Si ninguno resuelve, la pantalla **no queda en blanco**: muestra lo que mandó la central y ofrece
+ * el buscador, para que el operador pueda atender igual mientras se corrige la configuración.
  */
-
-/** Separador por defecto de `DATA`. Se puede sobreescribir por query (`&sep=;`). */
-const SEPARADOR_DEFAULT = '|'
-
 const TelefoniaCaso: React.FC = () => {
     const [params] = useSearchParams()
-    // `id` es el nombre propio; `dni` y `clave` se aceptan porque son los que usan los ejemplos de
-    // Neotel y evitan una carga fallida si la campaña se configuró copiando la documentación.
-    const claveCruda = (params.get('id') ?? params.get('dni') ?? params.get('clave') ?? '').trim()
-    const data = params.get('data') ?? ''
-    const separador = params.get('sep') || SEPARADOR_DEFAULT
 
-    const deudorId = /^\d+$/.test(claveCruda) ? Number(claveCruda) : null
+    const { candidatos, valoresData, idNeotel } = useMemo(
+        () =>
+            resolverCaso({
+                data: params.get('data'),
+                // `id` y `dni` se aceptan porque son los nombres de los ejemplos de la documentación
+                // de Neotel: alcanza con configurar la campaña copiando y pegando para que la ficha
+                // no cargue y nadie entienda por qué.
+                clave: params.get('llamada') ?? params.get('clave') ?? params.get('id') ?? params.get('dni'),
+                deudor: params.get('deudor'),
+                sep: params.get('sep'),
+                pos: params.get('pos'),
+            }),
+        [params],
+    )
 
     const [estado, setEstado] = useState<'cargando' | 'ok' | 'no-encontrado'>('cargando')
-    const [nombre, setNombre] = useState<string>('')
+    const [deudorId, setDeudorId] = useState<number | null>(null)
+    const [nombre, setNombre] = useState('')
+    /** True si el caso se resolvió por la clave de Neotel y no por DATA — hay que confirmarlo. */
+    const [dudoso, setDudoso] = useState(false)
     const [buscadorAbierto, setBuscadorAbierto] = useState(false)
-    // Si el operador busca el caso a mano, se muestra ese en vez del que vino en la URL.
-    const [idManual, setIdManual] = useState<number | null>(null)
 
     useEffect(() => {
-        if (deudorId == null) {
-            setEstado('no-encontrado')
-            return
-        }
         let vigente = true
-        setEstado('cargando')
-        api.get(`/deudores/${deudorId}`)
-            .then((res) => {
-                if (!vigente) return
-                const d = res.data?.data ?? res.data
-                setNombre([d?.apellido, d?.nombre].filter(Boolean).join(', ') || '')
-                setEstado('ok')
-            })
-            .catch(() => {
-                if (vigente) setEstado('no-encontrado')
-            })
+
+        const buscar = async () => {
+            setEstado('cargando')
+            // Se prueban en orden; el primero que exista gana. Un candidato equivocado devuelve 404
+            // y se sigue con el siguiente.
+            for (const c of candidatos) {
+                try {
+                    const res = await api.get(`/deudores/${c.id}`)
+                    if (!vigente) return
+                    const d = res.data?.data ?? res.data
+                    if (d?.id) {
+                        setDeudorId(c.id)
+                        setNombre([d.apellido, d.nombre].filter(Boolean).join(', '))
+                        setDudoso(c.origen === 'clave')
+                        setEstado('ok')
+                        return
+                    }
+                } catch {
+                    /* no es este: se prueba el siguiente */
+                }
+            }
+            if (vigente) {
+                setDeudorId(null)
+                setDudoso(false)
+                setEstado('no-encontrado')
+            }
+        }
+
+        buscar()
         return () => {
             vigente = false
         }
-    }, [deudorId])
-
-    const idAMostrar = idManual ?? (estado === 'ok' ? deudorId : null)
-
-    const valoresData = data
-        .split(separador)
-        .map((v) => v.trim())
-        .filter(Boolean)
+    }, [candidatos])
 
     return (
         <Box>
             {/* Contexto de la llamada: de dónde salió esta ficha y qué mandó la campaña. */}
-            <Stack
-                direction="row"
-                spacing={1}
-                alignItems="center"
-                flexWrap="wrap"
-                useFlexGap
-                sx={{ mb: 1.5 }}
-            >
+            <Stack direction="row" spacing={1} alignItems="center" flexWrap="wrap" useFlexGap sx={{ mb: 1.5 }}>
                 <Chip
                     icon={<PhoneInTalkIcon />}
                     label={nombre ? `En llamada — ${nombre}` : 'En llamada'}
                     color="primary"
                     size="small"
                 />
+                {idNeotel && (
+                    <Tooltip title="Identificador de la llamada en Neotel">
+                        <Chip label={`Neotel ${idNeotel}`} size="small" variant="outlined" />
+                    </Tooltip>
+                )}
                 {valoresData.map((v, i) => (
                     <Chip key={`${v}-${i}`} label={v} size="small" variant="outlined" />
                 ))}
                 <Box sx={{ flexGrow: 1 }} />
-                <Button
-                    size="small"
-                    startIcon={<SearchIcon />}
-                    onClick={() => setBuscadorAbierto(true)}
-                >
+                <Button size="small" startIcon={<SearchIcon />} onClick={() => setBuscadorAbierto(true)}>
                     Buscar otro caso
                 </Button>
             </Stack>
 
             {estado === 'cargando' && <LoadingSkeleton variant="detail" />}
 
-            {estado === 'no-encontrado' && idManual == null && (
+            {estado === 'no-encontrado' && (
                 <Alert severity="warning" sx={{ mb: 2 }}>
-                    <AlertTitle>No se encontró el caso que mandó la central</AlertTitle>
+                    <AlertTitle>No se encontró el caso de esta llamada</AlertTitle>
                     <Typography variant="body2">
-                        {claveCruda
-                            ? <>La llamada llegó con la clave <strong>{claveCruda}</strong>, que no corresponde a
-                               ningún caso cargado. Puede ser un contacto viejo o un dato mal cargado en la campaña.</>
-                            : <>La llamada llegó <strong>sin identificador de caso</strong>. Revisá la configuración
-                               de la URL en la campaña de Neotel.</>}
+                        {candidatos.length > 0 ? (
+                            <>
+                                Se probó con {candidatos.length === 1 ? 'el número' : 'los números'}{' '}
+                                <strong>{candidatos.map((c) => c.id).join(', ')}</strong> y ninguno
+                                corresponde a un caso cargado. Puede ser un contacto viejo, o que el id
+                                de deudor no esté llegando en el campo DATA de la campaña.
+                            </>
+                        ) : (
+                            <>
+                                La llamada llegó <strong>sin ningún número de caso</strong>. Revisá la
+                                configuración de la URL en la campaña de Neotel: el id del deudor tiene
+                                que viajar en el campo DATA.
+                            </>
+                        )}
                     </Typography>
                     {valoresData.length > 0 && (
                         <Typography variant="body2" sx={{ mt: 1 }}>
-                            Datos que mandó la central: {valoresData.join(' · ')}
+                            La central mandó: {valoresData.join(' · ')}
                         </Typography>
                     )}
                     <Button
@@ -131,13 +147,30 @@ const TelefoniaCaso: React.FC = () => {
                 </Alert>
             )}
 
-            {idAMostrar != null && <FichaDeudor deudorId={idAMostrar} />}
+            {/*
+              El caso no vino en DATA sino que se resolvió con el id de contacto de Neotel. Los dos
+              son enteros correlativos, así que la coincidencia puede ser casual: antes de gestionar,
+              el operador tiene que confirmar que es la persona con la que está hablando.
+            */}
+            {estado === 'ok' && dudoso && (
+                <Alert severity="warning" sx={{ mb: 2 }}>
+                    <AlertTitle>Confirmá que es el caso correcto</AlertTitle>
+                    <Typography variant="body2">
+                        El campo DATA de la campaña no trajo el número de caso, así que se abrió el que
+                        coincide con el identificador de Neotel (<strong>{idNeotel}</strong>). Puede ser
+                        una coincidencia: verificá el nombre con la persona antes de registrar la gestión.
+                    </Typography>
+                </Alert>
+            )}
+
+            {deudorId != null && <FichaDeudor deudorId={deudorId} />}
 
             <BuscadorAvanzadoModal
                 open={buscadorAbierto}
                 onClose={() => setBuscadorAbierto(false)}
                 onSelectDeudor={(id) => {
-                    setIdManual(id)
+                    setDeudorId(id)
+                    setEstado('ok')
                     setBuscadorAbierto(false)
                 }}
             />

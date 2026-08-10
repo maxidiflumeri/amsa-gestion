@@ -28,24 +28,52 @@ La Toolbar corre en `https://neotel.anamayasa.com:8443/neotel/` y embebe nuestra
 Cuando entra una llamada, arma la URL reemplazando las variables de la campaña y navega el iframe.
 
 ```
-https://amsagestion.anamayasa.com/telefonia/caso?id=[[CLAVE]]&data=[[DATA]]
+https://amsagestion.anamayasa.com/telefonia/caso?llamada=[[CLAVE]]&data=[[DATA]]
 ```
 
-- **`[[CLAVE]]`** — el **id interno del deudor**. Es lo que se carga en la base de Neotel al armar la
-  campaña. Elegirlo así evita resolver por documento (que en varias carteras no es único ni viene) o
-  por teléfono (que puede estar en más de un caso).
-- **`[[DATA]]`** — campo libre con información adicional, con los valores unidos por el **SEPARADOR**
-  que se configura en la campaña. Se muestra como contexto arriba de la ficha.
+- **`[[CLAVE]]`** — el identificador del contacto / de la llamada **en Neotel**. **No es nuestro id**:
+  se muestra como referencia de la llamada y no se usa para resolver el caso (salvo el último recurso
+  de §2.2).
+- **`[[DATA]]`** — campo libre, con los valores unidos por el **SEPARADOR** de la campaña. **Es acá
+  donde viaja el id interno del deudor**, porque `CLAVE` la ocupa Neotel con lo suyo.
 
-### Parámetros a cargar en la campaña de Neotel
+### 2.1 Parámetros a cargar en la campaña de Neotel
 
 | Parámetro | Valor |
 |---|---|
 | **MODO** | Iframe |
-| **URL** | `https://amsagestion.anamayasa.com/telefonia/caso?id=[[CLAVE]]&data=[[DATA]]` |
+| **URL** | `https://amsagestion.anamayasa.com/telefonia/caso?llamada=[[CLAVE]]&data=[[DATA]]` |
 | **HOME** | `https://amsagestion.anamayasa.com/telefonia/home` |
 | **SEPARADOR** | el que usen al cargar la base (nuestro default es `\|`; si usan otro, agregar `&sep=X` a la URL) |
 | **POSTVIEW TIMEOUT** | a criterio de operaciones — es el tiempo que tiene el agente para cerrar la gestión antes de volver a estar disponible |
+
+### 2.2 Cómo se resuelve el caso
+
+El contenido de `DATA` lo define quien carga la base, así que
+[`resolver-caso.ts`](../frontend/src/pages/telefonia/resolver-caso.ts) **no asume una posición fija**:
+arma una lista de candidatos y la pantalla los prueba en orden hasta que uno exista. Un candidato
+equivocado devuelve 404 y se pasa al siguiente; cuesta una request de más en un caso raro y a cambio
+la carga no se rompe si mañana agregan una columna adelante.
+
+Orden de preferencia:
+
+1. `&deudor=` — id mandado aparte, si alguna campaña se configura así.
+2. `&pos=N` — posición fijada dentro de `DATA`.
+3. El resto de los valores numéricos de `DATA`, en orden.
+4. **`CLAVE`, y solo si `DATA` no aportó ningún candidato.**
+
+> ⚠️ El punto 4 tiene esa restricción a propósito. Es tentador probar la `CLAVE` siempre "por las
+> dudas", pero el id de contacto de Neotel y el nuestro son los dos enteros correlativos: tarde o
+> temprano uno coincide con un deudor que existe, y ahí la Toolbar abriría **la ficha de otra
+> persona** en medio de una llamada sin que nada avise. Gestionar sobre el caso equivocado es peor
+> que no abrir ninguno.
+>
+> Cuando sí se cae a la `CLAVE`, la pantalla **muestra una advertencia** pidiéndole al operador que
+> verifique el nombre antes de registrar la gestión.
+
+La URL acepta además `id`, `dni` y `clave` como alias de `llamada`: son los nombres que usan los
+ejemplos de la documentación de Neotel, y alcanza con configurar la campaña copiando y pegando para
+que no cargue nada y nadie entienda por qué.
 
 ## 3. Por qué la sesión funciona sin volver a loguearse
 
@@ -88,6 +116,7 @@ navegadores le dan prioridad sobre el CSP y volvería a bloquear el iframe.
 |---|---|
 | Layout sin menú ni barra superior | [EmbeddedShell.tsx](../frontend/src/components/layout/EmbeddedShell.tsx) |
 | Ficha que abre la llamada | [TelefoniaCaso.tsx](../frontend/src/pages/telefonia/TelefoniaCaso.tsx) |
+| Resolución del caso desde `CLAVE`/`DATA` | [resolver-caso.ts](../frontend/src/pages/telefonia/resolver-caso.ts) |
 | Pantalla del agente sin llamada | [TelefoniaHome.tsx](../frontend/src/pages/telefonia/TelefoniaHome.tsx) |
 | Rutas `/telefonia/*` | [AppRoutes.tsx](../frontend/src/routes/AppRoutes.tsx) |
 
@@ -98,9 +127,9 @@ Decisiones que valen la pena mencionar:
 - **Si el caso no existe, la pantalla no queda en blanco.** Muestra la clave que mandó la central, los
   datos del `DATA` y un buscador, así el operador puede atender igual mientras se corrige la base. Una
   pantalla vacía en medio de una llamada es peor que un error explicado.
-- **`TelefoniaCaso` acepta `id`, `dni` o `clave`** como nombre del parámetro. El propio es `id`, pero
-  los ejemplos de la documentación de Neotel usan `dni` y alcanza con que alguien configure la campaña
-  copiando y pegando para que la carga falle sin motivo aparente.
+- **El id del deudor se busca en `DATA`, no en `CLAVE`** (§2.2), y la `CLAVE` solo se usa como último
+  recurso, avisando en pantalla — para no abrir la ficha de otra persona por una coincidencia de
+  números.
 - **El login vuelve a la ruta original.** `Login` hacía `navigate('/')` fijo, así que si al operador le
   tocaba loguearse justo cuando entraba una llamada, terminaba en la home con menú en vez de en la
   ficha. Ahora respeta el `state.from` que deja `PrivateRoute`.
