@@ -36,6 +36,15 @@ services:
     volumes:
       - storage:/app/storage
       - logs:/app/logs
+      # Archivos que sube el operador en las importaciones (FileStorageService escribe en
+      # `cwd/uploads`, o sea /app/uploads).
+      #
+      # SIN este volumen los archivos viven adentro del contenedor y **cada deploy los borra**.
+      # Ya pasó: el 2026-08-10 un deploy a mitad de la carga de AYSA (28 archivos) mató el job, y
+      # cuando BullMQ lo reintentó los archivos ya no estaban — la remesa quedó FALLIDA e
+      # irrecuperable, con 10.261 casos cargados a medias. Además se perdía el archivo original de
+      # todas las remesas históricas, que es la única forma de auditar qué se cargó.
+      - uploads:/app/uploads
     depends_on:
       - redis
     healthcheck:
@@ -63,4 +72,5 @@ services:
 volumes:
   storage:
   logs:
+  uploads:
   redis_data:

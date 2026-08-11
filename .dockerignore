@@ -12,6 +12,10 @@ infra
 # (matchearían el código en src/modules/reportes/storage → rompe el build)
 backend/logs
 backend/storage
+# Los archivos de importaciones locales no van a la imagen: en producción `uploads` es un volumen
+# (ver docker-compose.prod.yml). Sin esta línea se horneaban en la imagen los archivos de prueba de
+# la máquina de desarrollo — 158 MB, uno solo de 88 MB.
+backend/uploads
 **/.env
 **/.env.*
 !**/.env.example

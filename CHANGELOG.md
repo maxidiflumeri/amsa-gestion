@@ -6,6 +6,61 @@
 
 ---
 
+## [2026-08-11] — Los archivos subidos no sobrevivían a un deploy
+
+> ⚠️ **Requiere actualizar el parámetro SSM `/amsa-gestion/_compose` y recrear el contenedor.**
+> Sin cambios de schema. El cambio del compose **no viaja con el deploy normal**: ese parámetro lo
+> genera Terraform desde el archivo del repo (`infra/terraform/ssm.tf`).
+
+Reportado como "la importación #10067 falló después de cargar 10 mil casos". La remesa es la **#102**
+(el 10067 es el número de remesa): 28 archivos de cuentas de AYSA de la oficina 9000000506, categoría
+DEUDORES, estado FALLIDA con `totalFilas=10000`, `okFilas=10000`, **0 errores registrados** y
+**10.261 deudores efectivamente cargados**.
+
+### Qué pasó
+
+| Hora (UTC) | |
+|---|---|
+| 17:52:38 | el operador crea la remesa y sube los 28 archivos a `/app/uploads/19/DEUDORES/` |
+| 17:52:45 | arranca el job 144 y empieza a procesar |
+| ~18:00 | va por el lote 11: 10.261 casos insertados, contadores persistidos en 10.000 |
+| **18:00:50** | **se recrea el contenedor** (deploy). El proceso muere y `uploads/` vuelve al contenido de la imagen |
+| 18:01:52 | BullMQ recupera el job huérfano y lo reintenta — **los archivos ya no existen** |
+| | `BadRequestException: No se encuentra(n) en el disco 28 archivo(s)` → remesa FALLIDA |
+
+BullMQ hizo lo correcto reintentando; lo que no podía era inventar los archivos.
+
+### La causa: `uploads/` no era un volumen
+
+`docker-compose.prod.yml` montaba `storage` y `logs`, **no `uploads`**. `FileStorageService` escribe
+en `cwd/uploads` → `/app/uploads`, o sea **adentro del contenedor**. Cada deploy lo borraba.
+
+La firma que lo delató: todo `/app/uploads` tenía exactamente el mismo timestamp
+(`2026-08-10 14:52:15`), que es lo que deja un `COPY` de Docker — el contenido no era de los
+operadores, era el del build.
+
+Dos consecuencias más allá de esta importación:
+
+- **Ninguna remesa conservaba su archivo original.** Se perdía la única forma de auditar qué se cargó.
+- **La imagen cargaba 158 MB de archivos de prueba** de la máquina de desarrollo (uno solo de 88 MB),
+  porque `.dockerignore` excluía `backend/logs` y `backend/storage` pero no `backend/uploads`.
+
+### El arreglo
+
+- **`docker-compose.prod.yml`** — volumen `uploads:/app/uploads`.
+- **`.dockerignore`** — se excluye `backend/uploads` del contexto de build.
+- **`archivosDeRemesa`** ahora nombra los archivos faltantes con **el nombre que subió el operador**,
+  no con el `<timestamp>_<hash>.txt` del disco, que era lo que salía en el error y no le dice nada a
+  nadie.
+
+### Qué NO arregla esto
+
+Un deploy en medio de una importación la sigue matando: el job se reintenta, pero los casos ya
+cargados quedan a medias. Con el volumen puesto, **el reintento ahora sí puede completarla** —
+`DeudoresProcessor` hace upsert, así que reprocesar es idempotente. Antes ni eso era posible.
+
+---
+
 ## [2026-08-10] — Neotel: la integración pasa a ser por la Toolbar (adiós softphone propio)
 
 > ⚠️ **Redeploy front.** Sin cambios de schema ni de backend. **El cambio de headers en CloudFront ya

@@ -423,21 +423,28 @@ export class ImportService {
                 ? [remesa.archivo]
                 : [];
 
-        // Se valida acá y no solo en el alta porque entre medio puede pasar cualquier cosa (limpieza
-        // de `uploads/`, restore de un backup de la DB sin los archivos) y el mensaje tiene que decir
-        // cuál falta, no reventar con un ENOENT en el worker.
-        const faltantes = lista.filter((p) => !fs.existsSync(p));
-        if (faltantes.length > 0) {
-            throw new BadRequestException(
-                `No se encuentra(n) en el disco ${faltantes.length} archivo(s) de la remesa: ` +
-                `${faltantes.slice(0, 5).map((p) => path.basename(p)).join(', ')}` +
-                `${faltantes.length > 5 ? '…' : ''}. Volvé a crear la remesa subiendo los archivos.`,
-            );
-        }
-
         const nombres = Array.isArray(guardado?.nombres)
             ? (guardado.nombres as string[])
             : lista.map((p) => path.basename(p));
+
+        // Se valida acá y no solo en el alta porque entre medio puede pasar cualquier cosa (limpieza
+        // de `uploads/`, restore de un backup de la DB sin los archivos) y el mensaje tiene que decir
+        // cuál falta, no reventar con un ENOENT en el worker.
+        //
+        // Los nombres que se muestran son los **originales**, no los del disco: en `uploads/` los
+        // archivos quedan como `<timestamp>_<hash>.txt` y ese nombre no le dice nada a nadie.
+        const faltantes = lista
+            .map((p, i) => ({ p, nombre: nombres[i] || path.basename(p) }))
+            .filter(({ p }) => !fs.existsSync(p));
+
+        if (faltantes.length > 0) {
+            throw new BadRequestException(
+                `No se encuentra(n) en el disco ${faltantes.length} de los ${lista.length} archivo(s) ` +
+                `de la remesa: ${faltantes.slice(0, 5).map((f) => f.nombre).join(', ')}` +
+                `${faltantes.length > 5 ? `, y ${faltantes.length - 5} más` : ''}. ` +
+                'Volvé a crear la remesa subiendo los archivos de nuevo.',
+            );
+        }
 
         return { paths: lista, nombres };
     }
