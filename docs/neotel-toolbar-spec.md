@@ -91,6 +91,33 @@ Mismo código, mismo navegador; lo único que cambia es la dirección.
 El puerto no altera nada de esto: `:8443` no cambia el sitio. **Sí** importa para autorizar el
 embebido (§4), donde el origen se compara completo.
 
+### 3.1 Si el operador todavía no inició sesión
+
+El login es con Google Identity Services, y **GIS no funciona de forma confiable dentro de un iframe
+de otro dominio**: Google renderiza su botón en un iframe propio y el flujo actual (FedCM) exige que
+el contenedor declare `allow="identity-credentials-get"` — un atributo que pone Neotel al armar el
+iframe, no nosotros. Mostrar el login normal ahí adentro deja al operador apretando un botón que no
+hace nada, sin ningún error que lo explique.
+
+Por eso `PrivateRoute` detecta el contexto embebido ([`embebido.ts`](../frontend/src/utils/embebido.ts))
+y, en vez de redirigir a `/login`, muestra
+[`SesionRequeridaEmbebido`](../frontend/src/components/auth/SesionRequeridaEmbebido.tsx): una pantalla
+que abre el login **en una pestaña aparte**, que es un contexto de primer nivel donde Google anda
+siempre.
+
+El iframe se entera solo de que la sesión se abrió: la pestaña y el iframe son el mismo origen, así
+que comparten `localStorage` y el navegador dispara un evento `storage` cuando se guarda el token.
+Queda igual un botón "Ya inicié sesión" como salida manual, por si el evento no llega.
+
+El flujo completo, la primera vez del día:
+
+1. El operador entra a Neotel; el iframe abre la ficha del caso.
+2. Como no hay sesión, ve **"Iniciá sesión en AMSA Gestión"** con un botón.
+3. Se abre una pestaña, entra con Google, y esa pestaña queda en la app normal.
+4. Vuelve a Neotel: **el iframe ya cargó la ficha solo**.
+
+De ahí en más, todas las llamadas de la jornada abren la ficha directo.
+
 ## 4. Headers: `frame-ancestors` en lugar de `X-Frame-Options`
 
 CloudFront servía `x-frame-options: DENY`, que bloquea cualquier iframe. No alcanzaba con pasarlo a
@@ -118,6 +145,8 @@ navegadores le dan prioridad sobre el CSP y volvería a bloquear el iframe.
 | Ficha que abre la llamada | [TelefoniaCaso.tsx](../frontend/src/pages/telefonia/TelefoniaCaso.tsx) |
 | Resolución del caso desde `CLAVE`/`DATA` | [resolver-caso.ts](../frontend/src/pages/telefonia/resolver-caso.ts) |
 | Pantalla del agente sin llamada | [TelefoniaHome.tsx](../frontend/src/pages/telefonia/TelefoniaHome.tsx) |
+| Sesión requerida dentro del iframe | [SesionRequeridaEmbebido.tsx](../frontend/src/components/auth/SesionRequeridaEmbebido.tsx) |
+| Detección de contexto embebido | [embebido.ts](../frontend/src/utils/embebido.ts) |
 | Rutas `/telefonia/*` | [AppRoutes.tsx](../frontend/src/routes/AppRoutes.tsx) |
 
 Decisiones que valen la pena mencionar:
