@@ -42,6 +42,51 @@ export async function validarEmail(email: string): Promise<EmailValidado> {
     }
 }
 
+/* ────────────────────────────────────────────────────────────────────────────
+ * Filtro de basura: qué NO vale la pena guardar
+ * ──────────────────────────────────────────────────────────────────────────── */
+
+/**
+ * Forma mínima de un email: algo, arroba, dominio con al menos un punto y un TLD de 2+ letras.
+ * Deliberadamente laxa — no reemplaza a `validarEmail`, solo descarta lo que no puede ser un email.
+ */
+const FORMA_EMAIL = /^[^\s@]+@[^\s@.]+(\.[^\s@.]+)*\.[a-z]{2,}$/i;
+
+/**
+ * Parte local que delata un relleno, sin importar el dominio. Nadie real usa `sin@…`.
+ *
+ * Hace falta porque muchos de estos son **sintácticamente válidos y con dominio real**, así que
+ * ningún filtro técnico los distingue de un email de verdad: `sin@mail.com` pasa la validación de
+ * formato y `mail.com` tiene servidor de correo. En el archivo de AYSA aparece 17 veces.
+ */
+const LOCALES_PLACEHOLDER = new Set([
+    'sin', 'sinmail', 'sinemail', 'sincorreo', 'nomail', 'noemail',
+    'no', 'notiene', 'notienemail', 'noposee', 'nose', 'ninguno',
+    'nn', 'na', 'xx', 'xxx', 'test', 'prueba', 'ejemplo',
+]);
+
+/**
+ * ¿Vale la pena guardar este email?
+ *
+ * Es el equivalente de `esPosibleTelefono`: separa "no validó pero podría ser real" de "esto es
+ * basura y no aporta nada". Sin este filtro, la mitad de los emails de AYSA que entraban a la base
+ * eran el relleno `sin@mail` (5.910 de 11.702).
+ *
+ * NO decide si el email existe —de eso se ocupa `validarEmail` con su chequeo de MX—, solo si tiene
+ * sentido guardarlo.
+ */
+export function esPosibleEmail(input: string): boolean {
+    const e = normalizarEmail(String(input ?? ''));
+    if (!e || !FORMA_EMAIL.test(e)) return false;
+
+    const local = e.split('@')[0];
+    // Se comparan también sin separadores: "sin_mail", "sin.mail" y "sinmail" son lo mismo.
+    if (LOCALES_PLACEHOLDER.has(local) || LOCALES_PLACEHOLDER.has(local.replace(/[._-]/g, ''))) {
+        return false;
+    }
+    return true;
+}
+
 /**
  * 🚫 Lanza excepción si el email no es válido
  */

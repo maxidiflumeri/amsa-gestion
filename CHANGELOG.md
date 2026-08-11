@@ -6,6 +6,101 @@
 
 ---
 
+## [2026-08-11] — Contactos: normalizar los teléfonos sin característica y tirar la basura
+
+> ⚠️ **Redeploy back + front.** Sin cambios de schema. **Cambia el comportamiento de TODAS las
+> carteras**, no solo AYSA — ver "Qué cambia para el resto".
+
+Feedback del equipo tras la primera carga de AYSA, sobre el caso 394905:
+
+```
+[direccion] NOMEOLVIDES 5935, SAN FRANCISCO SOLANO (CP B1843---)   ← falta el domicilio de facturación
+[email]     sin@mail                                                ← basura cargada
+[telefono]  +541142407390     ✓        [telefono] 1564435038  ✗ crudo, "en rojo"
+```
+
+Medido sobre la bajada del 22/06 (21.335 cuentas): **el 56% de los teléfonos estaba mal procesado y
+la mitad de los emails era basura.**
+
+| | En el archivo | Antes | Ahora |
+|---|---|---|---|
+| Teléfonos | 26.506 | 8.215 útiles (31%) | **17.660 (66,6%)** |
+| Emails | 11.702 | 11.702 (con 5.910 `sin@mail`) | **5.766 (49,3%)** |
+| Direcciones | 2 por caso | 1 | **2, etiquetadas** |
+
+### Teléfonos: cascada de deducción del código de área
+
+El cedente los manda en formato **local**: `42996640` (fijo) y `1564435038` (celular, con el `15`
+que se marca localmente). Sin característica no se puede llamar. De los 26.506, **8.904 (34%) eran
+de 8 dígitos y se descartaban en silencio**, y **5.869 (22%) quedaban "en rojo"** e inservibles.
+
+`normalizarTelefonoArgentino` acepta ahora un contexto del caso y prueba en orden:
+
+1. El número ya trae la característica (lo de siempre).
+2. **Otro teléfono del mismo caso** la declara → se le presta. Recupera el 5,7%.
+3. **El código postal del domicilio** la determina → tabla nueva `cp-area-telefonica.json`. 30%.
+4. No se pudo → **se descarta**.
+
+**La tabla se derivó de los datos, no de una suposición.** Para cada CP se miró qué característica
+tienen los teléfonos que sí la declaran en casos de ese mismo CP; entran los 120 donde una sola
+explica ≥90% con al menos 3 observaciones, más 20 zonas (`B184`) como fallback. Los ambiguos quedan
+afuera a propósito.
+
+Era tentador asumir "área 11" para toda la cartera, pero **AYSA no es solo CABA/GBA**: aparecen 220,
+223, 230 y 237. Un teléfono con el área equivocada es peor que ninguno — el gestor llama y no es.
+
+Dos salvaguardas que valen la pena mencionar:
+
+- **Control anti-invención**: se tomaron 4.652 teléfonos que sí traen característica, se les sacó, y
+  se verificó que la cascada reconstruyera exactamente la misma. **100% de aciertos, 0 errores.**
+- La cascada **descarta el área candidata que no da un número válido**. El número nacional argentino
+  tiene 10 dígitos: un área de 3 va con 7 locales, no con 8. Si el hermano sugiere un área
+  incompatible, se pasa al candidato siguiente en vez de armar un número inexistente.
+
+### Emails: `esPosibleEmail`
+
+Para teléfonos existía `esPosibleTelefono`, que filtra la basura evidente; para emails no había nada
+y se guardaba cualquier cosa "en rojo". Ahora se descarta:
+
+1. Lo que no puede ser un email (sin arroba, dominio sin punto, TLD incompleto): 5.918 casos, de los
+   cuales 5.910 son `sin@mail`.
+2. Una lista corta de rellenos **bien formados** (`sin@mail.com`, `no@tiene.com`, `nn@nn.com`). Son
+   sintácticamente válidos y con dominio real, así que ningún filtro técnico los distingue de un
+   email de verdad.
+
+El filtro **no mira la frecuencia**: un email repetido suele ser el de una inmobiliaria o un
+administrador de consorcio con varias cuentas, no basura.
+
+### Los dos domicilios
+
+AYSA manda el de prestación del servicio y el de facturación, y los dos salen en las cartas. Se
+cargan los dos, distinguidos con `contacto.subtipo` (`SERVICIO` / `FACTURACION`), y la ficha los
+muestra con una etiqueta.
+
+### Facturas: dejan de quedar todas en "pendiente"
+
+Las 138.234 facturas tenían `estado = null` y la ficha mostraba "PENDIENTE" por defecto. Dos cambios:
+
+- Se crean con `estado: 'PENDIENTE'` explícito. En el camino por lote el estado **solo se escribe al
+  crear**: si la factura ya existe puede estar PAGADA o ANULADA, y reimportar el archivo del cedente
+  no debe resucitarla.
+- **`PagosProcessor` marca PAGADA la factura que el pago identifica.** El archivo de novedades dice
+  qué partida se cobró y ese dato ya se guardaba en `pago.observacion`; ahora además cierra la
+  factura. Aplica a cualquier cartera cuyo archivo de pagos identifique el comprobante.
+
+### Qué cambia para el resto de las carteras
+
+**Un teléfono que no normaliza ya no se guarda "en rojo": se descarta.** Es lo pedido —un número sin
+característica no se puede marcar y solo ensucia la ficha— pero si alguna cartera venía apoyándose en
+revisar esos números a mano, deja de tenerlos. Los ya cargados no se tocan.
+
+33 tests nuevos (`phone-utils`, `email-utils`, `pagos.processor`). 421 entre imports y common.
+
+**La carga de AYSA hay que rehacerla** para que tome los contactos corregidos: lo ya cargado no se
+migra solo.
+
+---
+
 ## [2026-08-11] — Los archivos subidos no sobrevivían a un deploy
 
 > ⚠️ **Requiere actualizar el parámetro SSM `/amsa-gestion/_compose` y recrear el contenedor.**

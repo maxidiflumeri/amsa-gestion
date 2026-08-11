@@ -9,9 +9,18 @@ import { PagosProcessor } from './pagos.processor';
 import { ProcessContext } from './processor.interface';
 
 /** Prisma mockeado con una tabla de pagos en memoria que respeta el filtro del anti-dup. */
-function makeCtx() {
+function makeCtx(facturas: Array<{ id: number; nroFactura: string; estado?: string }> = []) {
     const pagos: any[] = [];
     let seq = 1;
+
+    // Marca PAGADA la factura del comprobante, si existe y no lo estaba ya.
+    const updateMany = jest.fn().mockImplementation(({ where, data }: any) => {
+        const tocadas = facturas.filter(
+            (f) => f.nroFactura === where.nroFactura && f.estado !== where.estado?.not,
+        );
+        for (const f of tocadas) Object.assign(f, data);
+        return Promise.resolve({ count: tocadas.length });
+    });
 
     const findFirst = jest.fn().mockImplementation(({ where }: any) =>
         Promise.resolve(
@@ -39,6 +48,7 @@ function makeCtx() {
                 }),
                 update: jest.fn().mockResolvedValue({}),
             },
+            factura: { updateMany },
         },
         remesaId: 10,
         remesaOrigenId: 9,
@@ -47,7 +57,7 @@ function makeCtx() {
         promesas: { cerrarCumplidas: jest.fn().mockResolvedValue({}) },
     } as unknown as ProcessContext;
 
-    return { ctx, pagos };
+    return { ctx, pagos, facturas, updateMany };
 }
 
 const fila = (importe: number, fecha: string, observacion?: string) => ({
@@ -136,5 +146,54 @@ describe('PagosProcessor — anti-duplicados con identificador de comprobante', 
         expect(pagos).toHaveLength(36);
         const total = pagos.reduce((a, x) => a + x.importe, 0);
         expect(total).toBeCloseTo(195.04 * 36, 2);
+    });
+});
+
+describe('PagosProcessor — marcar la factura cobrada', () => {
+    it('pone PAGADA la factura que nombra el comprobante del pago', async () => {
+        const { ctx, facturas } = makeCtx([
+            { id: 1, nroFactura: '0108B14819919A', estado: 'PENDIENTE' },
+            { id: 2, nroFactura: '0108B18215291A', estado: 'PENDIENTE' },
+        ]);
+        const p = new PagosProcessor();
+
+        await p.processRow(fila(195.04, '2026-07-17', '0108B14819919A'), ctx);
+
+        expect(facturas[0].estado).toBe('PAGADA');
+        // La otra factura del mismo deudor no se toca.
+        expect(facturas[1].estado).toBe('PENDIENTE');
+    });
+
+    it('sin comprobante no toca ninguna factura', async () => {
+        const { ctx, facturas, updateMany } = makeCtx([
+            { id: 1, nroFactura: '0108B14819919A', estado: 'PENDIENTE' },
+        ]);
+        const p = new PagosProcessor();
+
+        await p.processRow(fila(195.04, '2026-07-17'), ctx);
+
+        expect(updateMany).not.toHaveBeenCalled();
+        expect(facturas[0].estado).toBe('PENDIENTE');
+    });
+
+    it('un comprobante que no existe como factura no rompe el pago', async () => {
+        const { ctx, pagos } = makeCtx([{ id: 1, nroFactura: 'OTRA', estado: 'PENDIENTE' }]);
+        const p = new PagosProcessor();
+
+        await p.processRow(fila(195.04, '2026-07-17', 'NO-EXISTE'), ctx);
+
+        expect(pagos).toHaveLength(1);
+    });
+
+    it('las 36 cuotas del plan marcan sus 36 facturas', async () => {
+        const partidas = Array.from({ length: 36 }, (_, i) => `0108B${String(14819919 + i * 3400).padStart(8, '0')}A`);
+        const { ctx, facturas } = makeCtx(
+            partidas.map((nroFactura, i) => ({ id: i + 1, nroFactura, estado: 'PENDIENTE' })),
+        );
+        const p = new PagosProcessor();
+
+        for (const doc of partidas) await p.processRow(fila(195.04, '2026-07-17', doc), ctx);
+
+        expect(facturas.every((f) => f.estado === 'PAGADA')).toBe(true);
     });
 });

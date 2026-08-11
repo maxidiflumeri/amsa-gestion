@@ -58,7 +58,109 @@ export type NormalizarResultado = {
     nacional?: string;             // "11 5667-8901" o "(011) 4567-1234"
     tipo?: TipoLinea;              // "MOBILE" | "FIXED_LINE" | ...
     region: 'AR';
+    /** Cómo se resolvió el código de área cuando el número no lo traía. Ver {@link ContextoTelefono}. */
+    areaDeducidaDe?: 'hermano' | 'codigo-postal';
 };
+
+/**
+ * Datos del caso que permiten deducir el código de área de un teléfono que vino sin él.
+ *
+ * Muchos cedentes mandan los teléfonos en formato **local** —`42996640` (fijo) o `1564435038`
+ * (celular, donde el `15` es el prefijo local de móvil)— y así no se pueden marcar. En el archivo de
+ * AYSA es el 56% de los teléfonos.
+ */
+export type ContextoTelefono = {
+    /** Otros teléfonos del mismo caso, crudos. Si alguno trae área, se le presta al que no la tiene. */
+    otrosTelefonos?: string[];
+    /** Código postal del domicilio del caso, para la tabla `cp-area-telefonica.json`. */
+    codigoPostal?: string;
+};
+
+// ---- Tabla código postal → código de área ----
+// Derivada de datos reales (ver el `_meta` del JSON). Solo entran los CP donde la evidencia es
+// concluyente: ante la duda es preferible descartar el teléfono a asignarle un área equivocada,
+// porque el gestor terminaría llamando a otra persona.
+type CpAreaData = {
+    _meta?: Record<string, unknown>;
+    /** Código postal completo (`B1843`) → área. Es el nivel preciso. */
+    cp_area: Record<string, string>;
+    /** Zona postal (`B184`) → área. Fallback para los CP que no están arriba. */
+    zona_area?: Record<string, string>;
+};
+
+let cpArea: CpAreaData | null | undefined;
+
+function getCpArea(): CpAreaData | null {
+    if (cpArea !== undefined) return cpArea;
+    try {
+        const ruta = join(__dirname, '..', 'data', 'cp-area-telefonica.json');
+        cpArea = JSON.parse(readFileSync(ruta, 'utf8')) as CpAreaData;
+    } catch {
+        cpArea = null; // modo degradado: sin tabla no deducimos por CP
+    }
+    return cpArea;
+}
+
+/**
+ * Código de área de un número nacional argentino (10 dígitos, sin `+54` ni el `9` de móvil).
+ *
+ * No se puede partir por una longitud fija: el número nacional siempre tiene 10 dígitos, pero el
+ * área ocupa 2 (`11`), 3 o 4 según la zona, y el resto es el número local. Se resuelve por
+ * longest-prefix-match contra las 300 áreas que publica ENACOM.
+ */
+export function codigoAreaDe(nacionalSin9: string): string | null {
+    const data = getEnacom();
+    if (!data) return null;
+    for (const alen of [4, 3, 2]) {
+        const area = nacionalSin9.slice(0, alen);
+        if (data.block_lengths_by_area[area]) return area;
+    }
+    return null;
+}
+
+/** Solo los dígitos, sin el `0` de trunk ni el `+54` de país. */
+function soloDigitosNacionales(bruto: string): string {
+    let d = String(bruto ?? '').replace(/\D/g, '');
+    if (d.startsWith('54')) d = d.slice(2);
+    return d.replace(/^0/, '');
+}
+
+/**
+ * ¿El número vino en formato local, sin código de área?
+ *
+ * Dos formas: 8 dígitos sueltos (un fijo, `42996640`) o `15` + 8 dígitos (un celular como lo marca
+ * la gente localmente, `1564435038`). En los dos casos falta la característica y el número, tal como
+ * está, no sirve para llamar.
+ */
+function partesLocalesSinArea(bruto: string): { local: string; movil: boolean } | null {
+    const d = soloDigitosNacionales(bruto);
+    if (d.length === 8) return { local: d, movil: false };
+    if (d.length === 10 && d.startsWith('15')) return { local: d.slice(2), movil: true };
+    return null;
+}
+
+/** Área declarada por alguno de los otros teléfonos del caso. */
+function areaDeHermanos(otros: string[] | undefined): string | null {
+    for (const t of otros ?? []) {
+        if (partesLocalesSinArea(t)) continue;           // ése tampoco la trae
+        const d = soloDigitosNacionales(t).replace(/^9/, '');
+        if (d.length !== 10) continue;
+        const area = codigoAreaDe(d);
+        if (area) return area;
+    }
+    return null;
+}
+
+/**
+ * Área según el código postal del domicilio, del nivel más preciso al más general: primero el CP
+ * completo (`B1843`) y, si no está, la zona postal (`B184`).
+ */
+function areaDeCodigoPostal(cp: string | undefined): string | null {
+    const data = getCpArea();
+    if (!data || !cp) return null;
+    const limpio = String(cp).trim().toUpperCase();
+    return data.cp_area[limpio.slice(0, 5)] ?? data.zona_area?.[limpio.slice(0, 4)] ?? null;
+}
 
 function limpiarBasico(input: string): string {
     if (!input) return '';
@@ -83,7 +185,45 @@ function arPrefijarSiFalta(num: string): string {
     return `+54${num}`;
 }
 
-export function normalizarTelefonoArgentino(input: string): NormalizarResultado {
+/**
+ * Normaliza un teléfono argentino a E.164.
+ *
+ * Si el número vino en formato local (sin código de área) y `ctx` trae datos del caso, se intenta
+ * deducir la característica antes de darlo por inválido, en este orden:
+ *
+ *   1. El número ya la trae (o viene con `0` / `+54`) → se resuelve directo.
+ *   2. **Otro teléfono del mismo caso** la declara → se le presta.
+ *   3. El **código postal** del domicilio la determina de forma concluyente → tabla `cp-area-telefonica.json`.
+ *
+ * Si ninguna alcanza, el resultado es inválido: un número sin característica no se puede marcar, y
+ * completarlo a ojo haría que el gestor llame a otra persona.
+ */
+export function normalizarTelefonoArgentino(input: string, ctx?: ContextoTelefono): NormalizarResultado {
+    const directo = normalizarDirecto(input);
+    if (directo.valido || !ctx) return directo;
+
+    // No validó: si vino en formato local, probamos deducir el área.
+    const partes = partesLocalesSinArea(input);
+    if (!partes) return directo;
+
+    const candidatos: Array<{ area: string | null; origen: 'hermano' | 'codigo-postal' }> = [
+        { area: areaDeHermanos(ctx.otrosTelefonos), origen: 'hermano' },
+        { area: areaDeCodigoPostal(ctx.codigoPostal), origen: 'codigo-postal' },
+    ];
+
+    for (const { area, origen } of candidatos) {
+        if (!area) continue;
+        // El `9` va delante del área y marca móvil; el `15` local se reemplaza por él.
+        const reconstruido = `+54${partes.movil ? '9' : ''}${area}${partes.local}`;
+        const res = normalizarDirecto(reconstruido);
+        if (res.valido) return { ...res, areaDeducidaDe: origen };
+    }
+
+    return { valido: false, motivoInvalido: 'Sin código de área y no se pudo deducir', region: 'AR' };
+}
+
+/** Normalización sin deducción: el camino de siempre. */
+function normalizarDirecto(input: string): NormalizarResultado {
     const limpio = limpiarBasico(input);
     if (!limpio) return { valido: false, motivoInvalido: 'Vacío', region: 'AR' };
 

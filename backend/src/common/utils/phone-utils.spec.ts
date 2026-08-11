@@ -1,39 +1,126 @@
-import { esPosibleTelefono } from './phone-utils';
+/**
+ * Normalización de teléfonos argentinos, con foco en la **cascada de deducción del código de área**.
+ *
+ * Muchos cedentes mandan el número en formato local —`42996640` (fijo) o `1564435038` (celular, con
+ * el `15` que se marca localmente)— y así no se puede llamar. La cascada intenta deducir la
+ * característica de otros datos del caso antes de descartarlo.
+ */
+import { codigoAreaDe, normalizarTelefonoArgentino } from './phone-utils';
 
-describe('phone-utils — esPosibleTelefono (filtro de basura para teléfonos no validados)', () => {
-    describe('descarta basura evidente (pocos dígitos)', () => {
-        it.each(['0', '1', '123', '45678', '1234567', '123456789', '', '   ', '-', 'N/A'])(
-            'descarta %j',
-            (v) => expect(esPosibleTelefono(v)).toBe(false),
-        );
+describe('normalizarTelefonoArgentino — sin contexto (comportamiento de siempre)', () => {
+    it('normaliza un número que ya trae característica', () => {
+        expect(normalizarTelefonoArgentino('1142407390').e164).toBe('+541142407390');
+        expect(normalizarTelefonoArgentino('01142407390').e164).toBe('+541142407390');
+        expect(normalizarTelefonoArgentino('+541142407390').e164).toBe('+541142407390');
     });
 
-    describe('descarta rellenos con corridas largas del mismo dígito', () => {
-        // Ejemplos reales reportados por el usuario: característica válida (02941) pero abonado repetido.
-        it.each([
-            '(02941) 1111-1111',
-            '(02941) 11111111',
-            '0000000000',
-            '1111111111',
-            '02941 000000',
-        ])('descarta %j', (v) => expect(esPosibleTelefono(v)).toBe(false));
+    it('normaliza un celular con el 9', () => {
+        expect(normalizarTelefonoArgentino('+5491138726641').e164).toBe('+5491138726641');
     });
 
-    describe('mantiene números con forma real aunque no validen (se cargan en rojo)', () => {
-        it.each([
-            '15-(02941) 64-3701', // celular real con prefijo 15, formato no estándar → 13 dígitos, dígitos variados
-            '02941 164-3701',
-            '1155775452',
-            '(011) 4567-1234',
-        ])('mantiene %j', (v) => expect(esPosibleTelefono(v)).toBe(true));
+    it('tolera separadores y paréntesis', () => {
+        expect(normalizarTelefonoArgentino('(011) 4240-7390').e164).toBe('+541142407390');
     });
 
-    it('descarta números demasiado largos (> 15 dígitos)', () => {
-        expect(esPosibleTelefono('1234567890123456')).toBe(false);
+    it('rechaza la basura evidente', () => {
+        expect(normalizarTelefonoArgentino('0').valido).toBe(false);
+        expect(normalizarTelefonoArgentino('123').valido).toBe(false);
+        expect(normalizarTelefonoArgentino('SIN TELEFONO').valido).toBe(false);
+        expect(normalizarTelefonoArgentino('').valido).toBe(false);
     });
 
-    it('ignora separadores al contar dígitos', () => {
-        // 10 dígitos con separadores → válido por forma
-        expect(esPosibleTelefono('11-5577-5452')).toBe(true);
+    it('un número sin característica NO se da por válido si no hay de dónde deducirla', () => {
+        // Es el cambio de política: antes se guardaba "en rojo"; ahora se descarta, porque un
+        // número sin característica no se puede marcar.
+        expect(normalizarTelefonoArgentino('42996640').valido).toBe(false);
+        expect(normalizarTelefonoArgentino('1564435038').valido).toBe(false);
+    });
+});
+
+describe('normalizarTelefonoArgentino — paso 2: el área de otro teléfono del caso', () => {
+    it('un celular local toma la característica de un fijo del mismo caso', () => {
+        // El caso real del deudor 394905 de AYSA.
+        const r = normalizarTelefonoArgentino('1564435038', { otrosTelefonos: ['1142407390'] });
+        expect(r.valido).toBe(true);
+        expect(r.e164).toBe('+5491164435038');
+        expect(r.areaDeducidaDe).toBe('hermano');
+    });
+
+    it('un fijo local también la toma', () => {
+        const r = normalizarTelefonoArgentino('42996640', { otrosTelefonos: ['+5491138726641'] });
+        expect(r.e164).toBe('+541142996640');
+        expect(r.areaDeducidaDe).toBe('hermano');
+    });
+
+    it('respeta el área del hermano aunque no sea 11', () => {
+        const r = normalizarTelefonoArgentino('4473723', { otrosTelefonos: ['02234473723'] });
+        // 7 dígitos no es formato local válido: no se inventa nada.
+        expect(r.valido).toBe(false);
+    });
+
+    it('si el hermano tampoco trae área, no hay deducción', () => {
+        expect(normalizarTelefonoArgentino('1564435038', { otrosTelefonos: ['42996640'] }).valido).toBe(false);
+    });
+
+    it('un contexto vacío no cambia nada', () => {
+        expect(normalizarTelefonoArgentino('1564435038', {}).valido).toBe(false);
+        expect(normalizarTelefonoArgentino('1564435038', { otrosTelefonos: [] }).valido).toBe(false);
+    });
+});
+
+describe('normalizarTelefonoArgentino — paso 3: el área por código postal', () => {
+    it('deduce la característica del CP del domicilio', () => {
+        const r = normalizarTelefonoArgentino('1556344350', { codigoPostal: 'B1852---' });
+        expect(r.valido).toBe(true);
+        expect(r.e164).toBe('+5491156344350');
+        expect(r.areaDeducidaDe).toBe('codigo-postal');
+    });
+
+    it('el fijo del mismo CP también', () => {
+        expect(normalizarTelefonoArgentino('42770860', { codigoPostal: 'B1849DBV' }).e164)
+            .toBe('+541142770860');
+    });
+
+    it('cae a la zona postal cuando el CP exacto no está en la tabla', () => {
+        // B184 está como zona aunque el CP completo no figure.
+        const r = normalizarTelefonoArgentino('42770860', { codigoPostal: 'B1848ZZZ' });
+        expect(r.valido).toBe(true);
+        expect(r.areaDeducidaDe).toBe('codigo-postal');
+    });
+
+    it('un CP desconocido no habilita ninguna deducción', () => {
+        expect(normalizarTelefonoArgentino('42996640', { codigoPostal: 'Z9999XXX' }).valido).toBe(false);
+    });
+
+    it('descarta el área candidata que no da un número válido, y sigue con la siguiente', () => {
+        // El número nacional argentino tiene 10 dígitos: un área de 3 (223) va con 7 dígitos
+        // locales, no con 8. Como el teléfono local trae 8, el área del hermano no puede ser la
+        // correcta y se pasa al candidato siguiente en vez de armar un número inexistente.
+        const r = normalizarTelefonoArgentino('1564435038', {
+            otrosTelefonos: ['02234473723'],   // área 223 — incompatible con un local de 8 dígitos
+            codigoPostal: 'B1852---',          // área 11  — sí compatible
+        });
+        expect(r.valido).toBe(true);
+        expect(r.e164).toBe('+5491164435038');
+        expect(r.areaDeducidaDe).toBe('codigo-postal');
+    });
+
+    it('si ningún candidato da un número válido, se descarta', () => {
+        const r = normalizarTelefonoArgentino('1564435038', { otrosTelefonos: ['02234473723'] });
+        expect(r.valido).toBe(false);
+    });
+});
+
+describe('codigoAreaDe', () => {
+    it('reconoce las áreas de 2, 3 y 4 dígitos', () => {
+        // El número nacional siempre tiene 10 dígitos, pero el área ocupa 2, 3 o 4 según la zona:
+        // partir por una longitud fija da áreas que no existen.
+        expect(codigoAreaDe('1142407390')).toBe('11');
+        expect(codigoAreaDe('2234473723')).toBe('223');
+        expect(codigoAreaDe('2202123456')).toBe('2202');
+    });
+
+    it('devuelve null si el prefijo no es un área real', () => {
+        expect(codigoAreaDe('9999999999')).toBeNull();
     });
 });

@@ -1,5 +1,5 @@
 import { ProcessContext } from '../processors/processor.interface';
-import { prepararContactoImport } from './contacto-import';
+import { ContextoCaso, prepararContactoImport } from './contacto-import';
 
 /**
  * Procesamiento común de "bloques repetitivos" (mapping.blocks → row._blocks).
@@ -63,7 +63,12 @@ async function upsertFacturaBloque(deudorId: number, data: any, ctx: ProcessCont
     });
 }
 
-async function upsertContactoBloque(deudorId: number, data: any, ctx: ProcessContext) {
+async function upsertContactoBloque(
+    deudorId: number,
+    data: any,
+    ctx: ProcessContext,
+    contextoCaso: ContextoCaso,
+) {
     const prep = await prepararContactoImport(
         {
             tipo: data.tipo,
@@ -75,6 +80,7 @@ async function upsertContactoBloque(deudorId: number, data: any, ctx: ProcessCon
             direccion_provincia: data.direccion_provincia,
         },
         ctx.validarDomicilios,
+        contextoCaso,
     );
     if (!prep) return;
     await ctx.prisma.contacto.upsert({
@@ -106,6 +112,10 @@ export async function procesarBloquesDeudor(
     ctx: ProcessContext,
 ): Promise<void> {
     if (!blocks?.length) return;
+
+    // Se arma UNA vez para toda la fila: los teléfonos se ayudan entre sí y comparten el domicilio.
+    const contextoCaso = contextoDelCaso(blocks);
+
     for (const b of blocks) {
         if (!b?.entity || !b.data) continue;
         if (ENTITIES_FACTURA.has(b.entity) && b.data.nroFactura) {
@@ -119,8 +129,33 @@ export async function procesarBloquesDeudor(
                 b.data.direccion_provincia
             );
             if (tieneValor || tieneDireccion) {
-                await upsertContactoBloque(deudorId, b.data, ctx);
+                await upsertContactoBloque(deudorId, b.data, ctx, contextoCaso);
             }
         }
     }
+}
+
+/**
+ * Junta de los bloques de la fila lo que sirve para normalizar los teléfonos que vienen sin código
+ * de área: los otros teléfonos del mismo caso y el código postal del domicilio.
+ *
+ * Es lo que permite resolver un `1564435038` suelto: si el caso trae además un `1142407390`, la
+ * característica es 11. Ver `normalizarTelefonoArgentino`.
+ */
+function contextoDelCaso(blocks: Bloque[]): ContextoCaso {
+    const telefonos: string[] = [];
+    let codigoPostal: string | undefined;
+
+    for (const b of blocks) {
+        if (b?.entity !== 'CONTACTO' || !b.data) continue;
+        const tipo = String(b.data.tipo ?? '').toLowerCase();
+        if ((tipo === 'telefono' || tipo === 'celular' || tipo === 'whatsapp') && b.data.valor) {
+            telefonos.push(String(b.data.valor));
+        }
+        // Del domicilio alcanza con el primero que traiga CP: los dos de un mismo caso (servicio y
+        // facturación) están casi siempre en la misma zona.
+        if (!codigoPostal && b.data.direccion_cp) codigoPostal = String(b.data.direccion_cp);
+    }
+
+    return { telefonos, codigoPostal };
 }

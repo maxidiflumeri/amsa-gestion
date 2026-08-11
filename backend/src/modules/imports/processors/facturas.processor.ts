@@ -213,11 +213,13 @@ async function upsertFacturasEnBloque(ctx: ProcessContext, facturas: FacturaDato
     if (facturas.length === 0) return;
 
     const values = facturas.map(
-        (f) => Prisma.sql`(${f.deudorId}, ${f.nroFactura}, ${f.importe}, ${f.fechaEmision}, ${f.vencimiento})`,
+        (f) => Prisma.sql`(${f.deudorId}, ${f.nroFactura}, ${f.importe}, ${f.fechaEmision}, ${f.vencimiento}, 'PENDIENTE')`,
     );
 
+    // `estado` solo se escribe al CREAR: si la factura ya existe puede estar PAGADA o ANULADA por un
+    // import de pagos o de bajas, y reimportar el archivo del cedente no debe resucitarla a pendiente.
     await ctx.prisma.$executeRaw(Prisma.sql`
-        INSERT INTO factura (deudorId, nroFactura, importe, fechaEmision, vencimiento)
+        INSERT INTO factura (deudorId, nroFactura, importe, fechaEmision, vencimiento, estado)
         VALUES ${Prisma.join(values)}
         ON DUPLICATE KEY UPDATE
             importe = VALUES(importe),
@@ -240,6 +242,7 @@ async function upsertFacturaParcial(ctx: ProcessContext, f: FacturaDatos): Promi
             importe: f.importe ?? 0,
             fechaEmision: f.fechaEmision ?? new Date(),
             vencimiento: f.vencimiento ?? new Date(),
+            estado: 'PENDIENTE',
         },
         update: {
             importe: f.importe ?? undefined,

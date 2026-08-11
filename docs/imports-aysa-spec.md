@@ -87,10 +87,29 @@ Cuatro plantillas sobre la empresa AYSA, todas con **formato ancho fijo** y **va
 | `montoTotal` | `Imp. Asignado` (`toNumber:es-AR`) |
 | `documento` | **sin mapear** (ver §2) |
 | adicionales | `Distrito / División` → `sucursal`, `Exped.`, `Categoría`, `Nro. DNI`, `Nro. CUIT` |
-| contactos | 7 bloques `telefono` + 1 `email` + 1 `direccion` (calle / nro / CP / localidad) |
+| contactos | 7 bloques `telefono` + 1 `email` + **2** `direccion`: servicio (col. 361-520) y facturación (col. 521-680), etiquetadas con `subtipo` |
 
 El domicilio va como contacto de tipo `direccion` —no como dato adicional— para que aparezca en la
 sección de Direcciones de la ficha y se pueda normalizar contra Georef si la remesa lo pide.
+
+**Son dos y hay que cargar los dos**: el de prestación del servicio y el de facturación. A veces
+coinciden y a veces no, y los dos salen en las cartas y los mails que manda cobranzas. Se distinguen
+con `contacto.subtipo` (`SERVICIO` / `FACTURACION`), que la ficha muestra como etiqueta.
+
+### Contactos: qué se descarta y por qué
+
+El archivo trae mucha basura en teléfonos y emails, y el pipeline la filtra (ver el CHANGELOG del
+2026-08-11). Sobre la bajada del 22/06:
+
+| | En el archivo | Se cargan | Se descartan |
+|---|---|---|---|
+| Teléfonos | 26.506 | 17.660 (66,6%) | 8.846 |
+| Emails | 11.702 | 5.766 (49,3%) | 5.936 |
+
+Los teléfonos vienen en formato **local**, sin característica (`42996640`, `1564435038`): el 56% no
+servía para llamar. La cascada de deducción la resuelve a partir de los otros teléfonos del caso y
+del código postal del domicilio; lo que no se puede deducir se descarta. De los emails, la mitad era
+el relleno `sin@mail`.
 
 ### 3.2 Partidas → FACTURAS
 

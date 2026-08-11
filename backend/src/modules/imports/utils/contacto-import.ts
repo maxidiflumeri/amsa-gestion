@@ -1,11 +1,24 @@
-import { normalizarTelefonoArgentino, esPosibleTelefono } from '../../../common/utils/phone-utils';
-import { validarEmail } from '../../../common/utils/email-utils';
+import { normalizarTelefonoArgentino } from '../../../common/utils/phone-utils';
+import { esPosibleEmail, validarEmail } from '../../../common/utils/email-utils';
 import { normalizarDireccionArgentina } from '../../../common/utils/direccion-utils';
 
 export interface ContactoPreparado {
     tipo: string;
     valor: string;
     validado: boolean;
+}
+
+/**
+ * Datos del resto de la fila que ayudan a normalizar un contacto.
+ *
+ * Hoy lo usa la deducción del código de área de los teléfonos que el cedente manda en formato local
+ * (ver `normalizarTelefonoArgentino`). Lo arma `procesarBloquesDeudor` una vez por fila.
+ */
+export interface ContextoCaso {
+    /** Todos los teléfonos de la fila, crudos, incluido el que se está preparando. */
+    telefonos?: string[];
+    /** Código postal del domicilio del caso. */
+    codigoPostal?: string;
 }
 
 export interface ContactoImportInput {
@@ -40,23 +53,32 @@ function clean(v: any): string {
 export async function prepararContactoImport(
     data: ContactoImportInput,
     validarDomicilios = false,
+    contexto?: ContextoCaso,
 ): Promise<ContactoPreparado | null> {
     const tipo = clean(data.tipo || 'telefono').toLowerCase();
 
     if (tipo === 'telefono' || tipo === 'whatsapp' || tipo === 'celular') {
         const raw = clean(data.valor);
         if (!raw) return null;
-        const res = normalizarTelefonoArgentino(raw);
+        // Se le pasan los otros teléfonos del caso y el CP del domicilio: muchos cedentes mandan el
+        // número en formato local (`42996640`, `1564435038`) y sin la característica no se puede
+        // marcar. Ver la cascada en `normalizarTelefonoArgentino`.
+        const res = normalizarTelefonoArgentino(raw, {
+            otrosTelefonos: contexto?.telefonos?.filter((t) => clean(t) !== raw),
+            codigoPostal: contexto?.codigoPostal,
+        });
         if (res.valido && res.e164) return { tipo: 'telefono', valor: res.e164, validado: true };
-        // No validó: se carga en rojo (revisión manual) solo si tiene forma de teléfono.
-        // Si es basura evidente ("0", "123") o relleno ("1111-1111"), se descarta.
-        if (esPosibleTelefono(raw)) return { tipo: 'telefono', valor: raw, validado: false };
+        // No se pudo normalizar ni deducir el área: se descarta. Guardarlo "en rojo" solo ensucia
+        // la ficha — un número sin característica no se puede marcar.
         return null;
     }
 
     if (tipo === 'email') {
         const raw = clean(data.valor).toLowerCase();
         if (!raw) return null;
+        // Basura evidente (`sin@mail`, dominios sin punto) o rellenos conocidos (`sin@mail.com`):
+        // no se guardan. En AYSA era la mitad de los emails de la cartera.
+        if (!esPosibleEmail(raw)) return null;
         let cached = cacheEmails.get(raw);
         if (!cached) {
             const r = await validarEmail(raw);

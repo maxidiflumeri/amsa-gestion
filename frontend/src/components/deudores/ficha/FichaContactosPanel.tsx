@@ -71,6 +71,39 @@ const ChipRelacion: React.FC<{ relacion?: string | null }> = ({ relacion }) =>
         </Tooltip>
     ) : null;
 
+/**
+ * Rótulo del tipo de domicilio.
+ *
+ * Varios cedentes mandan **dos** direcciones por caso: dónde se presta el servicio y dónde se
+ * factura, que a veces coinciden y a veces no. Sin distinguirlas, el gestor ve dos direcciones
+ * distintas sin saber a cuál mandar la carta.
+ *
+ * En las direcciones `subtipo` guarda ese rótulo; para teléfonos guarda el tipo de línea de ENACOM,
+ * así que este chip solo se usa en direcciones.
+ */
+const ETIQUETA_DOMICILIO: Record<string, string> = {
+    SERVICIO: 'Servicio',
+    FACTURACION: 'Facturación',
+    POSTAL: 'Postal',
+    LEGAL: 'Legal',
+};
+
+const ChipDomicilio: React.FC<{ subtipo?: string | null }> = ({ subtipo }) => {
+    const etiqueta = subtipo ? ETIQUETA_DOMICILIO[subtipo.toUpperCase()] ?? subtipo : null;
+    if (!etiqueta) return null;
+    return (
+        <Box
+            component="span"
+            sx={{
+                ml: 0.5, px: 0.6, borderRadius: 1, fontSize: 10, fontWeight: 700,
+                letterSpacing: 0.3, bgcolor: 'action.selected', color: 'text.secondary',
+            }}
+        >
+            {etiqueta.toUpperCase()}
+        </Box>
+    );
+};
+
 const FichaContactosPanel: React.FC<Props> = ({
     contactos,
     campoExtras,
@@ -161,6 +194,7 @@ const FichaContactosPanel: React.FC<Props> = ({
                                 label={
                                     <Stack direction="row" alignItems="center" spacing={0.25}>
                                         <Box component="span" sx={{ mr: 0.5 }}>{c.valor}</Box>
+                                        {tipo === 'direccion' && <ChipDomicilio subtipo={c.subtipo} />}
                                         <ChipRelacion relacion={c.relacion} />
                                         <Tooltip title="Copiar al portapapeles">
                                             <IconButton

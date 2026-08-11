@@ -559,8 +559,8 @@ export abstract class CasosCedenteProcessor implements ICategoryProcessor {
     /**
      * Inserta los contactos nuevos del caso; el unique (deudorId, tipo, valor) evita duplicar.
      *
-     * Teléfonos: se guarda el E.164 y se marca validado cuando el número normaliza; si no normaliza
-     * pero es plausible se guarda tal cual; la basura evidente (ceros, relleno) se descarta.
+     * Teléfonos: se guarda el E.164. Si el número no normaliza —ni siquiera deduciendo el código de
+     * área de los otros teléfonos del caso— se descarta: sin característica no se puede marcar.
      *
      * Direcciones: las resuelve `prepararContactoImport`, el mismo helper que usan el resto de las
      * categorías — arma el texto a partir de calle/número/CP/localidad/provincia y, **solo si la
@@ -569,6 +569,12 @@ export abstract class CasosCedenteProcessor implements ICategoryProcessor {
      */
     private async upsertContactos(deudorId: number, row: MappedRow, ctx: ProcessContext): Promise<void> {
         const nuevos: Array<{ deudorId: number; tipo: string; valor: string; validado: boolean; relacion?: string }> = [];
+
+        // Los teléfonos del caso se prestan la característica entre sí (ver `normalizarTelefonoArgentino`).
+        const telefonosDelCaso = (row._blocks ?? [])
+            .filter((b) => b.entity === 'CONTACTO' && String(b.data?.tipo ?? 'telefono') === 'telefono')
+            .map((b) => String(b.data?.valor ?? ''))
+            .filter(Boolean);
 
         for (const b of row._blocks ?? []) {
             if (b.entity !== 'CONTACTO') continue;
@@ -596,13 +602,13 @@ export abstract class CasosCedenteProcessor implements ICategoryProcessor {
             let validado = false;
 
             if (tipo === 'telefono') {
-                const val = normalizarTelefonoArgentino(valor);
-                if (val.valido && val.e164) {
-                    valor = val.e164;
-                    validado = true;
-                } else if (!esPosibleTelefono(valor)) {
-                    continue;
-                }
+                // Misma política que el resto del pipeline: o se normaliza (deduciendo el área de
+                // los otros teléfonos del caso si hace falta), o se descarta. Un número sin
+                // característica no se puede marcar.
+                const val = normalizarTelefonoArgentino(valor, { otrosTelefonos: telefonosDelCaso });
+                if (!val.valido || !val.e164) continue;
+                valor = val.e164;
+                validado = true;
             }
             if (!valor) continue;
             nuevos.push({ deudorId, tipo, valor, validado, ...(relacion ? { relacion } : {}) });

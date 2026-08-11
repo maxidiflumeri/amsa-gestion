@@ -1,16 +1,21 @@
 // processors/pagos.processor.ts
 import { ICategoryProcessor, MappedRow, ProcessContext, RowValidationResult } from './processor.interface';
 import { Prisma } from '@prisma/client';
+import { Logger } from '@nestjs/common';
 import { procesarBloquesDeudor } from '../utils/procesar-bloques';
 
 export class PagosProcessor implements ICategoryProcessor {
     readonly category = 'PAGOS';
+    private readonly logger = new Logger(PagosProcessor.name);
 
     /**
      * IDs de deudores que recibieron pagos en este batch.
      * Se usa en afterAll para consolidar solo los deudores tocados (optimización §4.2).
      */
     private processedDeudorIds = new Set<number>();
+
+    /** Facturas que se marcaron PAGADA porque el archivo dijo qué comprobante se cobró. */
+    private facturasMarcadas = 0;
 
     validateRow(row: MappedRow, _ctx: ProcessContext): RowValidationResult {
         const nroCliente = String(row.nro_cliente ?? '').trim();
@@ -147,6 +152,22 @@ export class PagosProcessor implements ICategoryProcessor {
             });
         }
 
+        // Si el archivo dice QUÉ comprobante se cobró, esa factura pasa a PAGADA.
+        //
+        // Sin esto el saldo del deudor baja pero las facturas quedan todas en "pendiente", que fue
+        // justamente lo que se reportó de la carga de AYSA: el archivo de novedades trae el número
+        // de partida cobrada y no se estaba usando para nada más que el anti-duplicados.
+        //
+        // Solo aplica a las carteras cuyo archivo de pagos identifica el comprobante; las que no
+        // mapean `observacion` no cambian. Es el mismo criterio de ACTUALIZACIONES y MULTIRREGISTRO.
+        if (observacion) {
+            const marcadas = await ctx.prisma.factura.updateMany({
+                where: { deudorId: deudor.id, nroFactura: observacion, estado: { not: 'PAGADA' } },
+                data: { estado: 'PAGADA' },
+            });
+            if (marcadas.count > 0) this.facturasMarcadas += marcadas.count;
+        }
+
         // Trackear deudor tocado para la consolidación selectiva en afterAll
         this.processedDeudorIds.add(deudor.id);
     }
@@ -160,6 +181,11 @@ export class PagosProcessor implements ICategoryProcessor {
      * Fallback a scope REMESA si el set está vacío (no debería ocurrir en práctica).
      */
     async afterAll(ctx: ProcessContext): Promise<void> {
+        if (this.facturasMarcadas > 0) {
+            this.logger.log(`${this.facturasMarcadas} factura(s) marcadas PAGADA por el comprobante del pago.`);
+        }
+        this.facturasMarcadas = 0;
+
         if (this.processedDeudorIds.size > 0) {
             const deudorIds = [...this.processedDeudorIds];
             await ctx.consolidacion.consolidar({ tipo: 'DEUDORES', deudorIds });
