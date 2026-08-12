@@ -2,7 +2,7 @@
 import { ICategoryProcessor, MappedRow, ProcessContext, RowValidationResult } from './processor.interface';
 import { Prisma } from '@prisma/client';
 import { clearContactoImportCaches, prepararContactoImport } from '../utils/contacto-import';
-import { procesarBloquesDeudor } from '../utils/procesar-bloques';
+import { contextoDelCaso, procesarBloquesDeudor } from '../utils/procesar-bloques';
 
 export class ContactosProcessor implements ICategoryProcessor {
     readonly category = 'CONTACTOS';
@@ -71,6 +71,14 @@ export class ContactosProcessor implements ICategoryProcessor {
         // Bloques repetitivos del archivo → al deudor encontrado (aunque no haya contacto principal).
         await procesarBloquesDeudor(deudor.id, row._blocks, ctx);
 
+        // El contacto principal usa el mismo contexto que los bloques: si es un teléfono en formato
+        // local, el código de área se deduce de los otros teléfonos de la fila o del código postal.
+        const contexto = contextoDelCaso(row._blocks);
+        if (row.valor && String(row.tipo ?? 'telefono').toLowerCase() !== 'direccion') {
+            contexto.telefonos = [...(contexto.telefonos ?? []), String(row.valor)];
+        }
+        if (!contexto.codigoPostal && row.direccion_cp) contexto.codigoPostal = String(row.direccion_cp);
+
         const prep = await prepararContactoImport({
             tipo: row.tipo,
             valor: row.valor,
@@ -79,7 +87,7 @@ export class ContactosProcessor implements ICategoryProcessor {
             direccion_cp: row.direccion_cp,
             direccion_localidad: row.direccion_localidad,
             direccion_provincia: row.direccion_provincia,
-        }, ctx.validarDomicilios);
+        }, ctx.validarDomicilios, contexto);
 
         if (!prep) return;
 

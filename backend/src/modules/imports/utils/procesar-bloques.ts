@@ -142,7 +142,12 @@ export async function procesarBloquesDeudor(
  * Es lo que permite resolver un `1564435038` suelto: si el caso trae además un `1142407390`, la
  * característica es 11. Ver `normalizarTelefonoArgentino`.
  */
-function contextoDelCaso(blocks: Bloque[]): ContextoCaso {
+export function contextoDelCaso(blocks: Bloque[] | undefined): ContextoCaso {
+    if (!blocks?.length) return { telefonos: [] };
+    return contextoDeBloques(blocks);
+}
+
+function contextoDeBloques(blocks: Bloque[]): ContextoCaso {
     const telefonos: string[] = [];
     let codigoPostal: string | undefined;
 
