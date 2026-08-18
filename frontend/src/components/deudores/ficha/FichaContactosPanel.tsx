@@ -153,7 +153,18 @@ const FichaContactosPanel: React.FC<Props> = ({
         icono: React.ReactElement,
         color: 'default' | 'primary' | 'secondary' | 'error' | 'info' | 'success' | 'warning' = 'default',
     ) => {
-        const contactosFiltrados = contactos?.filter((c: any) => c.tipo === tipo) || [];
+        // Ordenados por `prioridad`, igual que los teléfonos: el domicilio donde se presta el
+        // servicio tiene que quedar arriba, que es el que la gestión usa como principal. La carga
+        // le pone prioridad 1 al de servicio y 2 al de facturación; los que no la traen van después,
+        // en el orden en que se cargaron.
+        const contactosFiltrados = (contactos?.filter((c: any) => c.tipo === tipo) || [])
+            .slice()
+            .sort((a: any, b: any) => {
+                const pa = a.prioridad || Number.MAX_SAFE_INTEGER;
+                const pb = b.prioridad || Number.MAX_SAFE_INTEGER;
+                if (pa !== pb) return pa - pb;
+                return (a.id ?? 0) - (b.id ?? 0);
+            });
 
         return (
             <Box mb={2}>

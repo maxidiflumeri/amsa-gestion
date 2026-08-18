@@ -591,7 +591,7 @@ export class ImportService {
 
         // Mapeo principal por índice
         for (const [dest, cfg] of Object.entries(mapping.columns)) {
-            const raw = cfg.fromIndex === -1 ? (cfg as any).staticValue : rowArr[cfg.fromIndex];
+            const raw = cfg.fromIndex === -1 ? cfg.staticValue : rowArr[cfg.fromIndex];
             obj[dest] = applyTransforms(raw, cfg.transforms);
         }
 
@@ -599,7 +599,7 @@ export class ImportService {
         if (mapping.extras) {
             const extrasObj: Record<string, any> = {};
             for (const [name, cfg] of Object.entries(mapping.extras)) {
-                const raw = cfg.fromIndex === -1 ? (cfg as any).staticValue : rowArr[cfg.fromIndex];
+                const raw = cfg.fromIndex === -1 ? cfg.staticValue : rowArr[cfg.fromIndex];
                 extrasObj[name] = applyTransforms(raw, cfg.transforms);
             }
             obj.camposAdicionales = extrasObj;
@@ -612,7 +612,7 @@ export class ImportService {
                 const blockData: Record<string, any> = {};
                 let hasData = false;
                 for (const [dest, cfg] of Object.entries(b.columns)) {
-                    const raw = cfg.fromIndex === -1 ? (cfg as any).staticValue : rowArr[cfg.fromIndex];
+                    const raw = cfg.fromIndex === -1 ? cfg.staticValue : rowArr[cfg.fromIndex];
                     const transformed = applyTransforms(raw, cfg.transforms);
                     blockData[dest] = transformed;
                     // Consideramos que el bloque tiene datos válidos si tiene al menos un valor no vacío

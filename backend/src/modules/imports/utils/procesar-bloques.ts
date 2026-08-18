@@ -63,13 +63,12 @@ async function upsertFacturaBloque(deudorId: number, data: any, ctx: ProcessCont
     });
 }
 
-async function upsertContactoBloque(
-    deudorId: number,
+function prepararContactoBloque(
     data: any,
     ctx: ProcessContext,
     contextoCaso: ContextoCaso,
 ) {
-    const prep = await prepararContactoImport(
+    return prepararContactoImport(
         {
             tipo: data.tipo,
             valor: data.valor,
@@ -82,7 +81,14 @@ async function upsertContactoBloque(
         ctx.validarDomicilios,
         contextoCaso,
     );
-    if (!prep) return;
+}
+
+async function upsertContactoBloque(
+    deudorId: number,
+    data: any,
+    prep: { tipo: string; valor: string; validado: boolean },
+    ctx: ProcessContext,
+) {
     await ctx.prisma.contacto.upsert({
         where: { deudorId_tipo_valor: { deudorId, tipo: prep.tipo, valor: prep.valor } },
         create: {
@@ -116,6 +122,15 @@ export async function procesarBloquesDeudor(
     // Se arma UNA vez para toda la fila: los teléfonos se ayudan entre sí y comparten el domicilio.
     const contextoCaso = contextoDelCaso(blocks);
 
+    // Un mismo dato puede venir en dos bloques de la MISMA fila: en AYSA el domicilio de servicio y
+    // el de facturación coinciden en el 68% de los casos, y los siete teléfonos repiten números.
+    // Como la clave del contacto es (deudor, tipo, valor), el segundo bloque no crea otra fila: le
+    // pisa `subtipo` y `prioridad` a la primera. El domicilio que es los dos terminaba rotulado
+    // FACTURACION y ordenado abajo, que es justo al revés de lo que pide la gestión.
+    // Gana el primer bloque que aportó el dato: el orden de los bloques en la plantilla es la
+    // prioridad que declaró el operador.
+    const yaCargados = new Set<string>();
+
     for (const b of blocks) {
         if (!b?.entity || !b.data) continue;
         if (ENTITIES_FACTURA.has(b.entity) && b.data.nroFactura) {
@@ -128,9 +143,19 @@ export async function procesarBloquesDeudor(
                 b.data.direccion_localidad ||
                 b.data.direccion_provincia
             );
-            if (tieneValor || tieneDireccion) {
-                await upsertContactoBloque(deudorId, b.data, ctx, contextoCaso);
-            }
+            if (!tieneValor && !tieneDireccion) continue;
+
+            const prep = await prepararContactoBloque(b.data, ctx, contextoCaso);
+            if (!prep) continue;
+
+            // La clave es la del contacto ya normalizado: dos escrituras distintas del mismo
+            // teléfono (`1564435038` y `+541564435038`) son el mismo dato recién después de pasar
+            // por `prepararContactoImport`.
+            const clave = `${prep.tipo}\u0000${prep.valor}`;
+            if (yaCargados.has(clave)) continue;
+            yaCargados.add(clave);
+
+            await upsertContactoBloque(deudorId, b.data, prep, ctx);
         }
     }
 }

@@ -6,6 +6,71 @@
 
 ---
 
+## [2026-08-18] — AYSA: los datos que pidió el equipo, y el domicilio de servicio arriba
+
+> ⚠️ **Redeploy back + front.** Sin cambios de schema. **Las plantillas #61 y #65 de prod ya están
+> actualizadas** (backup del `mappingJson` previo en `/app/storage/backup-plantillas-aysa.json`).
+> Los datos nuevos **no aparecen solos**: se ven recién cuando se vuelva a correr la carga.
+
+Pedido del equipo tras ver la ficha: el domicilio principal tiene que ser el de prestación del
+servicio, la categoría tiene que decir qué significa, y faltan seis datos de la cuenta. Se cruzó
+contra los 31 archivos reales de la bajada del 22/06 (21.335 cuentas).
+
+### Los datos que faltaban
+
+Cinco estaban en el archivo con otro nombre y se agregaron a los adicionales de la plantilla #61:
+
+| Pedido | Columna del archivo | Índice |
+|---|---|---|
+| oficina de cobro | `Of. Cobro` | 0 |
+| interlocutor | `Interloc.` | 2 |
+| nro de partida anterior | `Cta. Cto. sis. ant.` | 5 |
+| unidad funcional | `Un. Func.` | 11 |
+| punto de suministro | `Pto. Sum.` | 12 |
+
+**"Recicle" no existe en ninguno de los cuatro layouts** (cuentas, partidas, novedades, bajas). El
+único candidato es `NR`, un contador de 3 dígitos entre `F. Proc.` y la ventana de asignación, con
+valores 005–009 que no correlacionan con la categoría ni con la clase de inmueble. Queda sin mapear
+hasta confirmarlo con AYSA: inventar el significado de una columna es peor que no mostrarla.
+
+La `Un. Func.` viene con el relleno `000`/`00000` en el **82%** de los casos; se carga vacía en vez
+de mostrar un cero que no es una unidad funcional.
+
+### `mapear:` — traducir los códigos del cedente desde la plantilla
+
+La `Categoría` es un dígito suelto (`1`) y el gestor no puede saber qué es. El transform nuevo lleva
+la tabla adentro de la plantilla:
+
+```
+mapear:1=1 - residencial|2=2 - residencial|3=3 - no residencial|4=4 - no residencial|5=5 - baldío
+```
+
+Lo que **no** está en la tabla pasa igual, sin traducir: si mañana aparece una categoría 6, el gestor
+ve `6` en vez de un campo vacío, que es lo que avisa que hay algo nuevo. Un valor vacío sí borra
+(`mapear:000=`), que es lo que resuelve el relleno de la unidad funcional.
+
+Sirve para cualquier cedente que mande códigos —motivos de baja, tipos de usuario— y la tabla se
+corrige desde el editor de plantillas **sin deploy**. En el editor aparece como un transform más, con
+su campo para la tabla.
+
+### El domicilio de servicio queda arriba
+
+La plantilla le pone `prioridad` 1 al bloque de servicio y 2 al de facturación, y la ficha ordena las
+direcciones por ese campo —hasta ahora solo ordenaba los teléfonos—.
+
+Faltaba un detalle que lo rompía: **los dos domicilios coinciden en el 68,2% de la cartera** (14.554
+de 21.335). Ahí el par `(deudor, tipo, valor)` es el mismo, así que es **un solo** contacto, y el
+segundo bloque le hacía `update` al primero: el domicilio que era los dos terminaba etiquetado
+FACTURACION y ordenado abajo, justo al revés de lo pedido.
+
+`procesarBloquesDeudor` ahora **deduplica los contactos de una misma fila**: gana el primero que
+aportó el dato, que es el orden en que el operador declaró los bloques. La comparación es sobre el
+contacto **ya normalizado**, así que el mismo teléfono escrito de dos formas (`42407390` y
+`+541142407390`) también cuenta como uno. 13 tests nuevos (`transforms`, `procesar-bloques`); 434
+entre imports y common.
+
+---
+
 ## [2026-08-11] — Contactos: normalizar los teléfonos sin característica y tirar la basura
 
 > ⚠️ **Redeploy back + front.** Sin cambios de schema. **Cambia el comportamiento de TODAS las

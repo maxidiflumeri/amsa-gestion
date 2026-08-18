@@ -117,7 +117,19 @@ const AVAILABLE_TRANSFORMS = [
     { value: "toDate:excel", label: "Fecha (serial nativo de Excel)" },
     { value: "splitComma:0", label: "Separar por coma (parte 1)" },
     { value: "splitComma:1", label: "Separar por coma (parte 2)" },
+    { value: "mapear:", label: "Traducir códigos del cedente (tabla)" },
 ];
+
+/**
+ * Transform con tabla: `mapear:1=Residencial|2=No residencial`.
+ *
+ * A diferencia del resto, el valor guardado no es fijo —lleva la tabla adentro—, así que la lista
+ * de arriba solo aporta el prefijo y la tabla se edita en su propio campo. Sirve para los códigos
+ * de una letra o un dígito que manda el cedente (la `Categoría` de AYSA) y que el gestor no puede
+ * interpretar. Lo que no está en la tabla se guarda igual, sin traducir.
+ */
+const PREFIJO_MAPEAR = "mapear:";
+const esMapear = (t: string) => t.startsWith(PREFIJO_MAPEAR);
 
 export interface MappingField {
     destField: string;
@@ -265,28 +277,61 @@ function TransformCell({ field, onChange, isContactoTipo }: TransformCellProps) 
         );
     }
 
+    const tabla = field.transforms.find(esMapear);
+
+    // Tildar "Traducir códigos" con una tabla ya cargada agregaría un segundo `mapear:` vacío que
+    // pisaría al primero. Se queda uno solo, y gana el que tiene tabla.
+    const handleTransforms = (seleccion: string[]) => {
+        const mapeos = seleccion.filter(esMapear);
+        if (mapeos.length <= 1) return onChange("transforms", seleccion);
+        const conTabla = mapeos.find((t) => t.length > PREFIJO_MAPEAR.length) ?? mapeos[0];
+        onChange("transforms", seleccion.filter((t) => !esMapear(t) || t === conTabla));
+    };
+
     return (
-        <FormControl size="small" fullWidth>
-            <Select
-                multiple
-                value={field.transforms}
-                onChange={(e) => onChange("transforms", e.target.value)}
-                renderValue={(selected) => (
-                    <Box sx={{ display: "flex", flexWrap: "wrap", gap: 0.5 }}>
-                        {(selected as string[]).map((val) => {
-                            const t = AVAILABLE_TRANSFORMS.find((tr) => tr.value === val);
-                            return <Chip key={val} label={t?.label ?? val} size="small" />;
-                        })}
-                    </Box>
-                )}
-            >
-                {AVAILABLE_TRANSFORMS.map((t) => (
-                    <MenuItem key={t.value} value={t.value}>
-                        {t.label}
-                    </MenuItem>
-                ))}
-            </Select>
-        </FormControl>
+        <Stack spacing={0.5}>
+            <FormControl size="small" fullWidth>
+                <Select
+                    multiple
+                    value={field.transforms}
+                    onChange={(e) => handleTransforms(e.target.value as string[])}
+                    renderValue={(selected) => (
+                        <Box sx={{ display: "flex", flexWrap: "wrap", gap: 0.5 }}>
+                            {(selected as string[]).map((val) => {
+                                const t = AVAILABLE_TRANSFORMS.find(
+                                    (tr) => tr.value === val || (esMapear(val) && tr.value === PREFIJO_MAPEAR),
+                                );
+                                return <Chip key={val} label={t?.label ?? val} size="small" />;
+                            })}
+                        </Box>
+                    )}
+                >
+                    {AVAILABLE_TRANSFORMS.map((t) => (
+                        <MenuItem key={t.value} value={t.value}>
+                            {t.label}
+                        </MenuItem>
+                    ))}
+                </Select>
+            </FormControl>
+
+            {tabla !== undefined && (
+                <TextField
+                    size="small"
+                    fullWidth
+                    value={tabla.slice(PREFIJO_MAPEAR.length)}
+                    onChange={(e) =>
+                        onChange(
+                            "transforms",
+                            field.transforms.map((t) =>
+                                esMapear(t) ? PREFIJO_MAPEAR + e.target.value : t,
+                            ),
+                        )
+                    }
+                    placeholder="1=Residencial|2=No residencial"
+                    helperText="código=texto, separados por |"
+                />
+            )}
+        </Stack>
     );
 }
 

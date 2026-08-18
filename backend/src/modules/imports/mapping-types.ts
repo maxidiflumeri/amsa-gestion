@@ -2,8 +2,17 @@
 export type ImportCategoria = 'DEUDORES' | 'FACTURAS' | 'PAGOS' | 'CONTACTOS' | 'ENRIQUECIMIENTO';
 
 export interface MappingColumn {
-    fromIndex: number;          // índice de columna del archivo (0-based)
+    fromIndex: number;          // índice de columna del archivo (0-based), o -1 si es un valor fijo
     transforms?: string[];      // ej: ["trim","toNumber:es-AR"]
+    /**
+     * Valor constante, el mismo para todas las filas. Se usa cuando `fromIndex` es `-1`: el dato no
+     * está en el archivo y lo pone la plantilla (el `tipo` de un bloque de contacto, el `subtipo`
+     * SERVICIO / FACTURACION de un domicilio, su `prioridad`).
+     *
+     * Un valor fijo **no alcanza para que el bloque cuente como cargado**: si las columnas reales
+     * del bloque vienen vacías, el bloque se descarta igual (ver `mapRow`).
+     */
+    staticValue?: string;
 }
 
 export interface RepetitiveBlock {

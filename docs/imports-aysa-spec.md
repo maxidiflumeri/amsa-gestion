@@ -86,8 +86,38 @@ Cuatro plantillas sobre la empresa AYSA, todas con **formato ancho fijo** y **va
 | `nombre` | `Denominación IC` |
 | `montoTotal` | `Imp. Asignado` (`toNumber:es-AR`) |
 | `documento` | **sin mapear** (ver §2) |
-| adicionales | `Distrito / División` → `sucursal`, `Exped.`, `Categoría`, `Nro. DNI`, `Nro. CUIT` |
-| contactos | 7 bloques `telefono` + 1 `email` + **2** `direccion`: servicio (col. 361-520) y facturación (col. 521-680), etiquetadas con `subtipo` |
+| adicionales | ver la tabla de abajo |
+| contactos | 7 bloques `telefono` + 1 `email` + **2** `direccion`: servicio (col. 361-520) y facturación (col. 521-680), etiquetadas con `subtipo` y ordenadas con `prioridad` |
+
+#### Los datos adicionales
+
+Son los que el gestor mira en la ficha para saber de qué cuenta está hablando. Todos van con `trim`.
+
+| Clave | Columna | Índice | |
+|---|---|---|---|
+| `sucursal` | `Distrito / División` | 1 | |
+| `oficina_de_cobro` | `Of. Cobro` | 0 | constante por bajada (`9000001028`); distingue las dos oficinas |
+| `interlocutor` | `Interloc.` | 2 | el id del titular en SAP — no es el nombre |
+| `expediente` | `Exped.` | 6 | |
+| `nro_partida_anterior` | `Cta. Cto. sis. ant.` | 5 | la partida del sistema viejo; vacía en el 59% |
+| `unidad_funcional` | `Un. Func.` | 11 | `mapear:000=|00000=` — el 82% viene con el relleno "sin dato" |
+| `punto_de_suministro` | `Pto. Sum.` | 12 | único por caso, igual que la cuenta contrato |
+| `categoria_aysa` | `Categoría` | 14 | `mapear:` con la tabla de abajo |
+| `tipo_usuario` | `Tipo usu.` | 15 | `Z1` en el 99,8% |
+| `fecha_desde` / `fecha_hasta` | `F. Desde` / `F. Hasta` | 20 / 21 | ventana de la asignación |
+| `dni` / `cuit` | `Nro. DNI` / `Nro. CUIT` | 54 / 55 | no se usan como identidad (§2) |
+
+**La categoría es un dígito suelto y sola no dice nada.** El cedente la explicó así, y la plantilla la
+traduce con el transform `mapear:` en vez de hardcodearla:
+
+| | | Casos |
+|---|---|---|
+| `1` · `2` | residencial | 15.173 · 4.123 |
+| `3` · `4` | no residencial | 779 · 420 |
+| `5` | baldío | 840 |
+
+Es independiente de `Cl. Ind.` (clase de inmueble) y de `Tipo usu.`, que son otros dos ejes: la
+categoría 1 aparece con clase 0001 y con 0004, y la 3 con tres clases distintas.
 
 El domicilio va como contacto de tipo `direccion` —no como dato adicional— para que aparezca en la
 sección de Direcciones de la ficha y se pueda normalizar contra Georef si la remesa lo pide.
@@ -95,6 +125,15 @@ sección de Direcciones de la ficha y se pueda normalizar contra Georef si la re
 **Son dos y hay que cargar los dos**: el de prestación del servicio y el de facturación. A veces
 coinciden y a veces no, y los dos salen en las cartas y los mails que manda cobranzas. Se distinguen
 con `contacto.subtipo` (`SERVICIO` / `FACTURACION`), que la ficha muestra como etiqueta.
+
+**El de servicio es el principal y va arriba.** La plantilla le pone `prioridad` 1 y 2 con un valor
+fijo, y la ficha ordena las direcciones por ese campo igual que hace con los teléfonos.
+
+Los dos coinciden en el **68,2%** de la cartera (14.554 de 21.335), y ahí el par (deudor, tipo, valor)
+es el mismo: es **un solo** contacto, no dos. El segundo bloque le pisaba el rótulo al primero y el
+domicilio que era los dos terminaba etiquetado FACTURACION y ordenado abajo. Ahora, dentro de una
+misma fila, **gana el primer bloque que aportó el dato** (`procesarBloquesDeudor`), que es el orden en
+que el operador los declaró en la plantilla. Ninguna cuenta viene sin domicilio de facturación.
 
 ### Contactos: qué se descarta y por qué
 
@@ -292,6 +331,12 @@ ambigüedad que resolver: `MM.DD.YYYY` no existe como convención. 7 tests nuevo
 - **Definir la oficina de cobro 9000000506.** Mismo formato; de ella solo llegaron novedades y bajas,
   no el paquete de cuentas y partidas. Falta decidir si va como otra remesa de la misma empresa o como
   empresa aparte.
+- **Preguntar a AYSA qué es el "recicle"**. Lo pidió el equipo como dato adicional, pero **ninguno de
+  los cuatro layouts tiene una columna con ese nombre**. El único candidato es `NR` (col. 218, 3
+  caracteres), un contador que va entre `F. Proc.` y la ventana de asignación y que toma valores
+  005–009 sin relación con la categoría ni con la clase de inmueble. Mientras no se confirme queda
+  sin mapear: inventar el significado de una columna es peor que no mostrarla. Agregarlo después es
+  una línea en la plantilla, sin deploy.
 - **Confirmar con AYSA los códigos de situación** de §4. No bloquea la carga —el filtro va por el
   importe cobrado— pero sirve para saber qué se está dejando afuera. Sobre todo `J` y el `D` que
   aparece 4 veces en la 506.

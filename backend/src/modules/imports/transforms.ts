@@ -131,6 +131,38 @@ const splitComma = (value: any, index: number) => {
 };
 
 /* ------------------------------
+ * mapear — traducir códigos del cedente a texto legible
+ * ------------------------------ */
+/**
+ * Reemplaza el valor por su traducción según una tabla declarada en la propia plantilla:
+ * `mapear:1=1 - Residencial|2=2 - Residencial|5=5 - Baldío`.
+ *
+ * Los cedentes mandan códigos de una letra o un dígito (la `Categoría` de AYSA, el `Tipo usu.`,
+ * los motivos de baja) que solo ellos entienden. Traducirlos en la plantilla —y no en el código—
+ * mantiene la tabla al lado del layout: si el cedente agrega una categoría se corrige sin deploy.
+ *
+ * Reglas:
+ * - Pares separados por `|`, clave y valor por el **primer** `=` (el valor puede tener `=`).
+ * - La clave se compara sin espacios y sin distinguir mayúsculas.
+ * - **Lo que no está en la tabla pasa igual**, no se borra: si mañana aparece una categoría 6, el
+ *   gestor ve `6` en vez de un campo vacío, que es lo que avisa que hay algo nuevo.
+ * - Un valor vacío (`000=`) sí borra: sirve para los rellenos que el cedente manda como "sin dato"
+ *   (`Un. Func.` viene en `000` o `00000` en el 82% de los casos de AYSA).
+ */
+const mapear = (input: any, tabla: string) => {
+    if (input == null) return input;
+    const clave = String(input).trim().toLowerCase();
+
+    for (const par of tabla.split('|')) {
+        const i = par.indexOf('=');
+        if (i === -1) continue;
+        if (par.slice(0, i).trim().toLowerCase() === clave) return par.slice(i + 1);
+    }
+
+    return input;
+};
+
+/* ------------------------------
  * APLICACIÓN DE TRANSFORMACIONES
  * ------------------------------ */
 export function applyTransforms(raw: any, tr?: string[]) {
@@ -146,6 +178,10 @@ export function applyTransforms(raw: any, tr?: string[]) {
         else if (t === 'removeQuotes') v = removeQuotes(v);
         else if (t === 'removeDoubleQuotes') v = removeDoubleQuotes(v);
         else if (t === 'removeDashes') v = removeDashes(v);
+
+        else if (t.startsWith('mapear:')) {
+            v = mapear(v, t.substring('mapear:'.length));
+        }
 
         else if (t.startsWith('removePrefix:')) {
             const prefix = t.substring('removePrefix:'.length);

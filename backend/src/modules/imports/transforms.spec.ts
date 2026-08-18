@@ -117,3 +117,45 @@ describe('transforms — toDate:auto con fechas separadas por puntos', () => {
         expect(t('21.06.2026 00:00:00', 'toDate:auto')).toEqual(fecha(2026, 6, 21));
     });
 });
+
+describe('transforms — mapear', () => {
+    // La tabla real de AYSA: la Categoría viene como un dígito suelto y el gestor no sabe qué es.
+    const CATEGORIA_AYSA =
+        'mapear:1=1 - Residencial|2=2 - Residencial|3=3 - No residencial|4=4 - No residencial|5=5 - Baldío';
+
+    it('traduce cada código de la tabla', () => {
+        expect(t('1', CATEGORIA_AYSA)).toBe('1 - Residencial');
+        expect(t('3', CATEGORIA_AYSA)).toBe('3 - No residencial');
+        expect(t('5', CATEGORIA_AYSA)).toBe('5 - Baldío');
+    });
+
+    it('deja pasar el código que no está en la tabla en vez de borrarlo', () => {
+        expect(t('6', CATEGORIA_AYSA)).toBe('6');
+    });
+
+    it('un valor vacío en la tabla sí borra (los rellenos "sin dato" del cedente)', () => {
+        expect(t('000', 'mapear:000=|00000=')).toBe('');
+        expect(t('00001', 'mapear:000=|00000=')).toBe('00001');
+    });
+
+    it('ignora espacios alrededor de la clave y no distingue mayúsculas', () => {
+        expect(t(' z1 ', 'mapear:Z1=Titular|Z4=Consorcio')).toBe('Titular');
+    });
+
+    it('el valor puede tener "=" adentro: solo cuenta el primero', () => {
+        expect(t('X', 'mapear:X=a=b')).toBe('a=b');
+    });
+
+    it('acepta números, no solo texto', () => {
+        expect(t(5, 'mapear:5=5 - Baldío')).toBe('5 - Baldío');
+    });
+
+    it('null/undefined pasan sin tocar', () => {
+        expect(t(null, CATEGORIA_AYSA)).toBeNull();
+        expect(t(undefined, CATEGORIA_AYSA)).toBeUndefined();
+    });
+
+    it('se combina con los otros transforms en el orden declarado', () => {
+        expect(t('  1  ', 'trim', CATEGORIA_AYSA)).toBe('1 - Residencial');
+    });
+});
