@@ -11,6 +11,12 @@
 > ⚠️ **Redeploy back + front.** Sin cambios de schema. **Las plantillas #61 y #65 de prod ya están
 > actualizadas** (backup del `mappingJson` previo en `/app/storage/backup-plantillas-aysa.json`).
 > Los datos nuevos **no aparecen solos**: se ven recién cuando se vuelva a correr la carga.
+>
+> **La cartera de AYSA se vació en prod el 18/08** para rehacerla limpia: 14.466 casos, 138.234
+> facturas, 36.061 contactos, 1.070 pagos, 4.097 errores de import y las 4 remesas. Snapshot previo
+> `amsa-gestion-pre-wipe-aysa-20260818`. Se conservaron la empresa, sus 5 plantillas y la auditoría
+> (`transaccion`). No había gestión encima: 0 comentarios, 0 convenios, 0 promesas, 0 emails. Los
+> archivos subidos siguen en el volumen (`/app/uploads/19/`), ya huérfanos.
 
 Pedido del equipo tras ver la ficha: el domicilio principal tiene que ser el de prestación del
 servicio, la categoría tiene que decir qué significa, y faltan seis datos de la cuenta. Se cruzó
