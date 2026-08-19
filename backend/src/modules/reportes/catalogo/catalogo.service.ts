@@ -9,6 +9,7 @@ import {
   CAMPOS_VISIBLES_POR_MODELO,
   CAMPOS_OCULTOS_POR_PATH,
   RELACIONES_OCULTAS,
+  FKS_VISIBLES,
   DESCRIPCIONES,
   ORDEN_RAMAS,
   OPERADORES_POR_TIPO,
@@ -148,7 +149,12 @@ export class CatalogoService {
       // Las claves foráneas nunca sirven en un reporte —el dato está en la relación— y son muchas:
       // `estadoGestionPrevioAId`, `subcategoriaId`, `campañaId`… Se ocultan por forma en vez de
       // enumerarlas una por una, que era imposible de mantener al ritmo del schema.
-      if (field.kind === 'scalar' && /Id$/.test(field.name) && !(esRaiz && field.name === 'id')) {
+      if (
+        field.kind === 'scalar' &&
+        /Id$/.test(field.name) &&
+        !(esRaiz && field.name === 'id') &&
+        !FKS_VISIBLES.has(path)
+      ) {
         continue;
       }
 

@@ -39,6 +39,12 @@ describe('CatalogoService — árbol de campos', () => {
       expect(paths).toContain('convenios.cuotas');
     });
 
+    it('ofrece la política de la remesa, por id y por nombre', () => {
+      // El id lo pide la base de Neotel; el nombre es el que se lee.
+      expect(hojas).toContain('remesa.politicaId');
+      expect(hojas).toContain('remesa.politica.nombre');
+    });
+
     it('conserva quién hizo cada cosa', () => {
       expect(hojas).toContain('comentarios.usuario.nombre');
       expect(hojas).toContain('pagos.usuario.nombre');
@@ -64,7 +70,8 @@ describe('CatalogoService — árbol de campos', () => {
 
     it('no muestra claves foráneas: el dato está en la relación', () => {
       const fks = hojas.filter(p => /Id$/.test(p.split('.').pop() as string));
-      expect(fks).toEqual([]);
+      // Salvo las declaradas como excepción, donde el id ES el dato que pide el sistema destino.
+      expect(fks).toEqual(['remesa.politicaId']);
     });
 
     it('de los modelos de referencia solo trae lo que sirve', () => {

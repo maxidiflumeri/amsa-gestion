@@ -298,7 +298,7 @@ del sistema que comparten el estado de gestión de este deudor—. Las reglas qu
 | Regla | Dónde se declara | Qué saca |
 |---|---|---|
 | Una colección detrás de una relación 1-1 no es un dato del caso | estructural | `estadoGestion.llamadas`, `empresa.remesa`, `motivoNoPago.promesasComoAnterior` (152 campos) |
-| Las claves foráneas no van a un reporte: el dato está en la relación | estructural (`/Id$/`) | `estadoGestionPrevioAId`, `subcategoriaId`, `campañaId` |
+| Las claves foráneas no van a un reporte: el dato está en la relación | estructural (`/Id$/`), con excepciones en `FKS_VISIBLES` | `estadoGestionPrevioAId`, `subcategoriaId`, `campañaId` |
 | De un modelo de referencia solo interesan dos o tres campos | `CAMPOS_VISIBLES_POR_MODELO` | los 8 campos de `parametro` × 4 relaciones, los 7 de `usuario` × 6 |
 | Ramas duplicadas o técnicas | `RELACIONES_OCULTAS` | `remesa.empresa`, `contactos.llamadas`, `llamadas.sesion` |
 | Ruido de una tabla puntual | `CAMPOS_OCULTOS_POR_PATH` | `remesa.okFilas`, `llamadas.recordingUrl` |
@@ -313,6 +313,10 @@ por el nombre no la llevan, porque una explicación obvia al lado de cada campo 
 ramas de primer nivel se ordenan por `ORDEN_RAMAS`, que sigue cómo se arma un reporte —quién es el
 caso, de quién es, cuánto debe, cómo viene la gestión, el historial— y no el orden del schema; lo
 que no esté en la lista queda al final, alfabético.
+
+A veces el id **es** el dato —el sistema que consume el archivo lo pide con el número y no hay campo
+de texto que lo reemplace—: para eso está `FKS_VISIBLES`, la lista de claves foráneas que sí se
+ofrecen. Hoy tiene `remesa.politicaId`, que va en la base de Neotel.
 
 La poda es de **catálogo**, no de motor: un path que ya no se ofrece sigue resolviéndose si está
 guardado en una plantilla vieja.

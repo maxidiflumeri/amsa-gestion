@@ -46,6 +46,11 @@ Las colecciones colgadas de otra colección se conservan (`convenios.cuotas`): e
 caso. Las dos primeras reglas son estructurales —no hay que mantener una lista— y las otras tres son
 listas cortas y explícitas.
 
+**Cuando el id es el dato.** La regla de las claves foráneas tiene excepciones declaradas en
+`FKS_VISIBLES`: la base de Neotel lleva el **id** de la política, no su nombre, así que
+`remesa.politicaId` se sigue ofreciendo. De paso `politica` dejó de estar entre los modelos ocultos,
+y ahora la remesa también ofrece el nombre y la descripción de su política.
+
 **Nombres y explicaciones.** Se reescribieron las etiquetas: se acabaron los `Ringed At`, `Ip`,
 `Cambio Sit020` y `Creado At` que salían de humanizar el nombre del campo. Y cada campo que no se
 entiende solo trae una línea de hasta diez palabras: *"Lo asignado al abrir el caso; no baja con los

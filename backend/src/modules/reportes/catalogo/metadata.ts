@@ -23,6 +23,10 @@ export const LABELS_CUSTOM: Record<string, string> = {
   'remesa.categoria': 'Categoría de la remesa',
   'remesa.fechaVencimiento': 'Vencimiento de la remesa',
   'remesa.usuarioCreador': 'Cargada por',
+  'remesa.politicaId': 'ID de la política',
+  'remesa.politica': 'Política de gestión',
+  'remesa.politica.nombre': 'Nombre de la política',
+  'remesa.politica.descripcion': 'Descripción de la política',
 
   // ── Estados (todos apuntan a la tabla de parámetros) ──
   'estadoSituacion': 'Situación',
@@ -183,7 +187,6 @@ export const MODELOS_OCULTOS = new Set<string>([
   'ejecucion_reporte',
   'jobimport',
   'importerror',
-  'politica',
   'formato_telefono',
   'campoextra',
 ]);
@@ -234,6 +237,8 @@ export const DESCRIPCIONES: Record<string, string> = {
   'remesa.numeroRemesa': 'El número con el que se identifica la carga',
   'remesa.categoria': 'Qué traía el archivo: deudores, facturas, pagos',
   'remesa.fechaVencimiento': 'Hasta cuándo se gestiona esta remesa',
+  'remesa.politicaId': 'El número interno, para los sistemas que lo piden así',
+  'remesa.politica': 'Las condiciones con las que se gestiona la remesa',
 
   // Estados
   'estadoSituacion': 'En qué situación está la deuda (SIT-xxx)',
@@ -414,8 +419,21 @@ export const CAMPOS_OCULTOS_POR_PATH = new Set<string>([
   'enviosEmail.senderReporteIds',
 ]);
 
+/**
+ * Claves foráneas que **sí** se ofrecen, como excepción a la regla que las oculta.
+ *
+ * La regla general vale porque el dato está en la relación y el número interno no le dice nada a
+ * nadie. Pero a veces el id **es** el dato: el sistema que consume el archivo lo pide así, con el
+ * número, y no hay campo de texto que lo reemplace. Ahí se agrega el path acá.
+ */
+export const FKS_VISIBLES = new Set<string>([
+  // La base de Neotel lleva el id de la política, no su nombre.
+  'remesa.politicaId',
+]);
+
 export const CAMPOS_VISIBLES_POR_MODELO: Record<string, string[]> = {
   parametro: ['clave', 'descripcion'],
+  politica: ['nombre', 'descripcion'],
   usuario: ['nombre', 'email'],
   empresa: ['nombre', 'cuit'],
 };
