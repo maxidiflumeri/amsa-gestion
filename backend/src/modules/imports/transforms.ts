@@ -39,8 +39,8 @@ const toNumberEsAR = (input: any) => {
  * A diferencia de `toNumber`, que devuelve un **número** para los campos numéricos del modelo
  * (`montoTotal`, importes), este devuelve un **texto** ya formateado: es para los datos adicionales,
  * que se guardan como string y se muestran tal cual en la ficha. El `Coef. zonal` de AYSA viene
- * `1.30` y el gestor lo lee con coma; además el cedente no es prolijo con el segundo decimal
- * (manda `1.8` y `1.80` en la misma bajada) y acá los dos salen igual.
+ * `1.30` —punto decimal, como exporta SAP— y el gestor lo lee con coma. Un cedente que mande el
+ * decimal a medias (`1.8`) sale igual que el que lo manda completo (`1.80`).
  *
  * `toDecimal:es-AR` usa 2 decimales; `toDecimal:es-AR:3` los que se le pidan. Lo que no parsea como
  * número pasa igual, sin tocar —misma regla que `mapear`—: si el cedente manda `NO INFORMADO` el

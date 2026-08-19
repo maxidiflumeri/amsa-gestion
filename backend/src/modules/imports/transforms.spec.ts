@@ -161,14 +161,13 @@ describe('transforms — mapear', () => {
 });
 
 describe('transforms — toDecimal', () => {
-    // El `Coef. zonal` de AYSA: 11 valores en la bajada del 03/08, todos con 2 decimales, pero la
-    // del 22/06 traía además `1.8` y `3.5` sueltos — el mismo coeficiente escrito de dos formas.
+    // El `Coef. zonal` de AYSA: 11 valores, todos con 2 decimales y punto decimal (SAP).
     it('formatea el decimal con coma', () => {
         expect(t('1.30', 'toDecimal:es-AR')).toBe('1,30');
         expect(t('2.75', 'toDecimal:es-AR')).toBe('2,75');
     });
 
-    it('completa el segundo decimal que el cedente manda a medias', () => {
+    it('completa los decimales que falten', () => {
         expect(t('1.8', 'toDecimal:es-AR')).toBe('1,80');
         expect(t('3.5', 'toDecimal:es-AR')).toBe('3,50');
         expect(t('2', 'toDecimal:es-AR')).toBe('2,00');

@@ -6,40 +6,62 @@
 
 ---
 
-## [2026-08-19] — AYSA: el coeficiente zonal, y un transform para decimales
+## [2026-08-19] — AYSA: el coeficiente zonal y el recicle, los dos que faltaban
 
-> ⚠️ **Redeploy back + front.** Sin cambios de schema. La plantilla #61 de prod ya tiene el campo
-> nuevo (backup del `mappingJson` previo en `/app/storage/backup-plantilla61-pre-coef.json`) y los
-> **14.466 casos ya cargados se completaron por backfill**, así que el dato se ve sin repetir la
-> carga. El transform `toDecimal:es-AR` viaja en el deploy: hasta que salga, una importación nueva
-> guardaría el coeficiente con punto (`1.30`) en vez de coma — el transform desconocido deja pasar
-> el valor sin tocarlo. **Desplegar antes de la próxima bajada de AYSA.**
+> ⚠️ **Redeploy back + front.** Sin cambios de schema. La plantilla #61 de prod ya tiene los dos
+> campos nuevos (backups del `mappingJson` en `/app/storage/backup-plantilla61-pre-coef.json` y
+> `-pre-recicle.json`) y los **14.466 casos ya cargados se completaron por backfill**, así que los
+> datos se ven sin repetir la carga. El transform `toDecimal:es-AR` viaja en el deploy: hasta que
+> salga, una importación nueva guardaría el coeficiente con punto (`1.30`) en vez de coma — el
+> transform desconocido deja pasar el valor sin tocarlo. **Desplegar antes de la próxima bajada.**
 
-El equipo pidió el coeficiente zonal después de ver la cartera cargada el 19/08. Estaba en el
-archivo desde el principio: `Coef. zonal`, columna 10 del layout de cuentas (posición 134, largo 12),
-mapeada en el layout pero sin llevar a ningún lado.
+El equipo pidió dos datos más después de ver la cartera cargada a la mañana. Los dos estaban en el
+archivo desde el principio, en columnas ya declaradas en el layout pero que no se llevaban a ningún
+lado. Los dos están en el **100%** de las cuentas de las dos bajadas.
 
-Está en el **100%** de las cuentas de las dos bajadas —ni una vacía— con 11 valores entre 1,10 y
-3,50; el 1,30 cubre el 31% de la cartera.
+### El "recicle" era `NR`
+
+Es la que había quedado marcada como pendiente el 18/08: el equipo lo pedía por nombre y **ninguno
+de los cuatro layouts tiene una columna que se llame así**. Quedó sin mapear antes que inventarle el
+significado a una columna.
+
+Lo resolvió el equipo describiendo dónde está en vez de cómo se llama: *"dice `No Med`, después una
+fecha, después un `003`, después otra fecha"*. Eso es exactamente `Regime` → `F. Proc.` → **`NR`** →
+`F. Desde`, el contador de 3 dígitos de la posición 218 que ya se había señalado como el único
+candidato. Va como `numero_de_recicle`, con el relleno de ceros, que es como lo nombra el equipo.
+
+No arranca de 1 en todas las bajadas: 001–004 en la del 03/08 (oficina 0506, la cargada) y 005–009
+en la del 22/06 (oficina 1028).
 
 ### `toDecimal:es-AR` — decimal con coma para los datos adicionales
 
-El cedente manda `1.30`, y en la bajada del 22/06 manda además `1.8` y `3.5` sueltos: el mismo
-coeficiente escrito de dos formas. `toNumber` no sirve acá porque devuelve un **número**, y los
-adicionales se guardan como texto y se muestran tal cual en la ficha (`1.8` se vería `1.8`).
+El `Coef. zonal` (columna 10, posición 134) viene `1.30`: SAP exporta con punto y el gestor lo lee
+con coma. `toNumber` no sirve acá porque devuelve un **número**, y los adicionales se guardan como
+texto y se muestran tal cual en la ficha.
 
-El transform nuevo formatea el decimal a la convención local y completa los decimales que falten:
-`1.30` → `1,30`, `1.8` → `1,80`. Por defecto dos decimales; `toDecimal:es-AR:3` los que se le pidan.
-Lo que no parsea como número pasa igual, sin borrarse —misma regla que `mapear:`—. Está en el
-catálogo del editor de mapeo, así que sirve para cualquier cedente que mande decimales con punto.
-13 tests nuevos (40 en `transforms`).
+El transform nuevo formatea el decimal a la convención local y completa los que falten: `1.30` →
+`1,30`, `1.8` → `1,80`. Por defecto dos decimales; `toDecimal:es-AR:3` los que se le pidan. Lo que
+no parsea como número pasa igual, sin borrarse —misma regla que `mapear:`—. Está en el catálogo del
+editor de mapeo, así que sirve para cualquier cedente que mande decimales con punto. 13 tests
+nuevos (40 en `transforms`).
+
+Son 11 valores entre 1,10 y 3,50; el 1,30 cubre el 31% de la cartera.
+
+> **Corrección de una medición.** En la primera pasada del análisis reporté que el cedente mandaba
+> `1.8` y `1.80` para el mismo coeficiente. Era falso: el pipeline de análisis convertía el archivo
+> a UTF-8 y después cortaba las columnas por byte, y como los nombres con Ñ y acentos ocupan un byte
+> de más, las filas con esos nombres se leían corridas. Los archivos son **latin1** y hay que
+> cortarlos ahí (`readFileSync(f, 'latin1')`, que es lo que hace el importador y lo que hizo el
+> backfill). Leídos bien: el coeficiente trae siempre sus dos decimales, `Regime` es solo `No Med` /
+> `Medido` y `NR` solo 001–004. Los datos cargados en prod están bien; lo que estaba mal era la
+> justificación del transform, que igual sigue haciendo falta por el punto decimal.
 
 ### Backfill en vez de rehacer la carga
 
-La carga de AYSA se corrió el 19/08 a la mañana (14.466 casos, 138.234 facturas, 0 errores) y un
-dato adicional nuevo solo aparece cuando se vuelve a importar. En vez de repetir la carga entera se
-completó el campo desde los mismos 28 archivos que quedaron en `/app/uploads/19/DEUDORES/`,
-cruzando por `Cta. Cto.`: **14.466 de 14.466 matchearon**, ninguno quedó sin coeficiente.
+La carga se corrió el 19/08 a la mañana (14.466 casos, 138.234 facturas, 0 errores) y un dato
+adicional nuevo solo aparece cuando se vuelve a importar. En vez de repetir la carga entera se
+completaron los dos campos desde los mismos 28 archivos que quedaron en `/app/uploads/19/DEUDORES/`,
+cruzando por `Cta. Cto.`: **14.466 de 14.466** en los dos, ninguno sin dato.
 
 ---
 

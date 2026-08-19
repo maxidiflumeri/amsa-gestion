@@ -103,17 +103,23 @@ Son los que el gestor mira en la ficha para saber de qué cuenta está hablando.
 | `unidad_funcional` | `Un. Func.` | 11 | `mapear:000=|00000=` — el 82% viene con el relleno "sin dato" |
 | `punto_de_suministro` | `Pto. Sum.` | 12 | único por caso, igual que la cuenta contrato |
 | `coeficiente_zonal` | `Coef. zonal` | 10 | `toDecimal:es-AR` — 11 valores (1,10 a 3,50), sin un solo caso vacío |
+| `numero_de_recicle` | `NR` | 19 | el recicle; contador de 3 dígitos, sin un solo caso vacío |
 | `categoria_aysa` | `Categoría` | 14 | `mapear:` con la tabla de abajo |
 | `tipo_usuario` | `Tipo usu.` | 15 | `Z1` en el 99,8% |
 | `fecha_desde` / `fecha_hasta` | `F. Desde` / `F. Hasta` | 20 / 21 | ventana de la asignación |
 | `dni` / `cuit` | `Nro. DNI` / `Nro. CUIT` | 54 / 55 | no se usan como identidad (§2) |
 
-**El coeficiente zonal es un decimal y el cedente no es prolijo con el segundo dígito**: la bajada
-del 22/06 trae `1.80` y `1.8` para el mismo coeficiente (6 filas de 21.335), y la del 03/08 solo la
-forma larga. El transform `toDecimal:es-AR` lo normaliza a la convención local —`1,80`— y de paso
-completa el decimal que falta, así el gestor no ve dos escrituras del mismo valor. Está en el 100%
-de las cuentas de las dos bajadas, con 11 valores: 1,10 · 1,30 · 1,45 · 1,60 · 1,80 · 2,00 · 2,20 ·
-2,40 · 2,75 · 3,10 · 3,50 (el 1,30 solo cubre el 31%).
+**El "recicle" es la columna `NR`** (col. 218, 3 caracteres), la que va entre `F. Proc.` y la
+ventana de asignación. No se llama así en ningún encabezado —por eso quedó sin mapear en agosto— y
+lo confirmó el equipo por su posición: después del régimen (`No Med` / `Medido`) y la fecha de
+proceso, antes de `F. Desde`. Es un contador chico y no arranca de 1 en todas las bajadas: 001–004
+en la del 03/08 (oficina 0506), 005–009 en la del 22/06 (oficina 1028). Está en el 100% de las
+cuentas de las dos. Se carga con el relleno de ceros (`003`), que es como lo nombra el equipo.
+
+**El coeficiente zonal viene con punto decimal**, como exporta SAP, y el transform
+`toDecimal:es-AR` lo pasa a la convención local (`1.30` → `1,30`). Está en el 100% de las cuentas de
+las dos bajadas, con 11 valores: 1,10 · 1,30 · 1,45 · 1,60 · 1,80 · 2,00 · 2,20 · 2,40 · 2,75 ·
+3,10 · 3,50 (el 1,30 cubre el 31%).
 
 **La categoría es un dígito suelto y sola no dice nada.** El cedente la explicó así, y la plantilla la
 traduce con el transform `mapear:` en vez de hardcodearla:
@@ -339,12 +345,6 @@ ambigüedad que resolver: `MM.DD.YYYY` no existe como convención. 7 tests nuevo
 - **Definir la oficina de cobro 9000000506.** Mismo formato; de ella solo llegaron novedades y bajas,
   no el paquete de cuentas y partidas. Falta decidir si va como otra remesa de la misma empresa o como
   empresa aparte.
-- **Preguntar a AYSA qué es el "recicle"**. Lo pidió el equipo como dato adicional, pero **ninguno de
-  los cuatro layouts tiene una columna con ese nombre**. El único candidato es `NR` (col. 218, 3
-  caracteres), un contador que va entre `F. Proc.` y la ventana de asignación y que toma valores
-  005–009 sin relación con la categoría ni con la clase de inmueble. Mientras no se confirme queda
-  sin mapear: inventar el significado de una columna es peor que no mostrarla. Agregarlo después es
-  una línea en la plantilla, sin deploy.
 - **Confirmar con AYSA los códigos de situación** de §4. No bloquea la carga —el filtro va por el
   importe cobrado— pero sirve para saber qué se está dejando afuera. Sobre todo `J` y el `D` que
   aparece 4 veces en la 506.
