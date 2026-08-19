@@ -88,7 +88,7 @@ export type OpcionesPdf = {
 }
 
 export type OpcionesCsv = {
-  separador?: ',' | ';' | '|' | '\t'
+  separador?: string
   encoding?: 'utf8' | 'latin1'
   bom?: boolean
   quoting?: boolean
@@ -97,7 +97,7 @@ export type OpcionesCsv = {
 }
 
 export type OpcionesTxt = {
-  separador?: '\t' | ' ' | '|'
+  separador?: string
   encoding?: 'utf8' | 'latin1'
   lineEnding?: '\r\n' | '\n'
   incluirHeader?: boolean
@@ -131,6 +131,7 @@ export type NodoCatalogo = {
   path: string
   nombre: string
   label: string
+  descripcion?: string
   tipo: 'escalar' | 'relacion-1-1' | 'relacion-1-n' | 'json'
   tipoEscalar?: 'texto' | 'numero' | 'fecha' | 'boolean' | 'enum'
   enumValues?: string[]

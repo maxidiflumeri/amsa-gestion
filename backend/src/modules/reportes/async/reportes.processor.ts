@@ -26,6 +26,7 @@ import { TxtExportador } from '../exportadores/txt.exportador';
 import { PdfExportador } from '../exportadores/pdf.exportador';
 import { FormatoSalida } from '../dto/plantilla.dto';
 import { EstadoEjecucion } from '../dto/ejecuciones.dto';
+import { opcionesDelFormato } from '../exportadores/opciones-formato';
 
 const PROGRESS_EMIT_INTERVAL_MS = 500;
 const CANCEL_CHECK_EVERY_CHUNKS = 1;
@@ -188,7 +189,7 @@ export class ReportesProcessor extends WorkerHost {
         formato,
         resultado.filas as any,
         resultado.columnas,
-        plantilla.opcionesFormato as any,
+        opcionesDelFormato(plantilla.opcionesFormato, formato),
       );
 
       const { filePath, tamano } = await this.storage.guardarArchivo(

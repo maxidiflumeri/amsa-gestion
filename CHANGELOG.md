@@ -6,6 +6,67 @@
 
 ---
 
+## [2026-08-19] — Reportes: separador configurable, y el catálogo de campos de 388 a 113
+
+> ⚠️ **Redeploy back + front.** Sin cambios de schema ni de datos. El catálogo se cachea una hora en
+> memoria del backend, así que el árbol nuevo aparece al reiniciar el contenedor.
+
+### El separador de columnas se elige
+
+TXT y CSV ya aceptaban un separador, pero **no había UI para configurarlo** y, peor, no habría
+servido: `plantilla.opcionesFormato` guarda las opciones por formato (`{ txt: {...}, csv: {...} }`)
+y se le pasaba el **objeto entero** al exportador, que buscaba `separador` en la raíz. No lo
+encontraba nunca, así que toda opción configurada se ignoraba en silencio. Ahora hay
+`opcionesDelFormato(opciones, formato)` y los dos caminos —sincrónico y async— lo usan.
+
+El separador pasó de una lista cerrada (`\t`, espacio, pipe) a un `string` libre: cada sistema
+destino pide el suyo y no hay razón para adivinar cuáles valen. En el builder aparece, cuando el
+formato es TXT o CSV, un selector con tab, `;`, `,`, `|` y espacio, más un campo para escribir
+cualquier otro, y un switch para sacar la fila de encabezado. 9 tests nuevos.
+
+### El catálogo de campos: 388 → 113
+
+El explorador ofrecía **388 campos elegibles** desde un deudor, muchos repetidos y varios que no
+significaban nada. El caso testigo es `estadoGestion.llamadas.ringedAt`: el catálogo se construye
+recorriendo el DMMF de Prisma, y desde el estado de gestión —que es una fila de `parametro`— se
+podía seguir a *todas las llamadas del sistema que comparten ese estado*. Nada de eso habla del
+deudor de la fila.
+
+Cinco reglas, en `catalogo/metadata.ts`:
+
+| Regla | Saca |
+|---|---|
+| Una colección detrás de una relación 1-1 no es un dato del caso | 152 campos: `estadoGestion.llamadas`, `empresa.remesa`, `motivoNoPago.promesasComoAnterior` |
+| Las claves foráneas no van a un reporte | `estadoGestionPrevioAId`, `subcategoriaId`, `campañaId`… |
+| De un modelo de referencia solo interesan dos campos | los 8 de `parametro` × 4 relaciones, los 7 de `usuario` × 6 |
+| Ramas duplicadas o técnicas | `remesa.empresa`, `contactos.llamadas`, `llamadas.sesion` |
+| Ruido de una tabla puntual | `remesa.okFilas`, `llamadas.recordingUrl`, `transacciones.data` |
+
+Las colecciones colgadas de otra colección se conservan (`convenios.cuotas`): esas siguen siendo del
+caso. Las dos primeras reglas son estructurales —no hay que mantener una lista— y las otras tres son
+listas cortas y explícitas.
+
+**Nombres y explicaciones.** Se reescribieron las etiquetas: se acabaron los `Ringed At`, `Ip`,
+`Cambio Sit020` y `Creado At` que salían de humanizar el nombre del campo. Y cada campo que no se
+entiende solo trae una línea de hasta diez palabras: *"Lo asignado al abrir el caso; no baja con los
+pagos"* en `montoTotal`, *"Vacío es del titular; CODEUDOR es de otra persona"* en
+`contactos.relacion`. Los que se explican por el nombre **no** llevan descripción a propósito: una
+aclaración obvia al lado de cada campo es más ruido.
+
+**Orden.** Las ramas de primer nivel siguen cómo se arma un reporte —quién es el caso, de quién es,
+cuánto debe, cómo viene la gestión, cómo contactarlo, el historial— y no el orden del schema. Lo que
+no esté en la lista queda al final, alfabético, así un campo nuevo aparece pero no se mezcla.
+
+13 tests nuevos: el catálogo no tenía ninguno, y estos son sobre todo un cerco contra la vuelta del
+ruido.
+
+> La poda es de catálogo, no de motor: un path que ya no se ofrece **sigue resolviéndose** si está
+> guardado en una plantilla vieja. La plantilla #1 usa `empresa.remesa.numeroRemesa`, que ya no se
+> ofrece —y que además nunca fue lo que parecía: es la primera remesa *de la empresa*, no la del
+> caso—. Sigue funcionando; conviene cambiarla por `remesa.numeroRemesa`.
+
+---
+
 ## [2026-08-19] — Reportes: columnas fijas, y el formato de teléfono que el modo async ignoraba
 
 > ⚠️ **Redeploy back + front.** Sin cambios de schema. **La plantilla #1 de prod quedó sin tocar a

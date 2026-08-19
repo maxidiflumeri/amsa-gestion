@@ -44,6 +44,16 @@ const FieldNode = ({ nodo, onDoubleClick }: FieldNodeProps) => {
           {nodo.tipoEscalar}
         </Typography>
       )}
+      {/* Los campos que se entienden por el nombre no traen descripción: ahí no se dibuja nada. */}
+      {nodo.descripcion && (
+        <Typography
+          variant="caption"
+          component="div"
+          sx={{ color: 'text.secondary', lineHeight: 1.3, mt: 0.25 }}
+        >
+          {nodo.descripcion}
+        </Typography>
+      )}
     </Box>
   )
 }

@@ -27,6 +27,8 @@ export interface NodoCatalogo {
   path: string;
   nombre: string;
   label: string;
+  /** Una línea explicando qué es el campo, para los que no se entienden por el nombre. */
+  descripcion?: string;
   tipo: 'escalar' | 'relacion-1-1' | 'relacion-1-n' | 'json';
   tipoEscalar?: 'texto' | 'numero' | 'fecha' | 'boolean' | 'enum';
   enumValues?: string[];

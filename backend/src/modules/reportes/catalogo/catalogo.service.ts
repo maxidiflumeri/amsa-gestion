@@ -2,7 +2,17 @@ import { Injectable, Logger } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../../prisma/prisma.service';
 import { NodoCatalogo } from '../dto/catalogo.dto';
-import { LABELS_CUSTOM, CAMPOS_OCULTOS, MODELOS_OCULTOS, AGREGADORES_POR_TIPO, OPERADORES_POR_TIPO } from './metadata';
+import {
+  LABELS_CUSTOM,
+  CAMPOS_OCULTOS,
+  MODELOS_OCULTOS,
+  CAMPOS_VISIBLES_POR_MODELO,
+  CAMPOS_OCULTOS_POR_PATH,
+  RELACIONES_OCULTAS,
+  DESCRIPCIONES,
+  ORDEN_RAMAS,
+  OPERADORES_POR_TIPO,
+} from './metadata';
 
 interface CacheEntry {
   data: NodoCatalogo[];
@@ -44,7 +54,9 @@ export class CatalogoService {
       return [];
     }
 
-    const nodos = this.construirNodos(modelo, '', 0, depth, new Set([modelo.name.toLowerCase()]));
+    const nodos = this.ordenarRaiz(
+      this.construirNodos(modelo, '', 0, depth, new Set([modelo.name.toLowerCase()]), false),
+    );
 
     this.cache.set(cacheKey, { data: nodos, timestamp: Date.now() });
     return nodos;
@@ -105,24 +117,42 @@ export class CatalogoService {
     currentDepth: number,
     maxDepth: number,
     visitedModels: Set<string>,
+    hayLookupEnCadena: boolean,
   ): NodoCatalogo[] {
     if (currentDepth >= maxDepth) {
       return [];
     }
 
+    const visibles = CAMPOS_VISIBLES_POR_MODELO[modelo.name.toLowerCase()];
     const nodos: NodoCatalogo[] = [];
 
     for (const field of modelo.fields) {
       const path = pathPrefix ? `${pathPrefix}.${field.name}` : field.name;
+      const esRaiz = !pathPrefix;
+
+      // Modelo de referencia: solo sus campos útiles, y no se sigue a sus relaciones.
+      if (visibles && !visibles.includes(field.name)) {
+        continue;
+      }
 
       // `id` queda oculto en sub-relaciones (ruido) pero visible en la raíz
       // donde es el identificador principal de la entidad.
-      const esRaiz = !pathPrefix;
       if (CAMPOS_OCULTOS.has(field.name) && !(esRaiz && field.name === 'id')) {
         continue;
       }
 
-      const nodo = this.construirNodo(field, path, currentDepth, maxDepth, visitedModels);
+      if (CAMPOS_OCULTOS_POR_PATH.has(path) || RELACIONES_OCULTAS.has(path)) {
+        continue;
+      }
+
+      // Las claves foráneas nunca sirven en un reporte —el dato está en la relación— y son muchas:
+      // `estadoGestionPrevioAId`, `subcategoriaId`, `campañaId`… Se ocultan por forma en vez de
+      // enumerarlas una por una, que era imposible de mantener al ritmo del schema.
+      if (field.kind === 'scalar' && /Id$/.test(field.name) && !(esRaiz && field.name === 'id')) {
+        continue;
+      }
+
+      const nodo = this.construirNodo(field, path, currentDepth, maxDepth, visitedModels, hayLookupEnCadena);
       if (nodo) {
         nodos.push(nodo);
       }
@@ -137,6 +167,7 @@ export class CatalogoService {
     currentDepth: number,
     maxDepth: number,
     visitedModels: Set<string>,
+    hayLookupEnCadena: boolean,
   ): NodoCatalogo | null {
     const label = LABELS_CUSTOM[path] || this.humanize(field.name);
 
@@ -148,7 +179,7 @@ export class CatalogoService {
     }
 
     if (field.kind === 'object') {
-      return this.construirNodoRelacion(field, path, label, currentDepth, maxDepth, visitedModels);
+      return this.construirNodoRelacion(field, path, label, currentDepth, maxDepth, visitedModels, hayLookupEnCadena);
     }
 
     if (field.kind === 'enum') {
@@ -164,6 +195,7 @@ export class CatalogoService {
       path,
       nombre: field.name,
       label,
+      descripcion: DESCRIPCIONES[path],
       tipo: 'escalar',
       tipoEscalar: tipo,
       filtrosPermitidos: OPERADORES_POR_TIPO[field.type] || OPERADORES_POR_TIPO['String'],
@@ -175,6 +207,7 @@ export class CatalogoService {
       path,
       nombre: field.name,
       label,
+      descripcion: DESCRIPCIONES[path],
       tipo: 'json',
       hijos: [],
     };
@@ -185,6 +218,7 @@ export class CatalogoService {
       path,
       nombre: field.name,
       label,
+      descripcion: DESCRIPCIONES[path],
       tipo: 'escalar',
       tipoEscalar: 'enum',
       filtrosPermitidos: ['eq', 'in', 'notIn', 'isNull', 'isNotNull'],
@@ -198,11 +232,21 @@ export class CatalogoService {
     currentDepth: number,
     maxDepth: number,
     visitedModels: Set<string>,
+    hayLookupEnCadena: boolean,
   ): NodoCatalogo | null {
     const tipoModelo = field.type.toLowerCase();
 
     // Cortar relaciones a modelos administrativos / técnicos
     if (MODELOS_OCULTOS.has(tipoModelo)) {
+      return null;
+    }
+
+    // Una colección **detrás de** una relación 1-1 no es un dato del caso, es la vuelta al mundo:
+    // `estadoGestion.llamadas` son todas las llamadas del sistema que comparten ese estado, y
+    // `empresa.remesa` son todas las remesas de la empresa. Nada de eso habla del deudor de la
+    // fila. Eran 152 de los 388 campos del catálogo. Las colecciones colgadas de otra colección sí
+    // se conservan (`convenios.cuotas`, `contactos.llamadas`): esas siguen siendo del caso.
+    if (field.isList && hayLookupEnCadena) {
       return null;
     }
 
@@ -239,7 +283,14 @@ export class CatalogoService {
     const nextVisited = new Set(visitedModels);
     nextVisited.add(tipoModelo);
 
-    const hijos = this.construirNodos(modeloRelacionado, path, currentDepth + 1, maxDepth, nextVisited);
+    const hijos = this.construirNodos(
+      modeloRelacionado,
+      path,
+      currentDepth + 1,
+      maxDepth,
+      nextVisited,
+      hayLookupEnCadena || !esLista,
+    );
 
     // Si la relación no tiene hijos visibles, no la mostramos (rama vacía = ruido)
     if (hijos.length === 0) {
@@ -250,6 +301,7 @@ export class CatalogoService {
       path,
       nombre: field.name,
       label,
+      descripcion: DESCRIPCIONES[path],
       tipo,
       cardinalidad,
       hijos,
@@ -260,6 +312,22 @@ export class CatalogoService {
     }
 
     return nodo;
+  }
+
+  /**
+   * Ordena las ramas de primer nivel por uso (ver {@link ORDEN_RAMAS}) en vez de por el orden del
+   * schema, que es en el que las fue escribiendo quien tocó Prisma. Lo que no está en la lista
+   * queda al final, alfabético, así un campo nuevo aparece pero no se mezcla con lo importante.
+   */
+  private ordenarRaiz(nodos: NodoCatalogo[]): NodoCatalogo[] {
+    const posicion = (n: NodoCatalogo) => {
+      const i = ORDEN_RAMAS.indexOf(n.nombre);
+      return i === -1 ? ORDEN_RAMAS.length : i;
+    };
+    return [...nodos].sort((a, b) => {
+      const d = posicion(a) - posicion(b);
+      return d !== 0 ? d : a.label.localeCompare(b.label, 'es', { sensitivity: 'base' });
+    });
   }
 
   private mapearTipoEscalar(tipo: string): 'texto' | 'numero' | 'fecha' | 'boolean' {

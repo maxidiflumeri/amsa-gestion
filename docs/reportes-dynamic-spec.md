@@ -290,16 +290,32 @@ type NodoCatalogo = {
 
 ### 5.3 Construcción
 
-1. Leer `Prisma.dmmf.datamodel.models`.
-2. Resolver relaciones recursivamente hasta `MAX_DEPTH` (default 3).
-3. Aplicar **metadata manual** desde un archivo `backend/src/modules/reportes/v2/catalogo/metadata.ts`:
-   - Labels custom: `deudor.documento → "DNI / Documento"`.
-   - Ocultar campos técnicos: `id`, `createdAt`, `updatedAt`, FKs.
-   - Sobreescribir agregadores: por ejemplo `comentarios[last].texto` debería ser legible.
-4. Cache en memoria con TTL 1h (invalida en hot-reload o vía endpoint admin).
-5. Adicional: campos del JSON `camposAdicionales` se obtienen vía query separada (ya existe `getCamposExtra`) y se inyectan como nodos hijos virtuales.
+El árbol sale del **DMMF de Prisma**, no de una lista escrita a mano: cualquier campo nuevo del
+schema aparece solo. El precio es que aparece *todo*, y sin poda el catálogo llegó a **388 campos
+elegibles** desde `deudor`, con entradas como `estadoGestion.llamadas.ringedAt` —todas las llamadas
+del sistema que comparten el estado de gestión de este deudor—. Las reglas que lo bajan a ~110:
 
----
+| Regla | Dónde se declara | Qué saca |
+|---|---|---|
+| Una colección detrás de una relación 1-1 no es un dato del caso | estructural | `estadoGestion.llamadas`, `empresa.remesa`, `motivoNoPago.promesasComoAnterior` (152 campos) |
+| Las claves foráneas no van a un reporte: el dato está en la relación | estructural (`/Id$/`) | `estadoGestionPrevioAId`, `subcategoriaId`, `campañaId` |
+| De un modelo de referencia solo interesan dos o tres campos | `CAMPOS_VISIBLES_POR_MODELO` | los 8 campos de `parametro` × 4 relaciones, los 7 de `usuario` × 6 |
+| Ramas duplicadas o técnicas | `RELACIONES_OCULTAS` | `remesa.empresa`, `contactos.llamadas`, `llamadas.sesion` |
+| Ruido de una tabla puntual | `CAMPOS_OCULTOS_POR_PATH` | `remesa.okFilas`, `llamadas.recordingUrl` |
+| Modelos administrativos | `MODELOS_OCULTOS` | `jobimport`, `plantilla_reporte` |
+
+Las colecciones colgadas de otra colección **sí** se conservan (`convenios.cuotas`,
+`facturas`): esas siguen hablando del caso.
+
+Cada nodo lleva además `label` (`LABELS_CUSTOM`, por path) y `descripcion` (`DESCRIPCIONES`, una
+línea de hasta diez palabras). La descripción es opcional a propósito: los campos que se entienden
+por el nombre no la llevan, porque una explicación obvia al lado de cada campo es más ruido. Las
+ramas de primer nivel se ordenan por `ORDEN_RAMAS`, que sigue cómo se arma un reporte —quién es el
+caso, de quién es, cuánto debe, cómo viene la gestión, el historial— y no el orden del schema; lo
+que no esté en la lista queda al final, alfabético.
+
+La poda es de **catálogo**, no de motor: un path que ya no se ofrece sigue resolviéndose si está
+guardado en una plantilla vieja.
 
 ## 6. Motor de ejecución
 
@@ -495,16 +511,20 @@ Para plantillas con filtros variables: pantalla auto-generada que renderiza un i
 
 ### 9.4 Opciones unificadas
 
-```typescript
-type OpcionesFormato = {
-  xlsx?: { headerColor, freezeRow, autoWidth, brandingEmpresa, formatoCondicional }
-  pdf?: { landscape, templateId, header, footer, brandingEmpresa }
-  csv?: { separador, encoding, bom, quoting }
-  txt?: { separador, anchoFijo, encoding }
-}
+`plantilla.opcionesFormato` guarda las opciones **por formato**, no sueltas:
+
+```json
+{ "txt": { "separador": ";", "incluirHeader": false }, "csv": { "separador": "," } }
 ```
 
----
+Así, cambiar el formato de salida de TXT a CSV y volver no pierde lo que había configurado en el
+otro. Cada exportador recibe **solo su sub-objeto**, con `opcionesDelFormato(opciones, formato)`:
+pasarle el envoltorio entero hace que busque `separador` en la raíz, no lo encuentre y use el
+default, ignorando en silencio todo lo configurado.
+
+El **separador** de TXT y CSV es un `string` libre, no una lista cerrada: cada sistema destino pide
+el suyo. El builder ofrece tab, `;`, `,`, `|` y espacio, más un campo para escribir otro. Default:
+tab en TXT, coma en CSV.
 
 ## 10. Contratos de API (v2)
 

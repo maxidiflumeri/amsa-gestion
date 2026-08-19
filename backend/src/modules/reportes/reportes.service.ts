@@ -8,6 +8,7 @@ import { XlsxExportador } from './exportadores/xlsx.exportador';
 import { CsvExportador } from './exportadores/csv.exportador';
 import { TxtExportador } from './exportadores/txt.exportador';
 import { PdfExportador } from './exportadores/pdf.exportador';
+import { opcionesDelFormato } from './exportadores/opciones-formato';
 import { FilaConSubtotales } from './executor/grouping.service';
 
 @Injectable()
@@ -221,7 +222,7 @@ export class ReportesService {
         resultado.filas,
         resultado.columnas,
         plantilla.formatoSalida,
-        plantilla.opcionesFormato as any,
+        opcionesDelFormato(plantilla.opcionesFormato, plantilla.formatoSalida),
       );
 
       const buffer = bufferOrPromise instanceof Promise ? await bufferOrPromise : bufferOrPromise;

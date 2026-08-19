@@ -120,6 +120,14 @@ const TreeBranch = ({ nodo, level, expandedAll, forceSignal, jsonState, onAddCol
         <Typography variant="body2" sx={{ fontWeight: 500 }}>
           {nodo.label}
         </Typography>
+        {nodo.descripcion && (
+          <Typography
+            variant="caption"
+            sx={{ ml: 1, color: 'text.secondary', minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
+          >
+            {nodo.descripcion}
+          </Typography>
+        )}
         {isRelacion1N && (
           <Chip label="1:N" size="small" color="info" sx={{ ml: 1, height: 18, fontSize: '0.65rem' }} />
         )}

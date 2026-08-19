@@ -2,7 +2,11 @@ import { Injectable, Logger } from '@nestjs/common';
 import { FilaConSubtotales } from '../executor/grouping.service';
 
 export interface OpcionesTxt {
-  separador?: '\t' | ' ' | '|';
+  /**
+   * Cualquier carácter, no una lista cerrada: cada sistema destino pide el suyo (coma, punto y
+   * coma, pipe, tab, o algo más raro) y no hay razón para adivinar cuáles valen.
+   */
+  separador?: string;
   encoding?: 'utf8' | 'latin1';
   lineEnding?: '\r\n' | '\n';
   incluirHeader?: boolean;
@@ -20,7 +24,7 @@ export class TxtExportador {
   ): Buffer {
     this.logger.log(`Generando TXT con ${filas.length} filas`);
 
-    const separador = opciones?.separador || '\t';
+    const separador = opciones?.separador ?? '\t';
     const lineEnding = opciones?.lineEnding || '\r\n';
     const incluirHeader = opciones?.incluirHeader !== false;
     const encoding = opciones?.encoding || 'utf8';

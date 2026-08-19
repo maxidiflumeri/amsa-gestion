@@ -2,7 +2,8 @@ import { Injectable, Logger } from '@nestjs/common';
 import { FilaConSubtotales } from '../executor/grouping.service';
 
 export interface OpcionesCsv {
-  separador?: ',' | ';' | '|' | '\t';
+  /** Cualquier carácter. Ver la nota en `OpcionesTxt`. */
+  separador?: string;
   encoding?: 'utf8' | 'latin1';
   bom?: boolean;
   quoting?: boolean;
