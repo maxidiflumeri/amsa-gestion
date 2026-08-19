@@ -6,6 +6,43 @@
 
 ---
 
+## [2026-08-19] — AYSA: el coeficiente zonal, y un transform para decimales
+
+> ⚠️ **Redeploy back + front.** Sin cambios de schema. La plantilla #61 de prod ya tiene el campo
+> nuevo (backup del `mappingJson` previo en `/app/storage/backup-plantilla61-pre-coef.json`) y los
+> **14.466 casos ya cargados se completaron por backfill**, así que el dato se ve sin repetir la
+> carga. El transform `toDecimal:es-AR` viaja en el deploy: hasta que salga, una importación nueva
+> guardaría el coeficiente con punto (`1.30`) en vez de coma — el transform desconocido deja pasar
+> el valor sin tocarlo. **Desplegar antes de la próxima bajada de AYSA.**
+
+El equipo pidió el coeficiente zonal después de ver la cartera cargada el 19/08. Estaba en el
+archivo desde el principio: `Coef. zonal`, columna 10 del layout de cuentas (posición 134, largo 12),
+mapeada en el layout pero sin llevar a ningún lado.
+
+Está en el **100%** de las cuentas de las dos bajadas —ni una vacía— con 11 valores entre 1,10 y
+3,50; el 1,30 cubre el 31% de la cartera.
+
+### `toDecimal:es-AR` — decimal con coma para los datos adicionales
+
+El cedente manda `1.30`, y en la bajada del 22/06 manda además `1.8` y `3.5` sueltos: el mismo
+coeficiente escrito de dos formas. `toNumber` no sirve acá porque devuelve un **número**, y los
+adicionales se guardan como texto y se muestran tal cual en la ficha (`1.8` se vería `1.8`).
+
+El transform nuevo formatea el decimal a la convención local y completa los decimales que falten:
+`1.30` → `1,30`, `1.8` → `1,80`. Por defecto dos decimales; `toDecimal:es-AR:3` los que se le pidan.
+Lo que no parsea como número pasa igual, sin borrarse —misma regla que `mapear:`—. Está en el
+catálogo del editor de mapeo, así que sirve para cualquier cedente que mande decimales con punto.
+13 tests nuevos (40 en `transforms`).
+
+### Backfill en vez de rehacer la carga
+
+La carga de AYSA se corrió el 19/08 a la mañana (14.466 casos, 138.234 facturas, 0 errores) y un
+dato adicional nuevo solo aparece cuando se vuelve a importar. En vez de repetir la carga entera se
+completó el campo desde los mismos 28 archivos que quedaron en `/app/uploads/19/DEUDORES/`,
+cruzando por `Cta. Cto.`: **14.466 de 14.466 matchearon**, ninguno quedó sin coeficiente.
+
+---
+
 ## [2026-08-18] — AYSA: los datos que pidió el equipo, y el domicilio de servicio arriba
 
 > ⚠️ **Redeploy back + front.** Sin cambios de schema. **Las plantillas #61 y #65 de prod ya están

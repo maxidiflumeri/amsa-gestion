@@ -33,6 +33,26 @@ const toNumberEsAR = (input: any) => {
     return Number.isFinite(n) ? n : null;
 };
 
+/**
+ * Formatea un decimal a la convención local (`1.80` → `1,80`, `1.8` → `1,80`).
+ *
+ * A diferencia de `toNumber`, que devuelve un **número** para los campos numéricos del modelo
+ * (`montoTotal`, importes), este devuelve un **texto** ya formateado: es para los datos adicionales,
+ * que se guardan como string y se muestran tal cual en la ficha. El `Coef. zonal` de AYSA viene
+ * `1.30` y el gestor lo lee con coma; además el cedente no es prolijo con el segundo decimal
+ * (manda `1.8` y `1.80` en la misma bajada) y acá los dos salen igual.
+ *
+ * `toDecimal:es-AR` usa 2 decimales; `toDecimal:es-AR:3` los que se le pidan. Lo que no parsea como
+ * número pasa igual, sin tocar —misma regla que `mapear`—: si el cedente manda `NO INFORMADO` el
+ * gestor lo ve, en vez de un campo vacío que no avisa nada.
+ */
+const toDecimalEsAR = (input: any, decimales = 2) => {
+    if (input == null || input === '') return input;
+    const n = toNumberEsAR(input);
+    if (n == null) return input;
+    return n.toLocaleString('es-AR', { minimumFractionDigits: decimales, maximumFractionDigits: decimales });
+};
+
 /* ------------------------------
  * Transformadores de fecha
  * ------------------------------ */
@@ -192,6 +212,12 @@ export function applyTransforms(raw: any, tr?: string[]) {
             const [, idxStr] = t.split(':');
             const idx = parseInt(idxStr, 10);
             v = splitComma(v, idx);
+        }
+
+        else if (t.startsWith('toDecimal')) {
+            // toDecimal:es-AR:3 -> ['toDecimal','es-AR','3']
+            const dec = parseInt(t.split(':')[2], 10);
+            v = toDecimalEsAR(v, Number.isFinite(dec) ? dec : 2);
         }
 
         else if (t.startsWith('toNumber')) {

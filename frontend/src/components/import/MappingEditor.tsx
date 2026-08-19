@@ -113,6 +113,7 @@ const AVAILABLE_TRANSFORMS = [
     { value: "upper", label: "MAYÚSCULAS" },
     { value: "title", label: "Título (Primera Letra)" },
     { value: "toNumber:es-AR", label: "Número (coma decimal)" },
+    { value: "toDecimal:es-AR", label: "Decimal con coma, 2 dígitos (1.8 → 1,80)" },
     { value: "toDate:auto", label: "Fecha (auto text)" },
     { value: "toDate:excel", label: "Fecha (serial nativo de Excel)" },
     { value: "splitComma:0", label: "Separar por coma (parte 1)" },

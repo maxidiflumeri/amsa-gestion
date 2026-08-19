@@ -102,10 +102,18 @@ Son los que el gestor mira en la ficha para saber de qué cuenta está hablando.
 | `nro_partida_anterior` | `Cta. Cto. sis. ant.` | 5 | la partida del sistema viejo; vacía en el 59% |
 | `unidad_funcional` | `Un. Func.` | 11 | `mapear:000=|00000=` — el 82% viene con el relleno "sin dato" |
 | `punto_de_suministro` | `Pto. Sum.` | 12 | único por caso, igual que la cuenta contrato |
+| `coeficiente_zonal` | `Coef. zonal` | 10 | `toDecimal:es-AR` — 11 valores (1,10 a 3,50), sin un solo caso vacío |
 | `categoria_aysa` | `Categoría` | 14 | `mapear:` con la tabla de abajo |
 | `tipo_usuario` | `Tipo usu.` | 15 | `Z1` en el 99,8% |
 | `fecha_desde` / `fecha_hasta` | `F. Desde` / `F. Hasta` | 20 / 21 | ventana de la asignación |
 | `dni` / `cuit` | `Nro. DNI` / `Nro. CUIT` | 54 / 55 | no se usan como identidad (§2) |
+
+**El coeficiente zonal es un decimal y el cedente no es prolijo con el segundo dígito**: la bajada
+del 22/06 trae `1.80` y `1.8` para el mismo coeficiente (6 filas de 21.335), y la del 03/08 solo la
+forma larga. El transform `toDecimal:es-AR` lo normaliza a la convención local —`1,80`— y de paso
+completa el decimal que falta, así el gestor no ve dos escrituras del mismo valor. Está en el 100%
+de las cuentas de las dos bajadas, con 11 valores: 1,10 · 1,30 · 1,45 · 1,60 · 1,80 · 2,00 · 2,20 ·
+2,40 · 2,75 · 3,10 · 3,50 (el 1,30 solo cubre el 31%).
 
 **La categoría es un dígito suelto y sola no dice nada.** El cedente la explicó así, y la plantilla la
 traduce con el transform `mapear:` en vez de hardcodearla:

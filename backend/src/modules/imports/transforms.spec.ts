@@ -159,3 +159,50 @@ describe('transforms — mapear', () => {
         expect(t('  1  ', 'trim', CATEGORIA_AYSA)).toBe('1 - Residencial');
     });
 });
+
+describe('transforms — toDecimal', () => {
+    // El `Coef. zonal` de AYSA: 11 valores en la bajada del 03/08, todos con 2 decimales, pero la
+    // del 22/06 traía además `1.8` y `3.5` sueltos — el mismo coeficiente escrito de dos formas.
+    it('formatea el decimal con coma', () => {
+        expect(t('1.30', 'toDecimal:es-AR')).toBe('1,30');
+        expect(t('2.75', 'toDecimal:es-AR')).toBe('2,75');
+    });
+
+    it('completa el segundo decimal que el cedente manda a medias', () => {
+        expect(t('1.8', 'toDecimal:es-AR')).toBe('1,80');
+        expect(t('3.5', 'toDecimal:es-AR')).toBe('3,50');
+        expect(t('2', 'toDecimal:es-AR')).toBe('2,00');
+    });
+
+    it('acepta el valor con espacios del ancho fijo, combinado con trim', () => {
+        expect(t('        1.30', 'trim', 'toDecimal:es-AR')).toBe('1,30');
+    });
+
+    it('lee también el decimal que ya viene con coma', () => {
+        expect(t('1,80', 'toDecimal:es-AR')).toBe('1,80');
+    });
+
+    it('respeta la cantidad de decimales pedida', () => {
+        expect(t('1.3', 'toDecimal:es-AR:3')).toBe('1,300');
+        expect(t('1.30', 'toDecimal:es-AR:0')).toBe('1');
+    });
+
+    it('devuelve texto, no número: es para los datos adicionales', () => {
+        expect(typeof t('1.30', 'toDecimal:es-AR')).toBe('string');
+    });
+
+    it('lo que no es un número pasa igual, sin borrarse', () => {
+        expect(t('NO INFORMADO', 'toDecimal:es-AR')).toBe('NO INFORMADO');
+    });
+
+    it('null/undefined/vacío pasan sin tocar', () => {
+        expect(t(null, 'toDecimal:es-AR')).toBeNull();
+        expect(t(undefined, 'toDecimal:es-AR')).toBeUndefined();
+        expect(t('', 'toDecimal:es-AR')).toBe('');
+    });
+
+    it('no lo pisa el transform de número ni el de fecha', () => {
+        expect(t('1.30', 'toNumber:es-AR')).toBe(1.3);
+        expect(t('1.30', 'toDecimal:es-AR')).toBe('1,30');
+    });
+});
