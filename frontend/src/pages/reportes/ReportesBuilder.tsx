@@ -248,6 +248,23 @@ const ReportesBuilder = () => {
     dispatch({ type: 'ADD_COLUMNA', columna: newColumn })
   }
 
+  /**
+   * Columna fija: sin path, no sale de los datos. Se usa para respetar la estructura de columnas
+   * que espera el sistema destino cuando no hay dato para todas — la base de Neotel pide ocho
+   * columnas de teléfono aunque el caso tenga uno solo.
+   */
+  const handleAddFixedColumn = () => {
+    const fijas = (state.plantilla.definicion?.columnas || []).filter(c => !c.path).length
+    const newColumn: Columna = {
+      id: uuidv4(),
+      path: '',
+      label: `columna${fijas + 1}`,
+      tipo: 'texto',
+      valorFijo: '',
+    }
+    dispatch({ type: 'ADD_COLUMNA', columna: newColumn })
+  }
+
   const handleColumnasChange = (columnas: Columna[]) => {
     dispatch({ type: 'SET_COLUMNAS', columnas })
   }
@@ -433,6 +450,7 @@ const ReportesBuilder = () => {
                         isDragActive={isDragActive}
                         onSelect={onSelectColumn}
                         onRemove={handleRemoveColumn}
+                        onAddFixed={handleAddFixedColumn}
                       />
                     </Box>
                   )}
@@ -468,6 +486,7 @@ const ReportesBuilder = () => {
                         isDragActive={isDragActive}
                         onSelect={onSelectColumn}
                         onRemove={handleRemoveColumn}
+                        onAddFixed={handleAddFixedColumn}
                       />
                     </Box>
                   </Grid>

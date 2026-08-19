@@ -267,12 +267,24 @@ export class PathResolver {
    */
   resolveToFlat(
     fila: any,
-    columnas: Array<{ path: PathAST; label: string; cardinalidad?: string; separadorConcat?: string }>,
+    columnas: Array<{
+      path: PathAST | null;
+      label: string;
+      cardinalidad?: string;
+      separadorConcat?: string;
+      /** Columna fija: el mismo texto en todas las filas, sin mirar los datos. */
+      valorFijo?: string;
+    }>,
   ): Record<string, any> {
     const flat: Record<string, any> = {};
 
     for (const col of columnas) {
       let valor: any;
+
+      if (!col.path) {
+        flat[col.label] = col.valorFijo ?? '';
+        continue;
+      }
 
       if (this.hasNumericAggregator(col.path)) {
         valor = this.resolveWithNumericAggregator(fila, col.path);

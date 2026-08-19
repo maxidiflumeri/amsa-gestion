@@ -6,6 +6,44 @@
 
 ---
 
+## [2026-08-19] — Reportes: columnas fijas, y el formato de teléfono que el modo async ignoraba
+
+> ⚠️ **Redeploy back + front.** Sin cambios de schema. **La plantilla #1 de prod quedó sin tocar a
+> propósito**: una columna fija con el backend viejo hace fallar el reporte entero con "Path vacío o
+> inválido". Después del deploy hay que agregarle las siete columnas fijas y elegirle el formato de
+> teléfono a `telefono1`.
+
+Por qué `telefono2..8` traían el dato crudo repetido: **la estructura de columnas que acepta Neotel
+es cerrada** y las ocho columnas de teléfono tienen que estar sí o sí, aunque el caso tenga un solo
+teléfono. Como no había forma de agregar una columna vacía, se mapeó siete veces el mismo campo para
+ocupar el lugar. El problema no era el mapeo: era que faltaba la columna vacía.
+
+### Columnas fijas
+
+Una columna **sin `path`** no sale de los datos: imprime su `valorFijo` en todas las filas, o vacío
+si no se declara ninguno. Con un valor cargado sirve además para las constantes que pide el destino
+—un id de campaña, un código de origen— sin inventar un campo en el modelo.
+
+El marcador es el path vacío y no una bandera aparte: una columna o sale de un path o es fija, y
+tenerlo en un solo lugar (`esColumnaFija`) evita el estado imposible de las dos cosas a la vez. No
+parsean path, no aportan `include` ni post-procesamiento, y nunca expanden. En el builder se agregan
+con el botón **Columna fija**, se ven en el canvas como `vacía` / `fija: <valor>`, y su panel de
+propiedades muestra solo etiqueta y valor.
+
+### El modo async ignoraba el formato de teléfono
+
+Aparecido al tocar esto: hay **dos** executors —el sincrónico y el de streaming— y cada uno armaba
+sus columnas por su cuenta. El de streaming nunca resolvió el `formatoTelefonoId` contra el
+catálogo, así que **todo reporte grande —justo los que se van a async— ignoraba en silencio el
+formato de teléfono elegido en la plantilla**. La base de IPLAN corrió en async, de modo que el
+formato no habría tenido efecto ni con el arreglo del `9`.
+
+La preparación de columnas se movió a `executor/columnas-preparadas.ts`, que usan los dos: parseo
+del path, cardinalidad contra el default de la plantilla, patrón de teléfono y valor fijo. La misma
+función también decide qué columnas expanden, que era el otro pedazo duplicado. 11 tests nuevos.
+
+---
+
 ## [2026-08-19] — Reportes: los teléfonos salían inmarcables y los filtros de rango no decían cuál era cuál
 
 > ⚠️ **Redeploy back + front.** Sin cambios de schema. En prod ya está el formato de teléfono nuevo

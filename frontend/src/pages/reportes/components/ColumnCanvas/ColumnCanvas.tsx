@@ -1,6 +1,7 @@
 import { useDroppable } from '@dnd-kit/core'
 import { SortableContext, verticalListSortingStrategy } from '@dnd-kit/sortable'
-import { Box, Paper, Typography } from '@mui/material'
+import { Box, Button, Paper, Stack, Typography } from '@mui/material'
+import AddIcon from '@mui/icons-material/Add'
 import { Columna } from '../../../../types/reportes'
 import ColumnChip from './ColumnChip'
 import EmptyCanvas from './EmptyCanvas'
@@ -11,9 +12,10 @@ type ColumnCanvasProps = {
   isDragActive: boolean
   onSelect: (id: string) => void
   onRemove: (id: string) => void
+  onAddFixed?: () => void
 }
 
-const ColumnCanvas = ({ columnas, selectedId, isDragActive, onSelect, onRemove }: ColumnCanvasProps) => {
+const ColumnCanvas = ({ columnas, selectedId, isDragActive, onSelect, onRemove, onAddFixed }: ColumnCanvasProps) => {
   const { setNodeRef, isOver } = useDroppable({
     id: 'column-canvas',
   })
@@ -32,9 +34,23 @@ const ColumnCanvas = ({ columnas, selectedId, isDragActive, onSelect, onRemove }
         transition: 'all 0.2s',
       }}
     >
-      <Typography variant="h6" gutterBottom>
-        Columnas del reporte ({columnas.length})
-      </Typography>
+      <Stack direction="row" alignItems="center" justifyContent="space-between" sx={{ mb: 1 }}>
+        <Typography variant="h6">
+          Columnas del reporte ({columnas.length})
+        </Typography>
+        {onAddFixed && (
+          <Button
+            size="small"
+            startIcon={<AddIcon />}
+            onClick={onAddFixed}
+            /* Para respetar la estructura de columnas que espera el sistema destino cuando no hay
+               dato para todas: se agrega la columna y se la deja vacía. */
+            title="Columna que no sale de los datos: vacía, o con un texto fijo en todas las filas"
+          >
+            Columna fija
+          </Button>
+        )}
+      </Stack>
 
       <Box sx={{ flexGrow: 1, overflow: 'auto' }}>
         {columnas.length === 0 ? (

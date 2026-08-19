@@ -37,6 +37,48 @@ const PropertiesPanel = ({ columna, onColumnChange }: PropertiesPanelProps) => {
 
   const showFormatoField = columna.tipo === 'fecha' || columna.tipo === 'numero' || columna.tipo === 'moneda'
   const showCardinalityField = true
+  // Sin path la columna no sale de los datos: no hay tipo, formato ni cardinalidad que configurar.
+  const esFija = !columna.path
+
+  const etiqueta = (
+    <TextField
+      label="Etiqueta"
+      fullWidth
+      required
+      value={columna.label}
+      onChange={e => onColumnChange('label', e.target.value)}
+      helperText="Nombre que aparecerá en el reporte"
+    />
+  )
+
+  if (esFija) {
+    return (
+      <Paper sx={{ p: 2, height: '100%', display: 'flex', flexDirection: 'column' }}>
+        <Typography variant="h6" gutterBottom>
+          Propiedades de columna
+        </Typography>
+
+        <Box sx={{ flexGrow: 1, overflow: 'auto' }}>
+          <Stack spacing={2}>
+            {etiqueta}
+
+            <TextField
+              label="Valor fijo"
+              fullWidth
+              value={columna.valorFijo || ''}
+              onChange={e => onColumnChange('valorFijo', e.target.value)}
+              helperText="El mismo texto en todas las filas. Dejalo vacío para una columna vacía."
+            />
+
+            <Typography variant="caption" color="text.secondary">
+              Esta columna no sale de los datos. Sirve para respetar la estructura que espera el
+              sistema destino cuando no hay dato para todas las columnas.
+            </Typography>
+          </Stack>
+        </Box>
+      </Paper>
+    )
+  }
 
   return (
     <Paper sx={{ p: 2, height: '100%', display: 'flex', flexDirection: 'column' }}>
@@ -46,14 +88,7 @@ const PropertiesPanel = ({ columna, onColumnChange }: PropertiesPanelProps) => {
 
       <Box sx={{ flexGrow: 1, overflow: 'auto' }}>
         <Stack spacing={2}>
-          <TextField
-            label="Etiqueta"
-            fullWidth
-            required
-            value={columna.label}
-            onChange={e => onColumnChange('label', e.target.value)}
-            helperText="Nombre que aparecerá en el reporte"
-          />
+          {etiqueta}
 
           <TextField
             label="Path"

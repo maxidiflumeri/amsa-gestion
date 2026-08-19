@@ -1,7 +1,10 @@
 export type Columna = {
   id: string
+  /** Vacío = columna fija: no sale de los datos, imprime `valorFijo` (vacío si no hay). */
   path: string
   label: string
+  /** Solo en columnas fijas: el texto que va en todas las filas. */
+  valorFijo?: string
   tipo?: 'texto' | 'numero' | 'fecha' | 'boolean' | 'moneda' | 'telefono'
   formato?: string
   ancho?: number

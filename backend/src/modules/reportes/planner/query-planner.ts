@@ -2,6 +2,7 @@ import { Injectable, Logger, BadRequestException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PathParser } from '../parser/path-parser';
 import { IncludeBuilder } from './include-builder';
+import { esColumnaFija } from '../columna-fija';
 import { PathAST } from '../parser/path-ast';
 import { DefinicionPlantillaDto } from '../dto/plantilla.dto';
 
@@ -32,6 +33,7 @@ export class QueryPlanner {
 
     // Parsear todos los paths de columnas
     for (const columna of definicion.columnas) {
+      if (esColumnaFija(columna)) continue;   // no toca los datos: no aporta include ni post-proceso
       const ast = this.parser.parse(columna.path);
       paths.push(ast);
 

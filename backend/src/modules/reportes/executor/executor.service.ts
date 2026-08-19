@@ -7,6 +7,8 @@ import { Formatter } from './formatter';
 import { CardinalityResolver } from './cardinality';
 import { GroupingService, FilaConSubtotales } from './grouping.service';
 import { DefinicionPlantillaDto } from '../dto/plantilla.dto';
+import { esColumnaFija } from '../columna-fija';
+import { cargarFormatosTelefono, columnasAExpandir, prepararColumnas } from './columnas-preparadas';
 
 export interface ExecutionResult {
   filas: Record<string, any>[] | FilaConSubtotales[];
@@ -73,33 +75,8 @@ export class ExecutorService {
       this.logger.log(`Post-procesamiento de filtros aplicado. Filas resultantes: ${rawData.length}`);
     }
 
-    const formatoTelefonoIds = Array.from(
-      new Set(
-        definicion.columnas
-          .map(c => c.formatoTelefonoId)
-          .filter((v): v is number => typeof v === 'number'),
-      ),
-    );
-    const formatosTelefono = formatoTelefonoIds.length
-      ? await this.prisma.formato_telefono.findMany({
-          where: { id: { in: formatoTelefonoIds } },
-        })
-      : [];
-    const formatoTelefonoMap = new Map<number, string>(
-      formatosTelefono.map(f => [f.id, f.patron]),
-    );
-
-    const parsedColumns = definicion.columnas.map(col => ({
-      path: this.parser.parse(col.path),
-      label: col.label,
-      tipo: col.tipo,
-      formato:
-        col.tipo === 'telefono' && col.formatoTelefonoId
-          ? formatoTelefonoMap.get(col.formatoTelefonoId) || col.formato
-          : col.formato,
-      cardinalidad: col.cardinalidad || definicion.cardinalidadDefault || 'primero',
-      separadorConcat: col.separadorConcat,
-    }));
+    const formatoTelefonoMap = await cargarFormatosTelefono(this.prisma, definicion);
+    const parsedColumns = prepararColumnas(definicion, this.parser, formatoTelefonoMap);
 
     // Resolver paths a valores planos
     let filas = rawData.map(fila => {
@@ -108,12 +85,7 @@ export class ExecutorService {
     });
 
     // Aplicar cardinalidad "expandir" si hay columnas configuradas
-    const columnasExpandir = definicion.columnas
-      .filter(col => {
-        const cardinalidad = col.cardinalidad || definicion.cardinalidadDefault || 'primero';
-        return cardinalidad === 'expandir';
-      })
-      .map(col => ({ label: col.label, path: col.path }));
+    const columnasExpandir = columnasAExpandir(definicion);
 
     if (columnasExpandir.length > 0) {
       filas = this.cardinalityResolver.expandRows(filas, columnasExpandir);
@@ -224,6 +196,7 @@ export class ExecutorService {
     }
 
     for (const col of definicion.columnas) {
+      if (esColumnaFija(col)) continue;   // sin path que validar
       try {
         this.parser.validate(col.path);
       } catch (error) {

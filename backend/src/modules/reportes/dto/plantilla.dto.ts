@@ -17,11 +17,17 @@ export class ColumnaDto {
   @IsString()
   id: string;
 
+  /** Vacío = columna fija: no sale de los datos, imprime `valorFijo`. Ver `esColumnaFija`. */
   @IsString()
   path: string;
 
   @IsString()
   label: string;
+
+  /** Solo para columnas fijas: el texto que va en todas las filas. Sin él, la columna sale vacía. */
+  @IsOptional()
+  @IsString()
+  valorFijo?: string;
 
   @IsOptional()
   @IsString()

@@ -195,7 +195,31 @@ name        ::= identificador del modelo, relación o campo escalar
 | `first`, `last` | 1-N | objeto | luego se navega `.campo` |
 | `concat` | 1-N | texto | concatena con separador |
 
-### 4.3 Formatos de teléfono (`tipo: 'telefono'`)
+### 4.3 Columnas fijas (sin path)
+
+Una columna **sin `path`** no sale de los datos: imprime su `valorFijo` en todas las filas, o vacío
+si no se declara ninguno. El marcador es el path vacío y no una bandera aparte —una columna o sale
+de un path o es fija—, así que el estado imposible de las dos cosas a la vez no existe.
+
+```json
+{ "id": "…", "path": "", "label": "telefono2", "valorFijo": "" }
+```
+
+Existen porque los archivos que consumen otros sistemas tienen una estructura de columnas **cerrada**
+y hay que respetarla aunque no haya dato para todas: la base predictiva de Neotel espera ocho
+columnas de teléfono, y si el caso tiene uno solo las otras siete tienen que estar igual, vacías.
+Sin esto la única salida era mapear siete veces el mismo campo para ocupar el lugar, que devuelve el
+dato repetido en vez de una columna vacía.
+
+Con un `valorFijo` cargado sirven además para las constantes que pide el destino (un id de campaña,
+un código de origen) sin tener que inventar un campo en el modelo.
+
+No parsean path, no aportan `include` ni post-procesamiento, y **nunca expanden**: aunque la
+plantilla tenga `cardinalidadDefault: 'expandir'`, una columna fija no sale de una relación y no hay
+nada que multiplicar. En el builder se agregan con **Columna fija** y su panel muestra solo etiqueta
+y valor.
+
+### 4.4 Formatos de teléfono (`tipo: 'telefono'`)
 
 Una columna de tipo teléfono puede apuntar a un **formato** del catálogo (`formato_telefono`), cuyo
 `patron` se aplica sobre las partes del número. Los contactos se guardan en E.164
@@ -688,7 +712,7 @@ POST /api/internal/reportes/ejecutar  body: { plantillaId, filtrosVars }
   del catálogo. Sin eso no se puede armar una base con "el 1º, 2º, 3º… teléfono en su columna": los
   ocho apuntan al mismo path y devuelven lo mismo. Habilitar el campo (con validación contra el
   parser) o dar un selector de índice para las relaciones 1-N.
-- **No hay ABM de formatos de teléfono** (§4.3).
+- **No hay ABM de formatos de teléfono** (§4.4).
 
 ---
 

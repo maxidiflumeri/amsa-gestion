@@ -23,6 +23,9 @@ const ColumnChip = ({ columna, isSelected, onSelect, onRemove }: ColumnChipProps
     opacity: isDragging ? 0.5 : 1,
   }
 
+  // Sin path no sale de los datos: es una columna fija, y mostrarle "path: (vacío)" confunde.
+  const esFija = !columna.path
+
   const getTipoColor = (tipo?: string) => {
     switch (tipo) {
       case 'numero':
@@ -65,14 +68,26 @@ const ColumnChip = ({ columna, isSelected, onSelect, onRemove }: ColumnChipProps
             {columna.label}
           </Typography>
           <Stack direction="row" spacing={0.5} alignItems="center">
-            <Chip label={columna.path} size="small" variant="outlined" sx={{ height: 18, fontSize: '0.7rem' }} />
-            {columna.tipo && (
+            {esFija ? (
               <Chip
-                label={columna.tipo}
+                label={columna.valorFijo ? `fija: ${columna.valorFijo}` : 'vacía'}
                 size="small"
-                color={getTipoColor(columna.tipo)}
+                variant="outlined"
+                color="secondary"
                 sx={{ height: 18, fontSize: '0.7rem' }}
               />
+            ) : (
+              <>
+                <Chip label={columna.path} size="small" variant="outlined" sx={{ height: 18, fontSize: '0.7rem' }} />
+                {columna.tipo && (
+                  <Chip
+                    label={columna.tipo}
+                    size="small"
+                    color={getTipoColor(columna.tipo)}
+                    sx={{ height: 18, fontSize: '0.7rem' }}
+                  />
+                )}
+              </>
             )}
           </Stack>
         </Box>

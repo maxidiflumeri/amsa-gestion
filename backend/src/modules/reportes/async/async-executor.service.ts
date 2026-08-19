@@ -10,6 +10,12 @@ import {
   FilaConSubtotales,
 } from '../executor/grouping.service';
 import { DefinicionPlantillaDto } from '../dto/plantilla.dto';
+import { esColumnaFija } from '../columna-fija';
+import {
+  cargarFormatosTelefono,
+  columnasAExpandir,
+  prepararColumnas,
+} from '../executor/columnas-preparadas';
 
 export interface AsyncExecutionResult {
   filas: Record<string, any>[] | FilaConSubtotales[];
@@ -77,22 +83,9 @@ export class AsyncExecutorService {
 
     const plan = this.queryPlanner.planQuery(definicion, filtrosVars);
 
-    const parsedColumns = definicion.columnas.map((col) => ({
-      path: this.parser.parse(col.path),
-      label: col.label,
-      tipo: col.tipo,
-      formato: col.formato,
-      cardinalidad: col.cardinalidad,
-      separadorConcat: col.separadorConcat,
-    }));
-
-    const columnasExpandir = definicion.columnas
-      .filter((col) => {
-        const cardinalidad =
-          col.cardinalidad || definicion.cardinalidadDefault || 'primero';
-        return cardinalidad === 'expandir';
-      })
-      .map((col) => ({ label: col.label, path: col.path }));
+    const formatoTelefonoMap = await cargarFormatosTelefono(this.prisma, definicion);
+    const parsedColumns = prepararColumnas(definicion, this.parser, formatoTelefonoMap);
+    const columnasExpandir = columnasAExpandir(definicion);
 
     const filasFlat: Record<string, any>[] = [];
     let lastId: number | null = null;
@@ -295,6 +288,7 @@ export class AsyncExecutorService {
     }
 
     for (const col of definicion.columnas) {
+      if (esColumnaFija(col)) continue;   // sin path que validar
       this.parser.validate(col.path);
     }
 
