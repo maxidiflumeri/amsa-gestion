@@ -93,8 +93,8 @@ const PropertiesPanel = ({ columna, onColumnChange }: PropertiesPanelProps) => {
               }
               helperText={
                 formatosTelefono.length === 0
-                  ? 'No hay formatos cargados. Creá uno desde Reportes → Formatos.'
-                  : 'Patrón aplicado al número (usa {numero})'
+                  ? 'No hay formatos cargados.'
+                  : 'Placeholders: {numero} (área + abonado) · {area} · {abonado} · {15} (solo si es celular)'
               }
             >
               <MenuItem value="">

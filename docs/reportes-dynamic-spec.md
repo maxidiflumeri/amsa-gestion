@@ -195,6 +195,47 @@ name        ::= identificador del modelo, relación o campo escalar
 | `first`, `last` | 1-N | objeto | luego se navega `.campo` |
 | `concat` | 1-N | texto | concatena con separador |
 
+### 4.3 Formatos de teléfono (`tipo: 'telefono'`)
+
+Una columna de tipo teléfono puede apuntar a un **formato** del catálogo (`formato_telefono`), cuyo
+`patron` se aplica sobre las partes del número. Los contactos se guardan en E.164
+(`+5491163525026`) y todos los placeholders trabajan sobre el **número nacional significativo**: sin
+el `+54` del país y **sin el `9` que marca móvil**, que no es parte del número.
+
+| Placeholder | | Sobre `+5491163525026` |
+|---|---|---|
+| `{numero}` | característica + abonado (10 dígitos) | `1163525026` |
+| `{area}` | solo la característica | `11` |
+| `{abonado}` | solo el abonado | `63525026` |
+| `{15}` | el `15` local **si la línea es móvil**, vacío si es fija | `15` |
+
+Catálogo actual (`prisma/seed-formatos-tel.ts`):
+
+| Nombre | Patrón | Celular | Fijo |
+|---|---|---|---|
+| WhatsApp Internacional AR | `549{numero}` | `5491163525026` | `5491142407390` |
+| Nacional con 0 | `0{numero}` | `01163525026` | `01142407390` |
+| Solo número | `{numero}` | `1163525026` | `1142407390` |
+| Internacional +54 | `+549{numero}` | `+5491163525026` | `+5491142407390` |
+| Local con 15 | `0{area}{15}{abonado}` | `0111563525026` | `01142407390` |
+
+La característica **no se puede partir por longitud fija**: ocupa 2, 3 o 4 dígitos según la zona
+(Bariloche es `294` con abonado de 7, no `2944` con 6). Se resuelve con `codigoAreaDe` de
+`common/utils/phone-utils`, contra la tabla de ENACOM. Si no se puede determinar, `{area}` queda
+vacía y `{abonado}` se lleva el número entero, así que `0{area}{15}{abonado}` degrada a `0{numero}`:
+un número marcable, aunque no en el formato pedido.
+
+Para el `{15}` se consultan dos señales, porque ninguna alcanza sola: el `9` del E.164 lo declara
+explícito, pero hay celulares guardados sin él (`+541155775452`) que solo delatan los rangos de
+ENACOM, y hay números con el `9` que ENACOM no tiene en ningún rango. Sin ninguna de las dos, se
+asume fija: meterle un `15` a un fijo lo vuelve inmarcable.
+
+Salvo `{15}`, el patrón se aplica tal cual, sin mirar el tipo de línea: un `549{numero}` sobre un
+fijo devuelve un número con el 9 de móvil. Es responsabilidad de quien arma la plantilla.
+
+**No hay pantalla de ABM de formatos.** El selector del builder lista lo que haya en la tabla; para
+agregar uno hay que tocar la API (`reportes.service.ts`) o la base.
+
 ---
 
 ## 5. Catálogo de campos
@@ -638,6 +679,16 @@ POST /api/internal/reportes/ejecutar  body: { plantillaId, filtrosVars }
 4. ✅ **Motor PDF**: `pdfmake` (ya instalado en `backend/package.json`).
 5. ✅ **DnD**: `@dnd-kit/core` + `@dnd-kit/sortable`.
 6. **Arrancar Fase 1** con el agente implementer.
+
+### Pendientes detectados en uso (2026-08-19)
+
+- **El path no se puede escribir a mano en el builder.** El motor soporta índices y agregadores
+  (`contactos[tipo=telefono][1].valor`, `pagos[sum].importe`) —está parseado, resuelto y testeado—
+  pero en el `PropertiesPanel` el path es un campo deshabilitado que solo se llena desde el árbol
+  del catálogo. Sin eso no se puede armar una base con "el 1º, 2º, 3º… teléfono en su columna": los
+  ocho apuntan al mismo path y devuelven lo mismo. Habilitar el campo (con validación contra el
+  parser) o dar un selector de índice para las relaciones 1-N.
+- **No hay ABM de formatos de teléfono** (§4.3).
 
 ---
 

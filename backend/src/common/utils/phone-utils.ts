@@ -33,8 +33,12 @@ function getEnacom(): EnacomData | null {
  * Clasifica el número nacional (sin +54 y sin el 9 de móvil) contra los rangos
  * de ENACOM. Usa longest-prefix-match: prueba el código de área más largo posible
  * y, dentro de él, la longitud de bloque más larga primero. null si no hay match.
+ *
+ * Exportada porque el formateador de teléfonos de reportes la necesita para decidir si le
+ * corresponde el `15` local: hay celulares guardados sin el `9` (`+541155775452`), y para esos la
+ * marca del E.164 no alcanza.
  */
-function clasificarPorEnacom(nacionalSin9: string): 'MOBILE' | 'FIXED_LINE' | null {
+export function clasificarPorEnacom(nacionalSin9: string): 'MOBILE' | 'FIXED_LINE' | null {
     const data = getEnacom();
     if (!data) return null;
     for (const alen of [4, 3, 2]) {

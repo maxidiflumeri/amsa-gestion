@@ -6,6 +6,86 @@
 
 ---
 
+## [2026-08-19] — Reportes: los teléfonos salían inmarcables y los filtros de rango no decían cuál era cuál
+
+> ⚠️ **Redeploy back + front.** Sin cambios de schema. En prod ya está el formato de teléfono nuevo
+> (`formato_telefono` #5) y la plantilla de reporte #1 ajustada (backup de la definición previa en
+> `/app/storage/backup-plantilla-reporte-1.json`). **El formato nuevo necesita el deploy**: con el
+> backend viejo, un patrón con `{area}`/`{15}` sale literal en la celda.
+
+Salió de probar la primera plantilla de reporte de verdad, "Neotel - base predictivo IPLAN".
+
+### El `9` de móvil rompía todos los formatos de teléfono
+
+Los contactos se guardan en E.164 (`+5491163525026`) y `formatTelefono` le sacaba **solo el `54`**,
+así que `{numero}` quedaba `91163525026` con el `9` de móvil pegado adelante. Con eso, los cuatro
+patrones del catálogo devolvían números imposibles de marcar:
+
+| Patrón | Devolvía | Devuelve ahora |
+|---|---|---|
+| `549{numero}` | `54991163525026` (dos nueves, 14 dígitos) | `5491163525026` |
+| `0{numero}` | `091163525026` | `01163525026` |
+| `{numero}` | `91163525026` | `1163525026` |
+| `+549{numero}` | `+54991163525026` | `+5491163525026` |
+
+Los fijos salían bien —no tienen ese `9`—, así que el problema se comía justo los celulares, que
+son casi toda la base de un predictivo. Ahora el patrón se aplica sobre el **número nacional
+significativo**, que es lo que prometen las descripciones del propio catálogo.
+
+El cálculo reusa `phone-utils` (el mismo de importaciones) con un camino rápido por regex para lo
+que ya está en E.164 —el 99% de la base—, para no pagar libphonenumber en cada fila de un reporte de
+cientos de miles. Lo que no se puede interpretar se imprime como vino: en un reporte, un teléfono
+raro es mejor que una celda vacía. 22 tests nuevos (`formatter.spec.ts`, que no existía).
+
+### `{area}`, `{abonado}` y `{15}` — patrones que meten algo en el medio
+
+Neotel necesita el discado local para las llamadas por las tramas de IPLAN: `0` + característica +
+`15` + abonado. Con un solo `{numero}` no se puede escribir, porque el `15` va en el medio. Los
+placeholders nuevos lo resuelven y quedan disponibles para cualquier formato futuro:
+
+| | Sobre `+5491163525026` |
+|---|---|
+| `{numero}` | `1163525026` |
+| `{area}` | `11` |
+| `{abonado}` | `63525026` |
+| `{15}` | `15` — vacío si la línea es fija |
+
+Formato nuevo en el catálogo: **Local con 15** → `0{area}{15}{abonado}`. Celular
+`0111563525026`, fijo `01142407390`.
+
+El `15` sale solo para celulares, y para decidirlo no alcanza una sola señal: el `9` del E.164 lo
+declara explícito, pero hay celulares guardados sin él (`+541155775452`) que solo delatan los rangos
+de ENACOM, y hay números con el `9` que ENACOM no tiene en ningún rango. Se consultan las dos; sin
+ninguna, fija —meterle un `15` a un fijo lo vuelve inmarcable—. La característica se resuelve contra
+la tabla de ENACOM, que es la única forma: ocupa 2, 3 o 4 dígitos según la zona (Bariloche es `294`
+con abonado de 7, no `2944` con 6).
+
+### Los filtros de rango no mostraban su nombre
+
+`between` / `notBetween` se dibujan como dos campos **Desde** / **Hasta**, y esos dos rótulos son
+fijos: el nombre que el autor le puso al parámetro no entraba en ninguno de los dos. La plantilla de
+IPLAN tiene dos rangos sobre `remesa.numeroRemesa` —una que incluye y otra que omite—, así que al
+ejecutar aparecían cuatro cajas iguales sin forma de saber cuál era cuál. Ahora el nombre va arriba
+del par.
+
+### La plantilla #1, y una columna que no se puede escribir desde el builder
+
+`telefono1` a `telefono8` apuntaban todos a `contactos.valor` **sin índice**: `telefono1` con
+`expandir` (una fila por teléfono) y los otros siete con `concatenar`, o sea el mismo valor repetido
+siete veces —y con varios teléfonos, todos concatenados en cada celda—. Se dejó una fila por
+teléfono y se borraron `telefono2..8`.
+
+Para la otra forma —una fila por caso con ocho columnas de teléfono— el motor **ya sirve**: el
+indexador del path (`contactos[tipo=telefono][1].valor`) está implementado y probado. Lo que falta
+es poder escribirlo: en el builder el path es un campo deshabilitado que solo se llena desde el
+árbol del catálogo, así que ni los índices ni los agregadores (`pagos[sum].importe`) son alcanzables
+desde la UI. Queda anotado como pendiente.
+
+También estaba mal el texto de ayuda del selector de formato: mandaba a "Reportes → Formatos", una
+pantalla que no existe. Ahora documenta los placeholders.
+
+---
+
 ## [2026-08-19] — AYSA: el coeficiente zonal y el recicle, los dos que faltaban
 
 > ⚠️ **Redeploy back + front.** Sin cambios de schema. La plantilla #61 de prod ya tiene los dos
