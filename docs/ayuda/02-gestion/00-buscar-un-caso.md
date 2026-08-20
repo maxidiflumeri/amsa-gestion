@@ -11,22 +11,46 @@ rutas: /gestion
 Es el punto de entrada al trabajo diario: llamó alguien, o te pasaron un listado, y hay que encontrar
 el caso.
 
-## El buscador avanzado
+## Dos formas de buscar
 
-Se busca por cualquiera de estos campos, y se pueden combinar:
+**El buscador de arriba**, en la pantalla de Gestión, busca por **documento, nombre, apellido o ID
+interno**. Es el rápido.
+
+**Búsqueda avanzada**, con el botón del encabezado, abre el formulario completo.
+
+> Gestión **no abre vacía**: te muestra el último caso que trabajaste, o el primero de la base si es tu
+> primera vez. No es que el sistema eligió ese caso.
+
+## Los campos de la búsqueda avanzada
+
+Se combinan con **Y**: el caso tiene que cumplir todos los que completes.
 
 | Campo | Cuándo usarlo |
 |---|---|
 | **Documento** | Lo más directo cuando el deudor te da el DNI |
 | **Nº Cliente** | El identificador del cedente. Es el que trae el archivo |
 | **Nombre** / **Apellido** | Cuando no hay ningún número |
-| **Empresa** | Para acotar a una cartera |
+| **Empresa** | Un desplegable. Matchea **exacto**, a propósito: buscando "FIAT" con coincidencia parcial aparecía también "FIAT PLAN" |
 | **Nº Remesa** | Para acotar a una asignación |
 | **Teléfono** / **Email** | Cuando entra una llamada y no sabés de quién es |
 | **ID Deudor** | El número interno del sistema |
 
 **Buscar por teléfono es el más subestimado.** Cuando entra una llamada, es la forma de saber quién es
 antes de atender.
+
+> ### ⚠ Cómo escribir el teléfono
+>
+> Los números se guardan en formato internacional, sin espacios ni guiones, y **sin el 15**. La
+> búsqueda compara contra eso tal cual lo escribas.
+>
+> - `1155551234` → **encuentra**
+> - `11 5555-1234` o `11-5555-1234` → **no encuentra**
+> - `1565551234` (con el 15) → **no encuentra**
+>
+> Escribilo pegado y sin el 15.
+
+> **La búsqueda devuelve como máximo 50 resultados**, y no avisa cuando corta. Si buscás por un
+> apellido común, acotá con la empresa.
 
 ---
 
@@ -35,13 +59,15 @@ antes de atender.
 Es lo normal, no un error: **cada asignación del cedente es un caso distinto**. Una persona con tres
 cuentas de agua tiene tres casos.
 
-Para elegir el correcto, mirá:
+Para elegir el correcto, mirá **la empresa** y **el número de cliente**: son las dos columnas que trae
+el resultado. La remesa no aparece ahí — se ve ya adentro de la ficha.
 
-- **La empresa**, si el deudor llama por una deuda concreta.
-- **El número de cliente**, si te lo dio.
-- **La remesa**: la más reciente suele ser la que está en gestión.
+Una vez adentro, la solapa **Otras Cuentas** te muestra los demás casos de esa persona.
 
-Y una vez adentro de una ficha, la solapa **Otras Cuentas** te muestra las demás.
+> **Las filas de Otras Cuentas no son clickeables**: para pasar a otro caso hay que volver a buscarlo.
+
+> **Otras Cuentas agrupa por documento exacto.** Los casos **sin DNI** no se agrupan entre sí, porque
+> cada uno tiene un identificador distinto.
 
 > Si el deudor quiere pagar todo lo que debe, hay que trabajar **caso por caso**: no hay una vista que
 > los cobre juntos.
@@ -52,11 +78,15 @@ Y una vez adentro de una ficha, la solapa **Otras Cuentas** te muestra las demá
 
 Por orden de probabilidad:
 
-**El documento está escrito distinto.** Con puntos, con guiones, con el CUIT en vez del DNI. Probá con
-menos dígitos, o buscá por apellido.
+**El documento está escrito distinto.** Con puntos, con guiones, con el CUIT en vez del DNI. La
+búsqueda es parcial, así que **probá con menos dígitos** — solo el número sin el prefijo, por ejemplo.
 
 **La cartera se cargó sin documento.** Algunos cedentes no mandan DNI confiable, y entonces la
-identidad del caso es el número de cliente. Buscá por ahí.
+identidad del caso es el número de cliente. Esos casos aparecen con el documento en un formato tipo
+`SIN-DNI-...` seguido del número de cliente.
+
+**Truco:** como el campo Documento busca por coincidencia parcial, **pegar ahí el número de cliente
+también los encuentra**.
 
 **Estás filtrando por la empresa equivocada.**
 
@@ -84,7 +114,9 @@ Tres posibilidades: está mirando **otra de sus cuentas** (mirá Otras Cuentas),
 
 ### No veo ningún caso de una cartera que sé que existe
 
-Puede ser permisos, o que esa cartera esté en otra empresa de las que aparecen en el selector.
+No es un tema de permisos por cartera: el permiso de ver deudores da acceso a **toda** la base, o a
+nada. Así que es una de dos: la cartera **todavía no se importó**, o quedó el combo de Empresa de la
+búsqueda avanzada en otra.
 
 ---
 
@@ -94,7 +126,8 @@ Puede ser permisos, o que esa cartera esté en otra empresa de las que aparecen 
 Sí, no hace falta el nombre completo.
 
 **¿Puedo exportar el resultado de una búsqueda?**
-Con el permiso de exportar. Para algo más elaborado, conviene un [reporte](/ayuda/reportes/como-funciona).
+No, desde esta pantalla no se exporta. Para sacar un listado hay que armar un
+[reporte](/ayuda/reportes/como-funciona).
 
 **¿Por qué el mismo DNI aparece en varias empresas?**
 Porque debe en varias carteras. Cada una es un caso independiente.

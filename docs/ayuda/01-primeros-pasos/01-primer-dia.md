@@ -2,7 +2,7 @@
 seccion: Primeros pasos
 resumen: Qué es AMSA Gestión, cómo entrar y por dónde empezar el primer día.
 revisado: 2026-08-20
-rutas: /inicio
+rutas: /
 -->
 # El primer día
 
@@ -40,8 +40,9 @@ Lo más importante de esa página, adelantado acá:
 Gestión  →  buscás el caso  →  la ficha  →  comentás, cargás pago o promesa
 ```
 
-**Gestión** es la pantalla donde están todos los casos. Se busca por documento, por número de cliente o
-por nombre.
+**Gestión** es la pantalla donde están todos los casos. El buscador de arriba busca por **documento,
+nombre, apellido o ID interno**. Para buscar por número de cliente, teléfono o mail hay que abrir
+**Búsqueda avanzada**.
 
 **La ficha** es donde se trabaja: los datos, los contactos, la deuda y las solapas de comentarios,
 facturas, pagos y convenios.
@@ -56,17 +57,17 @@ Está desarrollado en [La ficha del caso](/ayuda/gestion/la-ficha).
 | **Tableros** | Métricas de la cartera |
 | **Importación de Datos** | Cargar los archivos del cedente |
 | **Reportes** | Armar y ejecutar listados a medida |
-| **Ajustes** | Empresas, parámetros, políticas, tasas de mora |
-| **Administración** | Roles, usuarios, auditoría |
+| **Ajustes** | Empresas, parámetros, políticas, recargo por mora |
 | **Documentación** | Esto que estás leyendo |
+| **Administración** | Roles, usuarios, auditoría, Neotel |
 
 ## Las tres cosas que más confunden al principio
 
 **1. La misma persona aparece varias veces.** No es un error: cada asignación del cedente es un caso
 distinto, con su deuda y su gestión. Se ven todos juntos en la solapa **Otras Cuentas**.
 
-**2. Una cuenta cancelada no deja hacer nada.** Ni comentar, ni cargar un pago. Es a propósito: ya se
-rindió al cedente.
+**2. Una cuenta cancelada no deja hacer nada.** Ni comentar, ni cargar un pago o una promesa, ni tocar
+los contactos, ni armar un convenio, ni cambiar los estados. Es a propósito: ya se rindió al cedente.
 
 **3. Algunos estados cambian solos.** Los mueve un pago, una promesa que venció o una importación. Si
 un caso cambió sin que lo tocaras, se puede ver quién y cuándo en **Auditoría**.
@@ -76,8 +77,9 @@ un caso cambió sin que lo tocaras, se puede ver quién y cuándo en **Auditorí
 Casi siempre es una de dos:
 
 - **Permisos.** El menú y varios botones se esconden según lo que tengas habilitado.
-- **Empresa.** Muchas pantallas filtran por cartera: si no ves lo que buscás, fijate qué empresa está
-  seleccionada.
+- **Empresa.** Tableros, Importación, Plantillas, Reportes y Ajustes filtran por cartera: si no ves lo
+  que buscás, fijate qué empresa está seleccionada. **Gestión no filtra por empresa** — muestra toda la
+  base, salvo que uses el combo de la búsqueda avanzada.
 
 ## Dónde seguir
 

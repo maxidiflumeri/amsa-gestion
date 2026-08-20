@@ -75,6 +75,19 @@ contextual**: el botón `?` de una pantalla abre la página que la declara. Esa 
 si la wiki se usa o junta polvo — nadie navega a "Documentación", pero sí toca el `?` cuando está
 trabado.
 
+> ### Pendiente antes de cablear la ayuda contextual (fase 5)
+>
+> Hoy `rutas` **no lo consume nadie**: `paginaParaRuta()` está exportada y nunca se llama.
+>
+> Y tal como está cargado, no serviría: **`/gestion` lo declaran seis páginas**, y la función devuelve
+> la primera del orden de secciones — así que el `?` de Gestión abriría "Cómo piensa el sistema" en vez
+> de "Buscar un caso".
+>
+> Antes de cablearlo hay que decidir **una página principal por ruta**. Dos opciones: un campo aparte
+> (`rutaPrincipal`) para la página que responde al `?`, dejando `rutas` como lista de relacionadas; o
+> que el `?` abra un **menú** con todas las páginas de esa pantalla, con la principal arriba. La segunda
+> es más útil y no obliga a elegir.
+
 ### Búsqueda
 
 Por subcadena sobre el corpus completo, en el navegador. Con ~40 páginas (unos 300 KB de texto) no
@@ -155,9 +168,9 @@ Escritas hasta ahora (22):
 
 | Página | Estado |
 |---|---|
-| `01-primeros-pasos/01-primer-dia` | pendiente de auditoría |
+| `01-primeros-pasos/01-primer-dia` | auditada y corregida |
 | `01-primeros-pasos/02-como-piensa-el-sistema` | auditada y corregida |
-| `02-gestion/00-buscar-un-caso` | pendiente |
+| `02-gestion/00-buscar-un-caso` | auditada y corregida |
 | `02-gestion/01-la-ficha` | pendiente |
 | `02-gestion/02-comentarios-y-estados` | pendiente |
 | `02-gestion/03-pagos-y-promesas` | pendiente |
@@ -209,6 +222,9 @@ porque no tienen otro dueño:
 | El switch de **salto de página por grupo en PDF** se guarda y no lo consume nadie | `pdf.exportador.ts` |
 | **No hay UI de ordenamiento** en el builder, aunque el motor lo soporta | `ReportesBuilder.tsx` |
 | El test `query-planner.spec.ts:232` **está fallando** desde que se introdujo `obligatorio` | |
+| El permiso `deudores.exportar` **está declarado y no lo usa nadie**: no hay endpoint ni botón de exportar en Gestión | `permisos-catalogo.ts` |
+| Buscar por teléfono compara contra el E.164 guardado **sin normalizar lo que se tipea**: `11 5555-1234` no encuentra nada | `deudores.service.ts` |
+| La búsqueda avanzada corta en **50 resultados sin avisar** y sin paginación | `deudores.service.ts` |
 | `accion_masiva_snapshot` no tiene FK a `remesa`: borrar una remesa de acciones deja filas huérfanas | `schema.prisma` |
 
 > Estas guardas se agregan al cerrar la fase 1. Ponerlas ahora, con 2 páginas de 40, solo daría rojo.
