@@ -146,25 +146,31 @@ transforms, ancho fijo, multiarchivo, multirregistro, filtros de fila.
 |---|---|---|
 | **0** | Visor + buscador + 1 página piloto + auditoría | **HECHA** |
 | 1 | Importación completa (10 páginas) | **escrita**, en auditoría |
-| 2 | Reportes (6-7) | |
+| 2 | Reportes (6 páginas) | **escrita**, en auditoría |
 | 3 | Modelo mental + gestión del deudor | |
 | 4 | Ajustes + administración | |
 | 5 | Ayuda contextual (el `?` en cada pantalla) | necesita las páginas escritas |
 
-Escritas hasta ahora (10):
+Escritas hasta ahora (16):
 
 | Página | Estado |
 |---|---|
 | `01-primeros-pasos/02-como-piensa-el-sistema` | auditada y corregida |
-| `03-importacion/01-como-funciona` | pendiente de auditoría |
-| `03-importacion/02-categorias` | pendiente |
-| `03-importacion/03-formatos-de-archivo` | pendiente |
+| `03-importacion/01-como-funciona` | auditada y corregida |
+| `03-importacion/02-categorias` | auditada y corregida |
+| `03-importacion/03-formatos-de-archivo` | auditada y corregida |
 | `03-importacion/04-crear-plantilla` | auditada y corregida (**el piloto**) |
-| `03-importacion/05-importar-un-archivo` | pendiente |
-| `03-importacion/06-actualizaciones` | pendiente |
-| `03-importacion/07-acciones-masivas` | pendiente |
-| `03-importacion/08-historial-y-problemas` | pendiente |
-| `03-importacion/09-multirregistro-y-multiarchivo` | pendiente |
+| `03-importacion/05-importar-un-archivo` | auditada y corregida |
+| `03-importacion/06-actualizaciones` | auditada y corregida |
+| `03-importacion/07-acciones-masivas` | auditada y corregida |
+| `03-importacion/08-historial-y-problemas` | auditada y corregida |
+| `03-importacion/09-multirregistro-y-multiarchivo` | auditada y corregida |
+| `04-reportes/01-como-funciona` | pendiente de auditoría |
+| `04-reportes/02-armar-un-reporte` | pendiente |
+| `04-reportes/03-filtros` | pendiente |
+| `04-reportes/04-formatos` | pendiente |
+| `04-reportes/05-ejecutar-y-descargar` | pendiente |
+| `04-reportes/06-recetas` | pendiente |
 
 Las tres de mayor riesgo son `06-actualizaciones`, `07-acciones-masivas` y `08-historial-y-problemas`:
 documentan operaciones que pueden cancelar una cartera, borrar contactos de toda una empresa o perder
