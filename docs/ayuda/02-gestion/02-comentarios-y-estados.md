@@ -26,10 +26,16 @@ Lo que conviene que quede escrito:
 - **Qué dijo**, si dijo algo. Sobre todo si prometió algo o dio un motivo.
 - **Qué acordaste**: cuándo vuelve a llamar, qué se le mandó.
 
-Un comentario se puede borrar, pero **solo el propio** y con el permiso correspondiente.
+**Enter envía el comentario; Shift+Enter hace un salto de línea.** Y si te vas de la ficha a mitad de
+escribir, el borrador se guarda: al volver sigue ahí.
 
-> Los comentarios que crea una importación de acciones masivas quedan marcados como tales, así que se
-> distinguen de los que escribió una persona.
+> **Los comentarios se listan del más viejo al más nuevo**, en un panel con scroll. Lo último escrito
+> está abajo.
+
+> **Un comentario no se puede borrar desde la ficha**: no hay botón. Tampoco se puede editar.
+
+> **Los comentarios que deja una importación de acciones masivas no se distinguen a simple vista**:
+> aparecen sin autor, igual que cualquier otro comentario sin usuario.
 
 ## Los tres estados
 
@@ -38,16 +44,20 @@ dependen de la empresa.
 
 ### Situación del cliente
 
-Dónde está parado el caso. Ejemplos típicos: sin contacto, inubicable, se mudó, contactado con el
-titular, promesa de pago, negativa de pago, fallecido, en mediación, cancelado.
+Dónde está parado el caso. Ejemplos reales del catálogo: *Sin contacto*, *Inubicable*, *Se mudó*,
+*Contactado con titular*, *Promesa de pago vigente*, *Pago parcial*, *Negativa de pago*, *Fallecido*,
+*En mediación*, *Cancelado / Pagado*.
 
-### Estado de gestión
+### Estado de Gestión
 
-Dónde está el trabajo: sin gestionar, en gestión, no contesta, desasignado.
+Dónde está el trabajo. Ejemplos reales: *Gestión sin definición*, *Sin contacto*, *Teléfono no contesta
+- múltiples intentos*, *Desasignado*.
 
-### Motivo de no pago
+### Motivo No Pago
 
 Por qué no paga, cuando lo dijo. Es el dato que después se le informa al cedente.
+
+> **Hay que apretar Guardar.** Mover el selector no persiste nada.
 
 ---
 
@@ -57,13 +67,21 @@ Esto es lo que más confunde, porque **no todos los estados los movés vos**:
 
 | Lo mueve… | Qué |
 |---|---|
-| **Vos, a mano** | La mayoría de las situaciones y estados de gestión |
-| **Cargar una promesa** | Pone la situación en promesa de pago |
-| **Que la promesa venza** | La pasa a promesa incumplida |
-| **La consolidación por pagos** | Cancela el caso cuando el saldo llega a cero, o lo marca como pago parcial |
-| **Una importación** | El estado inicial de los casos nuevos, o el desasignado de las actualizaciones diarias |
+| **Vos, a mano** | Cualquiera de los tres, apretando Guardar |
+| **Cargar una promesa** | La situación pasa a promesa vigente — **solo si el caso no tenía pagos** |
+| **Anular una promesa** | Devuelve la situación anterior |
+| **Que la promesa venza** | La marca incumplida, si el caso sigue en promesa vigente |
+| **La consolidación por pagos** | Cancela el caso, o lo marca como pago parcial |
+| **Borrar un pago manual** | Puede devolver la situación al estado inicial de la plantilla. Es la única forma de "descancelar" desde la aplicación |
+| **Una importación de casos** | El estado inicial de los nuevos, el desasignado de los ausentes, o la re-asignación cuando el caso reaparece |
+| **Una acción masiva** | Pisa los tres directamente. Es el más potente |
+| **Revertir una acción masiva** | Devuelve los tres al valor previo, pisando lo que hayas cambiado después |
 
-O sea: **si un estado cambió solo, no es un error**. Casi siempre lo movió un pago o una importación.
+O sea: **si un estado cambió solo, no es un error**. Casi siempre lo movió un pago, una promesa o una
+importación.
+
+> **La cancelación no espera al saldo en cero exacto**: alcanza con que lo pagado llegue al 99% del
+> monto original. La tolerancia es configurable.
 
 ---
 
@@ -81,10 +99,13 @@ Los dos catálogos se parecen bastante y por eso se confunden. La forma corta de
 
 ## ⚠ Una cuenta cancelada no acepta cambios
 
-Cuando un caso queda cancelado, la ficha entera pasa a solo lectura: no se puede comentar ni cambiar
-estados.
+Cuando un caso queda cancelado, los controles se deshabilitan y **la caja de comentarios desaparece**.
+No vas a poder dejar constancia de nada posterior desde la ficha.
 
-Si querés dejar constancia de algo posterior, no vas a poder hacerlo desde la ficha.
+Solo bloquea el código *Cancelado / Pagado*: hay otros códigos de cancelación que no bloquean nada.
+
+Y una salvedad: el caso **sí se sigue moviendo solo**. Si entran pagos, la consolidación le recalcula
+el saldo y la situación igual, porque no pasa por ese bloqueo.
 
 ---
 
@@ -96,28 +117,31 @@ Dos causas: la cuenta está **cancelada**, o falta el permiso **Editar estado de
 
 ### El estado cambió solo
 
-Lo movió una promesa, un pago o una importación. Se puede ver quién y cuándo en **Auditoría**,
-filtrando por el caso.
+Lo movió una promesa, un pago o una importación.
+
+> **Auditoría no siempre lo va a explicar.** Filtrando por el ID del deudor aparecen los cambios
+> **manuales** y la carga de pagos a mano. Los automáticos —la consolidación, el vencimiento de
+> promesas, la desasignación masiva— **no quedan registrados por caso**: se auditan como una sola
+> operación de la corrida completa.
 
 ### No encuentro el código que necesito
 
 Los catálogos se configuran **por empresa**. Si falta uno, se agrega en Ajustes → Parámetros.
 
-### Borré un comentario y no puedo recuperarlo
-
-No hay papelera. El dato se borra; queda el registro de que alguien lo borró, en Auditoría.
-
 ### Escribí un comentario y desapareció
 
-Si el caso tuvo una reversión de acción masiva, **los comentarios que esa acción creó se borran** — y
-si alguien escribió encima, eso también se pierde.
+Si el caso tuvo una reversión de acción masiva, **los comentarios que esa acción creó se borran**. Los
+escritos por una persona no se tocan.
+
+Lo que sí se pisa al revertir son **los estados y los campos del caso**, que vuelven al valor previo a
+la acción — incluyendo cualquier cambio manual posterior.
 
 ---
 
 ## Preguntas frecuentes
 
-**¿Puedo editar un comentario?**
-No. Se borra y se escribe de nuevo, si es tuyo.
+**¿Puedo editar o borrar un comentario?**
+No. Desde la ficha no se puede ninguna de las dos cosas.
 
 **¿Los comentarios los ve el cedente?**
 No directamente, pero salen en los reportes. Escribilos como si los fuera a leer.

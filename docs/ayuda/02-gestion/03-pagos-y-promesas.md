@@ -12,98 +12,132 @@ rutas: /gestion
 
 Cargar una promesa no baja el saldo. Solo el pago lo baja.
 
+Las dos se cargan desde **el mismo botón** de la solapa Pagos: el modal tiene un interruptor para
+elegir *Pago real* o *Promesa*.
+
+---
+
+## ⚠ Antes que nada: no toques la situación "Cancelado"
+
+El desplegable de **Situación del cliente** incluye *Cancelado / Pagado*, y **el sistema te deja
+elegirlo**. No pide permiso especial ni pregunta nada.
+
+**Es una puerta de una sola dirección.** Apenas guardás, el caso queda bloqueado — y como cambiar
+estados también está bloqueado, **no podés volver atrás desde la ficha**.
+
+Un caso se cancela solo, cuando el saldo llega a cero. **No hay ninguna razón para marcarlo a mano.**
+
 ---
 
 ## Promesas de pago
 
-### Para qué sirve
-
-Dejar anotado un compromiso: cuánto y para cuándo. Sirve para dos cosas — que el sistema te recuerde
-hacer el seguimiento, y que el cedente vea que el caso se está gestionando.
-
 ### Cómo se carga
 
-Desde la ficha: la fecha prometida y, opcionalmente, el monto.
+Desde la solapa Pagos, botón **Cargar**, interruptor en *Promesa*. Se completa la fecha prometida y,
+opcionalmente, el monto.
 
-**Al cargarla, la situación del caso pasa a promesa de pago.** No hace falta cambiarla a mano.
+**La fecha tiene límites**: no puede ser anterior a hoy, ni ir más allá de **7 días** (configurable por
+empresa, entre 1 y 30). El calendario ya viene acotado.
 
-### Los estados de una promesa
+### Qué pasa al cargarla
+
+**Si el caso no tiene ningún pago registrado**, la situación pasa a *Promesa de pago vigente*.
+
+**Si ya tenía algún pago** —por ejemplo, está en pago parcial— la promesa se guarda igual pero **la
+situación no se toca**. No es un error.
+
+> **Solo puede haber una promesa vigente por caso.** Si cargás otra, **la anterior se anula sola**, sin
+> avisar.
+
+### Los estados
 
 | Estado | Cuándo |
 |---|---|
-| **Vigente** | Recién cargada, todavía no venció |
-| **Cumplida** | Se registró el pago |
-| **Incumplida** | Venció y no entró la plata |
-| **Anulada** | La diste de baja a mano |
+| **Vigente** | Recién cargada |
+| **Cumplida** | Entró un pago — ver abajo |
+| **Incumplida** | Venció sin pago |
+| **Anulada** | La diste de baja, **o cargaste otra promesa encima** |
 
-### ⚠ Qué pasa cuando vence
+> **Las promesas anuladas desaparecen de la ficha.** No se listan. Quedan en los reportes y en la
+> auditoría, pero desde la pantalla no las vas a volver a ver.
 
-Cuando la fecha pasa y no hubo pago, la promesa se marca **incumplida** y la situación del caso cambia.
+### ⚠ Cualquier pago marca la promesa como cumplida
 
-**Eso no lo hacés vos: corre en batch.** Así que puede haber una demora entre que la promesa vence y
-que el caso se actualice.
+Apenas entra **un peso** de pago, la promesa pasa a **cumplida** — sin comparar contra el monto
+prometido.
 
-Al cargar una promesa, el sistema **guarda la situación anterior** del caso, para poder volver a ella
-si la promesa se anula.
+Un pago de $100 contra una promesa de $50.000 la cierra como cumplida. Y una vez cumplida **no se puede
+anular ni corregir**: no hay forma de fijar el estado a mano.
 
-### Cuándo conviene anular en vez de dejar vencer
+**Si el deudor va a pagar bastante menos de lo prometido**, tenés que decidir antes de cargar el pago:
+si la promesa se anula primero, queda anulada; si cargás el pago, queda cumplida.
 
-Si el deudor te avisa que no va a poder, **anulá la promesa** en vez de dejar que venza. Anulada
-devuelve el caso a su situación anterior; incumplida deja el rastro de un compromiso roto.
+### Qué pasa cuando vence
 
-Las dos cosas son legítimas — la diferencia es qué historia queda escrita.
+Se marca **incumplida** por un proceso que corre **todos los días a las 2 de la mañana**. Una promesa
+que vence hoy se actualiza mañana a esa hora: puede haber hasta un día de demora.
+
+### Anular en vez de dejar vencer
+
+Si el deudor avisa que no va a poder, **anulá la promesa**. Devuelve el caso a su situación anterior —
+pero solo si esa promesa había cambiado la situación, el caso sigue en promesa vigente, y el estado
+anterior sigue existiendo. Si algo de eso no se cumple, el caso se queda donde está.
 
 ---
 
 ## Pagos
 
-### Para qué sirve
-
-Registrar plata que entró. Baja el saldo y, si lo cancela, cancela el caso.
-
-### De dónde vienen los pagos
+### De dónde vienen
 
 | Origen | Cómo llegó |
 |---|---|
 | **Manual** | Lo cargó un gestor desde la ficha |
-| **Importación de pagos** | Vino en el archivo del cedente |
+| **Bajada pagos** | Vino en el archivo del cedente |
 | **Actualización** | Lo generó una reconciliación |
-| **Convenio** | Es la cuota de un plan de pago |
+| **Cuota de convenio** | Se registró sobre una cuota |
 
-La distinción importa por una razón muy concreta:
-
-> ### ⚠ Solo se pueden borrar los pagos cargados a mano
+> ### ⚠ Solo se borran los pagos cargados a mano
 >
-> Un pago que entró por una importación **no se puede eliminar** desde la ficha. El botón aparece
-> deshabilitado.
+> Los que entraron por una importación **no se pueden eliminar**: el botón aparece deshabilitado. Y los
+> de **cuota de convenio** tampoco, aunque no vengan de un archivo.
 >
-> Si una carga de pagos entró mal, no hay forma de arreglarlo desde la aplicación: hay que escalarlo.
+> Si un pago entró mal por cualquiera de esas vías, no hay forma de arreglarlo desde la aplicación: hay
+> que escalarlo.
+>
+> (También hace falta el permiso **Eliminar pagos manuales** para que la columna de borrar siquiera
+> aparezca.)
 
 ### Cargar un pago a mano
 
-Desde la solapa Pagos: importe, fecha y una observación.
+Importe, fecha y una observación. **Poné el número de comprobante en la observación**: sirve para
+cruzar contra el extracto del cedente.
 
-**Poné el número de comprobante en la observación.** Sirve para cruzar contra el extracto del cedente,
-y evita que una importación posterior lo tome como duplicado.
+### Qué pasa después
 
-### Qué pasa después de cargar un pago
+El saldo se recalcula **en el momento**, antes de que la pantalla responda. No hay demora.
 
-El saldo baja. Y cuando el saldo llega a cero —o queda dentro de un margen de tolerancia— **el caso se
-cancela**, y con eso la ficha se bloquea.
+Cuando el saldo llega a cero —o queda dentro del **1% del monto original**, que es la tolerancia por
+defecto— el caso **se cancela** y la ficha se bloquea. Un caso de $1.000.000 se cancela a los $990.000.
 
-Ese paso lo hace la consolidación, que corre sola después de una importación de pagos, y también se
-puede disparar a mano desde el historial de importaciones.
+> **El importe original no baja.** Baja el saldo.
 
-> **El importe original no baja.** Baja el saldo. El original es la referencia contra la que se le
-> rinde al cedente.
+### El pago que cargaste y después viene en el archivo
 
-### El pago que ya cargaste y después viene en el archivo
+Si cargaste un pago a mano y el cedente lo manda después en su archivo, la importación **no crea uno
+nuevo**: toma el tuyo y lo marca **Confirmado** — vas a ver el chip en la solapa Pagos.
 
-Si cargaste un pago a mano y el cedente después lo manda en su archivo de cobranzas, la importación
-**no crea uno nuevo**: reconoce el tuyo y lo marca como confirmado.
-
-Funciona por importe, sin importar la fecha. O sea que el archivo "se consume" tu carga manual, que es
-justo lo que se busca.
+> ### ⚠ El cruce es solo por importe, y puede equivocarse
+>
+> Matchea **el importe exacto, sin mirar la fecha**, y toma el pago manual sin confirmar **más
+> antiguo**.
+>
+> Si cargaste $5.000 a mano en marzo y el cedente informa **otro** pago de $5.000 en agosto, la
+> importación consume el de marzo y **el de agosto no se registra**. La cobranza queda $5.000 corta y
+> nada lo señala.
+>
+> Y como compara al centavo, $1.000,00 contra $1.000,01 **no** matchea: ahí se duplica.
+>
+> Después de una importación de pagos, contrastá los chips **Confirmado** contra el extracto.
 
 ---
 
@@ -111,11 +145,23 @@ justo lo que se busca.
 
 ### Cargué la promesa y el estado no cambió
 
-Se cambia solo al cargarla. Si no pasó, refrescá la ficha.
+El caso ya tenía algún pago registrado. Es el comportamiento esperado.
 
-### La promesa venció hace días y sigue vigente
+### La promesa venció hace un día y sigue vigente
 
-El proceso que las marca corre en batch, no al instante.
+El proceso corre a las 2 de la mañana. Puede haber hasta un día de demora.
+
+### La promesa quedó cumplida con un pago mínimo
+
+Cualquier pago la cierra. No se puede corregir.
+
+### Cargué una promesa y desapareció la anterior
+
+Solo puede haber una vigente por caso: la nueva anula la anterior.
+
+### No encuentro una promesa que anulé
+
+Las anuladas no se listan en la ficha. Están en los reportes y en la auditoría.
 
 ### No me deja cargar un pago
 
@@ -123,16 +169,13 @@ La cuenta está cancelada, o falta el permiso **Cargar pagos manuales**.
 
 ### No puedo borrar un pago
 
-Solo se borran los manuales. Si el botón está deshabilitado, ese pago vino de una importación.
+Solo se borran los manuales. Si el botón está deshabilitado, vino de una importación o de un convenio.
+Si la columna no aparece, falta el permiso **Eliminar pagos manuales**.
 
 ### Cargué un pago y el caso quedó cancelado y bloqueado
 
-Es el comportamiento esperado: el saldo llegó a cero. Si el pago estaba mal, hay que escalarlo — desde
-la ficha ya no se puede tocar.
-
-### El saldo no bajó después de cargar el pago
-
-El saldo se recalcula con la consolidación. Si acabás de cargar el pago a mano, puede tardar.
+El saldo llegó a cero, o quedó dentro de la tolerancia del 1%. Si el pago estaba mal, hay que
+escalarlo.
 
 ---
 
@@ -141,15 +184,14 @@ El saldo se recalcula con la consolidación. Si acabás de cargar el pago a mano
 **¿Cargar una promesa baja el saldo?**
 No. Solo el pago.
 
-**¿Puedo cargar una promesa sin monto?**
-Sí, el monto es opcional. Pero si el deudor dijo cuánto, anotalo.
+**¿Puedo marcar una promesa como incumplida a mano?**
+No. Los estados los mueve el sistema: cualquier pago la cumple, el vencimiento la incumple.
 
-**¿Qué pasa si el deudor paga menos de lo prometido?**
-Cargás el pago por lo que entró. La promesa la resolvés según el criterio del equipo: cumplida si
-alcanza, incumplida si no.
+**¿Puedo cargar una promesa para dentro de un mes?**
+Depende de la empresa. Por defecto el máximo son 7 días.
 
-**¿Un pago de un convenio se carga acá?**
-No: se registra desde la solapa de Convenios, sobre la cuota que corresponde.
+**¿Un pago de convenio se carga acá?**
+No: se registra desde la solapa de Convenios, sobre la cuota.
 
-**¿Se puede cancelar un caso a mano, sin pago?**
-No desde la ficha. La cancelación la produce el saldo en cero, o una acción masiva.
+**¿Se puede cancelar un caso a mano?**
+Se puede, pero **no lo hagas**: no tiene vuelta atrás desde la ficha. Ver la advertencia del principio.

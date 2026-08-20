@@ -160,7 +160,7 @@ transforms, ancho fijo, multiarchivo, multirregistro, filtros de fila.
 | **0** | Visor + buscador + 1 página piloto + auditoría | **HECHA** |
 | 1 | Importación completa (10 páginas) | **escrita**, en auditoría |
 | 2 | Reportes (6 páginas) | **HECHA** — auditada y corregida |
-| 3 | Primeros pasos + gestión del caso (6 páginas) | **escrita**, en auditoría |
+| 3 | Primeros pasos + gestión del caso (6 páginas) | **HECHA** — auditada y corregida |
 | 4 | Ajustes + administración | |
 | 5 | Ayuda contextual (el `?` en cada pantalla) | necesita las páginas escritas |
 
@@ -171,10 +171,10 @@ Escritas hasta ahora (22):
 | `01-primeros-pasos/01-primer-dia` | auditada y corregida |
 | `01-primeros-pasos/02-como-piensa-el-sistema` | auditada y corregida |
 | `02-gestion/00-buscar-un-caso` | auditada y corregida |
-| `02-gestion/01-la-ficha` | pendiente |
-| `02-gestion/02-comentarios-y-estados` | pendiente |
-| `02-gestion/03-pagos-y-promesas` | pendiente |
-| `02-gestion/04-convenios` | pendiente |
+| `02-gestion/01-la-ficha` | auditada y corregida |
+| `02-gestion/02-comentarios-y-estados` | auditada y corregida |
+| `02-gestion/03-pagos-y-promesas` | auditada y corregida |
+| `02-gestion/04-convenios` | auditada y corregida |
 | `03-importacion/01-como-funciona` | auditada y corregida |
 | `03-importacion/02-categorias` | auditada y corregida |
 | `03-importacion/03-formatos-de-archivo` | auditada y corregida |
@@ -225,6 +225,18 @@ porque no tienen otro dueño:
 | El permiso `deudores.exportar` **está declarado y no lo usa nadie**: no hay endpoint ni botón de exportar en Gestión | `permisos-catalogo.ts` |
 | Buscar por teléfono compara contra el E.164 guardado **sin normalizar lo que se tipea**: `11 5555-1234` no encuentra nada | `deudores.service.ts` |
 | La búsqueda avanzada corta en **50 resultados sin avisar** y sin paginación | `deudores.service.ts` |
+| **Se puede cancelar un caso a mano** eligiendo SIT-050 en el desplegable, sin permiso especial — y no se puede volver atrás desde la ficha | `FichaEstadosCard.tsx` |
+| **Registrar el pago de una cuota de convenio no dispara la consolidación**: el saldo del caso no baja | `convenios.service.ts` |
+| El estado **VENCIDA de cuota no lo escribe nadie**: `updateEstadosCuotas()` no tiene caller | `convenios.service.ts` |
+| El importe del pago de cuota **es editable y marca la cuota como pagada igual**, sin validar | `convenios.service.ts` |
+| Los pagos de cuota quedan con `origen = NULL`, así que **no se pueden borrar** ni se etiquetan bien | `convenios.service.ts` |
+| **No hay UI para borrar comentarios**, aunque el endpoint y el permiso existan | `ComentariosPanel.tsx` |
+| Un comentario con `usuarioId = null` **lo puede borrar cualquiera** con el permiso | `comentarios.service.ts:42` |
+| Los comentarios de acciones masivas guardan `origen` pero **no se renderiza** | `ComentariosPanel.tsx` |
+| El permiso `deudores.editar_estado` **no se consulta en el frontend**: el rechazo llega al guardar | `FichaEstadosCard.tsx` |
+| **No se puede quitar un motivo de no pago**: al guardar se conserva el anterior | `deudores.service.ts:238` |
+| Los cambios de estado **automáticos no se auditan por caso**, así que Auditoría no los explica | `consolidacion.service.ts`, `promesas.service.ts` |
+| Solo **SIT-050** bloquea la ficha; SIT-051/052/053 no | `deudor-bloqueo.ts` |
 | `accion_masiva_snapshot` no tiene FK a `remesa`: borrar una remesa de acciones deja filas huérfanas | `schema.prisma` |
 
 > Estas guardas se agregan al cerrar la fase 1. Ponerlas ahora, con 2 páginas de 40, solo daría rojo.

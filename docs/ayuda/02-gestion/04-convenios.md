@@ -8,74 +8,93 @@ rutas: /gestion
 
 ## Para qué sirve
 
-Un convenio es un **plan de pago en cuotas**: el deudor no puede pagar todo junto, y se acuerda un
+Un convenio es un **plan de pago en cuotas**: el deudor no puede pagar todo junto y se acuerda un
 esquema.
 
-A diferencia de una promesa —que es un compromiso suelto— el convenio genera **cuotas**, cada una con
-su vencimiento y su importe, y se le hace seguimiento una por una.
+A diferencia de una promesa —un compromiso suelto— el convenio genera **cuotas**, cada una con su
+vencimiento y su importe.
 
-## Antes de ofrecerlo: mirá la política
+## Antes de ofrecerlo
 
-**La política de la remesa dice qué podés ofrecer**: las formas de pago y el tipo de atención que el
-cedente autoriza. Está en su propia solapa de la ficha.
+**Mirá la política.** Dice qué formas de pago y qué tipo de atención autoriza el cedente, además de la
+metodología acordada. Está en la solapa **Política** de la pantalla de Gestión — arriba de todo, al
+lado de "Datos del deudor", no adentro de la ficha.
 
-No todos los cedentes aceptan las mismas condiciones. Ofrecer un plan que la política no contempla es
-un problema con el cliente, no con el sistema — y el sistema no te lo va a impedir.
+El sistema **no te impide** ofrecer condiciones que la política no contempla.
 
-## Antes de ofrecerlo: mirá Otras Cuentas
-
-Si la persona tiene otros casos, conviene saberlo. Un convenio sobre una de tres deudas puede no ser la
+**Mirá Otras Cuentas.** Si la persona tiene otros casos, un convenio sobre uno de tres puede no ser la
 mejor salida.
 
 ---
 
-## Armar un convenio
+## Los dos tipos
 
-Desde la solapa **Convenios**. Se define:
+| Tipo | Cómo arma las cuotas |
+|---|---|
+| **Automático** | Todas iguales: divide el total por la cantidad. Vencen **cada 30 días** |
+| **Libre** | Cargás vencimiento e importe de cada cuota a mano |
 
-- **El tipo** de convenio.
-- **El monto total** del plan.
-- **La cantidad de cuotas** y el **importe de cada una**.
-- **La fecha de inicio**, que determina los vencimientos.
-- **Observaciones**, para dejar asentado lo que se acordó.
+### Automático
 
-Al guardarlo se generan las cuotas, cada una con su número, su vencimiento y su importe.
+Se completa: **tipo, monto total, cantidad de cuotas, fecha del primer vencimiento y observaciones**.
 
-Requiere el permiso **Crear convenios**.
+**El importe de la cuota no se carga: se calcula** — total dividido cantidad.
 
-> **El monto del convenio puede no coincidir con la deuda.** Si el cedente autorizó una quita, el plan
-> va a ser menor. El sistema no lo valida: dejalo escrito en las observaciones.
+> **Los vencimientos van cada 30 días corridos, no por mes.** Doce cuotas desde el 15/01 terminan el
+> 05/12, no el 15/12. El **preview de cuotas** del formulario te lo muestra antes de guardar: miralo.
+
+> **No hay redondeo ni cuota de ajuste.** Un total de $3.000.000 en 3 cuotas da tres cuotas de
+> $1.000.000; uno de $1.000.000 en 3 da tres de $333.333,33…
+
+### Libre
+
+Cargás cada cuota. Es el único tipo donde **la suma puede no coincidir con el total**: el sistema
+verifica que la cantidad de cuotas sea la que declaraste, pero **no valida la suma**. Un convenio libre
+puede quedar guardado con un total que no cierra con sus propias cuotas.
 
 ---
 
 ## Registrar el pago de una cuota
 
-Desde la misma solapa, sobre la cuota que corresponde. La cuota queda pagada con su fecha.
+Desde la solapa **Convenios**, sobre la cuota. El importe viene precargado con el de la cuota.
 
-**Un pago de cuota también es un pago del caso**: baja el saldo igual que cualquier otro. Por eso no
-hay que cargarlo dos veces — registrar la cuota alcanza.
-
-Requiere el permiso **Registrar pagos de convenios**.
-
----
-
-## Estados
-
-**El convenio** está activo mientras se está cumpliendo, y se puede **cancelar** — cuando el deudor
-dejó de pagar, o cuando se rearma el plan.
-
-**Las cuotas** están pendientes hasta que se registra su pago.
-
-Cancelar un convenio requiere el permiso **Cancelar convenios**.
+> ### ⚠ Tres cosas del pago de cuota
+>
+> **El importe es editable, y la cuota se marca pagada igual.** Registrar $500 contra una cuota de
+> $5.000 la cierra como paga y contabiliza $500. No hay pago parcial de cuota.
+>
+> **No se puede deshacer.** La cuota no se puede volver a pagar ni despagar, y el pago que genera
+> **tampoco se puede borrar** desde la solapa Pagos. Si te equivocaste, hay que escalarlo.
+>
+> **El saldo del caso no baja solo.** El pago queda registrado, pero el saldo y la situación **no se
+> recalculan** hasta que algo dispare una consolidación: una importación de pagos o de actualizaciones,
+> o una corrida manual desde el historial de importaciones.
 
 ---
 
-## Qué mirar durante el seguimiento
+## El seguimiento
 
-**Las cuotas vencidas e impagas.** Son la señal de que el plan se está cayendo, y el momento de llamar.
+**No hay ninguna marca de cuota vencida.** Una cuota con vencimiento pasado sigue figurando como
+pendiente: **hay que comparar las fechas a ojo**.
 
-**Si el saldo llegó a cero.** Cuando se pagan todas las cuotas, el caso se cancela y la ficha se
-bloquea. Es lo esperado, pero conviene saberlo: después de eso ya no vas a poder agregar un comentario.
+El convenio queda **activo** mientras exista, y se da de baja con **Anular convenio**.
+
+> **En pantalla el botón dice "Anular", no "Cancelar"** — aunque el permiso se llame "Cancelar
+> convenios".
+
+> **Anular no pide confirmación** y **no se puede deshacer**: el botón ejecuta directo.
+
+> **Pagar todas las cuotas no cierra el convenio**: queda activo para siempre. No hay estado de plan
+> terminado.
+
+---
+
+## ⚠ Si el caso se cancela, el convenio queda trabado
+
+Cuando el saldo llega a cero el caso se cancela y la ficha se bloquea. A partir de ahí, sobre ese
+convenio **no se puede hacer nada**: ni registrar cuotas, ni anularlo.
+
+Si el caso se cancela con cuotas pendientes, el convenio queda activo e intocable.
 
 ---
 
@@ -83,43 +102,54 @@ bloquea. Es lo esperado, pero conviene saberlo: después de eso ya no vas a pode
 
 ### No me deja crear el convenio
 
-La cuenta está **cancelada** —y entonces la ficha está bloqueada— o falta el permiso **Crear
-convenios**.
+La cuenta está cancelada. Si en cambio el formulario se abre y **falla al guardar**, es que falta el
+permiso **Crear convenios**: la pantalla no esconde el botón, el rechazo llega al final.
+
+### El deudor pagó pero el saldo del caso no bajó
+
+El pago de cuota no dispara el recálculo. Hay que consolidar la remesa desde el historial de
+importaciones, o esperar a la próxima importación.
 
 ### El deudor pagó pero la cuota sigue pendiente
 
-El pago se registra sobre la cuota, en la solapa de Convenios. Si se cargó como pago suelto desde la
-solapa Pagos, baja el saldo pero la cuota queda abierta.
+Se cargó como pago suelto desde la solapa Pagos en vez de sobre la cuota. Ahí baja el saldo pero la
+cuota queda abierta.
+
+### Registré mal el importe de una cuota
+
+No hay forma de corregirlo desde la aplicación: ni la cuota ni el pago se pueden deshacer. Escalalo.
 
 ### Armé el convenio con el monto equivocado
 
-Cancelalo y armá uno nuevo. Dejá en las observaciones por qué, para que quede el rastro.
+Anulalo y armá uno nuevo — siempre que el caso no esté cancelado. Dejá el motivo en las observaciones.
 
-### El caso se canceló antes de terminar el plan
+### El convenio dice un total que no coincide con sus cuotas
 
-El saldo llegó a cero, probablemente porque entró un pago por otro lado además de las cuotas.
+Es un convenio **libre**: el sistema no valida la suma. El encabezado muestra el promedio de las
+cuotas, que puede verse plausible y estar mal.
 
-### La suma de las cuotas no da el total
+### No encuentro las cuotas vencidas
 
-El sistema no lo valida. Revisá la cuenta antes de guardar: cantidad por importe tiene que dar el
-total, salvo que la última cuota ajuste.
+No existe esa marca. Hay que mirar las fechas.
 
 ---
 
 ## Preguntas frecuentes
 
 **¿Puedo modificar un convenio ya creado?**
-No. Se cancela y se arma uno nuevo.
+No. Se anula y se arma uno nuevo.
 
 **¿El convenio baja el saldo al crearlo?**
-No. Lo bajan los pagos de las cuotas, a medida que entran.
+No. Lo bajan los pagos de las cuotas — y ni siquiera al instante: hay que consolidar.
 
 **¿Puedo hacer dos convenios sobre el mismo caso?**
-El sistema no lo impide, pero es mala idea: no se sabe qué cuota corresponde a qué plan. Cancelá el
-anterior primero.
+El sistema no lo impide, pero es mala idea: **las cuotas de los dos descuentan del mismo saldo**.
+Anulá el anterior primero.
 
-**¿Qué pasa si el deudor deja de pagar a la mitad?**
-Cancelás el convenio. Los pagos que ya hizo quedan registrados y el saldo refleja lo que falta.
+**¿El monto del convenio tiene que ser la deuda?**
+No hay ninguna atadura: el formulario **sugiere** un monto, pero se puede cambiar. Si el cedente
+autorizó una quita, dejalo escrito en las observaciones.
 
 **¿Dónde veo los convenios de toda una cartera?**
-En un reporte: los convenios y sus cuotas están en el catálogo de campos.
+En un reporte: los convenios y sus cuotas están en el catálogo. Ojo que filtrar cuotas por "vencida"
+siempre devuelve vacío — ese estado no se usa.

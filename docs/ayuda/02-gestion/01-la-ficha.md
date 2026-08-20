@@ -8,100 +8,139 @@ rutas: /gestion
 
 ## Para qué sirve
 
-Es la pantalla donde se trabaja. Todo lo que se sabe de un caso está acá, y todo lo que se hace —
-comentar, cargar un pago, armar un convenio, cambiar un estado — se hace desde acá.
+Es la pantalla donde se trabaja. Todo lo que se sabe de un caso está acá, y todo lo que se hace se hace
+desde acá.
 
-## El encabezado
+## Cómo está organizada la pantalla
 
-Arriba, los datos que identifican el caso: nombre, documento, empresa, remesa y número de cliente del
-cedente.
+**Gestión** tiene cuatro solapas arriba de todo:
 
-A la derecha, **el número**. Cuál se muestra depende del caso, y **se muestra uno solo**:
-
-| Si el caso… | Ves |
+| Solapa | Qué es |
 |---|---|
-| Tiene recargo por mora calculado | **Deuda actualizada** (con el original tachado y el recargo abajo) |
-| No tiene mora pero sí pagos | **Saldo actualizado** (con el original tachado y lo pagado abajo) |
-| No tiene ninguna de las dos | **Deuda total** |
+| **Datos del deudor** | La ficha. Es donde se trabaja |
+| **Lista de deudores** | Una tabla con todos los casos, con filtro y paginado |
+| **Política** | Lo que el cedente autoriza para esa remesa |
+| **Timeline** | Los envíos de mail y WhatsApp registrados por AMSA Sender |
 
-> **El importe original nunca baja con los pagos.** Lo que baja es el saldo. Está explicado en
-> [Cómo piensa el sistema](/ayuda/primeros-pasos/como-piensa-el-sistema).
+Las últimas dos solo aparecen para algunos roles.
 
-Si el caso está cancelado, aparece un cartel **CUENTA CANCELADA** y el número se pinta en verde.
-
-## Los estados
-
-Debajo del encabezado, tres selectores:
-
-- **Situación del cliente** — dónde está parado el caso: sin contacto, contactado, promesa de pago,
-  negativa, cancelado.
-- **Estado de gestión** — dónde está el trabajo: sin gestionar, en gestión, no contesta, desasignado.
-- **Motivo de no pago** — por qué no paga, cuando lo dijo.
-
-Se cambian desde ahí mismo, y requieren el permiso **Editar estado de deudores**.
-
-**Los tres catálogos los configura cada cedente**: los códigos que ves dependen de la empresa.
-
-## Los contactos
-
-En un panel aparte: teléfonos, mails y domicilios, ordenados por prioridad.
-
-Los teléfonos muestran si son fijo o móvil, y si están marcados para WhatsApp. Los domicilios pueden
-tener una etiqueta que dice de qué son — el de servicio o el de facturación, por ejemplo.
-
-## Las solapas
-
-| Solapa | Qué trae |
-|---|---|
-| **Comentarios** | La gestión escrita del caso |
-| **Facturas** | El detalle de la deuda |
-| **Pagos** | Las cobranzas registradas |
-| **Convenios** | Los planes de pago y sus cuotas |
-| **Otras Cuentas** | Los demás casos de esta misma persona |
-
-Facturas, Pagos y Convenios muestran la cantidad en el título, así que de un vistazo sabés si hay algo
-adentro.
-
-Fuera de esas, la ficha tiene además:
-
-- **Política** — qué formas de pago y qué tipo de atención autoriza el cedente para esta remesa. Es lo
-  que mirás antes de negociar.
-- **Timeline** — los envíos de mail y WhatsApp registrados por AMSA Sender.
-
-> **La solapa Timeline no es el historial del caso.** Muestra solo las comunicaciones salientes. Los
-> comentarios están en su solapa, los pagos en la suya, y los cambios de estado en la sección de
-> Auditoría.
-
-## Otras Cuentas: la solapa que más se subestima
-
-Lista **todos los casos de esa misma persona**, incluso de otras empresas y otras remesas.
-
-Sirve para dos cosas concretas:
-
-- **Saber con quién estás hablando.** Alguien que debe en tres carteras no es lo mismo que alguien que
-  debe en una.
-- **No pisarte con otro gestor.** Si el caso de al lado tiene una promesa de la semana pasada, conviene
-  saberlo antes de llamar.
+Y **dentro de la ficha** hay otras cinco solapas, que son las del caso. Es fácil confundirlas.
 
 ---
 
-## ⚠ Cuando la cuenta está cancelada, la ficha se bloquea
+## El encabezado
 
-Un caso cancelado pasa a **solo lectura**. No se puede:
+Nombre, documento, **ID del deudor** —el número con el que después filtrás la auditoría—, empresa,
+remesa y número de cliente del cedente.
 
-- comentar
-- cargar un pago o una promesa
-- crear o anular un convenio
-- tocar los contactos
-- cambiar los estados
+A la derecha, **el número**. Se muestra **uno solo** de los tres:
 
-Si intentás, el sistema lo rechaza con un aviso de cuenta cancelada.
+| Si el caso… | Ves |
+|---|---|
+| Tiene recargo por mora calculado | **Deuda actualizada** |
+| No tiene mora pero sí pagos | **Saldo actualizado** |
+| Ninguna de las dos | **Deuda total** |
 
-**No es un error, es a propósito**: una cuenta cancelada ya se rindió al cedente y no debería moverse
-por una gestión posterior.
+> ### ⚠ La deuda actualizada no descuenta los pagos
+>
+> **Deuda actualizada = importe original + recargo por mora.** El recargo se calcula sobre el importe
+> original de cada factura, **sin restar lo que el deudor ya pagó**.
+>
+> Lo pagado aparece abajo, en letra chica.
+>
+> **En un caso con mora y con pagos, el número grande no es lo que el deudor debe hoy.** Antes de
+> cantar un importe por teléfono, mirá también el renglón "Pagado".
 
-Si un caso quedó cancelado por error —pasa cuando una importación de actualizaciones sale mal— **no se
-arregla desde la ficha**. Hay que escalarlo.
+Debajo del número, la fecha a la que está calculado el recargo. **Si está en naranja**, el cálculo
+tiene más de un día y el número quedó corto.
+
+Si el caso está cancelado aparece el chip **CUENTA CANCELADA**.
+
+## Gestión y Estado
+
+La tarjeta con los tres selectores: **Situación del cliente**, **Estado de Gestión** y **Motivo No
+Pago**.
+
+**Hay que apretar Guardar.** Cambiar el selector no persiste nada por sí solo.
+
+> El permiso **Editar estado de deudores** no esconde ni deshabilita nada: los selectores se ven y se
+> mueven igual, y el rechazo llega recién al guardar, como un error genérico.
+
+> **No se puede quitar un motivo de no pago.** El selector ofrece "Sin motivo", pero al guardar se
+> conserva el anterior.
+
+Los catálogos **se pueden configurar por cedente**, aunque hoy todas las empresas comparten el mismo
+set. Y en el selector solo aparecen los códigos activos: si un caso quedó con uno que después se
+desactivó, el selector se ve vacío.
+
+## Los contactos
+
+Teléfonos, mails, domicilios y redes, más dos tarjetas: **Codeudores** y **Datos Adicionales**.
+
+> ### El chip CODEUDOR
+>
+> Marca qué teléfono o mail **no es del titular**. Mirarlo antes de llamar evita reclamarle la deuda a
+> la persona equivocada.
+
+Cada teléfono muestra si está **verificado** o si tiene formato dudoso, y una estrella para el
+**principal** — que es el que va primero en la lista. Los fijos no se pueden marcar como WhatsApp.
+
+Mails, domicilios y redes se ordenan por prioridad; los teléfonos, por el principal y después por orden
+de carga.
+
+## Las cinco solapas de la ficha
+
+| Solapa | Qué trae |
+|---|---|
+| **Comentarios** | La gestión escrita |
+| **Facturas** | El detalle de la deuda |
+| **Pagos** | Las cobranzas **y las promesas** |
+| **Convenios** | Los planes de pago y sus cuotas |
+| **Otras Cuentas** | Los demás casos de esta persona |
+
+> **Las promesas viven en la solapa Pagos**, con su estado y el botón de anular. El contador del título
+> cuenta solo los pagos, así que puede decir "Pagos (0)" y haber promesas adentro.
+
+### Otras Cuentas: útil, pero suele estar vacía
+
+Lista los demás casos de esa persona, con empresa, remesa, deuda, situación y gestión.
+
+> **Cruza por documento exacto.** Los casos cargados **sin DNI** llevan un identificador propio, así
+> que **no se agrupan entre sí**. En carteras donde el cedente no manda DNI —que son varias— la solapa
+> aparece vacía aunque la persona tenga otros casos.
+
+### Timeline: qué muestra y qué no
+
+Los envíos de mail y WhatsApp registrados por AMSA Sender, **incluidas las aperturas y los clics**, que
+suele ser lo más útil.
+
+**No es el historial del caso**: los comentarios están en su solapa, los pagos en la suya y los cambios
+de estado en Auditoría.
+
+Tiene **filtros de canal y fecha** — si dice que no hay nada, revisalos primero. Y cruza **por
+documento**: un caso sin DNI real no va a mostrar nada.
+
+---
+
+## ⚠ Cuando la cuenta está cancelada
+
+Los controles se **deshabilitan**, con un aviso al pasar por encima, y la caja de comentarios
+desaparece. No llegás a intentar nada.
+
+Queda bloqueado: comentar, borrar un comentario, cargar un pago, **borrar un pago**, cargar una
+promesa, tocar los contactos, crear o anular un convenio, **registrar una cuota** y cambiar los
+estados.
+
+**Sigue funcionando**: mandar un mail desde un contacto, y anular una promesa vigente.
+
+Dos cosas que conviene saber:
+
+> **Solo bloquea el código "Cancelado / Pagado".** Hay otros códigos de cancelación —cancelado antes de
+> la gestión, a liquidar, a monto histórico— que **no bloquean nada**. Ver un caso cancelado que se
+> deja editar no es un bug.
+
+> **Si la cancelación fue por un pago mal cargado, no hay salida desde la ficha**: borrar ese pago
+> también está bloqueado.
 
 ---
 
@@ -109,38 +148,51 @@ arregla desde la ficha**. Hay que escalarlo.
 
 ### No me deja escribir un comentario ni cambiar nada
 
-La cuenta está cancelada. Fijate el cartel del encabezado.
+La cuenta está cancelada. Fijate el chip del encabezado.
 
-### No veo los selectores de estado
+### Cambié el estado y no se guardó
 
-Falta el permiso **Editar estado de deudores**. Los estados se ven pero no se cambian.
+Falta apretar **Guardar** en la tarjeta de Gestión y Estado.
 
-### El número del encabezado no es el que esperaba
+### Cambié el estado, apreté Guardar y dio error
 
-Se muestra uno solo de los tres, según el caso. Mirá la etiqueta de arriba: dice cuál es.
+Falta el permiso **Editar estado de deudores**. La pantalla no lo esconde.
 
-### La deuda actualizada no coincide con lo que dice el cedente
+### El selector de situación aparece vacío
 
-Fijate la fecha de cálculo, abajo del número. Si tiene varios días, el recargo quedó corto: hay que
-recalcular.
+El caso tiene un código que después se desactivó. Solo se listan los activos.
+
+### El número del encabezado no es lo que el deudor debe
+
+Si hay mora **y** pagos, el número grande no los descuenta. Mirá el renglón "Pagado".
+
+### La fecha de cálculo está en naranja
+
+El recargo se calculó hace más de un día y quedó corto. Hay que recalcular.
+
+### Otras Cuentas está vacía y sé que tiene más casos
+
+Esa cartera se cargó sin DNI. Los casos sin documento real no se cruzan entre sí.
 
 ### El Timeline dice que no hay historial
 
-Ese caso no tiene comunicaciones registradas en AMSA Sender. No quiere decir que no se haya gestionado
-— los comentarios están en su propia solapa.
+Primero revisá los **filtros de canal y fecha**. Si están limpios, puede ser que el caso no tenga DNI
+real, o que no haya envíos.
 
 ---
 
 ## Preguntas frecuentes
 
 **¿Por qué la misma persona aparece varias veces?**
-Porque cada asignación del cedente es un caso distinto. Se ven todos en **Otras Cuentas**.
+Cada asignación del cedente es un caso distinto.
 
 **¿Puedo borrar un comentario?**
-Solo los tuyos, y con el permiso correspondiente.
+**No desde la ficha**: no hay botón de borrar comentarios en la pantalla.
 
 **¿Puedo borrar un pago?**
-Solo los que se cargaron **a mano**. Los que entraron por una importación no se pueden eliminar.
+Solo los cargados a mano, y con el permiso correspondiente. Los de importación y los de cuota de
+convenio no.
 
 **¿Dónde veo quién cambió un estado?**
-En la sección **Auditoría**, filtrando por el caso.
+En **Auditoría**, filtrando por el ID del deudor — pero solo aparecen los cambios **manuales**. Los
+automáticos no se registran por caso.
