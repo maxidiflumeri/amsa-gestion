@@ -64,6 +64,14 @@ export const TODOS_LOS_PERMISOS: PermisoSeccion[] = [
         ],
     },
     {
+        seccion: 'Recargo por mora',
+        permisos: [
+            { key: 'mora.ver', label: 'Ver deuda actualizada', descripcion: 'Ver el recargo por mora y las tasas cargadas' },
+            { key: 'mora.gestionar_tasas', label: 'Cargar la tasa mensual', descripcion: 'Carga la tasa que informa el cedente y genera el índice del mes' },
+            { key: 'mora.recalcular', label: 'Recalcular la cartera', descripcion: 'Recalcula y persiste el recargo por mora de toda una empresa' },
+        ],
+    },
+    {
         seccion: 'Plantillas de Importación',
         permisos: [
             { key: 'plantillas_import.ver', label: 'Ver plantillas de importación' },
