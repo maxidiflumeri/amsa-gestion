@@ -147,15 +147,21 @@ transforms, ancho fijo, multiarchivo, multirregistro, filtros de fila.
 | **0** | Visor + buscador + 1 página piloto + auditoría | **HECHA** |
 | 1 | Importación completa (10 páginas) | **escrita**, en auditoría |
 | 2 | Reportes (6 páginas) | **HECHA** — auditada y corregida |
-| 3 | Modelo mental + gestión del deudor | |
+| 3 | Primeros pasos + gestión del caso (6 páginas) | **escrita**, en auditoría |
 | 4 | Ajustes + administración | |
 | 5 | Ayuda contextual (el `?` en cada pantalla) | necesita las páginas escritas |
 
-Escritas hasta ahora (16):
+Escritas hasta ahora (22):
 
 | Página | Estado |
 |---|---|
+| `01-primeros-pasos/01-primer-dia` | pendiente de auditoría |
 | `01-primeros-pasos/02-como-piensa-el-sistema` | auditada y corregida |
+| `02-gestion/00-buscar-un-caso` | pendiente |
+| `02-gestion/01-la-ficha` | pendiente |
+| `02-gestion/02-comentarios-y-estados` | pendiente |
+| `02-gestion/03-pagos-y-promesas` | pendiente |
+| `02-gestion/04-convenios` | pendiente |
 | `03-importacion/01-como-funciona` | auditada y corregida |
 | `03-importacion/02-categorias` | auditada y corregida |
 | `03-importacion/03-formatos-de-archivo` | auditada y corregida |
