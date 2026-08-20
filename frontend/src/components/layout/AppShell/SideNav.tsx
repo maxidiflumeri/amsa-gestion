@@ -27,6 +27,7 @@ import SettingsIcon from '@mui/icons-material/Settings';
 import BusinessIcon from '@mui/icons-material/Business';
 import SettingsInputComponentIcon from '@mui/icons-material/SettingsInputComponent';
 import PolicyIcon from '@mui/icons-material/Policy';
+import PercentIcon from '@mui/icons-material/Percent';
 import AdminPanelSettingsIcon from '@mui/icons-material/AdminPanelSettings';
 import ShieldIcon from '@mui/icons-material/Shield';
 import PeopleIcon from '@mui/icons-material/People';
@@ -53,6 +54,7 @@ const iconMap: Record<string, React.ReactNode> = {
     Business: <BusinessIcon />,
     SettingsInputComponent: <SettingsInputComponentIcon />,
     Policy: <PolicyIcon />,
+    Percent: <PercentIcon />,
     AdminPanelSettings: <AdminPanelSettingsIcon />,
     Shield: <ShieldIcon />,
     People: <PeopleIcon />,

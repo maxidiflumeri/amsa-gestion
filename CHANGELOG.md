@@ -6,6 +6,128 @@
 
 ---
 
+## [2026-08-20] — AYSA: descifrado el recargo por mora, y un bug de 3 meses en el CRM del cedente
+
+> Sin cambios de código. Spec nuevo: [docs/mora-aysa-spec.md](docs/mora-aysa-spec.md).
+
+AYSA actualiza la deuda por mora con un **número índice diario encadenado**, estilo CER/UVA. El
+equipo del cedente no sabía explicar el cálculo: solo tenían un instructivo para cargar tres tasas
+en un formulario de Visual FoxPro y el código del botón. Alcanzó para deducirlo entero, y el
+`UD60.DBF` que después nos pasaron lo confirmó.
+
+```
+indice(d)         = indice(d-1) × (1 + tasa_mensual)^(1/30)
+deuda_actualizada = importe × indice(hoy) / indice(vencimiento)
+```
+
+**515 de 515 pasos reproducidos al último dígito** sobre los datos reales. La convención `^(1/30)`
+se aplica tenga el mes 28 o 31 días, así que un mes de 31 acumula 2,2421% con una tasa nominal de
+2,169% — hay que replicarla igual para que los montos coincidan.
+
+Los tres tipos del formulario son la misma tasa ×1, ×1,5 y ×2. El **tipo 1 es el que alimenta la
+deuda actualizada de toda la cartera**, deducido por contradicción (§1 del spec). Para qué sirven el
+2 y el 3 sigue abierto.
+
+### El archivo del cedente: 25 años de historia y un bug vivo
+
+`UD60.DBF` trae 9.284 días por tipo (01/04/2001 → 31/08/2026) **sin un solo hueco**. Se migra entero
+en vez de regenerarlo: tiene correcciones incrustadas a mano (el 29/05/2022 los tres tipos bajan 1-3%
+respecto de la proyección) que son la historia con la que el cedente liquidó de verdad.
+
+Auditándolo apareció el motivo por el que **el CRM del cedente venía mostrando todas las deudas
+actualizadas en negativo**: el 01/06/2026 el `seek` del día anterior falló, `inant` volvió a 1 y la
+cadena del tipo 1 arrancó de cero. El 01/07 se repitió y agosto se cargó encima. El índice valía
+**1,0450169** cuando debía valer **7.044,4822042**.
+
+No fue un dato faltante —el orden físico de los registros prueba que la fila del 31/05 existía—, sino
+el `ud60.CDX` corrupto. Los 485 registros borrados muestran que ya les había pasado en nov-2025 y en
+abr-2026 (tres intentos). Se les pasó un `.prg` que reindexa, borra el tramo roto y reconstruye la
+cadena sin depender del `seek`.
+
+De ahí sale la regla más importante para nuestra implementación: **fallar duro si falta el índice del
+día anterior**, nunca arrancar la cadena en 1.
+
+### La reconciliación cerró el mismo día: 15/15 al centavo
+
+El cedente pasó 15 casos con su deuda actualizada, y AYSA —vía el **estado de deuda de la oficina
+virtual**, que desglosa los conceptos— puso las piezas que faltaban. La regla completa, por factura:
+
+```
+coef      = índice(fecha_cálculo) / índice(vencimiento)
+Int/Rec   = capital × (coef − 1 + 0,05)      ← 5 puntos fijos ademas del interes
+Rec AJ/EJ = 0,10 × (capital + Int/Rec)       ← recargo por gestion de cobranza
+IVA/RNI   = 0,21 × (Int/Rec + Rec AJ/EJ)     ← el IVA grava solo los recargos
+Total     = capital + Int/Rec + Rec AJ/EJ + IVA/RNI
+```
+
+Aplicada a los 15 casos contra el `deuact` del cedente: **los 15 exactos**, con un máximo de tres
+centavos de diferencia por redondeo acumulado. El caso testigo cierra exacto en los cuatro conceptos
+por separado, no solo en el total.
+
+El 5% fijo era lo que desordenaba todo: un cargo fijo sobre el capital se disfraza de tasa alta en
+períodos cortos y de tasa baja en los largos, y por eso el multiplicador implícito daba 2,53 a 144
+días de mora y 1,31 a 694.
+
+Queda una sola cosa abierta, y no bloquea: comparando dos cuentas con distinto período se aisló que
+**un mes entre junio y noviembre de 2025 tiene la tasa mal cargada en el `ud60`**, unos 0,21 puntos
+de más. Es dato de entrada, no fórmula. De ahí sale una decisión de diseño: **la fuente de verdad de
+la tasa es el mail mensual de AYSA, no el `ud60`**.
+
+### Fases 1 y 2 implementadas
+
+**Modelo**: `tasa_mora` (una fila por mes; el operador carga UN número y el sistema deriva los tres
+tipos) e `indice_mora` (el índice diario, `Decimal(30,12)`), más `deudor.recargoMora`.
+
+**Importador** `prisma/scripts/importar-ud60.ts`: 27.852 filas migradas del DBF del CRM viejo, 0
+huecos, 0 duplicados, las 9 rupturas de cadena conocidas y documentadas. Descarta los 485 registros
+borrados y las 93 filas basura, y **repara el tramo del tipo 1 que el cedente tenía roto**
+reconstruyéndolo desde el ancla sana. Se planta en vez de importar mal si aparece un hueco o una
+ruptura nueva.
+
+**`MoraService`**: genera el índice del mes desde la tasa —fallando duro si falta el índice del día
+anterior, que es el bug que rompió el CRM del cedente— y valúa la deuda, por caso o por cartera.
+Sobre AYSA: **21.335 casos y 1,1M de facturas en ~7 segundos**.
+
+**La trampa que costó encontrar**: hay dos implementaciones del cálculo, TypeScript para la ficha y
+SQL para la cartera, y diferían por centavos siempre para el mismo lado. `factura.importe` es DOUBLE
+y MySQL contagia el tipo, así que sin un `CAST(... AS DECIMAL(20,2))` la cadena entera se calculaba
+en punto flotante; como `0,10 × (un valor de 2 decimales)` cae exacto en medio centavo 1 de cada 10
+veces, y en binario ese `.635` es `.63499…`, el SQL redondeaba para abajo. Con el CAST y con
+`Prisma.Decimal` del lado de TS, **300 de 300 casos reales dan idénticos al centavo**.
+
+**Tests**: 20, y los dos que más valen reproducen concepto por concepto los estados de deuda reales
+de AYSA. Si esos fallan, la plataforma dejó de coincidir con lo que AYSA le cobra al deudor.
+
+### Fase 4: la ficha, los ajustes y los reportes
+
+**Ficha del deudor**: cuando hay recargo calculado, el header muestra **DEUDA ACTUALIZADA** como
+número principal —es el que el gestor le dice al deudor— con el original tachado, el recargo, lo
+pagado y a qué fecha está valuado. Si el último recálculo tiene más de un día, la fecha se pinta en
+`warning`: el número quedó corto y conviene que se note.
+
+`ver desglose` abre un modal que **replica la estructura del estado de deuda de la oficina virtual de
+AYSA**: mismas columnas (`Int/Rec`, `Rec AJ/EJ`, `IVA`), mismo orden, factura por factura. La idea es
+que el gestor pueda cotejar línea por línea contra lo que ve el deudor, sin traducir nada.
+
+**Ajustes → Recargo por mora**: la serie mensual con la tasa informada y las derivadas ×1,5 y ×2, de
+dónde salió cada una, y un aviso con **los meses que faltan** —una deuda que cruce un hueco se valúa
+mal y hoy eso no lo avisa nadie—. Dos frenos en la carga, los dos por errores que ya pasaron en el
+sistema del cedente: si la tasa es menor a 0,5 pide confirmación (el clásico es cargarla ya dividida
+por 100), y si el mes ya tenía tasa avisa cuántos meses posteriores se van a regenerar.
+
+**Reportes**: `recargoMora`, `deudaActualizada` y `moraCalculadaEn` en el catálogo. `deudaActualizada`
+quedó como **columna desnormalizada** porque el catálogo se arma del DMMF de Prisma y no soporta
+campos calculados: sin ella la deuda actualizada no se puede pedir en un reporte ni ordenar en un
+listado. La escribe el mismo `UPDATE` que el recargo.
+
+### La limitación que queda anotada
+
+El recargo se calcula sobre el importe original de cada factura y **no descuenta los pagos**, porque
+no sabemos a qué factura imputarlos. En un caso con pagos parciales la deuda actualizada queda por
+encima de la real. La ficha lo dice en un tooltip en vez de inventar una imputación. El dato para
+resolverlo ya está cargado: `pago.observacion` trae el número de partida; falta que el cedente
+confirme el criterio.
+
 ## [2026-08-19] — Reportes: separador configurable, y el catálogo de campos de 388 a 113
 
 > ⚠️ **Redeploy back + front.** Sin cambios de schema ni de datos. El catálogo se cachea una hora en

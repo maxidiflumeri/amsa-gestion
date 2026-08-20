@@ -12,6 +12,7 @@ import ImportDetail from '../pages/ImportDetail';
 import AjustesEmpresas from '../pages/ajustes/AjustesEmpresas';
 import AjustesParametros from '../pages/ajustes/AjustesParametros';
 import AjustesPoliticas from '../pages/ajustes/AjustesPoliticas';
+import AjustesMora from '../pages/ajustes/AjustesMora';
 import ReportesHome from '../pages/reportes/ReportesHome';
 import ReportesBuilder from '../pages/reportes/ReportesBuilder';
 import ReportesEjecutar from '../pages/reportes/ReportesEjecutar';
@@ -53,6 +54,7 @@ const AppRoutes = () => {
                 <Route path="ajustes/empresas" element={<AjustesEmpresas />} />
                 <Route path="ajustes/parametros" element={<AjustesParametros />} />
                 <Route path="ajustes/politicas" element={<AjustesPoliticas />} />
+                <Route path="ajustes/mora" element={<AjustesMora />} />
                 <Route path="reportes" element={<ReportesHome />} />
                 <Route path="reportes/nuevo" element={<ReportesBuilder />} />
                 <Route path="reportes/:id/editar" element={<ReportesBuilder />} />

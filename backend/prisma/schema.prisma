@@ -66,6 +66,14 @@ model deudor {
   montoTotal             Float?
   saldo                  Float?        // Persistido por ConsolidacionSituacionService. Ver consolidacion-situacion-spec.md §2.
   situacionConsolidadaEn DateTime?     // Timestamp de la última consolidación.
+  // Recargo por mora acumulado (Int/Rec + Rec AJ/EJ + IVA), calculado por MoraService sobre las
+  // facturas del caso. La deuda actualizada es `montoTotal + recargoMora`. Ver mora-aysa-spec.md §1.
+  recargoMora            Float?
+  // `montoTotal + recargoMora`, desnormalizado a propósito: el catálogo de reportes se arma del DMMF
+  // de Prisma y no soporta campos calculados, así que sin esta columna la deuda actualizada no se
+  // puede pedir en un reporte ni ordenar en un listado. La escribe el mismo UPDATE que recargoMora.
+  deudaActualizada       Float?
+  moraCalculadaEn        DateTime?
   fechaVencimiento       DateTime?
   estadoSituacionId      Int?
   estadoGestionId        Int?
@@ -105,6 +113,7 @@ model deudor {
   @@index([estadoSituacionId, empresaId], map: "Deudor_estadoSituacion_empresa_idx")
   @@index([motivoNoPagoId], map: "Deudor_motivoNoPagoId_fkey")
   @@index([remesaId], map: "Deudor_remesaId_fkey")
+  @@index([empresaId, moraCalculadaEn], map: "Deudor_empresa_mora_idx")
 }
 
 model empresa {
@@ -124,6 +133,8 @@ model empresa {
   transaccion     transaccion[]
   enviosEmail     envio_email[]
   campañasNeotel  campaña_neotel[]
+  tasasMora       tasa_mora[]
+  indicesMora     indice_mora[]
 }
 
 model factura {
@@ -389,6 +400,7 @@ model usuario {
   callbacksAgendados callback_neotel[]
   pagosManuales     pago[]              @relation("PagoUsuario")
   promesas          promesa_pago[]      @relation("PromesaUsuario")
+  tasasMoraCargadas tasa_mora[]         @relation("TasaMoraUsuario")
 
   @@index([rolId])
 }
@@ -810,4 +822,62 @@ model neotel_evento_log {
   @@index([sesionId, procesadoAt])
   @@index([procesadoAt])
   @@map("NeotelEventoLog")
+}
+
+/// Tasa mensual del régimen de recargos por mora. Una fila por mes y empresa.
+///
+/// El operador carga UNA sola tasa —la que informa el cedente por mail, tal cual, sin dividir por
+/// 100 y sin multiplicar por nada—. Los tres tipos de `indice_mora` se derivan de acá con los
+/// multiplicadores de `empresa.configuracion.mora`. En el sistema viejo el operador hacía las tres
+/// multiplicaciones a mano y se equivocó 6 veces en 3 años (ver docs/mora-aysa-spec.md §7).
+///
+/// `fuente` distingue de dónde salió el número, porque no todas valen lo mismo:
+///   MAIL_AYSA       — el mail mensual del cedente. Es la fuente de verdad.
+///   MIGRACION_UD60  — derivada del DBF del CRM viejo. Puede tener tipeos del operador.
+///   CALIBRADA       — corregida contra un estado de deuda de la oficina virtual.
+model tasa_mora {
+  id          Int      @id @default(autoincrement())
+  empresaId   Int
+  /// "2026-08". Se ordena y compara como string sin trucos.
+  periodo     String   @db.VarChar(7)
+  /// Como la informa el cedente: 2.169000 = 2,169% mensual.
+  tasaBase    Decimal  @db.Decimal(10, 6)
+  fuente      String   @db.VarChar(20)
+  observacion String?  @db.Text
+  usuarioId   Int?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  empresa     empresa  @relation(fields: [empresaId], references: [id], onDelete: Cascade)
+  usuario     usuario? @relation("TasaMoraUsuario", fields: [usuarioId], references: [id], onDelete: SetNull)
+
+  @@unique([empresaId, periodo])
+  @@index([empresaId, periodo])
+  @@index([usuarioId])
+}
+
+/// Índice diario encadenado, al estilo del CER/UVA. Es la tabla que hace que actualizar una deuda
+/// sea un JOIN: coeficiente = indice(fecha_cálculo) / indice(vencimiento).
+///
+/// La cadena es ACUMULATIVA y arranca en 2001: nunca reiniciarla en 1, y recalcular un mes obliga a
+/// recalcular todos los posteriores. Ese fue exactamente el bug que rompió el CRM del cedente tres
+/// meses seguidos (docs/mora-aysa-spec.md §8.1).
+///
+/// `Decimal(30,12)` y no Float: el tipo 3 del cedente ya está en 2,4e7 y su campo N(15,7) perdió un
+/// decimal por desborde de ancho.
+model indice_mora {
+  empresaId Int
+  /// 1 = tasa base (la que actualiza la deuda) · 2 = x1,5 · 3 = x2
+  tipo      Int      @db.TinyInt
+  fecha     DateTime @db.Date
+  /// La mensual vigente ese día, en decimal (0.02169). Redundante con tasa_mora, se guarda para
+  /// poder auditar el índice sin recomputar la cadena.
+  tasa      Decimal  @db.Decimal(12, 8)
+  indice    Decimal  @db.Decimal(30, 12)
+  /// UD60 = migrado del DBF del CRM viejo · CALCULADO = generado por MoraService
+  origen    String   @db.VarChar(12)
+  createdAt DateTime @default(now())
+  empresa   empresa  @relation(fields: [empresaId], references: [id], onDelete: Cascade)
+
+  @@id([empresaId, tipo, fecha])
+  @@index([empresaId, tipo, fecha])
 }

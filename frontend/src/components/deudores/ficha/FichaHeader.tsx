@@ -1,10 +1,11 @@
-import React from 'react';
+import React, { useState } from 'react';
 import {
     Box,
     Card,
     CardContent,
     Chip,
     Grid,
+    Link,
     Stack,
     Tooltip,
     Typography,
@@ -15,6 +16,7 @@ import AssignmentIcon from '@mui/icons-material/Assignment';
 import BadgeIcon from '@mui/icons-material/Badge';
 import CheckCircleIcon from '@mui/icons-material/CheckCircle';
 import { mostrarDocumento } from '../../../utils/documento';
+import DesgloseMoraModal from './modals/DesgloseMoraModal';
 
 interface Props {
     deudor: any;
@@ -22,8 +24,21 @@ interface Props {
 }
 
 const FichaHeader: React.FC<Props> = ({ deudor, cuentaCancelada }) => {
-    const { id, nombre, apellido, documento, remesa, empresa, montoTotal, saldo, fechaVencimiento, nroCliente, camposAdicionales } = deudor;
+    const {
+        id, nombre, apellido, documento, remesa, empresa, montoTotal, saldo, fechaVencimiento,
+        nroCliente, camposAdicionales, recargoMora, deudaActualizada, moraCalculadaEn,
+    } = deudor;
     const nroClienteMostrar = nroCliente || camposAdicionales?.nro_cliente || '-';
+    const [desgloseAbierto, setDesgloseAbierto] = useState(false);
+
+    // La deuda actualizada solo se muestra si el recargo está calculado y es > 0. La calcula
+    // MoraService sobre las facturas del caso; ver docs/mora-aysa-spec.md.
+    const tieneMora = recargoMora != null && recargoMora > 0 && deudaActualizada != null;
+    // Días desde el último recálculo: si pasó mucho, el número quedó corto y hay que avisarlo.
+    const diasDesdeCalculo = moraCalculadaEn
+        ? Math.floor((Date.now() - new Date(moraCalculadaEn).getTime()) / 86400000)
+        : null;
+    const moraDesactualizada = diasDesdeCalculo != null && diasDesdeCalculo > 1;
 
     // Usar saldo persistido del backend si está disponible y es menor al monto original.
     // El campo saldo lo mantiene ConsolidacionSituacionService y contempla TODOS los pagos
@@ -82,7 +97,59 @@ const FichaHeader: React.FC<Props> = ({ deudor, cuentaCancelada }) => {
                     </Grid>
 
                     <Grid item xs={12} md={6} sx={{ textAlign: { xs: 'left', md: 'right' } }}>
-                        {tieneSaldoActualizado ? (
+                        {tieneMora ? (
+                            <>
+                                <Typography variant="overline" color="text.secondary" fontWeight="bold">
+                                    DEUDA ACTUALIZADA
+                                </Typography>
+                                <Typography
+                                    variant="h4"
+                                    fontWeight="bold"
+                                    color={cuentaCancelada ? 'success.main' : 'text.primary'}
+                                >
+                                    ${deudaActualizada.toLocaleString('es-AR', { minimumFractionDigits: 2 })}
+                                </Typography>
+                                <Tooltip title="Importe original informado por el cedente. Inmutable.">
+                                    <Typography
+                                        variant="caption"
+                                        color="text.disabled"
+                                        display="block"
+                                        sx={{ textDecoration: 'line-through', cursor: 'default' }}
+                                    >
+                                        Original: ${montoTotal.toLocaleString('es-AR', { minimumFractionDigits: 2 })}
+                                    </Typography>
+                                </Tooltip>
+                                <Typography variant="caption" color="warning.main" display="block">
+                                    Recargo por mora: +${recargoMora.toLocaleString('es-AR', { minimumFractionDigits: 2 })}
+                                    {' · '}
+                                    <Link
+                                        component="button"
+                                        variant="caption"
+                                        underline="hover"
+                                        onClick={() => setDesgloseAbierto(true)}
+                                    >
+                                        ver desglose
+                                    </Link>
+                                </Typography>
+                                {tieneSaldoActualizado && (
+                                    <Tooltip title="El recargo se calcula sobre el importe original de cada factura; no descuenta los pagos.">
+                                        <Typography variant="caption" color="success.main" display="block" sx={{ cursor: 'default' }}>
+                                            Pagado: -${pagado.toLocaleString('es-AR', { minimumFractionDigits: 2 })}
+                                        </Typography>
+                                    </Tooltip>
+                                )}
+                                {moraCalculadaEn && (
+                                    <Typography
+                                        variant="caption"
+                                        color={moraDesactualizada ? 'warning.main' : 'text.disabled'}
+                                        display="block"
+                                    >
+                                        Calculada al {new Date(moraCalculadaEn).toLocaleDateString('es-AR')}
+                                        {moraDesactualizada && ` (hace ${diasDesdeCalculo} días)`}
+                                    </Typography>
+                                )}
+                            </>
+                        ) : tieneSaldoActualizado ? (
                             <>
                                 <Typography variant="overline" color="text.secondary" fontWeight="bold">
                                     SALDO ACTUALIZADO
@@ -127,6 +194,13 @@ const FichaHeader: React.FC<Props> = ({ deudor, cuentaCancelada }) => {
                     </Grid>
                 </Grid>
             </CardContent>
+
+            <DesgloseMoraModal
+                open={desgloseAbierto}
+                onClose={() => setDesgloseAbierto(false)}
+                deudorId={id}
+                nombre={[nombre, apellido].filter(Boolean).join(' ')}
+            />
         </Card>
     );
 };

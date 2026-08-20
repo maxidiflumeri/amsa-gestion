@@ -7,6 +7,9 @@ export const LABELS_CUSTOM: Record<string, string> = {
   'apellido': 'Apellido',
   'montoTotal': 'Deuda original',
   'saldo': 'Saldo actual',
+  'recargoMora': 'Recargo por mora',
+  'deudaActualizada': 'Deuda actualizada',
+  'moraCalculadaEn': 'Mora calculada al',
   'fechaVencimiento': 'Fecha de vencimiento',
   'situacionConsolidadaEn': 'Última consolidación',
   'camposAdicionales': 'Datos adicionales del cedente',
@@ -227,6 +230,9 @@ export const DESCRIPCIONES: Record<string, string> = {
   'nroCliente': 'La cuenta con la que el cedente identifica el caso',
   'montoTotal': 'Lo asignado al abrir el caso; no baja con los pagos',
   'saldo': 'Deuda original menos los pagos registrados',
+  'recargoMora': 'Interés, recargo de gestión e IVA acumulados desde el vencimiento de cada factura',
+  'deudaActualizada': 'Deuda original más el recargo por mora, a la fecha del último recálculo',
+  'moraCalculadaEn': 'A qué fecha está valuado el recargo; si es vieja, el número quedó corto',
   'fechaVencimiento': 'Vencimiento de la deuda, no de la gestión',
   'situacionConsolidadaEn': 'Cuándo se recalculó la situación por última vez',
   'camposAdicionales': 'Lo que mandó el cedente y no entra en un campo fijo',
@@ -328,6 +334,8 @@ export const ORDEN_RAMAS: string[] = [
   // Cuánto debe
   'montoTotal',
   'saldo',
+  'recargoMora',
+  'deudaActualizada',
   'fechaVencimiento',
   // Cómo viene
   'estadoSituacion',
@@ -335,6 +343,7 @@ export const ORDEN_RAMAS: string[] = [
   'motivoNoPago',
   'estadoGestionPrevio',
   'situacionConsolidadaEn',
+  'moraCalculadaEn',
   // Cómo se lo contacta
   'contactos',
   // Lo que trajo el cedente

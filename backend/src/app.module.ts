@@ -28,6 +28,7 @@ import { TimelineModule } from './modules/timeline/timeline.module';
 import { NeotelModule } from './modules/neotel/neotel.module';
 import { HealthModule } from './health/health.module';
 import { ConsolidacionModule } from './modules/consolidacion/consolidacion.module';
+import { MoraModule } from './modules/mora/mora.module';
 import { PagosModule } from './modules/pagos/pagos.module';
 import { PromesasModule } from './modules/promesas/promesas.module';
 
@@ -64,6 +65,7 @@ import { PromesasModule } from './modules/promesas/promesas.module';
     NeotelModule,
     HealthModule,
     ConsolidacionModule,
+    MoraModule,
     PromesasModule,
     PagosModule,
   ],

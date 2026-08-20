@@ -41,11 +41,12 @@ export const navConfig: NavItem[] = [
     {
         label: 'Ajustes',
         icon: 'Tune',
-        requiredPermissions: ['empresas.ver', 'parametros.ver', 'politicas.ver'],
+        requiredPermissions: ['empresas.ver', 'parametros.ver', 'politicas.ver', 'mora.ver'],
         children: [
             { label: 'Empresas', icon: 'Business', path: '/ajustes/empresas', requiredPermissions: ['empresas.ver'] },
             { label: 'Parámetros', icon: 'SettingsInputComponent', path: '/ajustes/parametros', requiredPermissions: ['parametros.ver'] },
             { label: 'Políticas', icon: 'Policy', path: '/ajustes/politicas', requiredPermissions: ['politicas.ver'] },
+            { label: 'Recargo por mora', icon: 'Percent', path: '/ajustes/mora', requiredPermissions: ['mora.ver'] },
         ],
     },
     {
