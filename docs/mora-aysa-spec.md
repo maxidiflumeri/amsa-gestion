@@ -422,6 +422,11 @@ migrarlo.
 Es idempotente: `createMany({ skipDuplicates })` para los índices y `upsert` con `update: {}` para las
 tasas, así que **no pisa una tasa corregida a mano**.
 
+> **Corrido en producción el 2026-08-20** sobre el `ud60` ya corregido por el cedente: 27.852 filas,
+> 305 meses, 15/15 en la prueba de aceptación y 14.466 casos recalculados con **0 facturas sin
+> índice**. Como la EC2 no tiene permisos de S3, el DBF se subió por SSM en 7 chunks de gzip+base64
+> con verificación de `sha256` en cada salto.
+
 ### 6.1 Prueba de aceptación — 15/15 en SQL
 
 [`prisma/scripts/verificar-mora-15casos.ts`](../backend/prisma/scripts/verificar-mora-15casos.ts)

@@ -120,6 +120,27 @@ quedó como **columna desnormalizada** porque el catálogo se arma del DMMF de P
 campos calculados: sin ella la deuda actualizada no se puede pedir en un reporte ni ordenar en un
 listado. La escribe el mismo `UPDATE` que el recargo.
 
+### Desplegado y activado en prod el mismo día
+
+El cedente aplicó el `.prg` de corrección y mandó el `ud60` nuevo. **Su cadena reparada coincide con
+la nuestra hasta el último decimal** en los siete puntos de control, incluido el 7.044,4822042 del
+31/08/2026 que les habíamos pasado; las rupturas bajaron de 9 a 7 (desaparecieron las dos del bug).
+
+La EC2 no tiene permisos de S3, así que el DBF se subió por SSM: gzip + base64 en 7 chunks de 50 KB,
+con verificación de `sha256` en el host, dentro del contenedor y contra el original local.
+
+| | |
+|---|---|
+| `indice_mora` | 27.852 filas · 2001-04-01 → 2026-08-31 |
+| `tasa_mora` | 305 meses |
+| Prueba de aceptación en prod | **15/15 al centavo** |
+| Recálculo de la cartera | 14.466 casos en 2,9 s · **0 facturas sin índice** |
+| Control SQL vs cálculo al vuelo | 300/300 idénticos |
+| Cartera AYSA | capital $4.053M → actualizada **$7.070M** (×1,7442) |
+
+Que las facturas sin índice sean 0 importa: la cartera tiene vencimientos desde 2006, y el `ud60`
+arranca en 2001, así que cubre hasta la más vieja.
+
 ### La limitación que queda anotada
 
 El recargo se calcula sobre el importe original de cada factura y **no descuenta los pagos**, porque
