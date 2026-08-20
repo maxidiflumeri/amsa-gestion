@@ -53,7 +53,11 @@ Si el archivo trae comillas alrededor de todo, hay transforms para sacarlas.
 ### Excel
 
 El cedente manda `.xlsx` o `.xls`. Las celdas ya vienen separadas, así que no hay separador que
-declarar. Al importar elegís **qué hoja** leer.
+declarar.
+
+**La hoja se escribe a mano**, no se elige de una lista: hay un campo *"Nombre de la hoja"*. Tiene que
+coincidir **exacto** — un typo hace que se lea la **primera hoja, sin avisar**. Si lo dejás vacío,
+también lee la primera.
 
 **Las trampas de Excel:**
 
@@ -72,11 +76,26 @@ que exportan los sistemas SAP.
 9000001028  102     0001453664BURGOS                    000001600610
 ```
 
-Se declara un **layout**: para cada campo, dónde empieza y cuántos caracteres ocupa. **No lo midas a
-mano** — el editor tiene un botón **Inferir del archivo** que lo arma solo desde una muestra.
+Se declara un **layout**: para cada campo, dónde empieza (contando desde **0**) y cuántos caracteres
+ocupa.
 
-**La trampa:** un solo carácter mal medido corre todos los campos que siguen. El editor compara el
-ancho del layout contra el largo real de la línea y te avisa si no coinciden, pero **no te lo impide**.
+El editor tiene un botón **Inferir del archivo** que arma un borrador desde una muestra. Es el punto de
+partida, **no la solución**: detecta los cortes por las columnas de espacios, así que **dos campos
+pegados quedan fusionados** y hay que separarlos a mano. El propio sistema te lo dice al inferir.
+
+Una vez afinado, **Solo previsualizar** recarga la vista sin pisar el layout.
+
+**Los dos avisos del editor**, ninguno bloqueante:
+
+- **Huecos**: tramos de la línea que ninguna columna cubre. Es lo que mejor delata un corte movido.
+- **Ancho**: compara la última posición que cubre el layout contra el largo del **encabezado** del
+  archivo de muestra. Solo aparece si la plantilla declara encabezado y cargaste una muestra.
+
+También avisa, columna por columna, cuando el rótulo que hay en esa posición del archivo no coincide
+con el nombre que declaraste.
+
+Un beneficio que no es obvio: **declarar el layout renombra las columnas en el editor de mapeo**. En
+vez de mapear "Col 54" mapeás "Nro. DNI".
 
 ---
 
@@ -87,9 +106,12 @@ Es lo que decide cómo se leen los acentos y las Ñ. Si te salen `LARRA?AGA` o s
 **Para ancho fijo el default es Latin-1**, que es lo correcto para archivos de SAP. Si aun así salen
 rotos, probá cambiando a **UTF-8**.
 
-> **En archivos delimitados no hay opción de codificación.** Se leen como UTF-8. Si un `.csv` te trae
-> los acentos rotos, hay que **convertir el archivo antes de subirlo** — por ejemplo abriéndolo en
-> VS Code y guardándolo como UTF-8, o desde el Bloc de notas con *Guardar como → Codificación UTF-8*.
+> **En los archivos delimitados de las categorías normales no hay opción de codificación.** Se leen
+> como UTF-8. Si un `.csv` te trae los acentos rotos, hay que **convertir el archivo antes de subirlo**
+> — por ejemplo abriéndolo en VS Code y guardándolo como UTF-8.
+>
+> Multirregistro y Multiarchivo son la excepción: también son delimitados pero **sí** tienen
+> codificación configurable, con Latin-1 por defecto.
 
 ---
 
@@ -105,8 +127,12 @@ No hace falta ninguna configuración especial: se seleccionan todos al subir.
 > que se cruzan entre sí (uno de deudores, otro de detalle de deuda, otro de bajas). Ver
 > [Multirregistro y Multiarchivo](/ayuda/importacion/multirregistro-y-multiarchivo).
 
-**Antes de subir un paquete, verificá que los encabezados sean idénticos entre archivos.** Si uno
-tiene una columna de más, todo lo que siga en ese archivo va a salir corrido.
+**Si la plantilla declara encabezado, el sistema verifica que sean idénticos** y rechaza la carga si
+no lo son: *"no son del mismo formato y no se pueden cargar juntos"*. También rechaza el mismo archivo
+subido dos veces y mezclar Excel con texto.
+
+**Si la plantilla no declara encabezado no hay chequeo**, y ahí sí un archivo con una columna de más
+sale corrido en silencio.
 
 ---
 
@@ -136,11 +162,24 @@ antes de subirlo.
 
 ### Los campos salen corridos
 
-Ancho fijo con una columna mal medida. Usá **Inferir del archivo**.
+Ancho fijo con una columna mal medida. Mirá el aviso de **huecos** del editor: es el que delata dónde
+está el corte movido. Ojo que "Inferir del archivo" no lo resuelve solo — suele ser justamente un par
+de campos que quedaron fusionados.
 
 ### Faltan filas y no hay errores
 
-Si subiste varios archivos, revisá que **todos** hayan entrado: el asistente muestra cuántos.
+Tres causas: si la plantilla tiene **filtros de fila**, las descartadas no cuentan como error (la vista
+previa te dice cuántas son; en el resultado final ese número ya no aparece); si subiste varios
+archivos, revisá que **todos** hayan entrado; y si es Multirregistro, se procesa **uno solo**.
+
+### El sistema rechazó el paquete de archivos
+
+Cuatro motivos: encabezados distintos, el mismo archivo dos veces, mezclar Excel con texto, o pasarte
+de 100 archivos.
+
+### El archivo del cedente no me deja subirlo
+
+Solo se aceptan `.csv`, `.txt`, `.xls` y `.xlsx`. Un `.dat` de SAP hay que renombrarlo antes.
 
 ### El documento perdió el cero de adelante
 

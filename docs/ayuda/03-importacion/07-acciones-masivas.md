@@ -61,29 +61,34 @@ Sirve para dejar en la ficha el detalle de por qué se hizo la acción, con los 
 
 ### Saltear canceladas
 
-Una opción de la plantilla: **no tocar los casos cancelados**. Conviene tenerla activada casi siempre.
-Una cuenta cancelada está bloqueada para el gestor, y no tiene sentido moverle el estado por una
-acción administrativa.
+Una opción de la plantilla —*"No tocar cuentas canceladas"*— que **viene apagada por defecto**.
+Conviene activarla casi siempre: una cuenta cancelada está bloqueada para el gestor, y las acciones
+masivas **escriben igual, salteando ese bloqueo**.
+
+Solo existe para el modo de listado de casos. En el de limpieza de contactos no aplica: se borran
+también los de las cuentas canceladas.
 
 ---
 
-## ⚠ El modo que actúa sobre toda la empresa
+## ⚠ El alcance: por defecto es TODA la empresa
 
-Hay un segundo modo de match que **no trabaja sobre un listado de casos**: la limpieza global de
-contactos.
+En el asistente hay un selector **"Aplicar solo a una remesa (opcional)"**. Si lo dejás en *toda la
+base de la empresa* —que es el default— la acción se aplica sobre **todos** los casos de esa empresa,
+no solo sobre una cartera.
 
-En vez de matchear casos, matchea **valores de contacto**: le das una lista de teléfonos o mails y los
-borra **de toda la base de la empresa**, en todos los casos donde aparezcan.
+Vale para los dos modos:
 
-Sirve para lo que fue pensado: un número que resultó ser de un call center, un mail de rebote
-sistemático, un teléfono que pertenece a otra persona.
+**Modo listado de casos.** Un mismo número de cliente presente en dos remesas se toca **en las dos**.
 
-**Pero no tiene listado que lo acote.** El asistente avisa explícitamente en la vista previa, y ahí
-mismo te dice cuántos contactos se van a borrar. **Leé ese número antes de confirmar.**
+**Modo limpieza de contactos.** Este matchea valores en vez de casos: le das una lista de teléfonos o
+mails y los borra de todos los casos donde aparezcan. Sirve para un número que resultó ser de un call
+center, un mail de rebote sistemático, un teléfono que es de otra persona.
 
-Además, en el asistente la remesa origen es **opcional** para esta categoría: sin elegir ninguna, las
-acciones se aplican sobre toda la empresa. Es deliberado y a veces es lo que querés, pero conviene
-saberlo.
+**También se puede acotar a una remesa** con ese mismo selector, aunque el cartel de la vista previa
+siga diciendo "toda la base de la empresa" — el aviso no contempla la remesa elegida.
+
+En cualquier caso, la vista previa te dice **cuántos contactos se van a borrar**. Leé ese número antes
+de confirmar.
 
 ---
 
@@ -129,9 +134,26 @@ Faltó activar **saltear canceladas** en la plantilla.
 Fue el modo de limpieza global. Se puede revertir desde el historial si la carga fue de acciones.
 Hacelo pronto: es lo único que lo deshace.
 
+### No se creó el comentario
+
+Si el índice de columna no existe, la variable se reemplaza por **vacío** — y si el texto entero queda
+vacío, **no se crea ningún comentario** y la fila igual cuenta como OK. Los índices arrancan en **0**.
+
 ### El comentario salió con `{{col2}}` literal
 
-El índice de columna no existe en el archivo, o está mal escrito. Los índices arrancan en **0**.
+La variable está mal escrita y no la reconoce. Tiene que ser exactamente `{{col2}}`: no valen
+`{{col_2}}`, `{{columna2}}` ni `{{col2}`.
+
+### Dice que entraron 500 filas OK pero no cambió nada
+
+**Una fila que no matchea ningún caso cuenta como OK.** No es un error, solo incrementa un contador
+interno. Si la corrida terminó en verde y no ves cambios, mirá el **preview de impacto**: es el único
+lugar donde figura cuántos casos matchearon de verdad.
+
+### El estado no se aplicó y no hubo error
+
+Cuando el valor viene de una columna, se busca por el **código exacto** del parámetro. Si el archivo
+trae la descripción en vez del código, o un código que no existe, la operación se saltea sin avisar.
 
 ---
 
@@ -145,6 +167,13 @@ No. Una carga revertida queda marcada como tal.
 
 **¿La reversión devuelve los comentarios que borró?**
 No. Revertir borra los comentarios que la acción creó; no hay un "revertir la reversión".
+
+**¿Revertir respeta lo que edité a mano después?**
+No: pisa el valor con el que estaba antes de la acción. La propia pantalla lo advierte al confirmar.
+
+**¿Puedo revertir una carga que quedó fallida?**
+No. El botón solo aparece en las finalizadas, y los datos para deshacer se guardan recién al terminar
+bien. Una acción fallida deja los cambios aplicados y sin vuelta atrás.
 
 **¿Sirve para cargar pagos o facturas?**
 No. Acciones masivas toca estados, campos, datos adicionales, comentarios y contactos. Para plata están

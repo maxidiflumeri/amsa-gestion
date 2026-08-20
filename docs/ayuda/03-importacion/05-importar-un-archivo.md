@@ -13,7 +13,10 @@ plantilla ya está armada; acá solo se ejecuta.
 
 ## Antes de empezar
 
-- El permiso **Ejecutar importaciones**.
+- Tres permisos, no uno: **Ejecutar importaciones**, **Ver historial de importaciones** y **Ver
+  plantillas de importación**. El menú aparece con cualquiera de ellos, así que con solo el primero vas
+  a ver "Nueva Importación" y chocarte con un error en el paso 2. Para acciones masivas, además el
+  permiso de acciones masivas.
 - La **plantilla** de esa categoría, ya guardada para esa empresa.
 - El archivo.
 - Si la categoría modifica casos existentes, saber **contra qué remesa** va.
@@ -36,9 +39,13 @@ Tres cosas en la misma pantalla:
 **La plantilla.** Solo aparecen las de esa empresa y esa categoría.
 
 **El archivo.** Se arrastra o se busca. Podés subir **varios archivos del mismo formato** y se
-recorren como uno solo — el asistente te muestra cuántos entran en la remesa.
+recorren como uno solo (tope: 100). En Multirregistro no: procesa **uno solo** e ignora el resto.
 
-Si es un Excel, además elegís **qué hoja** leer.
+Si el primer archivo es un Excel, aparece un campo para **escribir el nombre de la hoja**. No es una
+lista: tiene que coincidir exacto, y si no, se lee la primera sin avisar.
+
+Hay además campos opcionales: nombre y número de remesa, fecha de vencimiento del lote, y un switch
+para **validar domicilios contra Georef** (más lento).
 
 **La remesa origen**, solo si la categoría la necesita (Facturas, Pagos, Contactos, Enriquecimiento,
 Actualizaciones). Es contra qué cartera se van a buscar los casos.
@@ -55,9 +62,15 @@ Actualizaciones). Es contra qué cartera se van a buscar los casos.
 
 **Este es el paso que hay que mirar.**
 
-El sistema lee las **primeras 50 filas** y te muestra cómo quedaría cada una **ya mapeada y
-transformada**: no el archivo crudo, sino el resultado. Junto con eso, cuántas filas están bien y
-cuántas darían error.
+El sistema te muestra cómo quedaría cada fila **ya mapeada y transformada**: no el archivo crudo, sino
+el resultado.
+
+Con una distinción que importa: **el Total es del archivo completo**, pero los contadores de filas OK y
+con error se calculan **solo sobre las primeras 50**.
+
+> ⚠ **Si el Excel tiene varias hojas, la vista previa lee siempre la primera** — aunque hayas escrito
+> otra. La importación sí usa la que escribiste. O sea que lo que ves acá puede no ser lo que se va a
+> importar.
 
 ### Qué mirar, en orden
 
@@ -121,11 +134,22 @@ Importación de Datos → Plantillas.
 Casi siempre es la **remesa origen equivocada**: los casos que busca el archivo están en otra remesa.
 También puede ser un filtro de fila que descarta todo.
 
-### Muchas filas con error "sin nro_cliente"
+### Errores con el número de cliente
 
-Las cargas de **Facturas** y **Pagos** buscan el caso **por número de cliente**. Si la cartera se
-cargó sin mapear ese campo, esos archivos no van a poder matchear. No se arregla desde acá: hay que
-recargar la cartera con el número de cliente mapeado.
+Son dos problemas distintos con solución distinta:
+
+- **"nro_cliente es requerido"** — la fila del archivo no trae el dato. Se arregla mapeando esa columna
+  en la plantilla.
+- **"Deudor no encontrado (nro_cliente=…)"** — el caso no existe con ese número en la remesa elegida.
+  Puede ser la remesa equivocada, o que la cartera se haya cargado sin mapear el número de cliente. Lo
+  segundo no se arregla desde acá: hay que recargar la cartera.
+
+Facturas y Pagos matchean **solo** por número de cliente, nunca por documento. Contactos y
+Enriquecimiento sí aceptan documento.
+
+### No me deja arrancar la importación
+
+Solo se permite **una importación por usuario a la vez**. Si tenés otra en curso, hay que esperar.
 
 ### Se cargaron menos casos que filas
 
@@ -159,4 +183,9 @@ Las que están bien se cargan igual. Las que fallan quedan registradas con su mo
 revisar desde el historial.
 
 **¿La vista previa me muestra todo el archivo?**
-No, las primeras 50 filas. Los totales de la vista previa son de esa muestra, no del archivo entero.
+Muestra las primeras 50 filas. El **Total** sí es del archivo completo; los contadores de OK y error
+son de esa muestra.
+
+**¿Dónde veo los errores después?**
+En Importación de Datos → **Historial**, entrando a la remesa. El botón "Ver errores" del paso 5 abre
+la respuesta cruda del servidor, que no es cómoda de leer.

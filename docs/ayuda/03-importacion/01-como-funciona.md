@@ -40,18 +40,30 @@ Esta es la distinción que más ordena todo:
 | | Categorías | Qué necesita |
 |---|---|---|
 | **Crean casos** | Deudores · Deudores y Facturas · Multirregistro · Multiarchivo | Solo el archivo |
-| **Modifican casos existentes** | Facturas · Pagos · Contactos · Enriquecimiento · Actualizaciones | Elegir una **remesa origen** |
-| **Actúan sobre un listado** | Acciones masivas | Remesa origen **opcional** |
+| **Modifican casos existentes** | Facturas · Pagos · Contactos · Enriquecimiento · Actualizaciones | Elegir una **remesa vinculada** |
+| **Actúan sobre un listado** | Acciones masivas | Remesa **opcional** |
 
-Cuando la categoría modifica casos existentes, el asistente te pide **contra qué remesa** trabajar. El
-sistema va a buscar los casos ahí y **solo ahí**: si elegís la remesa equivocada, el archivo no va a
-matchear con nada y vas a terminar con una carga de cero filas.
+> **Actualizaciones está en las dos columnas**: además de modificar, **crea** los casos que no
+> encuentra, salvo que la plantilla lo desactive. Y Multirregistro y Multiarchivo también actualizan
+> los casos que ya existen, buscándolos por número de cliente en toda la empresa.
+
+Cuando la categoría modifica casos existentes, el asistente te pide **contra qué remesa** trabajar
+—la pantalla la llama *"Vincular a remesa de deudores"*—. El sistema busca los casos ahí y **solo
+ahí**.
+
+> ⚠ **Elegir mal la remesa no siempre da "cero filas".** En Facturas, Pagos y Contactos sí: el archivo
+> no matchea con nada y no pasa nada. Pero en **Actualizaciones es destructivo**: da de alta las filas
+> como casos nuevos en la cartera equivocada y cancela los que ya estaban ahí. Ver
+> [Actualizaciones](/ayuda/importacion/actualizaciones).
+
+> El combo lista **todas** las remesas finalizadas de la empresa, de cualquier categoría — no solo las
+> de deudores. Mirá bien cuál elegís.
 
 > **En Pagos podés elegir varias remesas origen a la vez.** Sirve cuando el archivo de cobranzas
 > cubre varias asignaciones: una sola corrida las cubre todas, en vez de correr el mismo archivo una
 > vez por remesa.
 
-> **Acciones masivas sin remesa origen actúa sobre toda la empresa.** Es deliberado y es potente:
+> **Acciones masivas sin remesa elegida actúa sobre toda la empresa.** Es deliberado y es potente:
 > tenelo presente antes de confirmar.
 
 ## El ciclo de una importación
@@ -100,7 +112,8 @@ el resultado las informa y se pueden ver una por una.
 - Solo las cargas de **Acciones masivas** tienen un botón de revertir.
 - Las demás se pueden **borrar** —lo que borra la remesa y sus casos— pero **solo mientras nadie haya
   tocado esos casos**. Apenas alguien comentó, cargó un pago o llamó, la remesa deja de poder
-  borrarse.
+  borrarse. Y salvo que tengas el permiso para ver importaciones de otros, **solo podés borrar las
+  tuyas**.
 - Y borrar una remesa **de pagos o contactos no deshace lo que hizo**: esos registros cuelgan de casos
   de *otra* remesa, así que se borra la carga pero los pagos quedan.
 
@@ -111,6 +124,14 @@ Por eso: **vista previa antes, siempre**. Está desarrollado en
 
 Si el cedente parte la cartera en muchos archivos del mismo formato —uno por sucursal, por ejemplo—
 se suben todos juntos y se recorren como si fueran uno solo. La remesa es una, y los totales son del
-conjunto.
+conjunto. El tope es de 100 archivos.
+
+> **Menos en Multirregistro**, que procesa **un solo archivo por carga**: si subís varios, se lee el
+> primero y los demás se ignoran sin aviso.
 
 Es distinto de **Multiarchivo**, que es para archivos de formatos **distintos** que se cruzan entre sí.
+
+## Una importación por vez
+
+No se pueden correr dos importaciones tuyas en paralelo: si intentás confirmar una mientras tenés otra
+en curso, el sistema avisa *"Ya tenés una importación en curso"*. Hay que esperar a que termine.

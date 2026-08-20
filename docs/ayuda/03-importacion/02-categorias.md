@@ -23,6 +23,9 @@ Elegir mal la categoría no da un error prolijo: da una carga que "funciona" per
 | **Le agrega datos a casos existentes** | Facturas · Pagos · Contactos · Enriquecimiento |
 | **Le cambia el estado a casos existentes** | Actualizaciones · Acciones masivas |
 
+> **Actualizaciones también crea casos.** Los registros que no encuentra los da de alta, salvo que la
+> plantilla lo desactive. Está en las dos filas.
+
 ---
 
 ## Deudores
@@ -56,7 +59,15 @@ Cobranzas contra casos ya cargados. Pide remesa origen, y es la única categorí
 >
 > La solución: que la plantilla mapee el **número de comprobante** a `observación`. Entra en el
 > criterio del anti-duplicados y dos cobros del mismo día e importe pero de comprobantes distintos
-> dejan de ser "el mismo pago".
+> dejan de ser "el mismo pago". **De paso marca como pagada la factura** con ese número: sin eso el
+> saldo baja pero las facturas quedan todas pendientes.
+
+> **Antes del anti-duplicados hay otra regla:** si el caso tiene un pago cargado **a mano** y sin
+> confirmar por el mismo importe, el import no crea uno nuevo — **confirma ese**. Sin importar la
+> fecha. Si un gestor cargó el pago antes de que llegara el archivo, el archivo se lo consume.
+
+> **Una fila salteada cuenta como OK.** Reimportar un archivo acumulativo reporta "N filas OK" sin
+> haber creado nada nuevo.
 
 ## Contactos
 
@@ -64,7 +75,13 @@ Teléfonos, mails y domicilios de casos ya cargados. Pide remesa origen.
 
 Los teléfonos se **normalizan** a formato internacional. Un número al que no se le puede deducir la
 característica **se descarta en silencio**: no aparece como error. Si el cedente manda números locales
-sin código de área, contá con perder algunos.
+sin código de área, contá con perder algunos. Lo mismo pasa en cualquier categoría que cargue
+contactos, incluida Deudores.
+
+**La diferencia real con Enriquecimiento:** Contactos usa el resto de la fila para **deducir el código
+de área** —los otros teléfonos del caso y el código postal del domicilio—. Enriquecimiento no. Con un
+cedente que manda números locales, Enriquecimiento descarta bastante más. Contactos además permite
+declarar subtipo y prioridad.
 
 ## Enriquecimiento
 
@@ -73,6 +90,9 @@ adicionales", aunque suene a eso.
 
 Los datos adicionales se cargan mapeando **campos extras** desde Deudores, Deudores y Facturas,
 Facturas, Actualizaciones o Acciones masivas.
+
+> ⚠ **La sección de campos extras aparece en el editor para todas las categorías**, pero Contactos,
+> Enriquecimiento y Pagos **no los guardan**: el campo se ve, se calcula y se descarta sin avisar.
 
 ## Deudores y Facturas
 
@@ -99,7 +119,7 @@ un comentario, cargar datos adicionales, borrar un contacto.
 
 A diferencia de Actualizaciones, **no reconcilia nada**: hace exactamente lo que le pedís.
 
-Tiene un modo que actúa sobre **toda la empresa**, sin listado. Ver
+Por defecto actúa sobre **toda la empresa**: hay un selector opcional para acotarla a una remesa. Ver
 [Acciones masivas](/ayuda/importacion/acciones-masivas).
 
 ## Multirregistro
@@ -111,8 +131,9 @@ otra para el detalle, otra para las bajas.
 
 **Varios** archivos de formatos **distintos** que se cargan juntos y se cruzan entre sí.
 
-> No confundir con subir varios archivos **del mismo formato** en una carga normal: eso se puede hacer
-> en cualquier categoría y no necesita Multiarchivo.
+> No confundir con subir varios archivos **del mismo formato** en una carga normal: eso no necesita
+> Multiarchivo. Funciona en todas las categorías **menos en Multirregistro**, que procesa un solo
+> archivo por carga e ignora los demás sin aviso.
 
 Las dos últimas **no se arman con el editor de mapeo**: se configuran pegando un JSON, partiendo de un
 preset. Las arma un técnico. Ver
@@ -130,7 +151,9 @@ queda el monto de la última fila. Sin ningún error a la vista.
 
 ### Contactos vs. Enriquecimiento
 
-Hacen casi lo mismo. Si dudás, usá **Contactos**, que es la que dice lo que hace.
+Cargan lo mismo, pero **Contactos deduce el código de área** a partir del resto de la fila y
+Enriquecimiento no. Si el cedente manda teléfonos sin característica, la diferencia se nota en cuántos
+sobreviven. Usá **Contactos**.
 
 ### Actualizaciones vs. Acciones masivas
 

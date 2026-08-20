@@ -14,9 +14,12 @@ puede, a deshacerlo.
 
 ## Antes de empezar
 
-- El permiso **Ver historial de importaciones**.
-- Para borrar, el permiso **Eliminar importaciones**.
+- El permiso **Ver historial de importaciones**. Hace falta para todo lo de esta pantalla, incluso
+  borrar y revertir.
+- Para borrar, además **Eliminar importaciones** — y **solo podés borrar las tuyas**, salvo que tengas
+  el permiso para ver importaciones de otros.
 - Para revertir acciones masivas, el permiso de **acciones masivas**.
+- Para consolidar, **Ejecutar consolidación**.
 
 ---
 
@@ -70,9 +73,13 @@ contactos ni actualizaciones.
 
 Se puede borrar una remesa en cualquier estado **salvo mientras esté procesando**. Pero:
 
-**1. No se puede borrar si alguien ya trabajó los casos.** Si algún caso de la remesa tiene un
-comentario, un convenio, un pago, una llamada o un mail enviado, el sistema no deja borrarla. En la
-práctica, **una remesa deja de ser borrable apenas el equipo la empieza a gestionar**.
+**1. No se puede borrar si alguien ya trabajó los casos** — pero solo aplica a las remesas que
+**crearon** casos. Si algún caso de la remesa tiene un comentario, un convenio, un pago, una llamada o
+un mail enviado, el sistema no deja borrarla.
+
+Una remesa de **pagos, contactos, facturas, enriquecimiento, actualizaciones o acciones** no tiene
+casos propios, así que **esa validación no se aplica**: se borra siempre, por gestionada que esté la
+cartera.
 
 **2. Borrar no siempre deshace.** Borrar una remesa borra **los casos que esa remesa creó**. Si la
 carga fue de **pagos, contactos o actualizaciones**, sus registros cuelgan de casos de *otra* remesa:
@@ -82,22 +89,54 @@ se borra la fila del historial y **los pagos quedan en la base**.
 |---|---|
 | Deudores · Deudores y Facturas · Multirregistro · Multiarchivo | Borra los casos que creó ✅ |
 | Facturas · Pagos · Contactos · Enriquecimiento · Actualizaciones | **No deshace nada.** Los registros quedan |
-| Acciones masivas | Usá **revertir**, no borrar |
+| Acciones masivas | ⚠ **Nunca borres**: ver abajo |
+
+> ### ⚠ Borrar una remesa de acciones masivas destruye el deshacer
+>
+> El sistema **te deja borrarla**, y al hacerlo: no se revierte nada, los cambios quedan aplicados, y
+> el botón de revertir **deja de funcionar para siempre**. Es una operación irreversible que además
+> elimina la única forma de arreglarla.
+>
+> Si una acción masiva salió mal: **revertir primero**. Nunca borrar.
+
+> ### ⚠ Una acción masiva FALLIDA no se puede revertir
+>
+> El botón solo aparece si la carga quedó **finalizada**. Si se cortó a mitad de camino, los cambios
+> que alcanzó a aplicar quedan aplicados y **no hay información para deshacerlos**: los datos que
+> permiten revertir se guardan recién al terminar bien.
 
 ### La conclusión práctica
 
 **La vista previa es la red de seguridad real**, no el deshacer. Treinta segundos mirándola valen más
 que una hora arreglando después.
 
-Si una carga de pagos entró mal y la remesa ya no se puede revertir, la corrección es caso por caso:
-los pagos se pueden eliminar desde la ficha, con el permiso correspondiente.
+> ### ⚠ Una carga de pagos mal importada no tiene arreglo desde el sistema
+>
+> **Los pagos que entraron por una importación no se pueden eliminar.** La ficha solo permite borrar
+> los que se cargaron **a mano**: el botón aparece deshabilitado, con el aviso *"Solo se pueden
+> eliminar pagos manuales"*.
+>
+> Y si el pago dejó la cuenta cancelada, se suma una segunda pared: una cuenta cancelada queda
+> bloqueada y no admite cambios.
+>
+> Si una carga de pagos entró mal, **no hay camino dentro de la aplicación**: hay que escalarlo a
+> sistemas para que se corrija sobre la base. Por eso la vista previa no es una recomendación.
 
 ---
 
 ## Otras acciones del historial
 
-**Consolidar** recalcula el saldo y el código de situación de los casos de esa remesa según los pagos
-registrados. Se usa cuando se cargaron pagos y querés que las situaciones se actualicen.
+**Consolidar** recalcula el saldo y el código de situación de los casos de una remesa según los pagos
+registrados. Corre en dos pasos: primero un preview y después la aplicación.
+
+> **Apretalo en la remesa de deudores, no en la de pagos.** Consolida los casos **de esa** remesa, y
+> una remesa de pagos no tiene casos propios: te va a decir que evaluó 0. Hay que correrlo sobre la
+> cartera.
+
+Una importación de pagos **ya consolida sola al terminar**, así que el botón es para volver a correrlo,
+no un paso obligatorio.
+
+**Política** — desde la misma grilla se puede asociar o cambiar la política de una remesa.
 
 ---
 
@@ -110,13 +149,22 @@ se llevaría ese trabajo puesto.
 
 ### Borré la remesa de pagos y los pagos siguen ahí
 
-Es el comportamiento esperado: los pagos cuelgan de casos de la remesa origen, no de la de pagos. Hay
-que eliminarlos desde la ficha de cada caso.
+Es el comportamiento esperado: los pagos cuelgan de casos de la remesa vinculada, no de la de pagos.
+Y **no se pueden eliminar desde la ficha**: hay que escalarlo a sistemas.
 
 ### La carga quedó "procesando" y no avanza
 
 Mientras esté en curso no se puede borrar. Entrá al detalle a ver el progreso. Si está realmente
 colgada, hay que esperar a que falle.
+
+El síntoma con el que te vas a topar: **no te deja arrancar otra importación**. El sistema permite una
+sola por usuario a la vez.
+
+### Los números no cierran y tampoco aparecen contactos
+
+Además de los teléfonos, los **mails con basura evidente** (`sin@mail`, dominios sin punto) se
+descartan sin registro. Los que fallan la verificación del dominio sí se guardan, marcados como no
+verificados.
 
 ### Los números no cierran y no hay errores
 
@@ -132,10 +180,11 @@ Sí. En Deudores actualiza en vez de duplicar (dentro de la misma remesa). En Pa
 anti-duplicados. En Actualizaciones, cuidado con las opciones de ausentes.
 
 **¿El historial guarda quién hizo cada carga?**
-Sí, y también queda en la auditoría.
+Sí, y también queda en la auditoría — igual que borrar una remesa y revertir una acción.
 
 **¿Puedo ver el archivo original que se subió?**
-El sistema guarda el archivo de la remesa. Si el detalle no te alcanza, ese es el recurso.
+Queda guardado en el servidor, pero **no se puede descargar desde la aplicación**. Si lo necesitás, hay
+que pedirlo a sistemas.
 
 **¿Revertir una acción masiva devuelve los comentarios que borró?**
 No. Revertir **borra** los comentarios que la acción creó, y eso no se recupera.
