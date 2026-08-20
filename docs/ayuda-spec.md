@@ -145,18 +145,30 @@ transforms, ancho fijo, multiarchivo, multirregistro, filtros de fila.
 | | Qué | Estado |
 |---|---|---|
 | **0** | Visor + buscador + 1 página piloto + auditoría | **HECHA** |
-| 1 | Importación completa (10-12 páginas) | siguiente |
+| 1 | Importación completa (10 páginas) | **escrita**, en auditoría |
 | 2 | Reportes (6-7) | |
 | 3 | Modelo mental + gestión del deudor | |
 | 4 | Ajustes + administración | |
 | 5 | Ayuda contextual (el `?` en cada pantalla) | necesita las páginas escritas |
 
-Escritas hasta ahora:
+Escritas hasta ahora (10):
 
-- `01-primeros-pasos/02-como-piensa-el-sistema.md` — los cinco conceptos que hacen que el resto se
-  entienda solo (la cadena empresa→remesa→deudor, por qué el original no baja con los pagos,
-  situación vs. gestión).
-- `03-importacion/04-crear-plantilla.md` — **el piloto**, la página más difícil del sistema.
+| Página | Estado |
+|---|---|
+| `01-primeros-pasos/02-como-piensa-el-sistema` | auditada y corregida |
+| `03-importacion/01-como-funciona` | pendiente de auditoría |
+| `03-importacion/02-categorias` | pendiente |
+| `03-importacion/03-formatos-de-archivo` | pendiente |
+| `03-importacion/04-crear-plantilla` | auditada y corregida (**el piloto**) |
+| `03-importacion/05-importar-un-archivo` | pendiente |
+| `03-importacion/06-actualizaciones` | pendiente |
+| `03-importacion/07-acciones-masivas` | pendiente |
+| `03-importacion/08-historial-y-problemas` | pendiente |
+| `03-importacion/09-multirregistro-y-multiarchivo` | pendiente |
+
+Las tres de mayor riesgo son `06-actualizaciones`, `07-acciones-masivas` y `08-historial-y-problemas`:
+documentan operaciones que pueden cancelar una cartera, borrar contactos de toda una empresa o perder
+datos sin vuelta atrás. Un error ahí no confunde: hace daño.
 
 ---
 
