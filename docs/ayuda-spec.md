@@ -99,6 +99,29 @@ el 13,3% de la cobranza, las fechas con puntos que devolvían el mes cambiado.
 
 ---
 
+## 3.1 La auditoría es parte del proceso, no un extra
+
+Escribir la página **no la termina**. El paso siguiente es un agente revisor que **verifica cada
+afirmación contra el código fuente**, con `archivo:línea` como evidencia, y devuelve tres listas:
+errores factuales, faltantes y mejoras.
+
+No es una formalidad. En el piloto, las dos primeras páginas —escritas con acceso completo al
+código— salieron con errores graves:
+
+| Lo que decía la doc | Lo que dice el código |
+|---|---|
+| Las *match keys* definen cómo se reconoce un caso | **Nadie las lee.** La identidad está hardcodeada en `empresa + documento + remesa` |
+| Enriquecimiento carga datos adicionales | Carga **contactos**; un campo extra ahí se calcula y se descarta |
+| Con `toNumber` no hace falta saber la convención del cedente | `145.320` → **145,32**, sin error a la vista |
+| El importe original es inmutable | **Sube** cuando el cedente informa más deuda |
+| Las importaciones se pueden revertir | Solo las de **acciones masivas** |
+| La línea de tiempo muestra comentarios, pagos y llamadas | Muestra **solo** los envíos de AMSA Sender |
+
+Cada una de esas habría mandado a un usuario a hacer algo que no funciona. Documentación que miente
+es peor que no tener: el usuario confía y se equivoca.
+
+**Regla:** ninguna página se da por cerrada sin pasar la auditoría y aplicar las correcciones.
+
 ## 4. Mapa de contenido
 
 | Sección | Páginas | Prioridad |
@@ -121,7 +144,7 @@ transforms, ancho fijo, multiarchivo, multirregistro, filtros de fila.
 
 | | Qué | Estado |
 |---|---|---|
-| **0** | Visor + buscador + 1 página piloto | **HECHA** |
+| **0** | Visor + buscador + 1 página piloto + auditoría | **HECHA** |
 | 1 | Importación completa (10-12 páginas) | siguiente |
 | 2 | Reportes (6-7) | |
 | 3 | Modelo mental + gestión del deudor | |
