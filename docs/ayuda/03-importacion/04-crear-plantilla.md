@@ -60,19 +60,59 @@ aparecen y qué hace el sistema con cada fila.
 | **Pagos** | Cobranzas a registrar contra casos ya cargados. |
 | **Contactos** | Teléfonos, mails y domicilios de casos ya cargados. |
 | **Enriquecimiento** | Datos extra que no entran en un campo fijo (los "datos adicionales" de la ficha). |
-| **Deudores y Facturas** | Un archivo con las dos cosas mezcladas: el caso y sus facturas en la misma fila. |
+| **Deudores y Facturas** | Un archivo que trae el caso **y** su deuda al detalle. Ver abajo: cubre dos formas distintas de archivo. |
 | **Actualizaciones** | El cedente manda cómo quedó la cartera: qué se pagó, qué deuda nueva hay, quién ya no se gestiona. |
 | **Acciones masivas** | Un listado de casos para marcarles algo en bloque: cambiar situación, dejar un comentario, borrar un teléfono. |
 | **Multirregistro** | **Un** archivo con **varios tipos de línea** mezclados (una para el cliente, otra para cada aviso, otra para el detalle). |
 | **Multiarchivo** | **Varios** archivos que se cargan juntos y se cruzan entre sí. |
+
+### Deudores y Facturas cubre dos formas de archivo
+
+Es la categoría que más se malinterpreta, porque sirve para dos cosas que parecen distintas:
+
+**Forma A — todo en la misma fila.** El caso y sus facturas vienen juntos, y las facturas se mapean
+como un bloque repetitivo (columnas `Factura 1`, `Vto 1`, `Factura 2`, `Vto 2`…).
+
+**Forma B — el deudor se repite, una fila por factura.** Es la más común:
+
+```
+DOCUMENTO;NOMBRE;FACTURA;IMPORTE;VTO
+20123456789;PEREZ JUAN;A-0001;15.300,00;10/01/2026
+20123456789;PEREZ JUAN;A-0002;15.300,00;10/02/2026
+20123456789;PEREZ JUAN;A-0003;16.100,00;10/03/2026
+27987654321;GOMEZ MARIA;B-0044;42.000,00;05/02/2026
+```
+
+Ahí hay **dos casos y cuatro facturas**, no cuatro casos. El sistema reconoce que las tres primeras
+filas son el mismo deudor —por las match keys— y en vez de duplicarlo, le va agregando cada factura.
+
+No hay que configurar nada especial para esto: **es el comportamiento normal de la categoría**.
+Alcanza con que las match keys estén bien elegidas.
+
+> Si usás **Deudores** a secas para un archivo así, cada fila pisa a la anterior y terminás con dos
+> casos con una sola factura cada uno. Es el error más frecuente con esta categoría.
+
+#### El monto total cuando el deudor se repite
+
+En la forma B, lo natural es que el monto del caso salga de **sumar sus facturas**. La opción
+**Calcular importe desde las facturas** controla eso:
+
+| Opción | Qué hace |
+|---|---|
+| **Solo si está vacío** (por defecto) | Suma las facturas únicamente si el archivo no trajo un monto |
+| **Siempre** | Suma las facturas y pisa cualquier monto del archivo |
+| **No** | No toca el monto: manda lo que diga el archivo |
+
+Con el ejemplo de arriba, PEREZ queda en $46.700 (la suma de sus tres facturas) y GOMEZ en $42.000.
 
 ### Cómo elegir sin equivocarse
 
 La pregunta que resuelve el 90% de los casos: **¿el archivo crea casos nuevos o le agrega algo a
 casos que ya están?**
 
-- Crea casos → **Deudores** (o *Deudores y Facturas*, o *Multirregistro* / *Multiarchivo* si el
-  formato es raro).
+- Crea casos → **Deudores** si el archivo trae solo el total adeudado; **Deudores y Facturas** si
+  trae además el detalle (una fila por factura, o las facturas en columnas). *Multirregistro* y
+  *Multiarchivo* son para cuando el formato del archivo es raro, no por lo que trae.
 - Le agrega algo a casos existentes → **Facturas**, **Pagos**, **Contactos** o **Enriquecimiento**,
   según qué agregue.
 - Le cambia el estado a casos existentes → **Actualizaciones** o **Acciones masivas**.
@@ -308,6 +348,12 @@ Casi siempre es la match key. Si dos filas comparten el valor de la match key, e
 como el mismo caso y la segunda pisa a la primera. **Antes de dar por buena una carga, compará la
 cantidad de filas del archivo contra la cantidad de casos cargados.** Si no coinciden, revisá si el
 identificador se repite.
+
+### Cargó bien los casos pero no quedó ninguna factura
+
+Usaste **Deudores** para un archivo donde el deudor se repite, una fila por factura. Con esa
+categoría cada fila pisa a la anterior: la cantidad de casos da bien, pero el detalle de la deuda se
+pierde y queda el monto de la última fila. Es **Deudores y Facturas**.
 
 ### Los importes quedaron en 0 o en null
 
