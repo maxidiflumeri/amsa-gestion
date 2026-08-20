@@ -50,6 +50,11 @@ export const navConfig: NavItem[] = [
         ],
     },
     {
+        label: 'Documentación',
+        icon: 'MenuBook',
+        path: '/ayuda',
+    },
+    {
         label: 'Administración',
         icon: 'AdminPanelSettings',
         requiredPermissions: ['admin.gestionar_roles', 'admin.gestionar_usuarios', 'auditoria.ver'],
