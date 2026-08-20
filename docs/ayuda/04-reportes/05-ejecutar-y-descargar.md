@@ -29,13 +29,26 @@ Después el sistema decide solo cómo correrlo:
 
 | | Qué pasa |
 |---|---|
-| **Reporte chico** (menos de ~5.000 filas) | Se genera en el momento y lo descargás enseguida |
-| **Reporte grande** | Se encola, corre en segundo plano y te avisa cuando está |
+| **Menos de ~5.000 casos** | Se genera en el momento y lo descargás ahí mismo |
+| **Más de ~5.000 casos** | Te pregunta si querés encolarlo y corre en segundo plano |
 
-**No lo elegís vos**: depende de cuántas filas estime. Y si el reporte supera las **200.000 filas**, no
-se ejecuta — hay que acotarlo con filtros.
+**El umbral cuenta casos, no filas.** Si tenés una columna en expandir, un reporte de 4.000 casos puede
+dar 40.000 filas y correr igual en el momento.
 
-> En un reporte grande **podés cerrar la pantalla o irte a otra**: sigue corriendo en el servidor.
+Cuando supera el umbral aparece un cartel de **"Procesamiento en segundo plano"** con la cantidad
+estimada, y elegís encolarlo o volver atrás a afinar los filtros. Si encolás, te lleva solo a **Mis
+ejecuciones**.
+
+> ### ⚠ Tres cosas de los reportes encolados
+>
+> **No te avisa cuando termina.** Hay que volver a Mis ejecuciones a mirar; la pantalla se refresca
+> sola cada 30 segundos.
+>
+> **Se pierde el ordenamiento.** Un reporte encolado sale ordenado por orden interno, no por el que
+> configuraste en la plantilla. Si el orden importa, ordenalo en Excel después.
+>
+> **El tope de 200.000 filas no lo frena antes de empezar**: arranca, procesa hasta pasarse y queda
+> fallida. Conviene acotar con filtros de entrada.
 
 ---
 
@@ -45,23 +58,34 @@ se ejecuta — hay que acotarlo con filtros.
 
 | Estado | Qué significa |
 |---|---|
-| **Pendiente** | En la cola, todavía no arrancó |
-| **Ejecutando** | Corriendo, con barra de progreso |
-| **Completada** | Lista para descargar |
-| **Error** | Falló. El detalle dice por qué |
+| **PENDIENTE** | En la cola, todavía no arrancó |
+| **EJECUTANDO** | Corriendo, con barra de progreso |
+| **FINALIZADA** | Terminó bien |
+| **FALLIDA** | Falló |
+| **CANCELADA** | La cancelaste vos |
 
-Mientras está pendiente o ejecutando se puede **cancelar**. Una vez completada, ya no.
+Se puede **filtrar por estado**, y la pantalla se refresca sola cada 30 segundos.
 
-Desde ahí se **descarga** el archivo.
+**Cancelar** funciona mientras esté pendiente o ejecutando — pero **no es instantáneo**: el proceso
+corta entre bloques, así que si ya estaba escribiendo el archivo, termina.
+
+**Eliminar** una ejecución del listado requiere que no esté en curso: primero cancelar, después borrar.
+
+> **Solo las ejecuciones encoladas tienen archivo para descargar.** Las que corrieron en el momento
+> también figuran en el listado y con el botón habilitado, pero al apretarlo avisan que no tienen
+> archivo asociado: esas se descargan cuando se ejecutan, no después.
+
+> **Si falla, el motivo es difícil de ver.** Aparece en un aviso momentáneo, y solo si estabas parado
+> en esta pantalla cuando ocurrió. No hay una pantalla de detalle del error.
 
 ---
 
 ## ⚠ Los archivos se borran a los 30 días
 
-**La plantilla queda para siempre. El archivo generado, no.**
+**La plantilla queda para siempre. La ejecución, no.**
 
-Pasados 30 días de la ejecución, el archivo se elimina y el botón de descarga deja de servir. La
-ejecución sigue figurando en el listado, pero sin archivo.
+Pasados 30 días, se borran **el archivo y el registro de la ejecución**: desaparece del listado, no
+queda ni el rastro de que se corrió. (Las canceladas se conservan.)
 
 **Si un reporte tiene valor de acá a un tiempo, guardalo en otro lado.** No uses Mis ejecuciones como
 archivo histórico.
@@ -82,24 +106,32 @@ filtrado corre en segundos.
 Pasa las 200.000 filas. Además de filtrar, revisá que no haya una columna en **expandir**
 multiplicando las filas.
 
-### Quedó en error
+### Quedó fallida
 
-Entrá al detalle: el mensaje dice el motivo. Los más comunes son un filtro variable con un valor que
-no corresponde al tipo de campo, o un reporte que se pasó del límite.
+Los motivos más comunes son un filtro variable con un valor que no corresponde al tipo de campo, o un
+reporte que se pasó de las 200.000 filas.
 
-### No puedo descargar un reporte viejo
+El sistema **reintenta hasta tres veces** antes de darla por fallida, así que un problema pasajero
+puede resolverse solo.
 
-Pasaron los 30 días y el archivo se borró. Volvé a ejecutar la plantilla — con la salvedad de que los
-datos van a ser los de hoy, no los de entonces.
+### No encuentro una ejecución vieja
+
+Pasaron los 30 días y se borró entera. Volvé a ejecutar la plantilla — con la salvedad de que los
+datos van a ser los de hoy.
+
+### El reporte salió desordenado
+
+Se ejecutó encolado, y en ese modo se pierde el ordenamiento de la plantilla. Reordenalo en Excel.
 
 ### El reporte trae datos distintos a los de ayer
 
 Es lo esperable: se ejecuta sobre los datos actuales. Si necesitás la foto de una fecha, hay que
 guardar el archivo.
 
-### No veo el botón de ejecutar
+### Me da un error de permisos al ejecutar
 
-Falta el permiso **Ejecutar reportes**.
+Falta **Ejecutar reportes**. El botón se ve igual —la pantalla no lo esconde— y el error aparece recién
+al confirmar.
 
 ---
 
@@ -109,7 +141,8 @@ Falta el permiso **Ejecutar reportes**.
 Sí, si los filtros son variables: te los pide en cada ejecución.
 
 **¿Puedo ver las ejecuciones de otros?**
-Solo con el permiso para ver todas las ejecuciones. Sin él, ves las tuyas.
+Con el permiso para ver todas las ejecuciones **aparecen en la lista**, pero no se pueden abrir,
+descargar, cancelar ni borrar: esas acciones son solo sobre las propias.
 
 **¿Puedo cancelar una ejecución en curso?**
 Sí, mientras esté pendiente o ejecutando.

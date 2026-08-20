@@ -1,6 +1,6 @@
 <!--
 seccion: Reportes
-resumen: Excel, CSV, TXT y PDF: cuándo conviene cada uno y qué se puede configurar.
+resumen: Excel, CSV, TXT y PDF: cuándo conviene cada uno, qué se puede configurar y qué no.
 revisado: 2026-08-20
 rutas: /reportes
 -->
@@ -13,53 +13,80 @@ usar del otro lado?**
 
 | Formato | Cuándo |
 |---|---|
-| **Excel** | Alguien lo va a mirar, filtrar y trabajar |
-| **CSV** / **TXT** | Va a alimentar otro sistema |
-| **PDF** | Se imprime o se manda para leer, no para procesar |
+| **Excel (XLSX)** | Alguien lo va a mirar |
+| **CSV** / **Texto plano (TXT)** | Va a alimentar otro sistema |
+| **PDF** | Se imprime o se manda para leer |
+
+Se elige en la cabecera del constructor, junto al nombre y la empresa.
+
+---
+
+## ⚠ Todo sale como texto, en todos los formatos
+
+Es lo más importante de esta página y lo que más sorprende.
+
+**El sistema convierte todos los valores a texto antes de escribir el archivo.** Vale para los cuatro
+formatos, Excel incluido.
+
+Consecuencia concreta en Excel: **las fechas no son fechas y los números no son números**. Salen como
+texto, así que no se ordenan como fecha ni se suman con una fórmula sin convertirlas primero.
+
+Si quien recibe el archivo va a hacer cuentas, avisale — o convertí las columnas en Excel al abrirlo.
 
 ---
 
 ## Excel
 
-El más usado y el más cómodo. Respeta los formatos de columna: las fechas salen como fechas y los
-importes como números, así que se pueden ordenar y sumar sin retocar nada.
+El más cómodo para que alguien mire el resultado: una hoja, con encabezados.
 
-Es el que conviene si el reporte lo va a usar una persona.
+**No hay nada configurable** desde la pantalla: ni orientación, ni anchos, ni colores.
 
 ## CSV y TXT
 
-Para cuando el archivo lo consume otro sistema. Dos cosas configurables, y las dos importan porque
-cada sistema destino pide la suya:
+Para cuando el archivo lo consume otro sistema. Dos cosas configurables, en la cabecera del
+constructor, y **solo aparecen si el formato es CSV o TXT**:
 
-**El separador.** Podés elegir tabulador, `;`, `,`, `|`, espacio — o escribir el que sea. No hay una
-lista cerrada, justamente porque cada destino pide uno distinto.
+**El separador.** Tabulador, `;`, `,`, `|`, o el que escribas. Por defecto: coma en CSV, tabulador en
+TXT.
 
 **El encabezado.** Un switch para sacar la fila de títulos. Muchos sistemas la rechazan.
 
-> Si el destino es un sistema, **preguntá qué separador espera antes de armar el reporte**. Es el
-> error más frecuente y obliga a rehacer la ejecución.
+> **El CSV lleva una marca invisible al principio del archivo** (se llama BOM) que algunos sistemas
+> viejos no entienden y hace que la primera columna llegue con basura adelante. **No se puede sacar
+> desde la pantalla.** Si el destino la rechaza, hay que pedir ayuda a sistemas.
+
+> Si el destino es un sistema, **preguntá qué separador espera antes de armar el reporte**.
 
 ## PDF
 
-Para imprimir o mandar por mail. Es el único donde tienen sentido los **saltos de página por grupo**:
-si agrupás por empresa, cada una arranca en hoja nueva.
+Para imprimir o mandar por mail.
 
-No es un buen formato si el receptor va a tener que procesar los datos: para eso, Excel.
+**No hay nada configurable**: sale siempre en A4 vertical. No hay opción de apaisado.
 
-**Cuidado con el ancho.** Un reporte de 25 columnas no entra en una hoja. Si va a PDF, achicá la
-cantidad de columnas o vas a terminar con algo ilegible.
+**Por eso el ancho importa mucho.** Un reporte de 25 columnas no entra y sale ilegible. Si va a PDF,
+achicá la cantidad de columnas — es la única salida.
+
+> El switch de **salto de página por grupo** existe en la pantalla pero **no hace nada**: el PDF sale
+> como una tabla continua aunque lo actives.
 
 ---
 
 ## El formato de cada columna
 
-Aparte del formato del archivo, **cada columna** puede tener el suyo, en el panel de propiedades:
+En el panel de propiedades, cada columna tiene **Tipo de dato** y **Formato**. Lo que realmente
+funciona:
 
-- **Fechas**: `DD/MM/AAAA` es lo habitual.
-- **Números**: con separador de miles y dos decimales para importes.
+| | Qué hace |
+|---|---|
+| **Fecha** con formato | Sale como `15/03/2026` — pero como texto |
+| **Número** con cualquier formato | Sale con separador de miles a la argentina: `1.234,5` |
+| **Teléfono** | Hay que **cambiarle el tipo a Teléfono** para que aparezca el selector de formato |
 
-Vale la pena configurarlo aunque el destino sea Excel: un importe con formato se lee mucho mejor, y en
-CSV es la única forma de controlar cómo sale.
+> **El patrón que escribas en el formato de un número se ignora.** Da igual poner `#,##0.00` o
+> cualquier otra cosa: alcanza con que el campo no esté vacío para que aplique el formato argentino.
+> **No fuerza dos decimales ni agrega el signo `$`.**
+
+> **El tipo "Moneda" no tiene efecto** sobre los campos de plata del sistema: se comportan como número.
 
 ---
 
@@ -67,34 +94,40 @@ CSV es la única forma de controlar cómo sale.
 
 ### El sistema destino rechaza el archivo
 
-Casi siempre el separador o el encabezado. Confirmá los dos con quien recibe.
+Por orden de probabilidad: el separador, el encabezado, o la marca invisible del CSV. Confirmá los tres
+con quien recibe.
 
 ### El PDF salió ilegible
 
-Demasiadas columnas. Sacá las que no son imprescindibles o pasalo a Excel.
+Demasiadas columnas para una hoja A4 vertical, que es la única que hay. Sacá columnas o pasalo a Excel.
 
-### Las fechas salen como número en Excel
+### En Excel no puedo sumar una columna de importes
 
-Falta el formato de esa columna en el panel de propiedades.
+Salen como texto. Hay que convertirlas en Excel, o pedir el archivo en CSV y armarlo del otro lado.
 
-### Los importes salen con punto en vez de coma
+### Las fechas en Excel salen al revés (mes y día cambiados)
 
-Es el formato de la columna. Configuralo en propiedades.
+Esa columna no tiene el tipo **Fecha** con formato: sale como fecha cruda y Excel la interpreta al
+estilo americano. Configurando el formato sale bien, aunque quede como texto.
 
-### El archivo salió vacío pero el reporte decía que tenía filas
+### Los importes salen sin los centavos
 
-Verificá que la ejecución haya terminado bien: si quedó en error, el archivo puede existir pero estar
-incompleto. Se ve en Mis ejecuciones.
+El formato argentino no fuerza dos decimales: `1.234,5` en vez de `1.234,50`. No hay forma de cambiarlo
+desde la pantalla.
+
+### Puse el salto de página por grupo y no pasa nada
+
+No está implementado.
 
 ---
 
 ## Preguntas frecuentes
 
 **¿Puedo cambiar el formato sin rehacer la plantilla?**
-Sí. Es una propiedad de la plantilla: la editás y volvés a ejecutar.
-
-**¿Cuál pesa menos?**
-CSV y TXT, por lejos. Excel pesa más y PDF más todavía.
+Sí, es una propiedad de la plantilla: la editás y volvés a ejecutar.
 
 **¿Cuál conviene para un reporte grande?**
 CSV o TXT. Un Excel de 200.000 filas es incómodo hasta para abrirlo.
+
+**¿Puedo poner el logo o encabezados personalizados?**
+No desde la pantalla.

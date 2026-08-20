@@ -1,6 +1,6 @@
 <!--
 seccion: Reportes
-resumen: El constructor paso a paso: elegir columnas, ordenarlas y guardar la plantilla.
+resumen: El constructor paso a paso: elegir columnas, configurarlas y guardar la plantilla.
 revisado: 2026-08-20
 rutas: /reportes
 -->
@@ -13,26 +13,24 @@ veces que haga falta.
 
 ## Antes de empezar
 
-- El permiso **Crear reportes**.
+- Los permisos **Ver reportes** y **Crear reportes**. Para editar una que ya existe, además **Editar
+  reportes**.
 - Tener claro **qué querés que sea cada fila**. Casi siempre: un caso. Si no lo tenés claro, leé
   primero [Cómo funciona un reporte](/ayuda/reportes/como-funciona) — es lo que más problemas evita.
 
 ---
 
-## La pantalla
+## La pantalla: cuatro solapas
 
-Tres zonas:
+| Solapa | Qué se hace |
+|---|---|
+| **Columnas** | Elegir y configurar las columnas |
+| **Filtros** | Acotar qué casos entran |
+| **Agrupaciones y Totales** | Cortes por grupo y filas de total |
+| **Preview** | Ver una muestra del resultado |
 
-**A la izquierda, el explorador de campos.** Un árbol con el caso arriba y sus ramas debajo: empresa,
-remesa, contactos, pagos, facturas, convenios, comentarios. Se despliega y se busca.
-
-**En el centro, el lienzo de columnas.** Lo que arrastres acá son las columnas del reporte, en ese
-orden.
-
-**A la derecha, el panel de propiedades.** Al seleccionar una columna, acá se configura: cómo se
-llama, qué formato tiene, y —cuando es una rama— qué hacer si hay varios valores.
-
-Abajo, la **vista previa**: una muestra del resultado, en vivo.
+Dentro de **Columnas** hay tres zonas: el **explorador de campos** a la izquierda, el **lienzo** en el
+centro y el **panel de propiedades** a la derecha.
 
 ---
 
@@ -40,88 +38,134 @@ Abajo, la **vista previa**: una muestra del resultado, en vivo.
 
 Arrastrá del explorador al lienzo, o hacé doble clic.
 
-Empezá por lo del caso: nombre, documento, monto, situación. Después sumá lo de las ramas.
+> **Solo se arrastran campos, no ramas enteras.** Arrastrar "Pagos" no trae todos sus campos: hay que
+> bajar hasta el campo concreto.
 
-**El orden del lienzo es el orden de las columnas** en el archivo final. Se reordenan arrastrando.
+El explorador abre con una sección **⭐ Campos destacados** —documento, nombre, apellido, monto,
+vencimiento, empresa, situación y gestión—, que resuelve la mayoría de los reportes sin buscar nada.
+También hay buscador (filtra por nombre y por nombre técnico) y botones para expandir o colapsar todo.
 
-> El catálogo tiene alrededor de **113 campos** elegibles. Si te cuesta encontrar uno, usá el buscador
-> del explorador: filtra por nombre.
+**El orden del lienzo es el orden de las columnas** en el archivo. Se reordenan arrastrando.
 
-## Paso 2 — Configurar cada columna
+### Columnas fijas
 
-Seleccionando una columna, en el panel de la derecha:
+El botón **Columna fija** agrega una columna que no viene de ningún campo: imprime siempre el mismo
+valor, o queda vacía.
 
-**Nombre de la columna.** Cómo va a aparecer en el encabezado. Por defecto usa la etiqueta del campo,
-pero conviene ponerle el nombre que espera quien recibe el reporte.
-
-**Formato.** Para fechas y números. Sirve para que un Excel salga con la fecha en `DD/MM/AAAA` y los
-importes con separador de miles, en vez de crudos.
-
-**Qué hacer si hay varios** (solo en campos de una rama). Es la decisión importante:
-
-| Opción | Resultado |
-|---|---|
-| **Primero** / **Último** | Una celda con uno solo |
-| **Concatenar** | Una celda con todos, separados por coma |
-| **Expandir** | **Una fila por elemento** |
-
-> Repito lo de la página anterior porque es donde más se tropieza: **expandir multiplica las filas**.
-> Un caso con 12 pagos aparece 12 veces. Si querés una fila por caso, no uses expandir.
-
-## Paso 3 — Agregaciones
-
-En vez del valor, una columna de rama puede traer una **cuenta**:
-
-| | Sobre qué campos |
-|---|---|
-| **Sumar** · **Promediar** | Números |
-| **Mínimo** · **Máximo** | Números y fechas |
-| **Contar** | Cualquiera |
-| **Concatenar** | Texto |
-
-Ejemplos típicos: *cuántos pagos tiene*, *la suma de lo pagado*, *la fecha del último comentario*.
-
-## Paso 4 — Filtros
-
-Deciden **qué casos entran** en el reporte. Están en su propia página:
-[Filtros](/ayuda/reportes/filtros).
-
-## Paso 5 — Ordenar y agrupar
-
-**Ordenamiento**: por qué columna y en qué sentido. Se pueden encadenar varios.
-
-**Agrupación**: parte el reporte en bloques, por ejemplo por empresa. Con la opción de mostrar
-**subtotales** por grupo, y en PDF, de arrancar cada grupo en **página nueva**.
-
-**Totales**: una fila al final con la suma, el promedio, el mínimo, el máximo o la cuenta de una
-columna.
-
-## Paso 6 — Formato de salida
-
-**Excel** para trabajar el resultado, **CSV o TXT** para alimentar otro sistema (elegís el separador y
-si lleva encabezado), **PDF** para imprimir o mandar.
-
-Está desarrollado en [Formatos de salida](/ayuda/reportes/formatos).
-
-## Paso 7 — Guardar
-
-Ponele nombre y, si corresponde, asociala a una **empresa**. Una plantilla de empresa solo aparece al
-trabajar con esa cartera; una global sirve para todas.
-
-Si el reporte usa **datos adicionales** propios de un cedente, asociala a esa empresa: en otra no van a
-existir esas columnas.
+Suena raro hasta que hace falta: sirve cuando el sistema que recibe el archivo **exige una cantidad
+fija de columnas**. Por ejemplo, una base que pide ocho columnas de teléfono aunque el caso tenga uno.
 
 ---
 
-## Usá la vista previa mientras armás
+## Paso 2 — Configurar cada columna
 
-Es lo que más tiempo ahorra. Muestra una muestra del resultado real, con los datos ya formateados.
+Seleccionando una columna, el panel de la derecha ofrece:
+
+**Etiqueta** — cómo aparece en el encabezado del archivo. Poné el nombre que espera quien lo recibe.
+
+**Tipo de dato** — Texto, Número, Fecha, Booleano, **Moneda** o **Teléfono**.
+
+**Formato** — depende del tipo. Para fechas, `DD/MM/AAAA`. Para moneda, con separador de miles.
+
+> **Para que un teléfono salga formateado hay que cambiarle el tipo a Teléfono.** Recién ahí aparece el
+> selector de formato de teléfono. Con el tipo en Texto sale crudo.
+
+**Cardinalidad** — qué hacer si hay varios valores. Es la decisión importante:
+
+| Opción | Resultado |
+|---|---|
+| *Usar default de la plantilla* | Lo que esté puesto a nivel plantilla |
+| **Concatenar** | Todos en una celda |
+| **Primero** / **Último** | Uno solo |
+| **Expandir** | **Una fila por elemento** |
+
+> ⚠ **El default de una plantilla nueva es concatenar.** Si no tocás nada, las columnas de rama traen
+> todos los valores juntos.
+
+**Separador para concatenar** — aparece cuando la cardinalidad es concatenar. Por defecto es coma y
+espacio, pero se puede cambiar.
+
+**Ancho** — en píxeles, para los formatos que lo respetan.
+
+### Un detalle de "Primero" que conviene saber
+
+**"Primero" no es "el prioritario".** Los contactos tienen un campo de prioridad que la ficha usa para
+ordenarlos, pero el reporte **no lo tiene en cuenta**: devuelve el que la base entregue primero.
+
+"Último", en cambio, sí ordena por fecha cuando el registro tiene una.
+
+Si necesitás el teléfono prioritario, hoy no hay forma de pedirlo desde el reporte.
+
+---
+
+## Paso 3 — Filtros
+
+Deciden qué casos entran. Tienen su propia página: [Filtros](/ayuda/reportes/filtros).
+
+---
+
+## Paso 4 — Agrupaciones y Totales
+
+**Totales** agrega una fila al pie con la suma, el promedio, la cuenta, el mínimo o el máximo de una
+columna. Es el único lugar donde se hacen cuentas.
+
+**Agrupación** parte el reporte en bloques —por ejemplo, por empresa— con la opción de mostrar
+**subtotales** por grupo.
+
+Dos cosas que ahorran una vuelta:
+
+- **Los campos de agrupación y total se eligen entre las columnas del lienzo**, no del catálogo. Para
+  agrupar por empresa tenés que tener antes esa columna puesta.
+- **Los subtotales salen en blanco si no definiste ningún Total.** Se calculan usando los totales, así
+  que sin ellos no hay qué mostrar.
+
+---
+
+## Paso 5 — Formato de salida
+
+**Excel** para trabajar el resultado, **CSV o TXT** para alimentar otro sistema, **PDF** para imprimir.
+En CSV y TXT se elige el separador y si lleva encabezado.
+
+Está desarrollado en [Formatos de salida](/ayuda/reportes/formatos).
+
+---
+
+## Paso 6 — Guardar
+
+Ponele nombre y, si el reporte usa **datos adicionales** de un cedente, asociala a esa empresa: es lo
+que hace que esos campos aparezcan en el explorador.
+
+No te va a dejar guardar sin nombre o sin al menos una columna. Y avisa si hay etiquetas repetidas, o
+si una agrupación apunta a una columna que sacaste.
+
+---
+
+## Usá el Preview mientras armás
+
+Es lo que más tiempo ahorra. Se recalcula solo mientras editás, y muestra el resultado ya formateado.
 
 Tres cosas que conviene mirar ahí, y no después de ejecutar:
 
 1. **¿Cada fila es un caso?** Si ves el mismo nombre repetido, hay una columna en expandir.
-2. **¿Las celdas de las ramas traen lo que esperabas?** Un teléfono, todos, o la cuenta.
-3. **¿Los formatos salen bien?** Fechas y montos.
+2. **¿Las celdas de las ramas traen lo que esperabas?**
+3. **¿Los formatos salen bien?** Fechas, montos y teléfonos.
+
+> **El contador del preview engaña.** Dice "mostrando N de T filas", pero **T es el total de la
+> muestra**, no del reporte: el preview trae como máximo 100 filas. No lo leas como "mi reporte tiene
+> 100 filas".
+
+---
+
+## Lo que todavía no se puede desde la pantalla
+
+Para no perder tiempo buscándolo:
+
+| | |
+|---|---|
+| **Ordenar el reporte** | No hay control de ordenamiento en el builder |
+| **Una columna con una cuenta** (cuántos pagos, suma de lo pagado) | Las cuentas van en Totales o en filtros |
+| **Pedir solo los teléfonos** | Los contactos vienen todos juntos |
+| **Salto de página por grupo en PDF** | El switch existe pero no hace nada |
 
 ---
 
@@ -129,8 +173,16 @@ Tres cosas que conviene mirar ahí, y no después de ejecutar:
 
 ### El reporte tiene muchas más filas que casos
 
-Alguna columna está en **expandir**. Revisá las de ramas —pagos, facturas, contactos, comentarios— y
-cambialas a primero, concatenar o una cuenta.
+Alguna columna está en **expandir**. Revisá las de ramas y cambialas a concatenar, primero o último.
+
+### El reporte trae solo algunos pagos (o contactos) de cada caso
+
+Es el comportamiento esperado: **un filtro sobre una rama también recorta lo que esa rama muestra**. Si
+filtraste pagos del mes, las columnas de pago traen solo los de ese mes.
+
+### Puse "Primero" en el teléfono y no me trae el principal
+
+"Primero" no respeta la prioridad del contacto. No hay forma de pedir el prioritario.
 
 ### Una columna sale vacía en todas las filas
 
@@ -139,30 +191,36 @@ cedente los mandó y la plantilla de importación los mapeó.
 
 ### No encuentro un campo en el explorador
 
-Usá el buscador. Y tené presente que el catálogo está **podado a propósito**: se sacaron los campos
-técnicos y las relaciones que no dicen nada del caso. Si falta uno que necesitás de verdad, avisá.
+Tres causas posibles:
+
+- Está podado a propósito: se sacaron los campos técnicos y las relaciones que no dicen nada del caso.
+- Es un **dato adicional** que no aparece porque el explorador los descubre mirando los **últimos 1.000
+  casos** de la empresa. Si la clave solo está en registros viejos, no la va a listar.
+- Se agregó recién: el catálogo **se cachea una hora**.
 
 ### Los totales no cuadran
 
-Casi siempre es expandir otra vez: si un caso aparece 12 veces, su monto se suma 12 veces.
+Casi siempre es expandir: si un caso aparece 12 veces, su monto se suma 12 veces.
 
-### Guardé la plantilla pero no aparece al ejecutar
+### La plantilla no aparece en el listado
 
-Está asociada a **otra empresa**. Las de empresa solo se ven en esa cartera.
+Fue **desactivada**. El listado solo muestra las activas — "eliminar" en realidad desactiva.
 
 ---
 
 ## Preguntas frecuentes
 
 **¿Puedo duplicar una plantilla para hacer una variante?**
-Sí, y conviene: es más seguro que editar una que ya se está usando.
+Sí, con **Clonar**. Es más seguro que editar una que ya se está usando.
+
+**¿Puedo cambiarle la empresa a una plantilla?**
+Sí, mientras **no se haya ejecutado nunca**. Después queda fija.
+
+**¿Eliminar una plantilla la borra?**
+No: la **desactiva**. Deja de aparecer en el listado, pero las ejecuciones anteriores siguen ahí.
 
 **¿Editar una plantilla cambia los reportes ya generados?**
-No. Los archivos ya generados quedan como estaban; el cambio aplica a las próximas ejecuciones.
-
-**¿Cuántas columnas puedo poner?**
-No hay un tope duro, pero un reporte de 40 columnas es incómodo de leer y tarda más. Si tenés dudas,
-armá dos.
+No. El cambio aplica a las próximas ejecuciones.
 
 **¿Puedo hacer un reporte que no arranque en el caso?**
 No. La raíz siempre es el caso; todo lo demás se navega desde ahí.

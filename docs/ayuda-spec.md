@@ -146,7 +146,7 @@ transforms, ancho fijo, multiarchivo, multirregistro, filtros de fila.
 |---|---|---|
 | **0** | Visor + buscador + 1 página piloto + auditoría | **HECHA** |
 | 1 | Importación completa (10 páginas) | **escrita**, en auditoría |
-| 2 | Reportes (6 páginas) | **escrita**, en auditoría |
+| 2 | Reportes (6 páginas) | **HECHA** — auditada y corregida |
 | 3 | Modelo mental + gestión del deudor | |
 | 4 | Ajustes + administración | |
 | 5 | Ayuda contextual (el `?` en cada pantalla) | necesita las páginas escritas |
@@ -165,12 +165,12 @@ Escritas hasta ahora (16):
 | `03-importacion/07-acciones-masivas` | auditada y corregida |
 | `03-importacion/08-historial-y-problemas` | auditada y corregida |
 | `03-importacion/09-multirregistro-y-multiarchivo` | auditada y corregida |
-| `04-reportes/01-como-funciona` | pendiente de auditoría |
-| `04-reportes/02-armar-un-reporte` | pendiente |
-| `04-reportes/03-filtros` | pendiente |
-| `04-reportes/04-formatos` | pendiente |
-| `04-reportes/05-ejecutar-y-descargar` | pendiente |
-| `04-reportes/06-recetas` | pendiente |
+| `04-reportes/01-como-funciona` | auditada y corregida |
+| `04-reportes/02-armar-un-reporte` | auditada y corregida |
+| `04-reportes/03-filtros` | auditada y corregida |
+| `04-reportes/04-formatos` | auditada y corregida |
+| `04-reportes/05-ejecutar-y-descargar` | auditada y corregida |
+| `04-reportes/06-recetas` | auditada y corregida |
 
 Las tres de mayor riesgo son `06-actualizaciones`, `07-acciones-masivas` y `08-historial-y-problemas`:
 documentan operaciones que pueden cancelar una cartera, borrar contactos de toda una empresa o perder
@@ -188,5 +188,21 @@ catálogo de permisos (que se agregó justamente porque esa clase de desincroniz
 - Los links internos y las anclas tienen que resolver.
 
 Y cada página lleva su fecha de última revisión, visible al pie del visor.
+
+## 7. Hallazgos sobre el producto que salieron de las auditorías
+
+Auditar la documentación contra el código destapó cosas que no son de la doc. Se dejan anotadas acá
+porque no tienen otro dueño:
+
+| Hallazgo | Dónde |
+|---|---|
+| **El default de Actualizaciones (`PAGO_TODO`) no tiene el guard que sí tiene `DESASIGNAR`**: un archivo apuntado a la cartera equivocada la cancela entera | `actualizaciones.processor.ts` |
+| Las variables `REPORTES_V2_*` de `.env.example` **no las lee nadie**: el código usa los mismos nombres sin el `V2_`. Tocar el `.env` hoy no cambia nada | `.env.example` vs `ejecuciones.service.ts` |
+| **Filtrar por un dato adicional revienta la ejecución** (`PrismaClientValidationError`): el selector lo ofrece pero el planner no arma JSON | `query-planner.ts` |
+| **Los rangos de fecha pierden el último día** por zona horaria | `query-planner.ts` (`coerceValor`) |
+| El switch de **salto de página por grupo en PDF** se guarda y no lo consume nadie | `pdf.exportador.ts` |
+| **No hay UI de ordenamiento** en el builder, aunque el motor lo soporta | `ReportesBuilder.tsx` |
+| El test `query-planner.spec.ts:232` **está fallando** desde que se introdujo `obligatorio` | |
+| `accion_masiva_snapshot` no tiene FK a `remesa`: borrar una remesa de acciones deja filas huérfanas | `schema.prisma` |
 
 > Estas guardas se agregan al cerrar la fase 1. Ponerlas ahora, con 2 páginas de 40, solo daría rojo.

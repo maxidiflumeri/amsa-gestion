@@ -34,15 +34,21 @@ Desde ahí se navega a todo lo que le cuelga:
 ```
 Caso  ──  Empresa
       ──  Remesa  ──  Política
-      ──  Contactos
+      ──  Contactos          (teléfonos, mails y domicilios, todos juntos)
       ──  Facturas
       ──  Pagos
       ──  Convenios  ──  Cuotas
       ──  Promesas
       ──  Comentarios
+      ──  Llamadas
+      ──  Emails enviados
+      ──  Auditoría
       ──  Situación · Gestión · Motivo de no pago
       ──  Datos adicionales del cedente
 ```
+
+> **Teléfonos, mails y domicilios son todos "contactos"**, en un mismo campo. No hay una columna
+> "Teléfono" y otra "Email": hay una sola, y trae los tres tipos mezclados.
 
 Podés armar una columna con cualquier campo de cualquiera de esas ramas. El explorador de la izquierda
 las muestra como un árbol.
@@ -54,28 +60,47 @@ Acá está la única complejidad real de armar reportes, y vale la pena entender
 Un caso tiene **un** nombre y **un** monto: eso entra en una celda sin problema. Pero tiene **varios**
 teléfonos, **varios** pagos, **varias** facturas. ¿Qué poné el reporte en esa celda?
 
-Hay cuatro formas de resolverlo, y elegís cuál usar en cada columna:
+La opción se llama **Cardinalidad** y tiene cuatro valores:
 
-| Opción | Qué hace | Ejemplo |
-|---|---|---|
-| **Primero** / **Último** | Toma uno solo | El primer teléfono |
-| **Concatenar** | Los junta todos en una celda, separados por coma | Todos los teléfonos |
-| **Contar** | Cuánta cantidad hay | Cuántos pagos tiene |
-| **Sumar / Promediar / Mínimo / Máximo** | Una cuenta sobre los valores | La suma de los pagos |
+| Opción | Qué hace |
+|---|---|
+| **Concatenar** *(el que viene puesto)* | Los junta todos en una celda, con el separador que elijas |
+| **Primero** / **Último** | Toma uno solo |
+| **Expandir** | **Una fila por elemento** |
 
-> **Cuidado con "expandir".** Existe la opción de que cada elemento de la rama genere **una fila
-> distinta**. Si la usás sobre pagos, un caso con 12 pagos aparece 12 veces. Es útil cuando querés un
-> listado de pagos, pero si esperabas una fila por caso, los totales te van a dar mal.
+> **Cuidado con "expandir".** Si la usás sobre pagos, un caso con 12 pagos aparece 12 veces. Es lo que
+> querés cuando el listado *es* de pagos; si esperabas una fila por caso, los totales van a dar
+> inflados.
 
-**La regla práctica:** si querés **una fila por caso**, usá primero, concatenar o una cuenta. Reservá
-expandir para cuando el listado *es* de la rama, no de los casos.
+**La regla práctica:** si querés **una fila por caso**, usá concatenar, primero o último. Reservá
+expandir para cuando el listado sea de la rama.
 
-## Filtrar sobre una rama
+### Las cuentas no van en las columnas
 
-Los filtros también pueden ir sobre las ramas, y ahí hay un matiz que confunde: filtrar por "tiene un
-pago mayor a $10.000" devuelve **el caso completo**, no solo ese pago.
+"Cuántos pagos tiene" o "la suma de lo pagado" **no se pueden poner como columna**. Las cuentas viven
+en otros dos lugares:
 
-O sea: el filtro decide **qué casos entran**; las columnas deciden **qué se muestra de cada uno**.
+- **En la solapa de Totales**, que agrega una fila al pie con la suma, el promedio, la cuenta, el
+  mínimo o el máximo de una columna.
+- **En los filtros**, donde cada rama tiene una opción **Cantidad** para comparar contra un número
+  (por ejemplo, casos con cero contactos).
+
+Es una limitación de la pantalla, no del sistema: el motor sabe hacerlo, pero todavía no hay dónde
+pedirlo por columna.
+
+## Filtrar sobre una rama hace dos cosas
+
+Un filtro sobre una rama —por ejemplo, "pagos del mes pasado"— hace **las dos cosas a la vez**:
+
+1. **Elige qué casos entran**: los que tienen algún pago del mes pasado.
+2. **Recorta lo que esa rama muestra**: en las columnas de pago vas a ver **solo los del mes pasado**,
+   no todos los pagos históricos del caso.
+
+Casi siempre es justo lo que querés, y es lo que hace que un reporte de cobranza del mes salga bien
+sin esfuerzo.
+
+**La excepción son los filtros por Cantidad.** Ese tipo de filtro elige el caso pero **no recorta**
+nada de las columnas.
 
 ## Los formatos de salida
 
@@ -83,24 +108,33 @@ Cuatro: **Excel**, **CSV**, **TXT** y **PDF**.
 
 - **Excel** para trabajar con el resultado.
 - **CSV y TXT** para alimentar otro sistema. Se elige el separador.
-- **PDF** para imprimir o mandar. Es el único donde tienen sentido los saltos de página por grupo.
+- **PDF** para imprimir o mandar.
 
 ## Chico corre al toque, grande corre en segundo plano
 
-El sistema estima cuántas filas va a devolver el reporte:
+El sistema estima cuántos **casos** va a traer el reporte:
 
-- **Menos de 5.000**: se genera en el momento y lo descargás enseguida.
-- **Más de 5.000**: se encola y corre en segundo plano. Podés cerrar la pantalla; te avisa cuando está.
+- **Menos de ~5.000**: se genera en el momento y lo descargás ahí mismo.
+- **Más de ~5.000**: te pregunta si querés encolarlo, y corre en segundo plano.
 
-No lo elegís vos: lo decide el sistema por el tamaño. Y hay un tope duro de **200.000 filas** — un
-reporte que supere eso hay que acotarlo con filtros.
+**Cuenta casos, no filas.** Con una columna en expandir, un reporte de 4.000 casos puede terminar
+devolviendo 40.000 filas y correr igual en el momento.
 
-## Las plantillas pueden ser de una empresa o globales
+Los reportes encolados tienen un tope de **200.000 filas**, pero no los frena antes de empezar: corren
+hasta pasarse y quedan fallidos. Conviene acotar con filtros desde el principio.
 
-Una plantilla puede estar asociada a **una empresa** —y entonces solo aparece cuando trabajás con esa
-cartera— o ser **global** y servir para todas.
+## Asociar una plantilla a una empresa
 
-Conviene lo primero cuando el reporte usa datos adicionales propios de ese cedente.
+Una plantilla puede estar asociada a **una empresa** o ser **global**.
+
+> **No cambia qué plantillas ves**: el listado las muestra todas, con una columna que dice de qué
+> empresa es cada una.
+
+Lo que sí cambia es que, al armarla, el explorador te ofrece los **datos adicionales de ese cedente** —
+que son los que ese cedente manda y no existen en otras carteras. Si el reporte los usa, hay que
+asociarla.
+
+Y una vez que la plantilla se ejecutó, **ya no se puede mover a otra empresa**.
 
 ## Dónde está cada cosa
 
@@ -109,4 +143,5 @@ Conviene lo primero cuando el reporte usa datos adicionales propios de ese ceden
 | **Reportes → Mis plantillas** | Ver, crear, editar y ejecutar plantillas |
 | **Reportes → Mis ejecuciones** | Ver las corridas y descargar los archivos |
 
-Los archivos generados **se guardan 30 días** y después se borran. La plantilla queda; el archivo no.
+Las ejecuciones **se guardan 30 días** y después se borran enteras: el archivo y el registro. La
+plantilla queda para siempre; la ejecución no.
