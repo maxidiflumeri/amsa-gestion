@@ -7,7 +7,7 @@ import { reconciliarSaldo, reconciliarAusente } from '../utils/reconciliar-actua
 import { esDocumentoPlaceholder } from '../utils/documento';
 import { adicionalesEquivalentes, mergeAdicionales } from '../utils/campos-adicionales';
 import { enriquecerContactosHistoricos } from '../utils/enriquecimiento-historico';
-import { AuditModulo, AuditTipo } from '../../transacciones/audit.enums';
+import { AuditModulo, AuditTipo, AuditSeveridad, AuditEstado } from '../../transacciones/audit.enums';
 
 /**
  * Procesador ACTUALIZACIONES — tres escenarios:
@@ -951,6 +951,33 @@ export class ActualizacionesProcessor implements ICategoryProcessor {
                 `ACTUALIZACIONES modo=${ctx.modoActualizacion}, datosDeDeuda=${this.sawReconciliationData}: ` +
                 `se omite la marcación de ausentes como pagados y la consolidación de deuda.`,
             );
+            this.reset();
+            return;
+        }
+
+        // Mismo guard que la rama DESASIGNAR, y acá importa más: si ninguna fila del archivo matcheó
+        // un deudor de la remesa origen, todos los deudores quedan "ausentes" y esta rama los marca
+        // como que pagaron todo — o sea, **cancela la cartera entera**. Es la versión cara del bug
+        // que desasignó 342.792 deudores de Toyota (CHANGELOG 2026-07-21): ahí se perdía la
+        // asignación, acá se perdería la deuda.
+        if (this.matchedExistingCount === 0) {
+            this.logger.warn(
+                `Marcación de ausentes ABORTADA (remesa=${ctx.remesaId}, origen=${ctx.remesaOrigenId}): ` +
+                `0 filas del archivo matchearon la cartera. No se cancela a nadie. ` +
+                `Revisá el mapeo/separador/empresa del archivo.`,
+            );
+            await ctx.auditoria.log({
+                modulo: AuditModulo.IMPORT,
+                entidad: 'remesa',
+                entidadId: ctx.remesaId,
+                tipo: AuditTipo.IMPORT_FAIL,
+                severidad: AuditSeveridad.WARN,
+                estado: AuditEstado.FALLIDO,
+                usuarioId: ctx.usuarioId ?? null,
+                empresaId: ctx.empresaId,
+                resumen: 'Marcación de ausentes abortada: ninguna fila del archivo matcheó la cartera',
+                data: { params: { remesaId: ctx.remesaId, remesaOrigenId: ctx.remesaOrigenId ?? null } },
+            });
             this.reset();
             return;
         }

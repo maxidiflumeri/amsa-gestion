@@ -8,6 +8,7 @@ import { XlsxExportador } from '../exportadores/xlsx.exportador';
 import { CsvExportador } from '../exportadores/csv.exportador';
 import { TxtExportador } from '../exportadores/txt.exportador';
 import { PdfExportador } from '../exportadores/pdf.exportador';
+import { RequestContextService } from '../../../common/logger/request-context';
 
 function makeJob(data: any) {
   return {
@@ -52,6 +53,9 @@ describe('ReportesProcessor', () => {
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
+        // `RequestContextService` lo inyecta el logger para el requestId. No es parte de lo que este
+        // test ejercita, pero sin el provider Nest no puede construir el módulo.
+        { provide: RequestContextService, useValue: { get: () => ({ requestId: 'req-test' }), getRequestId: () => 'req-test', run: (_c: any, fn: any) => fn() } },
         ReportesProcessor,
         { provide: PrismaService, useValue: prisma },
         { provide: AsyncExecutorService, useValue: executor },

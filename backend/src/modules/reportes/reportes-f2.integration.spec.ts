@@ -163,19 +163,19 @@ describe('Reportes - Fase 2 Integration', () => {
 
       expect(resultado).toBeDefined();
 
-      // Todas las filas deben cumplir ambos filtros
-      if (resultado.filas.length > 0) {
-        for (const fila of resultado.filas) {
-          const monto = fila['Monto'];
-          if (monto !== null) {
-            expect(monto).toBeGreaterThanOrEqual(100);
-            expect(monto).toBeLessThanOrEqual(10000);
-          }
-        }
+      // Los importes salen ya formateados como texto ("518.45"): el ejecutor devuelve lo que va al
+      // Excel, no el valor crudo. Se parsea para comparar.
+      expect(resultado.filas.length).toBeGreaterThan(0);
+      for (const fila of resultado.filas) {
+        const monto = fila['Monto'];
+        if (monto === null || monto === undefined) continue;
+        const n = typeof monto === 'number' ? monto : parseFloat(String(monto).replace(/[^\d.-]/g, ''));
+        expect(n).toBeGreaterThanOrEqual(100);
+        expect(n).toBeLessThanOrEqual(10000);
       }
     });
 
-    it('debe validar variables requeridas sin valor', async () => {
+    it('debe validar variables OBLIGATORIAS sin valor', async () => {
       const definicion: DefinicionPlantillaDto = {
         columnas: [{ id: 'c1', path: 'documento', label: 'DNI' }],
         filtros: [
@@ -184,6 +184,7 @@ describe('Reportes - Fase 2 Integration', () => {
             path: 'empresa.nombre',
             operador: 'eq',
             variable: true,
+            obligatorio: true,
             labelVariable: 'Empresa',
             // Sin valorPorDefecto
           },

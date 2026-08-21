@@ -318,6 +318,7 @@ model remesa {
   plantilla        plantillaimport?     @relation(fields: [plantillaId], references: [id], map: "Remesa_plantillaId_fkey")
   politica         politica?            @relation(fields: [politicaId], references: [id])
   usuarioCreador   usuario?             @relation("RemesaUsuarioCreador", fields: [usuarioCreadorId], references: [id], onDelete: SetNull)
+  snapshotsAcciones accion_masiva_snapshot[]
 
   @@unique([empresaId, numeroRemesa], map: "Remesa_empresaId_numeroRemesa_key")
   @@index([empresaId, categoria], map: "Remesa_empresaId_categoria_idx")
@@ -432,6 +433,10 @@ model accion_masiva_snapshot {
   accion       String   // 'UPDATE' | 'DELETE' | 'INSERT'
   datosPrevios Json?
   createdAt    DateTime @default(now())
+
+  // Cascade y no SetNull: el snapshot solo sirve para revertir *esa* remesa. Sin la FK, borrar una
+  // remesa de acciones dejaba las filas huérfanas para siempre.
+  remesa       remesa   @relation(fields: [remesaId], references: [id], onDelete: Cascade)
 
   @@index([remesaId])
 }

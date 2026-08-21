@@ -1,5 +1,8 @@
 // modules/dashboards/rango-fechas.ts
 import { BadRequestException } from '@nestjs/common';
+import { finDelDia, inicioDelDia } from '../../common/utils/dia-local';
+
+export { inicioDelDia, finDelDia };
 
 /**
  * Rango de fechas de los filtros del tablero, normalizado a **días completos en hora local**.
@@ -18,31 +21,6 @@ import { BadRequestException } from '@nestjs/common';
  * Estas funciones interpretan la fecha en la zona del servidor y devuelven el día completo:
  * `desde` a las 00:00:00.000 y `hasta` a las 23:59:59.999.
  */
-
-/** `YYYY-MM-DD`, lo que mandan los inputs de fecha del navegador. */
-const SOLO_FECHA = /^(\d{4})-(\d{2})-(\d{2})$/;
-
-function parsear(valor: string, finDelDia: boolean): Date {
-    const m = SOLO_FECHA.exec(String(valor ?? '').trim());
-    if (m) {
-        const [, a, mes, d] = m;
-        return finDelDia
-            ? new Date(Number(a), Number(mes) - 1, Number(d), 23, 59, 59, 999)
-            : new Date(Number(a), Number(mes) - 1, Number(d), 0, 0, 0, 0);
-    }
-    // Si viene con hora (ISO completo), se respeta tal cual: el llamador ya eligió el instante.
-    return new Date(valor);
-}
-
-/** Comienzo del día (00:00:00.000 local) de la fecha `desde`. */
-export function inicioDelDia(valor: string): Date {
-    return parsear(valor, false);
-}
-
-/** Fin del día (23:59:59.999 local) de la fecha `hasta`. */
-export function finDelDia(valor: string): Date {
-    return parsear(valor, true);
-}
 
 /**
  * Normaliza y valida el rango de los filtros del tablero.

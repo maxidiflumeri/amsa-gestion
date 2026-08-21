@@ -39,7 +39,17 @@ export class ComentariosService {
         const comentario = await this.prisma.comentario.findUnique({ where: { id } });
         if (!comentario) throw new NotFoundException('Comentario no encontrado');
 
-        if (comentario.usuarioId !== null && comentario.usuarioId !== usuarioId) {
+        // Un comentario **sin autor** no es de nadie, así que tampoco es "propio": lo escribió una
+        // acción masiva o una importación. Antes la condición lo dejaba pasar, y con el permiso de
+        // "eliminar comentarios propios" cualquiera podía borrar el rastro de lo que hizo un proceso.
+        if (comentario.usuarioId === null) {
+            this.logger.warn(`Usuario ${usuarioId} intentó eliminar el comentario ${id}, que no tiene autor`);
+            throw new ForbiddenException(
+                'Ese comentario lo dejó un proceso del sistema, no una persona: no se puede eliminar.',
+            );
+        }
+
+        if (comentario.usuarioId !== usuarioId) {
             this.logger.warn(`Usuario ${usuarioId} intentó eliminar comentario ${id} de usuario ${comentario.usuarioId}`);
             throw new ForbiddenException('Solo podés eliminar tus propios comentarios.');
         }

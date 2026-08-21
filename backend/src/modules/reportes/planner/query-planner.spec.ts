@@ -223,7 +223,23 @@ describe('QueryPlanner', () => {
       });
     });
 
-    it('debe lanzar error si variable requerida sin valor ni default', () => {
+    it('debe lanzar error si variable OBLIGATORIA sin valor ni default', () => {
+      const definicion: DefinicionPlantillaDto = {
+        columnas: [{ id: 'c1', path: 'documento', label: 'DNI' }],
+        filtros: [
+          { id: 'f1', path: 'montoTotal', operador: 'gt', variable: true, obligatorio: true, labelVariable: 'Monto mínimo' },
+        ],
+      };
+
+      expect(() => planner.planQuery(definicion, {})).toThrow(
+        'Filtro variable "Monto mínimo" es requerido pero no se proporcionó valor',
+      );
+    });
+
+    // Este test venía asumiendo que toda variable sin valor era un error. Desde que existe
+    // `obligatorio`, una variable opcional sin valor simplemente **no filtra**: es lo que permite
+    // ofrecer un filtro que el usuario puede dejar vacío para traer todo.
+    it('debe ignorar una variable NO obligatoria sin valor ni default', () => {
       const definicion: DefinicionPlantillaDto = {
         columnas: [{ id: 'c1', path: 'documento', label: 'DNI' }],
         filtros: [
@@ -231,9 +247,112 @@ describe('QueryPlanner', () => {
         ],
       };
 
-      expect(() => planner.planQuery(definicion, {})).toThrow(
+      const plan = planner.planQuery(definicion, {});
+      expect(plan.where).toEqual({});
+    });
+
+    it('una variable obligatoria con el valor vacío también es un error', () => {
+      const definicion: DefinicionPlantillaDto = {
+        columnas: [{ id: 'c1', path: 'documento', label: 'DNI' }],
+        filtros: [
+          { id: 'f1', path: 'montoTotal', operador: 'gt', variable: true, obligatorio: true, labelVariable: 'Monto mínimo' },
+        ],
+      };
+
+      expect(() => planner.planQuery(definicion, { f1: '' })).toThrow(
         'Filtro variable "Monto mínimo" es requerido pero no se proporcionó valor',
       );
+    });
+  });
+
+  describe('Filtros de fecha por día completo', () => {
+    // `new Date('2026-07-31')` es medianoche UTC: en Argentina, las 21:00 del 30. Sin normalizar,
+    // `lte` perdía todo el último día del rango y `gte` metía tres horas del día anterior.
+    const conFiltro = (operador: string, valor: any) =>
+      planner.planQuery(
+        {
+          columnas: [{ id: 'c1', path: 'documento', label: 'DNI' }],
+          filtros: [{ id: 'f1', path: 'fechaVencimiento', operador, valor }],
+        } as DefinicionPlantillaDto,
+        {},
+      ).where.AND[0].fechaVencimiento;
+
+    const local = (a: number, m: number, d: number, ...resto: number[]) => new Date(a, m - 1, d, ...(resto as [number, number, number, number]));
+
+    it('gte arranca al principio del día local', () => {
+      expect(conFiltro('gte', '2026-07-01').gte).toEqual(local(2026, 7, 1, 0, 0, 0, 0));
+    });
+
+    it('lte llega hasta el final del día local, no a su medianoche', () => {
+      expect(conFiltro('lte', '2026-07-31').lte).toEqual(local(2026, 7, 31, 23, 59, 59, 999));
+    });
+
+    it('eq sobre una fecha es el día entero', () => {
+      const cond = conFiltro('eq', '2026-07-15');
+      expect(cond.gte).toEqual(local(2026, 7, 15, 0, 0, 0, 0));
+      expect(cond.lte).toEqual(local(2026, 7, 15, 23, 59, 59, 999));
+    });
+
+    it('between toma el día completo en las dos puntas', () => {
+      const cond = conFiltro('between', ['2026-07-01', '2026-07-31']);
+      expect(cond.gte).toEqual(local(2026, 7, 1, 0, 0, 0, 0));
+      expect(cond.lte).toEqual(local(2026, 7, 31, 23, 59, 59, 999));
+    });
+
+    it('un valor con hora se respeta tal cual: el llamador ya eligió el instante', () => {
+      expect(conFiltro('gte', '2026-07-01T10:30:00Z').gte).toEqual(new Date('2026-07-01T10:30:00Z'));
+    });
+
+    it('el último día del rango entra: un registro de ese día a las 00:00 locales queda adentro', () => {
+      const lte = conFiltro('lte', '2026-07-31').lte as Date;
+      expect(local(2026, 7, 31, 0, 0, 0, 0) <= lte).toBe(true);
+    });
+  });
+
+  describe('Datos adicionales (columna JSON)', () => {
+    // `camposAdicionales.x` no es una relación sino una clave dentro de una columna JSON. Se armaba
+    // como `{ camposAdicionales: { x: { equals } } }`, que Prisma rechaza: el selector ofrecía el
+    // filtro y la ejecución reventaba con PrismaClientValidationError.
+    const conFiltro = (operador: string, valor?: any) =>
+      planner.planQuery(
+        {
+          columnas: [{ id: 'c1', path: 'documento', label: 'DNI' }],
+          filtros: [{ id: 'f1', path: 'camposAdicionales.cuotas_vencidas', operador, valor }],
+        } as DefinicionPlantillaDto,
+        {},
+      ).where;
+
+    it('usa la forma { path, equals } que espera Prisma, no un objeto anidado', () => {
+      expect(conFiltro('eq', '3')).toEqual({
+        AND: [{ camposAdicionales: { path: '$.cuotas_vencidas', equals: '3' } }],
+      });
+    });
+
+    it('los operadores de texto usan los nombres de Prisma', () => {
+      expect(conFiltro('contains', 'ven')).toEqual({
+        AND: [{ camposAdicionales: { path: '$.cuotas_vencidas', string_contains: 'ven' } }],
+      });
+    });
+
+    it('la negación envuelve en NOT, porque el filtro JSON no admite `not` adentro', () => {
+      expect(conFiltro('neq', '3')).toEqual({
+        AND: [{ NOT: { camposAdicionales: { path: '$.cuotas_vencidas', equals: '3' } } }],
+      });
+    });
+
+    it('soporta claves anidadas', () => {
+      const where = planner.planQuery(
+        {
+          columnas: [{ id: 'c1', path: 'documento', label: 'DNI' }],
+          filtros: [{ id: 'f1', path: 'camposAdicionales.plan.cuotas', operador: 'eq', valor: '6' }],
+        } as DefinicionPlantillaDto,
+        {},
+      ).where;
+      expect(where).toEqual({ AND: [{ camposAdicionales: { path: '$.plan.cuotas', equals: '6' } }] });
+    });
+
+    it('un operador que no se puede expresar no rompe: cae al post-procesado', () => {
+      expect(conFiltro('between', ['1', '5'])).toEqual({});
     });
   });
 

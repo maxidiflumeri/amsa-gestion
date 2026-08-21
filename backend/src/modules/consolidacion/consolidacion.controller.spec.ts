@@ -50,7 +50,9 @@ jest.mock('../../auth/decorators', () => ({
 }));
 
 // ─── Usuario ficticio ─────────────────────────────────────────────────────────
-const USUARIO = { id: 99 };
+// La forma real del payload del JWT: el id del usuario viaja en `sub`, no en `id`. El fixture usaba
+// `{ id }`, así que `usuario.sub` quedaba undefined y las aserciones sobre `usuarioId` no pasaban.
+const USUARIO = { sub: 99 };
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 function makeQueue(jobId = 'job-42') {
@@ -104,7 +106,7 @@ describe('ConsolidacionController', () => {
             expect(result).toEqual({ jobId: 'job-1' });
             expect(queue.add).toHaveBeenCalledWith(
                 'consolidar',
-                expect.objectContaining({ dryRun: true, usuarioId: USUARIO.id }),
+                expect.objectContaining({ dryRun: true, usuarioId: USUARIO.sub }),
                 expect.any(Object),
             );
             // Preview no toca el lock
@@ -174,7 +176,7 @@ describe('ConsolidacionController', () => {
             expect(lock.tryAcquire).toHaveBeenCalled();
             expect(queue.add).toHaveBeenCalledWith(
                 'consolidar',
-                expect.objectContaining({ dryRun: false, usuarioId: USUARIO.id }),
+                expect.objectContaining({ dryRun: false, usuarioId: USUARIO.sub }),
                 expect.any(Object),
             );
         });

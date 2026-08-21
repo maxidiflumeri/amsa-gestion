@@ -15,6 +15,10 @@ export enum AuditTipo {
     UPDATE = 'UPDATE',
     DELETE = 'DELETE',
     EJECUTAR = 'EJECUTAR',
+    /** Validar un archivo de importación antes de procesarlo. */
+    VALIDAR = 'VALIDAR',
+    /** Anular algo sin borrarlo: una promesa de pago, por ahora. */
+    ANULAR = 'ANULAR',
 
     LOGIN_OK = 'LOGIN_OK',
     LOGIN_FAIL = 'LOGIN_FAIL',

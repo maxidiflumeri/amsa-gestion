@@ -7,6 +7,7 @@ import { AsyncExecutorService } from '../async/async-executor.service';
 import { getQueueToken } from '@nestjs/bullmq';
 import { REPORTES_QUEUE_NAME } from '../async/reportes.queue';
 import { EstadoEjecucion } from '../dto/ejecuciones.dto';
+import { RequestContextService } from '../../../common/logger/request-context';
 
 describe('EjecucionesService', () => {
   let service: EjecucionesService;
@@ -46,6 +47,9 @@ describe('EjecucionesService', () => {
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
+        // `RequestContextService` lo inyecta el logger para el requestId. No es parte de lo que este
+        // test ejercita, pero sin el provider Nest no puede construir el módulo.
+        { provide: RequestContextService, useValue: { get: () => ({ requestId: 'req-test' }), getRequestId: () => 'req-test', run: (_c: any, fn: any) => fn() } },
         EjecucionesService,
         { provide: PrismaService, useValue: prismaMock },
         { provide: ReportesStorageService, useValue: storageMock },

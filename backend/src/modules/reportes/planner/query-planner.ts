@@ -1,5 +1,6 @@
 import { Injectable, Logger, BadRequestException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
+import { esSoloFecha, finDelDia, inicioDelDia } from '../../../common/utils/dia-local';
 import { PathParser } from '../parser/path-parser';
 import { IncludeBuilder } from './include-builder';
 import { esColumnaFija } from '../columna-fija';
@@ -219,6 +220,14 @@ export class QueryPlanner {
     const isList = field?.isList === true;
     const tipoModelo = field?.type;
 
+    // `camposAdicionales.cuota` no es una relación: es una clave adentro de una columna JSON, y
+    // Prisma la filtra con `{ path, equals }`. Sin esto se armaba `{ camposAdicionales: { cuota:
+    // { equals: 'x' } } }`, que Prisma rechaza con un PrismaClientValidationError — o sea, el
+    // selector ofrecía filtrar por dato adicional y la ejecución reventaba.
+    if (field?.kind === 'scalar' && field?.type === 'Json') {
+      return this.buildJsonCondition(first, rest, operador, valor);
+    }
+
     const inner =
       rest.length === 1
         ? this.buildPrismaCondition(tipoModelo || modeloActual, rest[0], operador, valor)
@@ -320,6 +329,50 @@ export class QueryPlanner {
     return false;
   }
 
+  /**
+   * Filtro sobre una clave de una columna JSON (`camposAdicionales`, los "datos adicionales").
+   *
+   * En MySQL, Prisma pide `{ campo: { path: '$.clave', equals: valor } }`. Los operadores de texto
+   * tienen nombre propio (`string_contains`) y no todos existen: lo que no se puede expresar cae al
+   * post-procesado, que ya filtra en memoria después de traer las filas.
+   *
+   * Los valores de `camposAdicionales` los escribe la importación **siempre como texto**, así que la
+   * comparación es de strings: `gt` sobre un número guardado como "9" no ordena como número.
+   */
+  private buildJsonCondition(campo: string, rest: string[], operador: string, valor: any): any {
+    if (rest.length === 0) return null;
+    const path = `$.${rest.join('.')}`;
+    const jsonPath = { path, [operador === 'neq' ? 'equals' : operador]: valor };
+
+    switch (operador) {
+      case 'eq':
+        return { [campo]: { path, equals: valor } };
+      case 'neq':
+        return { NOT: { [campo]: { path, equals: valor } } };
+      case 'contains':
+        return { [campo]: { path, string_contains: String(valor) } };
+      case 'startsWith':
+        return { [campo]: { path, string_starts_with: String(valor) } };
+      case 'endsWith':
+        return { [campo]: { path, string_ends_with: String(valor) } };
+      case 'gt':
+      case 'gte':
+      case 'lt':
+      case 'lte':
+        return { [campo]: jsonPath };
+      case 'isNull':
+        return { [campo]: { path, equals: Prisma.DbNull } };
+      case 'isNotNull':
+        return { NOT: { [campo]: { path, equals: Prisma.DbNull } } };
+      default:
+        this.logger.warn(
+          `Operador "${operador}" no se puede expresar sobre un dato adicional (${campo}.${rest.join('.')}); ` +
+          `se resuelve en post-procesado.`,
+        );
+        return null;
+    }
+  }
+
   private getRelationField(modelName: string, fieldName: string): any | null {
     const modelo = (Prisma.dmmf.datamodel.models as any[]).find(
       m => m.name.toLowerCase() === modelName.toLowerCase(),
@@ -360,7 +413,52 @@ export class QueryPlanner {
     return coerce(valor);
   }
 
+  /**
+   * Un filtro de fecha sobre una columna `DateTime`, con el valor en `YYYY-MM-DD`, tiene que abarcar
+   * el **día completo en hora local**.
+   *
+   * `new Date('2026-07-31')` es medianoche **UTC**: en Argentina, las 21:00 del 30. Así, `lte` perdía
+   * todo el último día del rango y `gte` metía tres horas del día anterior. Es el mismo error que ya
+   * se había corregido en los filtros del tablero (ver `common/utils/dia-local.ts`).
+   */
+  private buildCondicionFecha(field: string, operador: string, valorOriginal: any): any | null {
+    const esRango = ['gt', 'gte', 'lt', 'lte', 'eq', 'neq', 'between', 'notBetween'].includes(operador);
+    if (!esRango) return null;
+
+    const unaFecha = esSoloFecha(valorOriginal);
+    const dosFechas = Array.isArray(valorOriginal) && valorOriginal.length === 2
+        && valorOriginal.every((v) => esSoloFecha(v));
+    if (!unaFecha && !dosFechas) return null;
+
+    switch (operador) {
+      // El límite inferior arranca al principio del día; el superior termina al final.
+      case 'gte':
+      case 'gt':
+        return { [field]: { gte: inicioDelDia(valorOriginal) } };
+      case 'lte':
+      case 'lt':
+        return { [field]: { lte: finDelDia(valorOriginal) } };
+      // "Igual a un día" es el día entero, no un instante: sin esto no matcheaba nunca.
+      case 'eq':
+        return { [field]: { gte: inicioDelDia(valorOriginal), lte: finDelDia(valorOriginal) } };
+      case 'neq':
+        return { NOT: { [field]: { gte: inicioDelDia(valorOriginal), lte: finDelDia(valorOriginal) } } };
+      case 'between':
+        return { [field]: { gte: inicioDelDia(valorOriginal[0]), lte: finDelDia(valorOriginal[1]) } };
+      case 'notBetween':
+        return { NOT: { [field]: { gte: inicioDelDia(valorOriginal[0]), lte: finDelDia(valorOriginal[1]) } } };
+      default:
+        return null;
+    }
+  }
+
   private buildPrismaCondition(modeloActual: string, field: string, operador: string, valorOriginal: any): any {
+    const tipo = this.getRelationField(modeloActual, field)?.type;
+    if (tipo === 'DateTime') {
+      const porDia = this.buildCondicionFecha(field, operador, valorOriginal);
+      if (porDia) return porDia;
+    }
+
     const valor = this.coerceValor(modeloActual, field, valorOriginal);
     switch (operador) {
       case 'eq':

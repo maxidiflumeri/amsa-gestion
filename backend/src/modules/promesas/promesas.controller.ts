@@ -34,7 +34,7 @@ export class PromesasController {
     @Audit({
         modulo: AuditModulo.GESTION,
         entidad: 'PromesaPago',
-        tipo: 'ANULAR',
+        tipo: AuditTipo.ANULAR,
         entidadIdParam: 'id',
         resumen: (_res, req) => `Anuló promesa de pago ${req.params.id}`,
     })

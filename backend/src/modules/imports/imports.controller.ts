@@ -217,7 +217,7 @@ export class ImportController {
     @Audit({
         modulo: AuditModulo.IMPORT,
         entidad: 'Remesa',
-        tipo: 'VALIDAR',
+        tipo: AuditTipo.VALIDAR,
         entidadIdParam: 'id',
         resumen: (res, req) => `Validó remesa ${req.params.id}`,
     })
