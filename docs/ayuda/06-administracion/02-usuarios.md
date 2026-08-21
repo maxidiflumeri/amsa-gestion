@@ -3,6 +3,7 @@ seccion: Administración
 resumen: Dar de alta a alguien, asignarle rol y darle de baja sin romper el historial.
 revisado: 2026-08-20
 rutas: /admin/usuarios
+rutaPrincipal: /admin/usuarios
 -->
 # Usuarios
 

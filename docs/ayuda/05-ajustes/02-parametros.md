@@ -3,6 +3,7 @@ seccion: Ajustes
 resumen: Los códigos de situación, gestión y motivo de no pago, y cómo se asignan a cada cartera.
 revisado: 2026-08-20
 rutas: /ajustes/parametros
+rutaPrincipal: /ajustes/parametros
 -->
 # Parámetros
 

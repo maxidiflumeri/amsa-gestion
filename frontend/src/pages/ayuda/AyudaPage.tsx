@@ -6,7 +6,6 @@ import {
     Chip,
     Divider,
     InputAdornment,
-    Link as MuiLink,
     List,
     ListItemButton,
     ListItemText,
@@ -19,9 +18,8 @@ import {
 } from '@mui/material'
 import SearchIcon from '@mui/icons-material/Search'
 import MenuBookIcon from '@mui/icons-material/MenuBook'
-import ReactMarkdown from 'react-markdown'
-import remarkGfm from 'remark-gfm'
 import { PAGINAS, SECCIONES, buscar, buscarPagina } from './contenido'
+import Markdown from './Markdown'
 
 /**
  * Visor de la documentación de uso.
@@ -172,84 +170,5 @@ const AyudaPage: React.FC = () => {
         </Box>
     )
 }
-
-/**
- * Markdown con los componentes de MUI, para que la ayuda no parezca pegada de otro lado.
- * Las tablas anchas scrollean solas en vez de romper el layout.
- */
-const Markdown: React.FC<{ texto: string }> = ({ texto }) => (
-    <Box
-        sx={{
-            '& h1': { typography: 'h4', fontWeight: 900, mt: 0, mb: 2 },
-            '& h2': { typography: 'h5', fontWeight: 800, mt: 5, mb: 1.5 },
-            '& h3': { typography: 'h6', fontWeight: 700, mt: 3.5, mb: 1 },
-            '& p': { typography: 'body1', lineHeight: 1.75, mb: 2 },
-            '& li': { typography: 'body1', lineHeight: 1.75, mb: 0.5 },
-            '& ol, & ul': { pl: 3, mb: 2 },
-            '& code': {
-                bgcolor: 'action.hover',
-                px: 0.75,
-                py: 0.25,
-                borderRadius: 0.5,
-                fontSize: '0.875em',
-                fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace',
-            },
-            '& pre': {
-                bgcolor: 'action.hover',
-                p: 2,
-                borderRadius: 1,
-                overflowX: 'auto',
-                mb: 2,
-                '& code': { bgcolor: 'transparent', p: 0 },
-            },
-            '& table': { borderCollapse: 'collapse', width: '100%', mb: 2 },
-            '& th, & td': {
-                border: '1px solid',
-                borderColor: 'divider',
-                px: 1.5,
-                py: 1,
-                textAlign: 'left',
-                verticalAlign: 'top',
-                typography: 'body2',
-            },
-            '& th': { bgcolor: 'action.hover', fontWeight: 700 },
-            '& blockquote': {
-                borderLeft: '4px solid',
-                borderColor: 'primary.main',
-                bgcolor: 'action.hover',
-                m: 0,
-                mb: 2,
-                px: 2,
-                py: 0.5,
-                borderRadius: 1,
-                '& p': { mb: 1 },
-            },
-            '& img': { maxWidth: '100%', borderRadius: 1, border: '1px solid', borderColor: 'divider' },
-            '& hr': { border: 0, borderTop: '1px solid', borderColor: 'divider', my: 4 },
-        }}
-    >
-        <Box sx={{ '& > div:first-of-type > *:first-of-type': { mt: 0 } }}>
-            <div>
-                <ReactMarkdown
-                    remarkPlugins={[remarkGfm]}
-                    components={{
-                        table: ({ children }) => (
-                            <Box sx={{ overflowX: 'auto', mb: 2 }}>
-                                <table>{children}</table>
-                            </Box>
-                        ),
-                        a: ({ href, children }) => (
-                            <MuiLink href={href} target={href?.startsWith('http') ? '_blank' : undefined} rel="noopener">
-                                {children}
-                            </MuiLink>
-                        ),
-                    }}
-                >
-                    {texto}
-                </ReactMarkdown>
-            </div>
-        </Box>
-    </Box>
-)
 
 export default AyudaPage

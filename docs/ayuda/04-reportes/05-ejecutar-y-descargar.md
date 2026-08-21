@@ -3,6 +3,7 @@ seccion: Reportes
 resumen: Correr un reporte, qué pasa si es grande, y de dónde se bajan los archivos.
 revisado: 2026-08-20
 rutas: /reportes, /reportes/ejecuciones
+rutaPrincipal: /reportes/ejecuciones
 -->
 # Ejecutar y descargar
 

@@ -3,6 +3,7 @@ seccion: Ajustes
 resumen: Cargar la tasa mensual que informa el cedente y mantener la cadena de índices al día.
 revisado: 2026-08-20
 rutas: /ajustes/mora
+rutaPrincipal: /ajustes/mora
 -->
 # Recargo por mora
 

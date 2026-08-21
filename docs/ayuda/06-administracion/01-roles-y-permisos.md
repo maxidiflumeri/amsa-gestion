@@ -3,6 +3,7 @@ seccion: Administración
 resumen: Qué puede hacer cada persona en el sistema, y por qué un permiso nuevo no se ve hasta volver a entrar.
 revisado: 2026-08-20
 rutas: /admin/roles
+rutaPrincipal: /admin/roles
 -->
 # Roles y permisos
 

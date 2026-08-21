@@ -3,6 +3,7 @@ seccion: Importación de datos
 resumen: El asistente de carga, paso a paso, y qué mirar en la vista previa antes de confirmar.
 revisado: 2026-08-20
 rutas: /carga
+rutaPrincipal: /carga
 -->
 # Importar un archivo
 

@@ -6,6 +6,58 @@
 
 ---
 
+## [2026-08-21] — Ayuda contextual: el botón "?" en todas las pantallas
+
+> Frontend: `pages/ayuda/AyudaContextual.tsx` y `Markdown.tsx` (nuevos), `contenido.ts`,
+> `AyudaPage.tsx`, `AppShell/AppBar.tsx`. Guarda nueva: `frontend/scripts/verificar-ayuda.mjs`
+> (`npm run verificar-ayuda`). Spec: [docs/ayuda-spec.md](docs/ayuda-spec.md) §2 y §6.
+
+Cierra la fase 5 de la wiki. El `?` de la barra superior abre la ayuda **de la pantalla en la que
+estás**, en un panel lateral.
+
+**El problema no era cablear, era decidir qué abrir.** `rutas` ya existía en el frontmatter y
+`paginaParaRuta()` estaba exportada sin que la llamara nadie — pero no alcanzaba: cuatro pantallas
+tienen cinco o seis páginas (`/gestion` 6, `/reportes` 6, `/carga` 6, `/plantillas` 5) y la función
+devolvía la primera por orden de archivo. El `?` de Gestión habría abierto "Cómo piensa el sistema"
+en vez de "Buscar un caso".
+
+Se resolvió declarando la principal explícita (`rutaPrincipal`) en 14 páginas, con una guarda que
+verifica que cada pantalla tenga exactamente una. Nada sale de un orden implícito.
+
+### Decisiones
+
+- **Panel lateral, no navegación.** El momento en que alguien pide ayuda es, casi siempre, con un
+  formulario a medio llenar. Salir de la pantalla se lo llevaría puesto.
+- **Abre la principal ya renderizada**, con las hermanas de esa pantalla como chips arriba: un clic
+  para el caso común, sin perder las otras cinco.
+- **El botón vive en la barra, no en cada página.** La pantalla sale de `useLocation()`, así que una
+  página de ayuda nueva queda enganchada sola con solo declarar su `rutaPrincipal`.
+- **Match por prefijo más largo**: `/reportes/ejecuciones` prefiere su propia página antes que las de
+  `/reportes`, y `/gestion/1234` igual encuentra la ayuda de Gestión.
+- Dentro del panel, un enlace a otra página de ayuda **cambia el contenido del panel** en vez de
+  navegar. Ir a `/ayuda` es una acción aparte, al pie.
+
+### De paso
+
+- El renderer de markdown salió de `AyudaPage.tsx` a su propio `Markdown.tsx`, que ahora comparten el
+  visor y el panel.
+- **Los enlaces internos ya no recargan la app**: usaban `<a href>` pelado, así que cada link entre
+  páginas de ayuda era un full reload. Ahora van por React Router.
+
+### La guarda
+
+`npm run verificar-ayuda` valida metadatos, que los enlaces internos resuelvan, que haya exactamente
+una principal por pantalla, y que cada entrada de `navConfig` tenga ayuda salvo las que estén en la
+lista explícita de pendientes. Además imprime qué abre el `?` en cada pantalla, que es la forma más
+rápida de ver si una principal quedó mal elegida.
+
+Encontró un error apenas se corrió: la ruta de Tableros es `/dashboards`, no `/tableros`.
+
+Pendientes: Tableros, Telefonía y Email siguen sin página (están en la lista de la guarda), y falta
+la guarda de que las 10 categorías de importación estén documentadas.
+
+---
+
 ## [2026-08-21] — Mora: tres guardas que faltaban, encontradas auditando la documentación
 
 > Backend: `mora.service.ts`, `mora.controller.ts`, `cargar-tasa.dto.ts`, `mora.interface.ts`.

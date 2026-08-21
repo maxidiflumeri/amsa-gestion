@@ -3,6 +3,7 @@ seccion: Importación de datos
 resumen: Ver qué pasó con una carga, revisar los errores fila por fila, y qué se puede deshacer y qué no.
 revisado: 2026-08-20
 rutas: /historial-importaciones
+rutaPrincipal: /historial-importaciones
 -->
 # Historial y problemas
 

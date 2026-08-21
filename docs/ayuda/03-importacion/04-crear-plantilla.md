@@ -3,6 +3,7 @@ seccion: Importación de datos
 resumen: Cómo se le enseña al sistema a leer el archivo de un cedente, campo por campo.
 revisado: 2026-08-20
 rutas: /plantillas
+rutaPrincipal: /plantillas
 -->
 # Crear una plantilla de importación
 

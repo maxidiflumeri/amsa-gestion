@@ -22,8 +22,13 @@
  *   -->
  *   # Crear una plantilla de importación
  *
- * `rutas` es la lista de pantallas del sistema a las que esta página responde. Es lo que alimenta
- * la ayuda contextual: el botón "?" de una pantalla abre la página que la declara.
+ * `rutas` es la lista de pantallas del sistema a las que esta página responde, y `rutaPrincipal` la
+ * pantalla de la que esta página es **la respuesta por defecto**. Las dos alimentan la ayuda
+ * contextual: el botón "?" abre la principal de esa pantalla y ofrece las hermanas al lado.
+ *
+ * Una pantalla puede tener varias páginas (Gestión y Reportes tienen seis cada una), así que
+ * `rutas` no alcanza para decidir cuál abrir: por eso la principal se declara explícita en vez de
+ * salir del orden de los archivos.
  */
 
 export interface PaginaAyuda {
@@ -38,6 +43,8 @@ export interface PaginaAyuda {
     revisado?: string;
     /** Rutas de la app que esta página documenta, para la ayuda contextual. */
     rutas: string[];
+    /** Rutas de las que esta página es la respuesta por defecto del botón "?". */
+    rutasPrincipales: string[];
     /** El markdown ya sin el bloque de metadatos. */
     cuerpo: string;
     /** Todo el texto en minúsculas, para buscar sin recalcular en cada tecla. */
@@ -64,6 +71,10 @@ function parsearMeta(md: string): { meta: Record<string, string>; cuerpo: string
         if (k) meta[k] = v;
     }
     return { meta, cuerpo: md.slice(m[0].length).trimStart() };
+}
+
+function partirLista(valor?: string): string[] {
+    return (valor || '').split(',').map((r) => r.trim()).filter(Boolean)
 }
 
 /** `03-importacion` → `{ orden: 3, slug: 'importacion' }`. El prefijo ordena y no se muestra. */
@@ -95,7 +106,8 @@ function construir(): PaginaAyuda[] {
             ordenSeccion: c.orden,
             resumen: meta.resumen,
             revisado: meta.revisado,
-            rutas: (meta.rutas || '').split(',').map((r) => r.trim()).filter(Boolean),
+            rutas: partirLista(meta.rutas),
+            rutasPrincipales: partirLista(meta.rutaPrincipal),
             cuerpo,
             textoBusqueda: `${titulo}\n${meta.resumen ?? ''}\n${cuerpo}`.toLowerCase(),
         });
@@ -125,9 +137,35 @@ export function buscarPagina(slug: string): PaginaAyuda | undefined {
     return PAGINAS.find((p) => p.slug === slug);
 }
 
-/** La página que documenta una ruta de la app. Alimenta el botón de ayuda contextual. */
-export function paginaParaRuta(ruta: string): PaginaAyuda | undefined {
-    return PAGINAS.find((p) => p.rutas.includes(ruta));
+/**
+ * Todas las páginas que responden a una pantalla, con la principal primero.
+ *
+ * El match es por **prefijo más largo**, así que `/reportes/ejecuciones` prefiere sus propias
+ * páginas antes que las de `/reportes`, y una ruta con parámetros (`/gestion/1234`) igual encuentra
+ * la ayuda de `/gestion`.
+ */
+export function paginasParaRuta(ruta: string): PaginaAyuda[] {
+    const declaradas = new Set<string>()
+    for (const p of PAGINAS) for (const r of p.rutas) declaradas.add(r)
+
+    // De todas las rutas declaradas que son prefijo de la actual, gana la más específica.
+    let mejor = ''
+    for (const r of declaradas) {
+        if (r === '/' ? ruta === '/' : ruta === r || ruta.startsWith(`${r}/`)) {
+            if (r.length > mejor.length) mejor = r
+        }
+    }
+    if (!mejor) return []
+
+    const paginas = PAGINAS.filter((p) => p.rutas.includes(mejor))
+    const principales = paginas.filter((p) => p.rutasPrincipales.includes(mejor))
+    const resto = paginas.filter((p) => !p.rutasPrincipales.includes(mejor))
+    return [...principales, ...resto]
+}
+
+/** La página que abre el botón "?" de una pantalla. */
+export function paginaPrincipalParaRuta(ruta: string): PaginaAyuda | undefined {
+    return paginasParaRuta(ruta)[0]
 }
 
 export interface Resultado {

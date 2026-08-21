@@ -3,6 +3,7 @@ seccion: Administración
 resumen: Averiguar quién hizo qué, cuándo, y qué cambió exactamente.
 revisado: 2026-08-20
 rutas: /auditoria
+rutaPrincipal: /auditoria
 -->
 # Auditoría
 

@@ -3,6 +3,7 @@ seccion: Primeros pasos
 resumen: Qué es AMSA Gestión, cómo entrar y por dónde empezar el primer día.
 revisado: 2026-08-20
 rutas: /
+rutaPrincipal: /
 -->
 # El primer día
 

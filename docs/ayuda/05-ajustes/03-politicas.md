@@ -3,6 +3,7 @@ seccion: Ajustes
 resumen: Dejar escrito qué puede ofrecer el gestor en cada cartera.
 revisado: 2026-08-20
 rutas: /ajustes/politicas
+rutaPrincipal: /ajustes/politicas
 -->
 # Políticas
 

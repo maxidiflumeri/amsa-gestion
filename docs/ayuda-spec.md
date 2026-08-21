@@ -1,7 +1,7 @@
 # Documentación de uso (wiki interna) — spec
 
-> Estado: **piloto**. El visor funciona y hay 2 páginas escritas de ~40 planificadas. Falta calibrar
-> el formato con el usuario antes de escribir el resto.
+> Estado: **en uso**. 30 páginas escritas y auditadas, visor con buscador y el `?` contextual cableado
+> en todas las pantallas. Falta Tableros y Telefonía/Email.
 
 El sistema creció y no tiene documentación de uso. Hay flujos que no se entienden sin que alguien te
 los explique —crear una plantilla de importación, las 10 categorías, el builder de reportes— y eso
@@ -70,23 +70,31 @@ rutas: /plantillas
 # Crear una plantilla de importación
 ```
 
-`rutas` es la lista de pantallas que esta página documenta. **Es lo que va a alimentar la ayuda
-contextual**: el botón `?` de una pantalla abre la página que la declara. Esa pieza es la que decide
-si la wiki se usa o junta polvo — nadie navega a "Documentación", pero sí toca el `?` cuando está
-trabado.
+`rutas` es la lista de pantallas que esta página documenta y `rutaPrincipal` aquella de la que es
+**la respuesta por defecto**. Las dos alimentan la ayuda contextual, que es la pieza que decide si la
+wiki se usa o junta polvo — nadie navega a "Documentación", pero sí toca el `?` cuando está trabado.
 
-> ### Pendiente antes de cablear la ayuda contextual (fase 5)
->
-> Hoy `rutas` **no lo consume nadie**: `paginaParaRuta()` está exportada y nunca se llama.
->
-> Y tal como está cargado, no serviría: **`/gestion` lo declaran seis páginas**, y la función devuelve
-> la primera del orden de secciones — así que el `?` de Gestión abriría "Cómo piensa el sistema" en vez
-> de "Buscar un caso".
->
-> Antes de cablearlo hay que decidir **una página principal por ruta**. Dos opciones: un campo aparte
-> (`rutaPrincipal`) para la página que responde al `?`, dejando `rutas` como lista de relacionadas; o
-> que el `?` abra un **menú** con todas las páginas de esa pantalla, con la principal arriba. La segunda
-> es más útil y no obliga a elegir.
+### Cómo quedó resuelta la ayuda contextual (fase 5)
+
+El problema era que `rutas` no alcanza para decidir qué abrir: **cuatro pantallas tienen cinco o seis
+páginas** (`/gestion` 6, `/reportes` 6, `/carga` 6, `/plantillas` 5) y las otras diez tienen una.
+Resolverlo por orden de archivo daba mal: el `?` de Gestión abría "Cómo piensa el sistema".
+
+Lo que se hizo:
+
+- **La principal se declara explícita**, con `rutaPrincipal`. No sale de ningún orden implícito, y hay
+  una guarda que verifica que cada pantalla tenga exactamente una.
+- **El `?` abre un panel lateral**, no navega. El momento en que alguien pide ayuda es, casi siempre,
+  con un formulario a medio llenar: salir de la pantalla se lo llevaría puesto.
+- **Muestra la principal ya abierta**, con las hermanas de esa pantalla como chips arriba. Un clic
+  para el caso común, sin perder las otras cinco.
+- **El botón vive en la barra superior**, no en cada página: la pantalla sale de la ruta, así que una
+  página nueva queda enganchada sola con solo declarar su `rutaPrincipal`.
+- El match es por **prefijo más largo**, así que `/reportes/ejecuciones` prefiere su propia página
+  antes que las de `/reportes`, y `/gestion/1234` igual encuentra la ayuda de Gestión.
+
+Dentro del panel, un enlace a otra página de ayuda **cambia el contenido del panel** en vez de
+navegar. Salir a `/ayuda` es una acción aparte, explícita, al pie.
 
 ### Búsqueda
 
@@ -162,7 +170,7 @@ transforms, ancho fijo, multiarchivo, multirregistro, filtros de fila.
 | 2 | Reportes (6 páginas) | **HECHA** — auditada y corregida |
 | 3 | Primeros pasos + gestión del caso (6 páginas) | **HECHA** — auditada y corregida |
 | 4 | Ajustes + administración (8 páginas) | **HECHA** — auditada y corregida |
-| 5 | Ayuda contextual (el `?` en cada pantalla) | necesita las páginas escritas |
+| 5 | Ayuda contextual (el `?` en cada pantalla) | **HECHA** — panel lateral con la principal abierta |
 
 Escritas hasta ahora (30):
 
@@ -210,9 +218,17 @@ datos sin vuelta atrás. Un error ahí no confunde: hace daño.
 Además de vivir en el repo, tres guardas automáticas del mismo tipo que el test de sincronía del
 catálogo de permisos (que se agregó justamente porque esa clase de desincronización ya mordió):
 
-- Cada entrada de `navConfig` tiene que tener página de ayuda asociada.
-- Cada una de las 10 categorías de importación tiene que estar documentada.
-- Los links internos y las anclas tienen que resolver.
+`npm run verificar-ayuda` (en `frontend/`, o `node frontend/scripts/verificar-ayuda.mjs`) valida:
+
+- **Metadatos completos** y título en cada página.
+- **Los enlaces internos resuelven** a un slug que existe.
+- **Exactamente una principal por pantalla**, y que la principal declare también esa ruta.
+- **Cada entrada de `navConfig` tiene ayuda**, salvo las que estén en la lista explícita de
+  pendientes — hoy `/dashboards`, `/admin/neotel-test` y `/ayuda`.
+- Imprime **qué abre el `?` en cada pantalla**, que es la forma más rápida de ver si una principal
+  quedó mal elegida.
+
+Falta todavía la guarda de que las 10 categorías de importación estén documentadas.
 
 Y cada página lleva su fecha de última revisión, visible al pie del visor.
 
@@ -289,4 +305,3 @@ Ordenados por gravedad. Los cuatro primeros son de seguridad o de pérdida de da
 | Tipos de auditoría fuera del enum (`'VALIDAR'`, `'ANULAR'`) escritos como strings sueltos | `imports.controller.ts:220` |
 
 
-> Estas guardas se agregan al cerrar la fase 1. Ponerlas ahora, con 2 páginas de 40, solo daría rojo.

@@ -3,6 +3,7 @@ seccion: Ajustes
 resumen: Dar de alta una cartera y qué hay que configurarle después para poder trabajarla.
 revisado: 2026-08-20
 rutas: /ajustes/empresas
+rutaPrincipal: /ajustes/empresas
 -->
 # Empresas
 

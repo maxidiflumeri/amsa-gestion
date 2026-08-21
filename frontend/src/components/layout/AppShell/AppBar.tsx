@@ -15,6 +15,7 @@ import NavigateNextIcon from '@mui/icons-material/NavigateNext';
 import logo from '../../../assets/logo-amsa-gestion.png';
 import UserMenu from './UserMenu';
 import NotificacionesBell from './NotificacionesBell';
+import AyudaContextual from '../../../pages/ayuda/AyudaContextual';
 import { usePageMeta } from '../../../context/PageMetaContext';
 import { Link as RouterLink } from 'react-router-dom';
 
@@ -131,6 +132,7 @@ const AppBarComponent: React.FC<AppBarProps> = ({
                     )}
                 </Box>
 
+                <AyudaContextual />
                 <NotificacionesBell />
                 <UserMenu user={user} />
             </Toolbar>

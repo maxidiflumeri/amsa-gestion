@@ -3,6 +3,7 @@ seccion: Reportes
 resumen: El constructor paso a paso: elegir columnas, configurarlas y guardar la plantilla.
 revisado: 2026-08-20
 rutas: /reportes
+rutaPrincipal: /reportes
 -->
 # Armar un reporte
 

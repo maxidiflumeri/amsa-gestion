@@ -3,6 +3,7 @@ seccion: Gestión de casos
 resumen: Encontrar el caso que buscás, y qué hacer cuando aparecen varios de la misma persona.
 revisado: 2026-08-20
 rutas: /gestion
+rutaPrincipal: /gestion
 -->
 # Buscar un caso
 
