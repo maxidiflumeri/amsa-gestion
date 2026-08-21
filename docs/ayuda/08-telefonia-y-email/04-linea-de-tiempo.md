@@ -84,11 +84,8 @@ No hay botón de refrescar: se recarga al tocar un filtro, o saliendo y volviend
 > **La apertura y el clic no cambian el estado del envío**: entran como **renglones propios**, más
 > arriba en la lista. Un mail abierto sigue diciendo *enviado*.
 
-> ### ⚠ Los estados malos no se ven en rojo
->
-> Hoy **rebote, fallo, queja y desuscripto salen en gris**, iguales a cualquier otro. No confíes en el
-> color: leé el texto del chip. El **rebote** es el dato accionable de esta solapa y es el que más
-> fácil se pasa por alto.
+Los colores acompañan: **rojo** para rebote, fallo y queja; **naranja** para pendiente, omitido y
+desuscripto; **verde** para enviado. El **rebote** es el dato accionable de la solapa.
 
 Y una advertencia sobre "abierto": se detecta con una imagen invisible que muchos clientes de correo
 bloquean. Un mail leído puede figurar solo como *enviado*, así que **la ausencia de "Open" no prueba**

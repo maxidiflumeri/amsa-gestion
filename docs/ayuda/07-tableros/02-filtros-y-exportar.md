@@ -22,7 +22,7 @@ la remesa de julio?"*, *"¿qué pasa con los que dicen que no tienen trabajo?"*.
 
 | Filtro | Para qué |
 |---|---|
-| **Empresa** | La cartera. Es el primero y es obligatorio: sin empresa no hay tablero |
+| **Empresa** | La cartera. Es el primero y es obligatorio: sin empresa no hay tablero. Cambiarla limpia la remesa y los códigos elegidos |
 | **Remesa** | Una asignación puntual, o todas |
 | **Desde / Hasta** | El período de la actividad — pagos y gestiones. Por defecto, los últimos 30 días |
 | **Granularidad** | Si las series se agrupan por día, semana o mes |
@@ -31,28 +31,25 @@ la remesa de julio?"*, *"¿qué pasa con los que dicen que no tienen trabajo?"*.
 | **Motivo no pago** | Uno o varios |
 
 Los tres últimos son de selección múltiple. La barra tiene además **Refrescar**, para recalcular sin
-tocar nada, y **Limpiar**.
-
-> ⚠ **Cuidado con Limpiar**: puede dejarte sin empresa seleccionada, y ahí el tablero desaparece
-> entero hasta que elijas una de nuevo.
+tocar nada, y **Limpiar**, que devuelve todo a los últimos 30 días sin soltar la empresa.
 
 > **El combo de Remesa solo lista las remesas que trajeron cartera.** Las de pagos y las de
 > actualizaciones no aparecen: no es que falten, es que no tienen casos propios para medir.
 
-> **Los códigos de los tres filtros de estado no están filtrados por empresa.** Podés elegir uno que
-> esa cartera no usa y quedarte en cero sin ningún aviso.
+> **Los tres filtros de estado ofrecen solo los códigos de la empresa elegida.** Por eso están vacíos
+> hasta que elijas una.
 
 > **Dejar la granularidad en "Auto" casi siempre es lo correcto.** Elige según el rango: hasta 60 días
 > agrupa por día, y de ahí en adelante por semana.
 
 ---
 
-## ⚠ El tope de 366 días
+## El tope de 366 días
 
-El rango no puede pasar de **366 días**. El campo te deja escribirlo, pero al calcular aparece un
-error rojo: *"Rango máximo permitido: 366 días"*.
+El rango no puede pasar de **366 días**. Si te pasás, los campos de fecha se ponen en rojo con un
+*"Máximo 366 días"* debajo. Achicalo y el tablero vuelve solo.
 
-Achicá el rango y el tablero vuelve solo. Para comparar dos años hay que mirarlos de a uno.
+Para comparar dos años hay que mirarlos de a uno.
 
 ---
 
@@ -121,7 +118,7 @@ Es el camino corto para pasar del número a la acción. "El 30% son negativa de 
 
 ## Qué puede salir mal
 
-### Error rojo "Rango máximo permitido: 366 días"
+### Los campos de fecha se pusieron en rojo
 
 Pusiste un rango de más de un año. Achicalo.
 
@@ -129,13 +126,9 @@ Pusiste un rango de más de un año. Achicalo.
 
 Es lo esperado: los de cartera son la foto de hoy. Solo la actividad respeta el período.
 
-### Apreté Limpiar y desapareció todo
+### Los filtros de estado están vacíos
 
-Limpiar puede dejar sin empresa seleccionada. Elegí una de nuevo.
-
-### Elegí "Todas" en Empresa y no muestra nada
-
-Esa opción no funciona: hay que elegir una empresa concreta.
+Todavía no elegiste empresa: los códigos son de cada cartera.
 
 ### No veo el botón Exportar
 

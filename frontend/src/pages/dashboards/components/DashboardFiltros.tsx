@@ -24,6 +24,9 @@ import { useEmpresas } from '../../../hooks/useEmpresas';
 import type { Granularidad, SnapshotFiltros } from '../../../types/dashboards';
 import { daysAgoIso, todayIso } from '../utils';
 
+/** Espejo de `RANGO_MAX_DIAS` en backend/src/modules/dashboards/codigos.constants.ts. */
+const RANGO_MAX_DIAS = 366;
+
 interface Remesa { id: number; nombre: string; numeroRemesa?: string | null; createdAt?: string; empresaId: number; }
 interface Parametro { id: number; clave: string; descripcion: string; grupo: string; }
 
@@ -61,15 +64,23 @@ const DashboardFiltros: React.FC<Props> = ({ value, onChange, onRefresh, loading
     const [gestiones, setGestiones] = useState<Parametro[]>([]);
     const [motivos, setMotivos] = useState<Parametro[]>([]);
 
-    // Cargar parametros una vez
+    // Los códigos son por empresa: sin `empresaId` el combo ofrecía todo el catálogo y se podía
+    // filtrar por un código que esa cartera no usa, quedándose en cero sin ningún aviso.
     useEffect(() => {
-        api.get('/parametros', { params: { grupo: 'situacion', activo: 'true' } })
+        if (!value.empresaId) {
+            setSituaciones([]);
+            setGestiones([]);
+            setMotivos([]);
+            return;
+        }
+        const comunes = { empresaId: value.empresaId, activo: 'true' };
+        api.get('/parametros', { params: { ...comunes, grupo: 'situacion' } })
             .then((r) => setSituaciones(r.data)).catch(() => null);
-        api.get('/parametros', { params: { grupo: 'gestion', activo: 'true' } })
+        api.get('/parametros', { params: { ...comunes, grupo: 'gestion' } })
             .then((r) => setGestiones(r.data)).catch(() => null);
-        api.get('/parametros', { params: { grupo: 'motivo_no_pago', activo: 'true' } })
+        api.get('/parametros', { params: { ...comunes, grupo: 'motivo_no_pago' } })
             .then((r) => setMotivos(r.data)).catch(() => null);
-    }, []);
+    }, [value.empresaId]);
 
     // Cargar remesas cuando cambia empresa
     useEffect(() => {
@@ -84,16 +95,27 @@ const DashboardFiltros: React.FC<Props> = ({ value, onChange, onRefresh, loading
             .catch(() => setRemesas([]));
     }, [value.empresaId]);
 
+    // El tope lo valida el backend, pero recién al calcular: sin esto el usuario escribía el rango y
+    // recibía un error rojo del servidor donde alcanzaba con avisarle en el campo.
+    const rangoExcedido = useMemo(() => {
+        if (!value.desde || !value.hasta) return false;
+        const dias = (new Date(value.hasta).getTime() - new Date(value.desde).getTime()) / 86_400_000;
+        return Number.isFinite(dias) && dias > RANGO_MAX_DIAS;
+    }, [value.desde, value.hasta]);
+
     const update = (patch: Partial<SnapshotFiltros>) => onChange({ ...value, ...patch });
 
     const handleEmpresaChange = (empresaId: number | null) => {
-        update({ empresaId, remesaId: null });
+        // Los códigos elegidos son de la empresa anterior: dejarlos puestos deja el tablero en cero.
+        update({ empresaId, remesaId: null, situacionIds: [], gestionIds: [], motivoIds: [] });
     };
 
     const handleReset = () => {
+        // Se conserva la empresa: sin ella el tablero no se calcula, así que "Limpiar" dejaba la
+        // pantalla en blanco justamente a quien podía elegir entre varias.
         const base: SnapshotFiltros = {
             ...DEFAULT_FILTROS,
-            empresaId: verTodas ? null : value.empresaId ?? null,
+            empresaId: value.empresaId ?? null,
         };
         onChange(base);
     };
@@ -132,7 +154,11 @@ const DashboardFiltros: React.FC<Props> = ({ value, onChange, onRefresh, loading
                             value={value.empresaId ?? ''}
                             onChange={(e) => handleEmpresaChange(e.target.value === '' ? null : Number(e.target.value))}
                         >
-                            {verTodas && <MenuItem value=""><em>Todas</em></MenuItem>}
+                            {/*
+                              No hay opción "Todas": el snapshot no se calcula sin empresa, así que
+                              elegirla dejaba el tablero en blanco con el cartel de "seleccioná una
+                              empresa" y sin explicar por qué.
+                            */}
                             {empresas.map((e) => (
                                 <MenuItem key={e.id} value={e.id}>{e.nombre}</MenuItem>
                             ))}
@@ -164,6 +190,7 @@ const DashboardFiltros: React.FC<Props> = ({ value, onChange, onRefresh, loading
                         label="Desde"
                         InputLabelProps={{ shrink: true }}
                         value={value.desde}
+                        error={rangoExcedido}
                         onChange={(e) => update({ desde: e.target.value })}
                     />
                 </Grid>
@@ -175,6 +202,8 @@ const DashboardFiltros: React.FC<Props> = ({ value, onChange, onRefresh, loading
                         label="Hasta"
                         InputLabelProps={{ shrink: true }}
                         value={value.hasta}
+                        error={rangoExcedido}
+                        helperText={rangoExcedido ? `Máximo ${RANGO_MAX_DIAS} días` : undefined}
                         onChange={(e) => update({ hasta: e.target.value })}
                     />
                 </Grid>

@@ -6,6 +6,62 @@
 
 ---
 
+## [2026-08-21] — Tableros y timeline: siete arreglos, y una decisión que queda abierta
+
+> Backend: `dashboards.controller.ts`, `dashboards.service.ts`.
+> Frontend: `DashboardFiltros.tsx`, `SeriePagos.tsx`, `TimelineDeudorTab.tsx`.
+
+Todo lo del backlog de tableros que **no depende de decidir qué debería significar un número**. Lo que
+sí depende quedó anotado abajo.
+
+- **El export de tableros no exigía `dashboards.ver`.** El `@Permisos` de método pisa al de la clase
+  (`reflector.getAllAndOverride`), así que un rol con solo "Exportar tableros" bajaba el tablero
+  entero por API. **No alcanza con listar los dos permisos en el decorador**: el guard los resuelve
+  con `.some()`, o sea OR. La conjunción se pide a mano en el handler, igual que hace
+  `transacciones.controller.ts` con `auditoria.exportar`.
+
+- **La opción "Todas" del selector de empresa** dejaba el tablero en blanco con el cartel de
+  "seleccioná una empresa": el snapshot no se calcula sin empresa. Se sacó. Y **Limpiar** reseteaba la
+  empresa a `null` justo para quien tenía el permiso de elegir entre varias: ahora la conserva.
+
+- **Los combos de situación, gestión y motivo no filtraban por empresa**, aunque el endpoint acepta
+  `empresaId`. Se podía filtrar por un código que esa cartera no usa y quedarse en cero sin ningún
+  aviso. Ahora se piden por empresa, y cambiar de empresa limpia los códigos elegidos.
+
+- **El tope de 366 días no se validaba en el front**: se escribía el rango y volvía un error rojo del
+  servidor. Ahora los campos de fecha se marcan con *"Máximo 366 días"*.
+
+- **La serie de pagos no dibujaba la cantidad.** El backend siempre la calculó y el tooltip ya tenía
+  su rama, pero no había ninguna serie con ese `dataKey`. Ahora es un `ComposedChart` con la cantidad
+  en línea y **su propio eje a la derecha**: sin eso, un mes de $8M y 40 pagos deja la línea pegada al
+  piso.
+
+- **`casosConPago` traía todos los `deudorId` distintos a memoria** para hacer `.length` — un array
+  enorme en el proceso Node por cada refresco, para usar un solo número. Ahora `groupBy`.
+
+- **En Timeline, todo lo malo se veía gris.** `estadoColor()` buscaba `fallido/failed/error/bounced`,
+  que son los estados de **WhatsApp**, y Sender escribe `fallo` y `rebote` para email. Un rebote —el
+  dato accionable de toda la solapa— era indistinguible de "desconocido". Se agregaron `fallo`,
+  `rebote` y `queja` en rojo, y `omitido`/`desuscripto` en naranja.
+
+### Lo que queda abierto, y por qué
+
+**`dashboards.ver_todas_empresas` no restringe nada** y no se arregló, porque no es un bug: es un
+modelo que no existe. El controller lee `usuario.empresaId`, campo que no está ni en el JWT ni en el
+schema, así que la restricción es siempre `null`. Y **el sistema no tiene el concepto de "empresa del
+usuario"** — el `resolverEmpresaId` de reportes, que el spec de dashboards cita como referencia, lee
+un header `x-empresa-id` del cliente, que no es una frontera de seguridad.
+
+Son dos caminos y los dos son decisiones de producto: implementar el modelo (`usuario.empresaId` +
+JWT + campo en el ABM de usuarios) o **sacar el permiso** y dejar de prometer un recorte que no
+ocurre. Mientras tanto, cualquiera con `dashboards.ver` puede pedir el tablero de otra empresa.
+
+Tampoco se tocaron los tres números que la auditoría marcó como engañosos —"Deuda total" sumando
+`montoTotal`, el funnel que no es un embudo, y "Casos sin gestión" que da 0 siempre—: los tres
+requieren decidir **qué tienen que medir**, no cómo. Están en `docs/ayuda-spec.md` §7.
+
+---
+
 ## [2026-08-21] — Email: cinco arreglos de lo que le llega mal al deudor
 
 > Gestión: `variables-mapper.ts` (+ spec nuevo), `email-sender.service.ts`, `sender-http.client.ts`,

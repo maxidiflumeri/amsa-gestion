@@ -1,4 +1,4 @@
-import { Body, Controller, Post, Req, Res } from '@nestjs/common';
+import { Body, Controller, ForbiddenException, Post, Req, Res } from '@nestjs/common';
 import type { Response } from 'express';
 import { DashboardsService } from './dashboards.service';
 import { DashboardsExportService } from './dashboards-export.service';
@@ -66,6 +66,15 @@ export class DashboardsController {
         @Req() req: any,
         @Res() res: Response,
     ): Promise<void> {
+        // El `@Permisos` del método pisa al de la clase (`reflector.getAllAndOverride`) y el guard
+        // resuelve la lista con `.some()`, así que declarar `dashboards.exportar` acá dejaba bajar el
+        // tablero entero a un rol sin permiso de verlo. El guard es OR por diseño: la conjunción se
+        // pide a mano, igual que en transacciones.controller.ts.
+        const permisos: string[] = req['usuario']?.permisos ?? [];
+        if (!permisos.includes('dashboards.ver')) {
+            throw new ForbiddenException('No tenés permiso para ver tableros.');
+        }
+
         const restrictEmpresaId = this.resolverRestrictEmpresaId(req);
         const snapshot = await this.service.snapshot(dto, restrictEmpresaId);
         const { buffer, mimeType, filename } = await this.exportService.generar(

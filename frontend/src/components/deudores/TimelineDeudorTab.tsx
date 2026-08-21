@@ -60,12 +60,22 @@ const canalLabel = (canal: TimelineCanal) => {
 
 const capitalize = (str: string) => (str ? str.charAt(0).toUpperCase() + str.slice(1) : '');
 
+/**
+ * Color del chip de estado.
+ *
+ * La lista de rojos estaba escrita contra los estados de WhatsApp (`failed`, `bounced`) y **no
+ * cubría ninguno de los que escribe Sender para email**: `fallo` (manual-email.service) y `rebote` /
+ * `queja` (ses-webhook.service). Un rebote —el dato accionable de toda la solapa— salía en gris
+ * neutro, indistinguible de "desconocido".
+ */
 const estadoColor = (estado?: string): 'default' | 'success' | 'error' | 'warning' | 'info' => {
     if (!estado) return 'default';
     const e = estado.toLowerCase();
     if (['success', 'enviado', 'entregado', 'delivered', 'leido', 'read'].includes(e)) return 'success';
-    if (['fallido', 'failed', 'error', 'bounced'].includes(e)) return 'error';
+    if (['fallido', 'failed', 'error', 'bounced', 'fallo', 'rebote', 'bounce', 'queja', 'complaint'].includes(e)) return 'error';
     if (['pending', 'pendiente'].includes(e)) return 'warning';
+    // No se mandó a propósito: no es un fallo, pero tampoco pasó nada. Naranja para que se note.
+    if (['omitido', 'desuscripto', 'unsubscribed'].includes(e)) return 'warning';
     if (e === 'evento') return 'info';
     return 'default';
 };

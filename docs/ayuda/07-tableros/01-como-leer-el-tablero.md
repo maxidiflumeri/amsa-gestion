@@ -177,8 +177,9 @@ una importación de enriquecimiento, no con más llamadas. Ver
 
 ## Las series y los tops
 
-- **Pagos por día/semana/mes** — el importe cobrado. La cantidad de pagos **no se grafica**, pero está
-  en el Excel.
+- **Pagos por día/semana/mes** — dos series: el **importe** cobrado, en área, y la **cantidad** de
+  pagos, en línea, con su propio eje a la derecha. Sirven juntas: mucho importe con pocos pagos es una
+  cobranza concentrada en pocos casos.
 - **Gestiones por día/semana/mes** — el volumen de trabajo, para cruzar contra los pagos.
 - **Top motivos de no pago** — los mismos datos de la torta, con el porcentaje al lado.
 - **Top 10 deudores por monto** — dónde está concentrada la plata. En muchas carteras un puñado de
@@ -233,8 +234,8 @@ Se calcula cada vez que entrás o cambiás un filtro, sin caché. Hay un botón 
 Todavía no. El tablero es uno solo y los filtros se eligen cada vez.
 
 **¿Puedo ver varias carteras juntas?**
-Podés ver **todas las remesas de una empresa** dejando *Remesa* en "Todas las remesas". La opción
-"Todas" del selector de **empresa** no muestra nada: siempre hay que elegir una.
+Podés ver **todas las remesas de una empresa** dejando *Remesa* en "Todas las remesas". Empresas, de a
+una: el tablero siempre se calcula sobre una.
 
 **¿Por qué el período por defecto son 30 días?**
 Es el arranque del tablero. Se cambia con los campos Desde y Hasta.

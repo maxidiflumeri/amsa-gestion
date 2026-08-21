@@ -118,7 +118,7 @@ export class DashboardsService {
             cantidadCasos,
             deudaAgg,
             pagosAgg,
-            casosConPagoArr,
+            casosConPagoGrupos,
             promesasVigentes,
             cpcCount,
             casosSinGestion,
@@ -147,10 +147,13 @@ export class DashboardsService {
                 _avg: { importe: true },
                 _count: true,
             }),
-            this.prisma.pago.findMany({
+            // `groupBy` en vez de traer todos los deudorId a memoria para hacer `.length`: en una
+            // cartera con cientos de miles de pagadores eso es un array enorme en el proceso Node por
+            // cada refresco del tablero, para terminar usando un solo número.
+            this.prisma.pago.groupBy({
+                by: ['deudorId'],
                 where: pagoDeudorWhere,
-                distinct: ['deudorId'],
-                select: { deudorId: true },
+                _count: { _all: true },
             }),
             idPromesaVigente > 0
                 ? this.prisma.deudor.count({ where: { ...where, estadoSituacionId: idPromesaVigente } })
@@ -295,7 +298,7 @@ export class DashboardsService {
                 deudaTotal,
                 pagosPeriodo,
                 porcentajeRecupero: deudaTotal > 0 ? Math.round((pagosPeriodo / deudaTotal) * 10000) / 100 : 0,
-                casosConPago: casosConPagoArr.length,
+                casosConPago: casosConPagoGrupos.length,
                 ticketPromedio,
                 moraPromediaDias,
                 promesasVigentes,
