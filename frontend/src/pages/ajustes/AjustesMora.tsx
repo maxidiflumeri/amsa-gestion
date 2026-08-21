@@ -65,6 +65,9 @@ const AjustesMora: React.FC = () => {
     const [empresas, setEmpresas] = useState<Empresa[]>([])
     const [empresaId, setEmpresaId] = useState<number | ''>('')
     const [tasas, setTasas] = useState<EstadoTasa[]>([])
+    /** Multiplicadores configurados de la empresa. Antes las columnas asumían ×1,5 y ×2 fijos. */
+    const [multiplicadores, setMultiplicadores] = useState<Record<string, number>>({ '1': 1, '2': 1.5, '3': 2 })
+    const multTipo = (tipo: number) => multiplicadores[String(tipo)] ?? (tipo === 2 ? 1.5 : 2)
     const [faltantes, setFaltantes] = useState<string[]>([])
     const [cargando, setCargando] = useState(false)
 
@@ -93,7 +96,8 @@ const AjustesMora: React.FC = () => {
         setCargando(true)
         try {
             const [t, f] = await Promise.all([moraApi.tasas(id, 24), moraApi.faltantes(id)])
-            setTasas(t)
+            setTasas(t.tasas)
+            setMultiplicadores(t.multiplicadores)
             setFaltantes(f.faltantes)
         } catch (e) {
             notify.error(e as Error)
@@ -282,7 +286,12 @@ const AjustesMora: React.FC = () => {
                     <strong>Falta el índice de {faltantes.length} mes(es):</strong>{' '}
                     {faltantes.slice(0, 12).map(nombrePeriodo).join(', ')}
                     {faltantes.length > 12 && ` y ${faltantes.length - 12} más`}.
-                    {' '}Cualquier deuda cuyo período de mora cruce esos meses se valúa mal.
+                    {/*
+                      Decía "cualquier deuda cuyo período de mora cruce esos meses se valúa mal", que
+                      no es cierto: el cálculo mira el índice del **vencimiento** y el del día de
+                      corte, no el tramo intermedio.
+                    */}
+                    {' '}Toda factura que venza en esos meses queda sin recargo.
                 </Alert>
             )}
 
@@ -293,8 +302,8 @@ const AjustesMora: React.FC = () => {
                             <TableRow>
                                 <TableCell>Período</TableCell>
                                 <TableCell align="right">Tasa informada</TableCell>
-                                <TableCell align="right">Tipo 2 (×1,5)</TableCell>
-                                <TableCell align="right">Tipo 3 (×2)</TableCell>
+                                <TableCell align="right">Tipo 2 (×{multTipo(2)})</TableCell>
+                                <TableCell align="right">Tipo 3 (×{multTipo(3)})</TableCell>
                                 <TableCell>Fuente</TableCell>
                                 <TableCell align="right">Días de índice</TableCell>
                             </TableRow>
@@ -316,10 +325,10 @@ const AjustesMora: React.FC = () => {
                                         {t.tasaBase != null ? `${t.tasaBase.toLocaleString('es-AR', { minimumFractionDigits: 3 })} %` : '—'}
                                     </TableCell>
                                     <TableCell align="right" sx={{ color: 'text.secondary' }}>
-                                        {t.tasaBase != null ? `${(t.tasaBase * 1.5).toLocaleString('es-AR', { minimumFractionDigits: 4 })} %` : '—'}
+                                        {t.tasaBase != null ? `${(t.tasaBase * multTipo(2)).toLocaleString('es-AR', { minimumFractionDigits: 4 })} %` : '—'}
                                     </TableCell>
                                     <TableCell align="right" sx={{ color: 'text.secondary' }}>
-                                        {t.tasaBase != null ? `${(t.tasaBase * 2).toLocaleString('es-AR', { minimumFractionDigits: 3 })} %` : '—'}
+                                        {t.tasaBase != null ? `${(t.tasaBase * multTipo(3)).toLocaleString('es-AR', { minimumFractionDigits: 3 })} %` : '—'}
                                     </TableCell>
                                     <TableCell>
                                         <FuenteChip fuente={t.fuente} />

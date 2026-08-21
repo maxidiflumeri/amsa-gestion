@@ -46,7 +46,17 @@ const KpiGrid: React.FC<Props> = ({ kpis }) => {
                 <KpiCard label="Ticket promedio" value={fmtMoneyShort(kpis.ticketPromedio)} hint={fmtMoney(kpis.ticketPromedio)} icon={<ReceiptLongIcon />} />
             </Grid>
             <Grid item xs={6} sm={4} md={3}>
-                <KpiCard label="Mora promedio" value={fmtDays(kpis.moraPromediaDias)} icon={<HourglassBottomIcon />} color="warning" />
+                {/*
+                  Depende de `deudor.fechaVencimiento`, que muchas carteras no traen: sin ese dato el
+                  KPI mostraba "—" a secas y parecía un error del tablero.
+                */}
+                <KpiCard
+                    label="Mora promedio"
+                    value={fmtDays(kpis.moraPromediaDias)}
+                    hint={kpis.moraPromediaDias == null ? 'Esta cartera no trae fecha de vencimiento' : undefined}
+                    icon={<HourglassBottomIcon />}
+                    color="warning"
+                />
             </Grid>
             <Grid item xs={6} sm={4} md={3}>
                 <KpiCard label="Promesas vigentes" value={fmtNumber(kpis.promesasVigentes)} icon={<HandshakeIcon />} color="info" />

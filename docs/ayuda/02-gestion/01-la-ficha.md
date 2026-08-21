@@ -63,11 +63,10 @@ Pago**.
 
 **Hay que apretar Guardar.** Cambiar el selector no persiste nada por sí solo.
 
-> El permiso **Editar estado de deudores** no esconde ni deshabilita nada: los selectores se ven y se
-> mueven igual, y el rechazo llega recién al guardar, como un error genérico.
+> Sin el permiso **Editar estado de deudores** los tres selectores aparecen deshabilitados, y el
+> tooltip dice por qué.
 
-> **No se puede quitar un motivo de no pago.** El selector ofrece "Sin motivo", pero al guardar se
-> conserva el anterior.
+> **El motivo de no pago se puede quitar**: eligiendo "Sin motivo" y guardando, se borra.
 
 Los catálogos **se pueden configurar por cedente**, aunque hoy todas las empresas comparten el mismo
 set. Y en el selector solo aparecen los códigos activos: si un caso quedó con uno que después se

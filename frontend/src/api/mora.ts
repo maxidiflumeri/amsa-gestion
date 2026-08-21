@@ -74,7 +74,12 @@ export interface ResultadoRecalculo {
 }
 
 export const moraApi = {
-    tasas(empresaId: number, meses = 24): Promise<EstadoTasa[]> {
+    /**
+     * Las tasas del período **y** los multiplicadores configurados de esa empresa: la pantalla los
+     * tenía hardcodeados en ×1,5 y ×2, así que una empresa con otra configuración veía columnas que
+     * no se correspondían con el índice que realmente se generó.
+     */
+    tasas(empresaId: number, meses = 24): Promise<{ tasas: EstadoTasa[]; multiplicadores: Record<string, number> }> {
         return api.get('/mora/tasas', { params: { empresaId, meses } }).then((r) => r.data);
     },
 

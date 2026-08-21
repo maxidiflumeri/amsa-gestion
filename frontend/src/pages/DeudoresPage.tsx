@@ -17,8 +17,6 @@ const DeudoresPage = () => {
     const [loading, setLoading] = useState(true)
     const [advancedSearchOpen, setAdvancedSearchOpen] = useState(false)
 
-    const user = { nombre: 'Maxi', rol: 'admin' } // mock o traer desde contexto
-
     useEffect(() => {
         if (selectedDeudorId) {
             localStorage.setItem('last_deudor_id', selectedDeudorId.toString())
@@ -70,7 +68,6 @@ const DeudoresPage = () => {
                 ]}
             />
             <TabsPanel
-                user={user}
                 selectedTab={selectedTab}
                 setSelectedTab={setSelectedTab}
                 selectedDeudorId={selectedDeudorId}

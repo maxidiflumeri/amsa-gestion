@@ -37,7 +37,7 @@ Es la confusión número uno del tablero, y hace que la gente vea contradiccione
 | Cantidad de casos | Cobrado en el período |
 | Deuda asignada · Saldo pendiente | Casos con pago (período) |
 | % Recupero acumulado | Ticket promedio |
-| Promesas vigentes · % CPC | Mora promedio *(en parte — ver abajo)* |
+| Promesas vigentes · % CPC · Mora promedio | |
 | Casos sin gestión | Las dos series de abajo |
 | Incobrables · En proceso legal | |
 | El funnel y las cinco distribuciones | |
@@ -60,7 +60,7 @@ seleccionado"*.
 | **Cobrado en el período** | Lo cobrado dentro del rango de fechas |
 | **Casos con pago (período)** | Cuántos casos pagaron algo en el rango. Un caso cuenta una vez |
 | **Ticket promedio** | El pago promedio del período |
-| **Mora promedio** | Días de atraso promedio. Ver abajo |
+| **Mora promedio** | Días de atraso de lo que falta cobrar. Ver abajo |
 | **Promesas vigentes** | Casos cuya situación es *Promesa de pago vigente* |
 | **% CPC** | Contacto con persona correcta. Ver abajo |
 | **Casos sin gestión** | Casos que nadie tocó nunca: sin un solo comentario |
@@ -101,8 +101,8 @@ si son muchos y la remesa entró ayer, es normal.
 
 ### Mora promedio
 
-Se calcula sobre la fecha de vencimiento del caso, y **deja afuera los que pagaron dentro del
-período**, así que se mueve un poco con las fechas.
+Días de atraso de **lo que falta cobrar**: los casos ya saldados no cuentan. Es una foto de hoy y no se
+mueve con las fechas.
 
 **Depende de un dato que muchas carteras no traen.** Si el cedente no manda fecha de vencimiento, este
 indicador muestra "—" y la barra de rango de mora queda toda en *Sin fecha*. No es un error del
@@ -211,10 +211,10 @@ no suman.
 
 No es del tablero: el equipo no está cargando el motivo en la ficha.
 
-### La barra de mora está toda en "Sin fecha"
+### En vez de la barra de mora aparece un cartel
 
-La cartera no trae fecha de vencimiento. Sin ese dato, ese widget y el indicador de mora promedio no
-pueden calcular nada.
+La cartera no trae fecha de vencimiento. Sin ese dato no se puede calcular la antigüedad de la deuda, y
+el indicador de mora promedio también queda vacío. Se carga desde la importación.
 
 ### El recupero bajó y nadie trabajó distinto
 

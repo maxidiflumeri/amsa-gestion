@@ -55,6 +55,8 @@ interface Props {
 
 const MAX_MB = 10
 const MAX_FILES = 10
+/** Tope del tamaño sumado. Sin esto se podían armar 100 MB que el SMTP rechaza recién al final. */
+const MAX_TOTAL_MB = 20
 
 interface MapeoLocal {
     fuenteTipo: FuenteTipo | null
@@ -62,6 +64,21 @@ interface MapeoLocal {
 }
 
 const fuenteIdentifier = (tipo: FuenteTipo, clave: string) => `${tipo}:${clave}`
+
+/**
+ * Reemplaza las variables **con la misma regla que usa AMSA Sender al enviar**.
+ *
+ * Antes acá se hacía `split('{{'+clave+'}}')`, coincidencia exacta, y Sender usa
+ * `/{{\s*(\w+)\s*}}/g`. Las dos diferencias importaban:
+ *
+ *  - `{{ nombre }}` con espacios se veía con el hueco literal en la previsualización y salía bien.
+ *  - `{{monto-total}}` o `{{deudor.nombre}}` —que `\w+` no acepta— se veían bien en la
+ *    previsualización y salían con el `{{}}` literal en el mail del deudor.
+ *
+ * O sea: la pantalla mostraba algo distinto de lo que iba a llegar, en los dos sentidos.
+ */
+const renderComoSender = (texto: string, variables: Record<string, string>) =>
+    texto.replace(/{{\s*(\w+)\s*}}/g, (_m, clave: string) => variables[clave] ?? '')
 
 const EnviarEmailDialog: React.FC<Props> = ({
     open,
@@ -240,6 +257,25 @@ const EnviarEmailDialog: React.FC<Props> = ({
             allowed.push(f)
         }
         const next = [...archivos, ...allowed].slice(0, MAX_FILES)
+        // El `.slice` descartaba los sobrantes **en silencio**: se arrastraban quince archivos, se
+        // quedaban diez y nadie se enteraba de cuáles faltaban.
+        const descartados = archivos.length + allowed.length - next.length
+        if (descartados > 0) {
+            notify.warning(
+                `Solo se pueden adjuntar ${MAX_FILES} archivos: se descartaron los últimos ${descartados}.`,
+            )
+        }
+
+        // Y no había tope de tamaño **total**: diez de 10 MB son 100 MB que el SMTP va a rechazar
+        // recién al final, y el error vuelve como un fallo genérico.
+        const totalMb = next.reduce((acc, f) => acc + f.size, 0) / (1024 * 1024)
+        if (totalMb > MAX_TOTAL_MB) {
+            notify.error(
+                `Los adjuntos suman ${totalMb.toFixed(1)}MB y el máximo es ${MAX_TOTAL_MB}MB. Sacá alguno.`,
+            )
+            return
+        }
+
         setArchivos(next)
         e.target.value = ''
     }
@@ -327,22 +363,12 @@ const EnviarEmailDialog: React.FC<Props> = ({
         }
     }
 
-    const previewRendered = useMemo(() => {
-        if (!previewBase) return null
-        let html = previewBase.html || ''
-        Object.entries(variables).forEach(([k, v]) => {
-            html = html.split(`{{${k}}}`).join(v ?? '')
-        })
-        return html
-    }, [previewBase, variables])
+    const previewRendered = useMemo(
+        () => (previewBase ? renderComoSender(previewBase.html || '', variables) : null),
+        [previewBase, variables],
+    )
 
-    const asuntoRendered = useMemo(() => {
-        let s = asunto || ''
-        Object.entries(variables).forEach(([k, v]) => {
-            s = s.split(`{{${k}}}`).join(v ?? '')
-        })
-        return s
-    }, [asunto, variables])
+    const asuntoRendered = useMemo(() => renderComoSender(asunto || '', variables), [asunto, variables])
 
     const fuentesCatalogo = fuentes.filter((f) => f.tipo === 'campo_deudor')
     const fuentesAdicionales = fuentes.filter((f) => f.tipo === 'campo_adicional')
@@ -543,7 +569,7 @@ const EnviarEmailDialog: React.FC<Props> = ({
                 <Stack direction="row" alignItems="center" spacing={1} mb={1}>
                     <Typography variant="subtitle2">Adjuntos</Typography>
                     <Typography variant="caption" color="text.secondary">
-                        máx {MAX_FILES} archivos, {MAX_MB}MB c/u
+                        máx {MAX_FILES} archivos, {MAX_MB}MB c/u y {MAX_TOTAL_MB}MB en total
                     </Typography>
                     <Box flexGrow={1} />
                     <Button size="small" startIcon={<AttachFileIcon />} onClick={handleAttachClick} disabled={archivos.length >= MAX_FILES}>

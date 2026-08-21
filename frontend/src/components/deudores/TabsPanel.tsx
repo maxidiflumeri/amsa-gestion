@@ -9,7 +9,6 @@ import PoliticaTab from './PoliticaTab'
 import TimelineDeudorTab from './TimelineDeudorTab'
 
 interface Props {
-    user: { nombre: string; rol: string }
     selectedTab: number
     setSelectedTab: (index: number) => void
     selectedDeudorId: number | null
@@ -19,7 +18,6 @@ interface Props {
 }
 
 const TabsPanel: React.FC<Props> = ({
-    user,
     selectedTab,
     setSelectedTab,
     selectedDeudorId,
@@ -41,8 +39,16 @@ const TabsPanel: React.FC<Props> = ({
 
     return (
         <Box sx={{ display: 'flex', flexDirection: 'column' }}>
-            {(user.rol === 'admin' || user.rol === 'operador') && (
-                <Tabs
+            {/*
+              Acá había un gate por rol que **nunca funcionó**: el usuario venía hardcodeado desde
+              `DeudoresPage` (`{ nombre: 'Maxi', rol: 'admin' }`), así que todo el mundo pasaba. Y
+              conectarlo al contexto real las habría hecho desaparecer para todos, porque en la base
+              `usuario.rol` es el string legacy 'usuario' para el 100% de los usuarios — los roles
+              reales viven en la tabla `rol`.
+              Se saca: quien llega a esta pantalla ya tiene `deudores.ver`, que es lo que protege el
+              backend en todo lo que hay adentro.
+            */}
+            <Tabs
                     value={selectedTab}
                     onChange={handleTabChange}
                     indicatorColor="primary"
@@ -57,10 +63,9 @@ const TabsPanel: React.FC<Props> = ({
                     <Tab icon={<PolicyIcon fontSize="small" />} iconPosition="start" label="Política" sx={{ fontWeight: 'bold' }} />
                     <Tab icon={<HistoryIcon fontSize="small" />} iconPosition="start" label="Timeline" sx={{ fontWeight: 'bold' }} />
                 </Tabs>
-            )}
 
             <Box ref={tabContentRef} sx={{ flexGrow: 1 }}>
-                {selectedTab === 0 && user.rol !== 'invitado' && selectedDeudorId && (
+                {selectedTab === 0 && selectedDeudorId && (
                     <FichaDeudor deudorId={selectedDeudorId} />
                 )}
 

@@ -39,7 +39,13 @@ export class MoraController {
         @Query('meses') meses?: string,
     ) {
         const n = meses ? parseInt(meses, 10) : 24;
-        return this.mora.estadoTasas(empresaId, Number.isFinite(n) && n > 0 ? n : 24);
+        const [tasas, config] = await Promise.all([
+            this.mora.estadoTasas(empresaId, Number.isFinite(n) && n > 0 ? n : 24),
+            this.mora.obtenerConfig(empresaId),
+        ]);
+        // Los multiplicadores viajan con las tasas: la pantalla los tenía hardcodeados en ×1,5 y ×2,
+        // así que una empresa con otra configuración veía números que no son los que se generaron.
+        return { tasas, multiplicadores: config.multiplicadores };
     }
 
     /**

@@ -104,15 +104,16 @@ Lo que sí se rompe:
   índice* en el desglose.
 - **Si falta el índice de hoy**, el recálculo directamente no arranca.
 
-Ojo con un detalle: el aviso solo detecta huecos **a partir del mes más viejo que ya tenés cargado**.
-Si la cartera tiene facturas más viejas que el arranque de tu índice, esos años no se reportan como
-faltantes — y son justamente las facturas que van a salir sin recargo.
+El aviso barre desde el **vencimiento más viejo de la cartera**, así que si el índice arranca después
+de las primeras facturas, esos meses también aparecen como faltantes — que son justamente los que
+dejan facturas sin recargo.
 
 ---
 
 ## La tabla
 
-Una fila por mes, con la tasa informada, las dos derivadas (tipo 2 ×1,5 y tipo 3 ×2), la fuente y los
+Una fila por mes, con la tasa informada, las dos derivadas —los multiplicadores salen de la
+configuración de la empresa, así que el encabezado dice los que realmente se usaron—, la fuente y los
 días de índice generados.
 
 **La fuente** dice de dónde salió el dato: *mail del cedente*, *migrada del CRM viejo*, *calibrada* o
@@ -147,10 +148,11 @@ Primero muestra cuántos casos se van a tocar y cuántas facturas quedarían sin
 - Después de cargar la tasa de un mes nuevo.
 - Después de corregir una tasa vieja.
 - Cuando la fecha de cálculo de las fichas está en naranja — o sea, cuando pasaron **48 horas o más**
-  desde el último recálculo.
+  desde el último recálculo, lo que con el recálculo nocturno debería ser raro.
 
-**No hay ningún proceso que lo haga solo.** Si nadie aprieta el botón, el número se queda viejo y la
-fecha queda en naranja indefinidamente.
+**Hay un recálculo automático todas las noches**, a las 4, para cada cartera que tenga índice
+cargado. El botón sirve para no esperar hasta el día siguiente: después de cargar la tasa del mes o de
+corregir una vieja, conviene apretarlo.
 
 ---
 

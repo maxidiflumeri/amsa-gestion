@@ -230,7 +230,7 @@ export class DashboardsService {
             this.queryBucketsDeuda(sqlDeudorWhere),
             this.querySeriePagos(sqlDeudorWhere, desde, hasta, granularidad),
             this.querySerieGestiones(sqlDeudorWhere, desde, hasta, granularidad),
-            this.queryMoraPromedia(sqlDeudorWhere, desde, hasta),
+            this.queryMoraPromedia(sqlDeudorWhere),
             this.prisma.deudor.count({ where: { AND: [where, contactadoWhere] } }),
             this.prisma.deudor.count({ where: { AND: [where, conPromesaWhere] } }),
             this.prisma.deudor.count({ where: { AND: [where, promesaCumplidaWhere] } }),
@@ -397,15 +397,21 @@ export class DashboardsService {
         return Prisma.join(parts, ' AND ');
     }
 
-    private async queryMoraPromedia(deudorWhere: Prisma.Sql, desde: Date, hasta: Date): Promise<number | null> {
+    /**
+     * Días de atraso promedio de **lo que falta cobrar**.
+     *
+     * Es una foto de hoy, como el resto de los indicadores de cartera. Antes excluía a los que habían
+     * pagado **dentro del período**, así que mezclaba dos relojes: mover las fechas cambiaba un número
+     * que por lo demás no depende de ellas. Ahora el corte es el saldo — un caso saldado ya no está en
+     * mora, tenga la fecha de pago que tenga.
+     */
+    private async queryMoraPromedia(deudorWhere: Prisma.Sql): Promise<number | null> {
         const rows = await this.prisma.$queryRaw<Array<{ avgMora: number | null }>>`
             SELECT AVG(DATEDIFF(NOW(), d.fechaVencimiento)) AS avgMora
             FROM deudor d
             WHERE ${deudorWhere}
               AND d.fechaVencimiento IS NOT NULL
-              AND NOT EXISTS (
-                SELECT 1 FROM pago p WHERE p.deudorId = d.id AND p.fecha BETWEEN ${desde} AND ${hasta}
-              )
+              AND COALESCE(d.saldo, d.montoTotal, 0) > 0
         `;
         const v = rows[0]?.avgMora;
         return v != null ? Number(v) : null;

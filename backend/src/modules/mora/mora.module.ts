@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common';
 import { MoraService } from './mora.service';
+import { MoraScheduler } from './mora.scheduler';
 import { MoraController } from './mora.controller';
 import { PrismaService } from '../../prisma/prisma.service';
 
@@ -13,7 +14,7 @@ import { PrismaService } from '../../prisma/prisma.service';
  */
 @Module({
     controllers: [MoraController],
-    providers: [MoraService, PrismaService],
+    providers: [MoraService, PrismaService, MoraScheduler],
     exports: [MoraService],
 })
 export class MoraModule {}

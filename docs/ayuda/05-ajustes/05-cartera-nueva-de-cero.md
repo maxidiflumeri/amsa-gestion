@@ -44,11 +44,9 @@ Ver [Empresas](/ayuda/ajustes/empresas).
 plantilla del paso 4: el formulario pide un estado inicial y las listas están vacías. (Las plantillas
 de **acciones masivas** son la excepción: esas no piden estado inicial.)
 
-Lo práctico es asignarle **el catálogo completo** y sacarle después lo que sobre. Asignar de a uno
-manda un pedido por código, así que tarda: dejalo terminar y verificá.
+Lo práctico es asignarle **el catálogo completo** y sacarle después lo que sobre.
 
-> El tilde **"Global (todas las empresas)"** del formulario de un código **no hace nada**. Si creás un
-> código nuevo, asignalo igual desde esta solapa o no lo va a ver ninguna cartera.
+> Un código recién creado no aparece en ninguna cartera hasta que se lo asigna acá.
 
 Ver [Parámetros](/ayuda/ajustes/parametros).
 

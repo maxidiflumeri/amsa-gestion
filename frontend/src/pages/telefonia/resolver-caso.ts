@@ -46,6 +46,10 @@ export interface CasoResuelto {
     candidatos: Candidato[];
     /** Valores de `DATA` ya separados, para mostrar como contexto de la llamada. */
     valoresData: string[];
+    /** Candidatos descartados por el tope. */
+    truncados: number;
+    /** DATA trajo valores pero ninguno es un número: casi siempre, el separador no coincide. */
+    dataIlegible: boolean;
     /** Id del contacto/llamada en Neotel, si vino. Es informativo. */
     idNeotel: string | null;
 }
@@ -93,12 +97,25 @@ export function resolverCaso(params: ParamsLlamada): CasoResuelto {
 
     for (const v of valoresData) agregar(v, 'data');
 
-    // Último recurso, y solo si no hubo nada en DATA (ver el aviso de arriba).
-    if (candidatos.length === 0) agregar(clave, 'clave');
+    // Último recurso, y **solo si DATA no vino** (ver el aviso de arriba).
+    //
+    // La condición mira `valoresData`, no `candidatos`: si DATA llegó con contenido pero ningún
+    // valor es entero —separador mal configurado, o columnas de texto— eso no es "no vino nada",
+    // es "vino y no lo pude leer". Antes las dos situaciones caían en la misma rama y se probaba la
+    // CLAVE igual, con el riesgo de abrir la ficha de un tercero. Mejor un "no se encontró" honesto.
+    if (candidatos.length === 0 && valoresData.length === 0) agregar(clave, 'clave');
+
+    // El corte deja fuera candidatos sin dejar rastro: se informa cuántos quedaron afuera para que
+    // la pantalla lo pueda decir. Si el id de deudor es el quinto valor numérico de DATA, no se
+    // encuentra nunca y el error listaba cuatro números que no venían al caso.
+    const truncados = Math.max(0, candidatos.length - MAX_CANDIDATOS);
 
     return {
         candidatos: candidatos.slice(0, MAX_CANDIDATOS),
         valoresData,
         idNeotel: clave || null,
+        truncados,
+        /** DATA vino con contenido pero no se pudo leer ningún número: separador mal configurado. */
+        dataIlegible: valoresData.length > 0 && candidatos.length === 0,
     };
 }

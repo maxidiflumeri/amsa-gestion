@@ -1,7 +1,7 @@
 import React, { useMemo, useState } from 'react';
 import { Alert, Box, Chip, Grid, LinearProgress, Paper, Stack, Typography } from '@mui/material';
 import BusinessIcon from '@mui/icons-material/Business';
-import { PageContainer, PageHeader, SectionCard } from '../../components/ui';
+import { EmptyState, PageContainer, PageHeader, SectionCard } from '../../components/ui';
 import DashboardFiltros, { DEFAULT_FILTROS } from './components/DashboardFiltros';
 import KpiGrid from './components/KpiGrid';
 import DistribucionDonut from './components/DistribucionDonut';
@@ -48,6 +48,10 @@ const TableroRemesa: React.FC = () => {
             titulo: `${dimension} · ${item.rango}`,
         });
     };
+
+    // Si el único rango con casos es "Sin fecha", la cartera no trae vencimientos.
+    const sinFechaVencimiento =
+        (data?.distribuciones.porMora ?? []).filter((b) => b.cantidad > 0).every((b) => b.rango === 'Sin fecha');
 
     return (
         <PageContainer>
@@ -145,10 +149,22 @@ const TableroRemesa: React.FC = () => {
 
                         <Grid item xs={12} md={6}>
                             <SectionCard title="Distribución por rango de mora">
-                                <BucketBarChart
-                                    data={data.distribuciones.porMora}
-                                    onBarClick={(it) => openBucketDrill('mora', it)}
-                                />
+                                {/*
+                                  Todo el bloque sale de `deudor.fechaVencimiento`, que muchas
+                                  carteras no traen: sin ese dato la barra quedaba entera en "Sin
+                                  fecha" y se leía como si nadie estuviera en mora.
+                                */}
+                                {sinFechaVencimiento ? (
+                                    <EmptyState
+                                        title="Esta cartera no trae fecha de vencimiento"
+                                        description="Sin ese dato no se puede calcular la antigüedad de la deuda. Se carga desde la importación."
+                                    />
+                                ) : (
+                                    <BucketBarChart
+                                        data={data.distribuciones.porMora}
+                                        onBarClick={(it) => openBucketDrill('mora', it)}
+                                    />
+                                )}
                             </SectionCard>
                         </Grid>
                         <Grid item xs={12} md={6}>

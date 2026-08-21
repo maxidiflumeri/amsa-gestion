@@ -158,9 +158,10 @@ Los filtros se combinan con Y y alguno se contradice con otro. Sacalos de a uno.
 
 Es el problema de zona horaria. Poné un día más en el Hasta.
 
-### El reporte falla al ejecutar
+### Filtré por un dato adicional y no trae lo que espero
 
-Si el filtro es sobre un **dato adicional del cedente**, es eso: no se puede filtrar por ahí.
+Los datos adicionales se guardan **como texto**, así que las comparaciones son de texto: `mayor que 9`
+deja afuera al `10`. Para "es igual a" y "contiene" funciona bien.
 
 ### "En lista" me muestra una lista vacía
 

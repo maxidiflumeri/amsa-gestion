@@ -58,24 +58,24 @@ puede quedar guardado con un total que no cierra con sus propias cuotas.
 
 Desde la solapa **Convenios**, sobre la cuota. El importe viene precargado con el de la cuota.
 
-> ### ⚠ Tres cosas del pago de cuota
+> ### ⚠ Dos cosas del pago de cuota
 >
-> **El importe es editable, y la cuota se marca pagada igual.** Registrar $500 contra una cuota de
-> $5.000 la cierra como paga y contabiliza $500. No hay pago parcial de cuota.
+> **El importe no puede ser menor al de la cuota.** Si el deudor pagó menos, el sistema no te deja
+> marcarla como pagada: cargalo como un pago suelto desde la solapa Pagos. De más sí acepta, porque es
+> pagar adelantado.
 >
-> **No se puede deshacer.** La cuota no se puede volver a pagar ni despagar, y el pago que genera
-> **tampoco se puede borrar** desde la solapa Pagos. Si te equivocaste, hay que escalarlo.
+> **No se puede deshacer.** La cuota no se puede volver a pagar ni despagar. Si te equivocaste, hay
+> que escalarlo.
 >
-> **El saldo del caso no baja solo.** El pago queda registrado, pero el saldo y la situación **no se
-> recalculan** hasta que algo dispare una consolidación: una importación de pagos o de actualizaciones,
-> o una corrida manual desde el historial de importaciones.
+> El saldo del caso **sí baja solo**: registrar el pago de una cuota dispara la consolidación, igual
+> que cargar un pago suelto.
 
 ---
 
 ## El seguimiento
 
-**No hay ninguna marca de cuota vencida.** Una cuota con vencimiento pasado sigue figurando como
-pendiente: **hay que comparar las fechas a ojo**.
+Las cuotas impagas pasan a **vencida** solas, en una corrida nocturna. Durante el día una cuota que
+venció hoy puede seguir figurando como pendiente hasta la madrugada siguiente.
 
 El convenio queda **activo** mientras exista, y se da de baja con **Anular convenio**.
 
@@ -105,11 +105,6 @@ Si el caso se cancela con cuotas pendientes, el convenio queda activo e intocabl
 La cuenta está cancelada. Si en cambio el formulario se abre y **falla al guardar**, es que falta el
 permiso **Crear convenios**: la pantalla no esconde el botón, el rechazo llega al final.
 
-### El deudor pagó pero el saldo del caso no bajó
-
-El pago de cuota no dispara el recálculo. Hay que consolidar la remesa desde el historial de
-importaciones, o esperar a la próxima importación.
-
 ### El deudor pagó pero la cuota sigue pendiente
 
 Se cargó como pago suelto desde la solapa Pagos en vez de sobre la cuota. Ahí baja el saldo pero la
@@ -128,9 +123,9 @@ Anulalo y armá uno nuevo — siempre que el caso no esté cancelado. Dejá el m
 Es un convenio **libre**: el sistema no valida la suma. El encabezado muestra el promedio de las
 cuotas, que puede verse plausible y estar mal.
 
-### No encuentro las cuotas vencidas
+### Una cuota venció hoy y sigue en pendiente
 
-No existe esa marca. Hay que mirar las fechas.
+El pase a vencida lo hace un proceso de madrugada. Mañana va a estar.
 
 ---
 
@@ -151,5 +146,5 @@ No hay ninguna atadura: el formulario **sugiere** un monto, pero se puede cambia
 autorizó una quita, dejalo escrito en las observaciones.
 
 **¿Dónde veo los convenios de toda una cartera?**
-En un reporte: los convenios y sus cuotas están en el catálogo. Ojo que filtrar cuotas por "vencida"
-siempre devuelve vacío — ese estado no se usa.
+En un reporte: los convenios y sus cuotas están en el catálogo, y filtrar por estado "vencida" ahora
+sí devuelve algo.

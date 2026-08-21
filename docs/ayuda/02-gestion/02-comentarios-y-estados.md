@@ -32,10 +32,11 @@ escribir, el borrador se guarda: al volver sigue ahí.
 > **Los comentarios se listan del más viejo al más nuevo**, en un panel con scroll. Lo último escrito
 > está abajo.
 
-> **Un comentario no se puede borrar desde la ficha**: no hay botón. Tampoco se puede editar.
+> **Un comentario propio se puede borrar** con el ícono de tacho, si tenés el permiso. Los de otra
+> persona y los que dejó un proceso, no. Editar no se puede en ningún caso.
 
-> **Los comentarios que deja una importación de acciones masivas no se distinguen a simple vista**:
-> aparecen sin autor, igual que cualquier otro comentario sin usuario.
+> **Los comentarios que deja un proceso salen como "Sistema"**, con un chip que dice de dónde
+> vinieron —acción masiva, importación—. No se confunden con los escritos a mano.
 
 ## Los tres estados
 
@@ -102,7 +103,8 @@ Los dos catálogos se parecen bastante y por eso se confunden. La forma corta de
 Cuando un caso queda cancelado, los controles se deshabilitan y **la caja de comentarios desaparece**.
 No vas a poder dejar constancia de nada posterior desde la ficha.
 
-Solo bloquea el código *Cancelado / Pagado*: hay otros códigos de cancelación que no bloquean nada.
+Bloquean **los cuatro códigos de cancelación**: *Cancelado / Pagado*, *Cancelado antes de la gestión*,
+*Cancelado a liquidar* y *Cancelado a monto histórico*.
 
 Y una salvedad: el caso **sí se sigue moviendo solo**. Si entran pagos, la consolidación le recalcula
 el saldo y la situación igual, porque no pasa por ese bloqueo.
@@ -113,7 +115,8 @@ el saldo y la situación igual, porque no pasa por ese bloqueo.
 
 ### No me deja cambiar el estado
 
-Dos causas: la cuenta está **cancelada**, o falta el permiso **Editar estado de deudores**.
+Dos causas: la cuenta está **cancelada**, o falta el permiso **Editar estado de deudores** — sin él los
+tres selectores aparecen deshabilitados y el tooltip lo explica.
 
 ### El estado cambió solo
 
@@ -141,7 +144,7 @@ la acción — incluyendo cualquier cambio manual posterior.
 ## Preguntas frecuentes
 
 **¿Puedo editar o borrar un comentario?**
-No. Desde la ficha no se puede ninguna de las dos cosas.
+Borrar, sí: los tuyos, con el permiso correspondiente. Editar, no.
 
 **¿Los comentarios los ve el cedente?**
 No directamente, pero salen en los reportes. Escribilos como si los fuera a leer.

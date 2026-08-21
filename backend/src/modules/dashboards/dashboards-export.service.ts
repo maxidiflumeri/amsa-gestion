@@ -260,6 +260,59 @@ export class DashboardsExportService {
 
     // ────────────────────────────────── PDF ──────────────────────────────────
 
+    /** Las dos series temporales, en tablas: pdfmake no dibuja gráficos. */
+    private appendSeries(content: any[], snap: SnapshotResponse) {
+        const { pagosPorPeriodo, gestionesPorPeriodo, granularidad } = snap.series;
+        if (pagosPorPeriodo.length === 0 && gestionesPorPeriodo.length === 0) return;
+
+        content.push({ text: `Evolución por ${granularidad}`, style: 'h2', pageBreak: 'before' });
+
+        if (pagosPorPeriodo.length > 0) {
+            content.push({ text: 'Pagos', style: 'h3', margin: [0, 4, 0, 2] });
+            content.push({
+                table: {
+                    headerRows: 1,
+                    widths: ['*', 'auto', 'auto'],
+                    body: [
+                        [
+                            { text: 'Fecha', style: 'th' },
+                            { text: 'Importe', style: 'th', alignment: 'right' },
+                            { text: 'Cantidad', style: 'th', alignment: 'right' },
+                        ],
+                        ...pagosPorPeriodo.map((s) => [
+                            s.fecha,
+                            { text: fmtMoney(s.importe), alignment: 'right' },
+                            { text: fmtNumber(s.cantidad), alignment: 'right' },
+                        ]),
+                    ],
+                },
+                layout: this.zebraLayout(),
+                margin: [0, 0, 0, 8],
+            });
+        }
+
+        if (gestionesPorPeriodo.length > 0) {
+            content.push({ text: 'Gestiones', style: 'h3', margin: [0, 4, 0, 2] });
+            content.push({
+                table: {
+                    headerRows: 1,
+                    widths: ['*', 'auto'],
+                    body: [
+                        [
+                            { text: 'Fecha', style: 'th' },
+                            { text: 'Cantidad', style: 'th', alignment: 'right' },
+                        ],
+                        ...gestionesPorPeriodo.map((s) => [
+                            s.fecha,
+                            { text: fmtNumber(s.cantidad), alignment: 'right' },
+                        ]),
+                    ],
+                },
+                layout: this.zebraLayout(),
+            });
+        }
+    }
+
     private async generarPdf(snap: SnapshotResponse, nombreTablero: string): Promise<Buffer> {
         pdfMake.setFonts(this.fonts);
         const content: Content[] = [];
@@ -329,6 +382,11 @@ export class DashboardsExportService {
         this.appendBuckets(content, 'Distribución por mora', snap.distribuciones.porMora, false);
         this.appendBuckets(content, 'Distribución por deuda', snap.distribuciones.porDeuda, true);
 
+        // Las series iban solo al Excel. El PDF es el formato "para mandar al cedente" y era
+        // justamente el que no llevaba la evolución de la cobranza, que es lo que se mira en una
+        // reunión.
+        this.appendSeries(content, snap);
+
         content.push({ text: 'Top 10 deudores por monto', style: 'h2', pageBreak: 'before' });
         const topRows: any[][] = [
             [
@@ -357,6 +415,7 @@ export class DashboardsExportService {
             styles: {
                 h1: { fontSize: 20, bold: true, margin: [0, 0, 0, 2] },
                 h2: { fontSize: 14, bold: true, margin: [0, 8, 0, 4], color: '#1565C0' },
+                h3: { fontSize: 11, bold: true, margin: [0, 6, 0, 2] },
                 subtitle: { fontSize: 10, color: '#666' },
                 th: { bold: true, color: 'white', fillColor: '#1565C0' },
             },

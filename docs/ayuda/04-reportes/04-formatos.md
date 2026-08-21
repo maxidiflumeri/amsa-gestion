@@ -66,8 +66,8 @@ Para imprimir o mandar por mail.
 **Por eso el ancho importa mucho.** Un reporte de 25 columnas no entra y sale ilegible. Si va a PDF,
 achicá la cantidad de columnas — es la única salida.
 
-> El switch de **salto de página por grupo** existe en la pantalla pero **no hace nada**: el PDF sale
-> como una tabla continua aunque lo actives.
+> El switch de **salto de página por grupo** hace que cada grupo arranque en una hoja nueva, con el
+> encabezado repetido. Sirve para mandarle a un cedente una sección por cartera.
 
 ---
 
@@ -114,10 +114,6 @@ estilo americano. Configurando el formato sale bien, aunque quede como texto.
 
 El formato argentino no fuerza dos decimales: `1.234,5` en vez de `1.234,50`. No hay forma de cambiarlo
 desde la pantalla.
-
-### Puse el salto de página por grupo y no pasa nada
-
-No está implementado.
 
 ---
 

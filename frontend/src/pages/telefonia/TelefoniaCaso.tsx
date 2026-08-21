@@ -27,7 +27,7 @@ import { resolverCaso } from './resolver-caso'
 const TelefoniaCaso: React.FC = () => {
     const [params] = useSearchParams()
 
-    const { candidatos, valoresData, idNeotel } = useMemo(
+    const { candidatos, valoresData, idNeotel, truncados, dataIlegible } = useMemo(
         () =>
             resolverCaso({
                 data: params.get('data'),
@@ -134,6 +134,19 @@ const TelefoniaCaso: React.FC = () => {
                             </>
                         )}
                     </Typography>
+                    {dataIlegible && (
+                        <Typography variant="body2" sx={{ mt: 1 }}>
+                            <strong>El campo DATA vino pero no se pudo leer ningún número.</strong> Casi siempre
+                            es que el separador de la campaña no coincide con el que espera el sistema: hay que
+                            agregarle <code>&amp;sep=</code> a la URL con el que usaron al cargar la base.
+                        </Typography>
+                    )}
+                    {truncados > 0 && (
+                        <Typography variant="body2" sx={{ mt: 1 }}>
+                            DATA traía más números de los que se pueden probar: quedaron <strong>{truncados}</strong> sin
+                            probar. Si el id del caso es uno de esos, hay que indicar su posición con <code>&amp;pos=</code>.
+                        </Typography>
+                    )}
                     {valoresData.length > 0 && (
                         <Typography variant="body2" sx={{ mt: 1 }}>
                             La central mandó: {valoresData.join(' · ')}

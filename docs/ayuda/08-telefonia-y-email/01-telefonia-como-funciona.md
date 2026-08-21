@@ -107,13 +107,12 @@ que se hace **del lado de Neotel**, no en el sistema.
 > El sistema **no recibe** el separador que se configura en la campaña. Asume que es `|`.
 >
 > Si la base se cargó con otro —una coma, un punto y coma—, hay que agregárselo a la URL:
-> `&sep=;`. Sin eso, el sistema **no puede leer el DATA**, se queda sin candidatos y termina abriendo
-> la ficha por la clave de Neotel — o sea, posiblemente **la de otra persona**.
+> `&sep=;`. Sin eso el sistema no puede leer el DATA y **no abre ninguna ficha**: te lo dice
+> explícitamente, en vez de arriesgarse a abrir la de otra persona.
 
 El sistema no exige que el id esté en una posición fija de DATA: prueba los valores numéricos en orden
-hasta que uno corresponda a un caso, **con un tope de cuatro intentos**. Si la base tiene muchas
-columnas numéricas y el id está más allá del cuarto candidato, no lo va a encontrar: para eso está
-`&pos=`.
+hasta que uno corresponda a un caso, **con un tope de cuatro intentos**. Si la base tiene más columnas
+numéricas, el aviso de error te dice cuántas quedaron sin probar y ahí conviene usar `&pos=`.
 
 ### Los tres parámetros de escape
 
@@ -156,9 +155,9 @@ En **Administración → Neotel (test)** hay un panel para verificar la conexió
 **No lo uses con la Toolbar abierta.** Los dos se pisan, y el estado que muestra cada uno deja de
 coincidir con el otro y con la central.
 
-Hoy, además, **no lo puede abrir nadie**: el permiso de telefonía no figura en la pantalla de Roles y
-ningún rol lo tiene, así que el ítem no aparece en el menú y el panel responde *"No tenés permiso"*.
-Ver [Roles y permisos](/ayuda/administracion/roles-y-permisos).
+Pide el permiso **Administrar telefonía**, que se otorga desde la pantalla de Roles. No alcanza con
+*Usar softphone*: eso es a propósito, para que un agente no pueda pisarse su propio estado por fuera de
+la Toolbar. Ver [Roles y permisos](/ayuda/administracion/roles-y-permisos).
 
 ---
 

@@ -157,16 +157,24 @@ Tres cosas que conviene mirar ahí, y no después de ejecutar:
 
 ---
 
+## El orden de las filas
+
+En la solapa **Orden, agrupaciones y totales** se define cómo salen ordenadas. Se pueden poner varios
+criterios: el primero ordena y los siguientes desempatan, y se reordenan con las flechas.
+
+Sin ningún criterio, las filas salen como las devuelva la base — o sea, en un orden que puede cambiar
+entre dos ejecuciones del mismo reporte. Si el archivo se lo mandás a un cedente, conviene fijarlo.
+
+---
+
 ## Lo que todavía no se puede desde la pantalla
 
 Para no perder tiempo buscándolo:
 
 | | |
 |---|---|
-| **Ordenar el reporte** | No hay control de ordenamiento en el builder |
 | **Una columna con una cuenta** (cuántos pagos, suma de lo pagado) | Las cuentas van en Totales o en filtros |
 | **Pedir solo los teléfonos** | Los contactos vienen todos juntos |
-| **Salto de página por grupo en PDF** | El switch existe pero no hace nada |
 
 ---
 

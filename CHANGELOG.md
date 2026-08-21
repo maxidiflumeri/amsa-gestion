@@ -6,6 +6,142 @@
 
 ---
 
+## [2026-08-21] — Se cerró el backlog de la auditoría: 87 de 89 hallazgos
+
+Barrida completa de `docs/ayuda-spec.md` §7, módulo por módulo. Lo que sigue son los cambios que no
+son evidentes del diff, agrupados por lo que hacían mal.
+
+### Lo que borraba o corrompía datos sin avisar
+
+- **La rama PAGO_TODO de Actualizaciones no tenía el guard de DESASIGNAR.** Si ninguna fila del
+  archivo matchea la cartera, todos los deudores quedan "ausentes" y esa rama los marca como que
+  pagaron todo: **cancela la cartera entera**. Es la versión cara del bug que desasignó 342.792
+  deudores de Toyota — ahí se perdía la asignación, acá se perdería la deuda.
+- **Borrar un usuario funcionaba** y huerfanaba comentarios, pagos, promesas y auditoría a "Sistema".
+- **Borrar una empresa** llamaba a `delete` en seco: 500 opaco con FK RESTRICT, o cascada silenciosa
+  que se llevaba tasas de mora e historial de emails.
+- **Un comentario sin autor lo podía borrar cualquiera** con el permiso de "eliminar propios": no es
+  de nadie, así que tampoco es propio — lo dejó una acción masiva o una importación.
+- **`empresa_parametro.nombreOverride` y `.activo` se destruían en cada guardado**, porque la
+  asignación era `deleteMany` + `createMany` y recreaba en cero hasta lo que no cambiaba.
+- **Lost update en la asignación de parámetros**: read-modify-write sobre la lista completa de
+  empresas de cada código. Dos admins en carteras distintas se pisaban. Ahora hay un endpoint por par
+  (parámetro, empresa) y una sola llamada por código.
+
+### Lo que mostraba o mandaba números equivocados
+
+- **Pagar una cuota de convenio no disparaba la consolidación**: el saldo del caso no bajaba, así que
+  un convenio pagado entero dejaba la cuenta como si no se hubiera cobrado nada. Y el importe era
+  editable sin validar: una cuota de $50.000 se saldaba con $100.
+- **Filtrar por un dato adicional reventaba la ejecución.** `camposAdicionales.x` no es una relación
+  sino una clave en una columna JSON; Prisma la filtra con `{ path, equals }`. Los 7 operadores
+  soportados se probaron contra la base real.
+- **Los rangos de fecha perdían el último día** en reportes y en auditoría: `'YYYY-MM-DD'` es
+  medianoche UTC, o sea las 21:00 del día anterior. Los helpers salieron a
+  `common/utils/dia-local.ts` y ahora los usan los tres lugares donde apareció el mismo error.
+- **"Mora promedio" mezclaba relojes**: excluía por pagos del período dentro de una métrica que por lo
+  demás es foto de hoy. Ahora el corte es el saldo.
+
+### Lo que prometía algo que no pasaba
+
+- **15 de los 112 códigos de parámetro no se podían asignar a ninguna empresa**: la solapa iteraba
+  sobre una lista de categorías hardcodeada a la que le faltaban cinco. Ahora se calculan de los
+  códigos cargados.
+- **El check "Global (todas las empresas)" no hacía nada**: se persistía y ningún filtro lo leía, así
+  que un código creado como global no aparecía en ninguna cartera. Se retiró.
+- **El switch de salto de página en PDF** se guardaba y no lo leía nadie. En pdfmake el `pageBreak` va
+  en un nodo de contenido, no en una fila, así que las filas se parten en una tabla por corte.
+  Verificado contando páginas del PDF: 3 grupos con salto → 3 páginas.
+- **El builder no tenía UI de ordenamiento**, aunque el motor lo soporta: las plantillas se guardaban
+  con `ordenamientos: []`.
+- **Las `REPORTES_V2_*` de `.env.example` no las leía nadie** — y el `.env` real tenía las cinco con
+  el prefijo viejo, así que esa configuración nunca tuvo efecto. **Hay que corregirlo en producción.**
+- **`deudores.exportar`** estaba declarado sin endpoint ni botón: se retiró.
+
+### Lo que no se podía deshacer
+
+- **El motivo de no pago no se podía quitar**: `''` y `undefined` caían en la misma rama.
+- **El DNI era de solo escritura**: `USUARIO_SELECT` no lo devolvía y el update ignoraba el vacío.
+- **El email no era editable** después del alta, siendo la credencial de login.
+- **No había forma de marcar un mail como rebotado**: `contacto.validado` solo lo escribía la UI de
+  teléfonos.
+
+### Lo que no dejaba rastro
+
+- **El cron nocturno de promesas vencidas no auditaba nada**: el `@Audit` estaba en el controller, así
+  que solo dejaba rastro el disparo manual.
+- **Los cambios automáticos no se podían rastrear desde el caso.** Ahora la consolidación deja un
+  registro **por caso** para las cancelaciones, que es la pregunta que más se hace.
+- **Exportar la auditoría** —la acción que se lleva datos afuera— no quedaba auditada, y **el logout**
+  tampoco: el endpoint existía y no lo llamaba nadie.
+- **`updateEstadosCuotas()` no tenía caller**: el estado VENCIDA no lo escribía nadie. Cron a las 3 AM.
+- **No había ningún proceso que recalculara la mora**, así que el indicador naranja de la ficha (48 h)
+  estaba encendido de forma permanente. Cron a las 4 AM.
+
+### Seguridad y permisos
+
+- **Fuga en el gráfico de 30 días de Auditoría**: el `$queryRaw` ignoraba el `where`, así que quien
+  solo tiene `auditoria.ver` veía el volumen de todo el sistema.
+- **El catálogo de permisos estaba en tres copias** (63/59/48). El seed tenía la suya inline y le
+  faltaban `mora.*`, `auditoria.*`, `dashboards.*` y `email.*`: **el rol ADMIN recién sembrado no
+  tenía todos los permisos**. Ahora importa el catálogo; ADMIN pasó de 48 a 61.
+- **Los 4 permisos de telefonía no se podían otorgar** desde Roles. Ya están, y el test de sincronía
+  quedó sin excepciones.
+- **Los endpoints del panel de Neotel pedían `telefonia.usar`** y no son de solo lectura: desloguean
+  al agente, lo pausan y lo mueven de campaña. Pasan a `telefonia.admin`.
+- **El bloqueo por cuenta cancelada miraba solo SIT-050**: un caso en "Cancelado antes de la gestión",
+  "a liquidar" o "a monto histórico" se seguía pudiendo gestionar. Ahora bloquea la categoría entera.
+- **`deudores.editar_estado` no se consultaba en el frontend**, y **Parámetros y Políticas** tampoco
+  ocultaban acciones: el 403 llegaba al confirmar.
+- **`DeudoresPage` tenía el usuario hardcodeado** (`{ nombre: 'Maxi', rol: 'admin' }`) y de él
+  dependía el gate de las solapas. Se sacó: quien llega ya tiene `deudores.ver`.
+
+### Los que se veían como un error del usuario
+
+- **Buscar por teléfono no encontraba nada**: los contactos se guardan en E.164 y se comparaba contra
+  el texto tipeado. Ahora se prueban lo tipeado, solo los dígitos y el E.164 normalizado.
+- **La búsqueda avanzada cortaba en 50 en silencio.** Devuelve el total y avisa.
+- **`buscar()` de auditoría no tenía catch**: un 403 dejaba la pantalla en blanco, indistinguible de
+  "sin resultados". Y **exportar usaba los filtros del formulario**, no los de la última búsqueda.
+- **El botón de eliminar rol se deshabilitaba sin explicación**, y el mensaje bueno del backend era
+  inalcanzable justamente porque nunca se llegaba a llamarlo.
+- **Un separador mal configurado en telefonía** hacía que el sistema se cayera a la CLAVE de Neotel y
+  abriera la ficha de un tercero. Ahora, si DATA vino y no se pudo leer, lo dice y no abre nada.
+- **`MAX_CANDIDATOS = 4` truncaba en silencio**: ahora informa cuántos quedaron sin probar.
+- **La previsualización del email usaba otra regla que Sender**: `{{ nombre }}` con espacios se veía
+  mal y salía bien; `{{monto-total}}` se veía bien y salía con el `{{}}` literal.
+- **Pasar de 10 adjuntos descartaba los sobrantes en silencio**, y no había tope de tamaño total.
+- **`GET /api/politicas` sin `empresaId` respondía 400** por un `ParseIntPipe` sin `optional`.
+- **Los comentarios de procesos se veían como "Usuario"**, indistinguibles de uno escrito a mano.
+- **No había botón para borrar un comentario propio**, aunque el endpoint y el permiso existían.
+- **`accion_masiva_snapshot` no tenía FK a `remesa`**: borrar una remesa dejaba filas huérfanas.
+- **`envio_email` era invisible**: sus endpoints no los llamaba nadie desde que Timeline reemplazó al
+  tab de "emails enviados", y es la única fuente que sabe **qué valores se mandaron** en cada variable.
+
+### La suite
+
+Quedó **en verde por primera vez**: 821 tests, 0 fallando. Los 6 suites que fallaban desde hacía meses
+eran cuatro causas distintas y **ninguna era un bug de producción** —providers faltantes en los módulos
+de test, un fixture usando `{ id }` donde el JWT trae `{ sub }`, y dos tests que describían el contrato
+anterior a `obligatorio`—, pero tapaban los que sí lo fueran.
+
+### Lo que queda abierto, a propósito
+
+Dos de los 89. El **bloque de telefonía del ABM de usuarios** sigue ahí por decisión explícita, con la
+documentación avisando que no hay que completarlo. Y que **la integración con la Toolbar es de una sola
+vía** no es un bug: es una limitación del modelo, y sigue sin probarse con una campaña real.
+
+### Para el deploy
+
+- `npx ts-node --transpile-only prisma/scripts/limpiar-permisos-obsoletos.ts --apply` — sin esto, los
+  roles que tengan `dashboards.ver_todas_empresas` o `deudores.exportar` **no se van a poder guardar**
+  desde la pantalla de Roles.
+- `npx prisma db push` — la FK nueva de `accion_masiva_snapshot`.
+- Corregir las `REPORTES_V2_*` del `.env` de producción.
+- Revisar si en `transaccion` quedaron filas con la clave de Neotel en claro.
+
+---
+
 ## [2026-08-21] — Tableros: los números pasan a significar lo que dicen
 
 > Backend: `dashboards.service.ts`, `.controller.ts`, `snapshot.interface.ts`,

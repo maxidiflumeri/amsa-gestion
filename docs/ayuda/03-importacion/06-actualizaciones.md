@@ -11,12 +11,13 @@ rutas: /carga, /plantillas
 > Esta categoría puede **cancelar una cartera entera en una corrida**, y la opción que hace eso es la
 > que viene **por defecto**.
 >
-> Si apuntás el archivo a la **remesa equivocada**, el sistema no lo detecta: da de alta todas las
-> filas como casos nuevos en la cartera equivocada y **marca como "pagó todo" a todos los casos que ya
-> estaban ahí**. Quedan cancelados y bloqueados.
+> Si apuntás el archivo a la **remesa equivocada**, el sistema da de alta todas las filas como casos
+> nuevos ahí. Lo que **sí** está protegido es lo peor: si ninguna fila matchea la cartera, ni la
+> desasignación ni la marcación de ausentes se ejecutan — abortan y lo registran.
 >
-> **La vista previa no te va a avisar.** No hay ningún número de "cuántos casos matchearon" para esta
-> categoría. Más abajo está el procedimiento seguro, que sí funciona.
+> Pero un archivo que matchea **parcialmente** sigue siendo peligroso: los casos que no vinieron se
+> marcan como pagados. **La vista previa no te va a avisar**: no hay un número de "cuántos casos
+> matchearon" para esta categoría. Más abajo está el procedimiento seguro.
 
 ## Para qué sirve
 
@@ -86,17 +87,15 @@ La más importante. Un caso que estaba en la remesa vinculada y **no viene en el
 
 **La pregunta para decidir:** *¿este archivo es la foto completa de la cartera, o solo lo de hoy?*
 
-> ### La asimetría que hay que conocer
+> ### La red que tienen las dos
 >
-> **Desasignar está protegido. Marcar como pagó todo, no.**
+> Si **ninguna** fila del archivo matchea la cartera, las dos opciones destructivas —desasignar y
+> marcar como pagó todo— **abortan solas** y no tocan a nadie. Queda registrado en la auditoría.
 >
-> Si ninguna fila del archivo matchea la cartera, *desasignar* **aborta solo** y no toca a nadie — ese
-> guard se agregó después del incidente de los 342.792 deudores.
+> Ese guard existe por el incidente de los 342.792 deudores desasignados.
 >
-> *Marcar como pagó todo* **no tiene ese guard**. Con un archivo bien formado apuntado a la cartera
-> equivocada, procede y cancela todo.
->
-> O sea: **la opción destructiva por defecto es justamente la desprotegida.**
+> **Lo que la red no cubre es el match parcial.** Si el archivo matchea la mitad de la cartera, la otra
+> mitad se procesa como ausente. Por eso el procedimiento de abajo sigue valiendo.
 
 Un caso desasignado que reaparece en una corrida posterior **se re-asigna solo** — pero solo si la
 opción sigue en *desasignar*. Con las otras dos, queda desasignado para siempre, y no hay pantalla

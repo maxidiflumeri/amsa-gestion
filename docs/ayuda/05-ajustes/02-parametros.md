@@ -56,23 +56,16 @@ gestor.
 Todos los códigos que existen, con su grupo, categoría, clave y descripción. Acá se crean, editan y
 eliminan.
 
-Al crear uno hay dos campos que conviene entender:
+El campo **Activo** apaga un código sin borrarlo: deja de ofrecerse en los selectores.
 
-- **Activo** — un código inactivo deja de ofrecerse en los selectores.
-- **Global (todas las empresas)** — ⚠ **este tilde hoy no hace nada.** Se guarda, pero ningún proceso
-  lo lee: la visibilidad depende exclusivamente de la asignación por empresa. Un código creado como
-  "global" y no asignado **no aparece en ninguna cartera**. No te fíes de él: asignalo igual.
+Un código recién creado **no aparece en ninguna cartera** hasta que lo asignes en la otra solapa.
 
 ### Asignación por empresa
 
 **Qué códigos ve cada cartera.** Se elige una empresa y se marcan los que le corresponden.
 
-> **Guardar acá tarda.** El sistema manda un par de pedidos por cada código que cambiaste — para una
-> empresa nueva con el catálogo completo son varios cientos, uno atrás del otro. Esperá a que termine y
-> verificá después: si se corta a la mitad, queda a medias.
-
-> **No lo hagan dos personas a la vez sobre la misma cartera.** Si dos admins guardan asignaciones al
-> mismo tiempo, el segundo pisa lo que hizo el primero.
+Se guarda de una sola vez, y solo lo que cambiaste. Dos personas trabajando sobre carteras distintas
+al mismo tiempo no se pisan.
 
 ---
 
@@ -99,11 +92,13 @@ Algunos códigos no son decorativos: **hay procesos que los buscan por clave**.
 - **SIT-021 y GES-094** — acá sí es silencioso. Las promesas vencidas no pasan a incumplidas, o la
   importación termina "finalizada" sin desasignar a nadie. Solo queda un aviso en el registro técnico.
 
-### Y SIT-050 hace algo más
+### Y los códigos de cancelación hacen algo más
 
-Un caso en *Cancelado / Pagado* **queda bloqueado**: no acepta comentarios, ni convenios, ni cambios de
-gestión o de motivo, ni promesas, ni resultados de llamada. Es la consecuencia más grande de toda esta
-tabla. Ver [Comentarios y estados](/ayuda/gestion/comentarios-y-estados).
+Un caso en cualquiera de los **cuatro códigos de la categoría CANCELADO** —*Cancelado / Pagado*,
+*antes de la gestión*, *a liquidar* y *a monto histórico*— **queda bloqueado**: no acepta comentarios,
+ni convenios, ni cambios de gestión o de motivo, ni promesas, ni resultados de llamada. Es la
+consecuencia más grande de toda esta tabla. Ver
+[Comentarios y estados](/ayuda/gestion/comentarios-y-estados).
 
 La cancelación además **no espera al saldo exacto en cero**: alcanza con que lo pagado llegue al 99%
 del monto original. Un caso con $99 pagados de $100 queda cancelado, no en pago parcial. La tolerancia

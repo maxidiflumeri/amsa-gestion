@@ -626,7 +626,26 @@ export class MoraService {
         const estado = await this.estadoTasas(empresaId, 1000);
         if (!estado.length) return [];
         const completos = new Set(estado.filter((e) => e.completo).map((e) => e.periodo));
-        const primero = parsearPeriodo(estado[estado.length - 1].periodo);
+
+        // El barrido arranca en el vencimiento más viejo de la cartera, no en el mes más viejo que ya
+        // tiene índice: si el índice empieza en 2020 y hay facturas de 2015, esos cinco años son
+        // justamente los que van a salir SIN_INDICE y antes no se reportaban como faltantes.
+        const [{ minVto }] = await this.prisma.$queryRaw<{ minVto: Date | null }[]>`
+            SELECT MIN(f.vencimiento) AS minVto
+            FROM factura f
+            JOIN deudor d ON d.id = f.deudorId
+            WHERE d.empresaId = ${empresaId}
+        `;
+        const primerIndice = parsearPeriodo(estado[estado.length - 1].periodo);
+        const primero = minVto
+            ? (() => {
+                const v = { anio: minVto.getUTCFullYear(), mes: minVto.getUTCMonth() + 1 };
+                // El más viejo de los dos: no tiene sentido pedir meses posteriores al inicio del índice.
+                return v.anio < primerIndice.anio || (v.anio === primerIndice.anio && v.mes < primerIndice.mes)
+                    ? v
+                    : primerIndice;
+            })()
+            : primerIndice;
         const hoy = hoyUtc();
 
         const faltantes: string[] = [];

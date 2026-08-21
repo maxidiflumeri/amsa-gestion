@@ -246,29 +246,29 @@ porque no tienen otro dueño:
 
 | Hallazgo | Dónde |
 |---|---|
-| **El default de Actualizaciones (`PAGO_TODO`) no tiene el guard que sí tiene `DESASIGNAR`**: un archivo apuntado a la cartera equivocada la cancela entera | `actualizaciones.processor.ts` |
-| Las variables `REPORTES_V2_*` de `.env.example` **no las lee nadie**: el código usa los mismos nombres sin el `V2_`. Tocar el `.env` hoy no cambia nada | `.env.example` vs `ejecuciones.service.ts` |
-| **Filtrar por un dato adicional revienta la ejecución** (`PrismaClientValidationError`): el selector lo ofrece pero el planner no arma JSON | `query-planner.ts` |
-| **Los rangos de fecha pierden el último día** por zona horaria | `query-planner.ts` (`coerceValor`) |
-| El switch de **salto de página por grupo en PDF** se guarda y no lo consume nadie | `pdf.exportador.ts` |
-| **No hay UI de ordenamiento** en el builder, aunque el motor lo soporta | `ReportesBuilder.tsx` |
-| El test `query-planner.spec.ts:232` **está fallando** desde que se introdujo `obligatorio` | |
-| El permiso `deudores.exportar` **está declarado y no lo usa nadie**: no hay endpoint ni botón de exportar en Gestión | `permisos-catalogo.ts` |
-| Buscar por teléfono compara contra el E.164 guardado **sin normalizar lo que se tipea**: `11 5555-1234` no encuentra nada | `deudores.service.ts` |
-| La búsqueda avanzada corta en **50 resultados sin avisar** y sin paginación | `deudores.service.ts` |
-| **Se puede cancelar un caso a mano** eligiendo SIT-050 en el desplegable, sin permiso especial — y no se puede volver atrás desde la ficha | `FichaEstadosCard.tsx` |
-| **Registrar el pago de una cuota de convenio no dispara la consolidación**: el saldo del caso no baja | `convenios.service.ts` |
-| El estado **VENCIDA de cuota no lo escribe nadie**: `updateEstadosCuotas()` no tiene caller | `convenios.service.ts` |
-| El importe del pago de cuota **es editable y marca la cuota como pagada igual**, sin validar | `convenios.service.ts` |
-| Los pagos de cuota quedan con `origen = NULL`, así que **no se pueden borrar** ni se etiquetan bien | `convenios.service.ts` |
-| **No hay UI para borrar comentarios**, aunque el endpoint y el permiso existan | `ComentariosPanel.tsx` |
-| Un comentario con `usuarioId = null` **lo puede borrar cualquiera** con el permiso | `comentarios.service.ts:42` |
-| Los comentarios de acciones masivas guardan `origen` pero **no se renderiza** | `ComentariosPanel.tsx` |
-| El permiso `deudores.editar_estado` **no se consulta en el frontend**: el rechazo llega al guardar | `FichaEstadosCard.tsx` |
-| **No se puede quitar un motivo de no pago**: al guardar se conserva el anterior | `deudores.service.ts:238` |
-| Los cambios de estado **automáticos no se auditan por caso**, así que Auditoría no los explica | `consolidacion.service.ts`, `promesas.service.ts` |
-| Solo **SIT-050** bloquea la ficha; SIT-051/052/053 no | `deudor-bloqueo.ts` |
-| `accion_masiva_snapshot` no tiene FK a `remesa`: borrar una remesa de acciones deja filas huérfanas | `schema.prisma` |
+| ~~**El default de Actualizaciones (`PAGO_TODO`) no tiene el guard que sí tiene `DESASIGNAR`**: un archivo apuntado a la cartera equivocada la cancela entera~~ **ARREGLADO 2026-08-21**: la rama PAGO_TODO aborta igual que DESASIGNAR si ninguna fila matchea | `actualizaciones.processor.ts` |
+| ~~Las variables `REPORTES_V2_*` de `.env.example` **no las lee nadie**: el código usa los mismos nombres sin el `V2_`. Tocar el `.env` hoy no cambia nada~~ **ARREGLADO 2026-08-21**: renombradas en `.env.example` y en el `.env` real, que también las tenía mal | `.env.example` vs `ejecuciones.service.ts` |
+| ~~**Filtrar por un dato adicional revienta la ejecución** (`PrismaClientValidationError`): el selector lo ofrece pero el planner no arma JSON~~ **ARREGLADO 2026-08-21**: el planner arma el filtro JSON de Prisma (`{ path, equals }`); 7 operadores verificados contra la base | `query-planner.ts` |
+| ~~**Los rangos de fecha pierden el último día** por zona horaria~~ **ARREGLADO 2026-08-21**: helpers de día local compartidos en `common/utils/dia-local.ts` | `query-planner.ts` (`coerceValor`) |
+| ~~El switch de **salto de página por grupo en PDF** se guarda y no lo consume nadie~~ **ARREGLADO 2026-08-21**: el PDF parte las filas en una tabla por corte; verificado contando páginas | `pdf.exportador.ts` |
+| ~~**No hay UI de ordenamiento** en el builder, aunque el motor lo soporta~~ **ARREGLADO 2026-08-21**: nuevo `SortBuilder`, con varios criterios reordenables | `ReportesBuilder.tsx` |
+| ~~El test `query-planner.spec.ts:232` **está fallando** desde que se introdujo `obligatorio`~~ **ARREGLADO 2026-08-21**: describía el contrato anterior a `obligatorio`; se cubrieron las dos ramas | |
+| ~~El permiso `deudores.exportar` **está declarado y no lo usa nadie**: no hay endpoint ni botón de exportar en Gestión~~ **ARREGLADO 2026-08-21**: se retiró; para exportar cartera está reportes | `permisos-catalogo.ts` |
+| ~~Buscar por teléfono compara contra el E.164 guardado **sin normalizar lo que se tipea**: `11 5555-1234` no encuentra nada~~ **ARREGLADO 2026-08-21**: se prueban lo tipeado, solo los dígitos y el E.164 normalizado | `deudores.service.ts` |
+| ~~La búsqueda avanzada corta en **50 resultados sin avisar** y sin paginación~~ **ARREGLADO 2026-08-21**: devuelve el total y la pantalla avisa cuántos hay | `deudores.service.ts` |
+| ~~**Se puede cancelar un caso a mano** eligiendo SIT-050 en el desplegable, sin permiso especial — y no se puede volver atrás desde la ficha~~ **ARREGLADO 2026-08-21**: pide confirmación explicando que la cuenta queda de solo lectura | `FichaEstadosCard.tsx` |
+| ~~**Registrar el pago de una cuota de convenio no dispara la consolidación**: el saldo del caso no baja~~ **ARREGLADO 2026-08-21**: consolida igual que un pago suelto | `convenios.service.ts` |
+| ~~El estado **VENCIDA de cuota no lo escribe nadie**: `updateEstadosCuotas()` no tiene caller~~ **ARREGLADO 2026-08-21**: cron diario a las 3 AM | `convenios.service.ts` |
+| ~~El importe del pago de cuota **es editable y marca la cuota como pagada igual**, sin validar~~ **ARREGLADO 2026-08-21**: se admite de más pero no de menos | `convenios.service.ts` |
+| ~~Los pagos de cuota quedan con `origen = NULL`, así que **no se pueden borrar** ni se etiquetan bien~~ **ARREGLADO 2026-08-21**: quedan como `CONVENIO` | `convenios.service.ts` |
+| ~~**No hay UI para borrar comentarios**, aunque el endpoint y el permiso existan~~ **ARREGLADO 2026-08-21**: botón en los propios | `ComentariosPanel.tsx` |
+| ~~Un comentario con `usuarioId = null` **lo puede borrar cualquiera** con el permiso~~ **ARREGLADO 2026-08-21**: sin autor no es propio: se rechaza | `comentarios.service.ts:42` |
+| ~~Los comentarios de acciones masivas guardan `origen` pero **no se renderiza**~~ **ARREGLADO 2026-08-21**: salen como "Sistema" con su chip | `ComentariosPanel.tsx` |
+| ~~El permiso `deudores.editar_estado` **no se consulta en el frontend**: el rechazo llega al guardar~~ **ARREGLADO 2026-08-21**: los selectores van deshabilitados sin el permiso | `FichaEstadosCard.tsx` |
+| ~~**No se puede quitar un motivo de no pago**: al guardar se conserva el anterior~~ **ARREGLADO 2026-08-21**: `''` o `null` lo borran; una clave inexistente ahora es error | `deudores.service.ts:238` |
+| ~~Los cambios de estado **automáticos no se auditan por caso**, así que Auditoría no los explica~~ **ARREGLADO 2026-08-21**: un registro por caso para las cancelaciones, y la corrida de promesas ahora audita | `consolidacion.service.ts`, `promesas.service.ts` |
+| ~~Solo **SIT-050** bloquea la ficha; SIT-051/052/053 no~~ **ARREGLADO 2026-08-21**: bloquea toda la categoría CANCELADO | `deudor-bloqueo.ts` |
+| ~~`accion_masiva_snapshot` no tiene FK a `remesa`: borrar una remesa de acciones deja filas huérfanas~~ **ARREGLADO 2026-08-21**: FK con Cascade | `schema.prisma` |
 
 ### Los de la fase 4 (ajustes + administración)
 
@@ -282,35 +282,35 @@ Ordenados por gravedad. Los cuatro primeros son de seguridad o de pérdida de da
 | **Todo el bloque de telefonía del ABM de usuarios es vestigial.** `claveNeotel` y `sipPassword` quedaron del plan del softphone propio, que se descartó al pasar a la Toolbar de Neotel: hoy el operador entra por Neotel y no necesita nada configurado acá. Las credenciales las consumen `agente-telefonia.service` y `sesion-agente.service`, que solo se alcanzan desde `NeotelTestPage` —el panel de prueba, que además nadie puede abrir—. Decidir si se saca el bloque del formulario, o si se deja para el panel | `UsuariosPage.tsx`, `neotel-toolbar-spec.md` §6 |
 | ~~🔴 **Una cartera nueva no puede cargar su primera tasa de mora.**~~ **ARREGLADO 2026-08-21**: la pantalla consulta el estado de la cadena y ofrece iniciarla con confirmación explícita | `AjustesMora.tsx`, `mora.service.ts` |
 | ~~🔴 **Recargar un mes viejo recomputa la cadena migrada sin confirmación.**~~ **ARREGLADO 2026-08-21**: el conteo de posteriores lo da el backend y pisar índice migrado exige `permitirPisarMigrado` | `AjustesMora.tsx`, `mora.service.ts` |
-| **Fuga en el gráfico de 30 días de Auditoría**: el `$queryRaw` ignora el `where`, así que quien solo tiene `auditoria.ver` ve el volumen global | `transacciones.service.ts:131` |
-| **La corrida nocturna de promesas vencidas no audita nada**: el `@Audit` está en el controller y el cron llama al servicio directo | `promesas.scheduler.ts:16` |
-| **Consultar y exportar la auditoría no se audita** (cero `@Audit` en el controller), y **el logout tampoco**: el endpoint existe y el frontend no lo llama | `transacciones.controller.ts`, `AuthContext.tsx:55` |
-| **El catálogo de permisos está triplicado y desincronizado: 63 / 59 / 48.** Backend 63, frontend 59 (falta *Telefonía* entera), y el seed una tercera copia inline con 48 — el rol ADMIN recién sembrado no tiene `mora.*`, `auditoria.*`, `dashboards.*` ni `email.*`. El endpoint `GET /roles/permisos-catalogo` existe y no lo consume nadie | `permisos-catalogo.ts` vs `permisosCatalogo.ts` vs `seed.ts:4` |
-| Ítem de menú inalcanzable: **Neotel (test)** pide `telefonia.usar`, que la pantalla de Roles no sabe otorgar | `navConfig.ts:65` |
-| **El email de un usuario no es editable** después del alta, y el único remedio (borrar y recrear) puede estar bloqueado o ser destructivo | `update-usuario.dto.ts` |
-| **El DNI es de solo escritura**: `USUARIO_SELECT` no lo devuelve y el update ignora el valor vacío. Se puede cargar y pisar, nunca ver ni limpiar | `usuarios.service.ts:25,168` |
-| **Filtros de fecha de Auditoría en UTC** contra datos en hora local: corrimiento sistemático de 3 h en *Desde* y *Hasta* | `transacciones.service.ts:63` |
-| Tres módulos (`TELEFONIA`, `EMAIL`, `DASHBOARDS`) **se registran pero no están en el desplegable** de Búsqueda | `AuditoriaBusqueda.tsx:30` |
-| `buscar()` **no tiene `catch`**: un 403 o un 500 dejan la pantalla en blanco, indistinguible de "sin resultados" | `AuditoriaBusqueda.tsx:87` |
-| **Exportar usa los filtros del formulario, no los de la última búsqueda** | `AuditoriaBusqueda.tsx:75` |
-| El botón de eliminar rol **se deshabilita sin explicación**; el mensaje bueno del backend es inalcanzable | `RolesPage.tsx:193` |
+| ~~**Fuga en el gráfico de 30 días de Auditoría**: el `$queryRaw` ignora el `where`, así que quien solo tiene `auditoria.ver` ve el volumen global~~ **ARREGLADO 2026-08-21**: va por Prisma con el mismo `where` | `transacciones.service.ts:131` |
+| ~~**La corrida nocturna de promesas vencidas no audita nada**: el `@Audit` está en el controller y el cron llama al servicio directo~~ **ARREGLADO 2026-08-21**: registra resumen y deudorIds | `promesas.scheduler.ts:16` |
+| ~~**Consultar y exportar la auditoría no se audita** (cero `@Audit` en el controller), y **el logout tampoco**: el endpoint existe y el frontend no lo llama~~ **ARREGLADO 2026-08-21**: el export audita y el logout llama al endpoint | `transacciones.controller.ts`, `AuthContext.tsx:55` |
+| ~~**El catálogo de permisos está triplicado y desincronizado: 63 / 59 / 48.** Backend 63, frontend 59 (falta *Telefonía* entera), y el seed una tercera copia inline con 48 — el rol ADMIN recién sembrado no tiene `mora.*`, `auditoria.*`, `dashboards.*` ni `email.*`. El endpoint `GET /roles/permisos-catalogo` existe y no lo consume nadie~~ **ARREGLADO 2026-08-21**: el seed importa el catálogo; telefonía al frontend; sin excepciones en el test | `permisos-catalogo.ts` vs `permisosCatalogo.ts` vs `seed.ts:4` |
+| ~~Ítem de menú inalcanzable: **Neotel (test)** pide `telefonia.usar`, que la pantalla de Roles no sabe otorgar~~ **ARREGLADO 2026-08-21**: pide `telefonia.admin`, que ya se puede otorgar | `navConfig.ts:65` |
+| ~~**El email de un usuario no es editable** después del alta, y el único remedio (borrar y recrear) puede estar bloqueado o ser destructivo~~ **ARREGLADO 2026-08-21**: editable, con la unicidad de la base | `update-usuario.dto.ts` |
+| ~~**El DNI es de solo escritura**: `USUARIO_SELECT` no lo devuelve y el update ignora el valor vacío. Se puede cargar y pisar, nunca ver ni limpiar~~ **ARREGLADO 2026-08-21**: vuelve en `USUARIO_SELECT` y se puede borrar | `usuarios.service.ts:25,168` |
+| ~~**Filtros de fecha de Auditoría en UTC** contra datos en hora local: corrimiento sistemático de 3 h en *Desde* y *Hasta*~~ **ARREGLADO 2026-08-21**: días completos en hora local | `transacciones.service.ts:63` |
+| ~~Tres módulos (`TELEFONIA`, `EMAIL`, `DASHBOARDS`) **se registran pero no están en el desplegable** de Búsqueda~~ **ARREGLADO 2026-08-21**: los nueve del enum en el desplegable | `AuditoriaBusqueda.tsx:30` |
+| ~~`buscar()` **no tiene `catch`**: un 403 o un 500 dejan la pantalla en blanco, indistinguible de "sin resultados"~~ **ARREGLADO 2026-08-21**: notifica el error | `AuditoriaBusqueda.tsx:87` |
+| ~~**Exportar usa los filtros del formulario, no los de la última búsqueda**~~ **ARREGLADO 2026-08-21**: usa los de la última búsqueda | `AuditoriaBusqueda.tsx:75` |
+| ~~El botón de eliminar rol **se deshabilita sin explicación**; el mensaje bueno del backend es inalcanzable~~ **ARREGLADO 2026-08-21**: tooltip con el motivo y la cantidad | `RolesPage.tsx:193` |
 | ~~**`recalcularCartera` usa la fecha en UTC**~~ **ARREGLADO 2026-08-21**: nuevo helper `hoyUtc()` que toma el día del calendario local | `mora.service.ts` |
-| **No hay ningún proceso que recalcule la mora.** Con el umbral de 48 h, el indicador naranja de la ficha queda encendido de forma permanente | sin cron; `FichaHeader.tsx:41` |
+| ~~**No hay ningún proceso que recalcule la mora.** Con el umbral de 48 h, el indicador naranja de la ficha queda encendido de forma permanente~~ **ARREGLADO 2026-08-21**: cron diario a las 4 AM por empresa con índice | sin cron; `FichaHeader.tsx:41` |
 | ~~La tasa **se guarda aunque la generación del índice falle**~~ **ARREGLADO 2026-08-21**: las validaciones de cadena corren antes del upsert | `mora.service.ts` |
-| **`mesesFaltantes` no detecta huecos anteriores** al mes más viejo cargado — justo las facturas que van a salir sin índice | `mora.service.ts:532` |
-| Los multiplicadores ×1,5 y ×2 están **hardcodeados en la tabla de la UI**, mientras el backend los lee de la configuración de la empresa | `AjustesMora.tsx:270` |
-| El `Alert` de meses faltantes **dice algo que no es cierto** ("cuya deuda cruce esos meses se valúa mal"): lo que importa es el índice del vencimiento y el del corte | `AjustesMora.tsx:236` |
-| **15 códigos de parámetro son imposibles de asignar desde la UI**: la lista de categorías está hardcodeada y no incluye LEGAL, INCOBRABLE ni tres de motivo de no pago | `AjustesParametros.tsx:83` |
-| **El checkbox "Global (todas las empresas)" no hace nada**: se persiste y no lo lee ningún filtro | `AjustesParametros.tsx:792` vs `parametros.service.ts:14` |
-| **Lost update en la asignación de parámetros**: read-modify-write del listado completo + `deleteMany`/`createMany`. Dos admins configurando empresas distintas se pisan | `AjustesParametros.tsx:303`, `parametros.service.ts:72` |
-| `empresa_parametro.nombreOverride` y `.activo` son **columnas muertas**, y además se destruyen en cada guardado | `parametros.service.ts:72` |
-| **Asociar una política a una remesa no valida nada** (ni empresa, ni activa, ni existencia) y solo pide `importacion.ver_historial` | `imports.service.ts:1697` |
-| **Borrar una empresa no tiene manejo de errores**: con FK RESTRICT sale un 500 opaco, y si pasa se lleva en cascada tasas, índices y el historial de emails | `empresas.service.ts:40` |
-| Las páginas de Ajustes **no ocultan acciones por permiso**: el 403 llega recién al confirmar | `AjustesParametros.tsx`, `AjustesPoliticas.tsx` |
-| `GET /api/politicas` sin `empresaId` **responde 400** por un `ParseIntPipe` sin `optional` | `politicas.controller.ts:15` |
-| `DeudoresPage.tsx:20` tiene **el usuario hardcodeado** (`{ nombre: 'Maxi', rol: 'admin' }`) y de él dependen las solapas de la ficha. Conectarlo al contexto real las haría desaparecer para todos | `DeudoresPage.tsx:20` |
-| El aviso "sin política" del gestor **manda a un lugar equivocado**: dice *Ajustes → Políticas*, donde no se puede asociar | `PoliticaTab.tsx:53` |
-| Tipos de auditoría fuera del enum (`'VALIDAR'`, `'ANULAR'`) escritos como strings sueltos | `imports.controller.ts:220` |
+| ~~**`mesesFaltantes` no detecta huecos anteriores** al mes más viejo cargado — justo las facturas que van a salir sin índice~~ **ARREGLADO 2026-08-21**: barre desde el vencimiento más viejo de la cartera | `mora.service.ts:532` |
+| ~~Los multiplicadores ×1,5 y ×2 están **hardcodeados en la tabla de la UI**, mientras el backend los lee de la configuración de la empresa~~ **ARREGLADO 2026-08-21**: viajan con las tasas desde la configuración | `AjustesMora.tsx:270` |
+| ~~El `Alert` de meses faltantes **dice algo que no es cierto** ("cuya deuda cruce esos meses se valúa mal"): lo que importa es el índice del vencimiento y el del corte~~ **ARREGLADO 2026-08-21**: dice lo que realmente pasa: la factura que vence ahí queda sin recargo | `AjustesMora.tsx:236` |
+| ~~**15 códigos de parámetro son imposibles de asignar desde la UI**: la lista de categorías está hardcodeada y no incluye LEGAL, INCOBRABLE ni tres de motivo de no pago~~ **ARREGLADO 2026-08-21**: las categorías se calculan de los códigos cargados | `AjustesParametros.tsx:83` |
+| ~~**El checkbox "Global (todas las empresas)" no hace nada**: se persiste y no lo lee ningún filtro~~ **ARREGLADO 2026-08-21**: se retiró del formulario | `AjustesParametros.tsx:792` vs `parametros.service.ts:14` |
+| ~~**Lost update en la asignación de parámetros**: read-modify-write del listado completo + `deleteMany`/`createMany`. Dos admins configurando empresas distintas se pisan~~ **ARREGLADO 2026-08-21**: endpoint por par (parámetro, empresa) | `AjustesParametros.tsx:303`, `parametros.service.ts:72` |
+| ~~`empresa_parametro.nombreOverride` y `.activo` son **columnas muertas**, y además se destruyen en cada guardado~~ **ARREGLADO 2026-08-21**: las asignaciones se guardan por diferencia y ya no se destruyen | `parametros.service.ts:72` |
+| ~~**Asociar una política a una remesa no valida nada** (ni empresa, ni activa, ni existencia) y solo pide `importacion.ver_historial`~~ **ARREGLADO 2026-08-21**: valida empresa, existencia y que esté activa | `imports.service.ts:1697` |
+| ~~**Borrar una empresa no tiene manejo de errores**: con FK RESTRICT sale un 500 opaco, y si pasa se lleva en cascada tasas, índices y el historial de emails~~ **ARREGLADO 2026-08-21**: cuenta lo que bloquea y lo que se iría en cascada, y explica cuál es | `empresas.service.ts:40` |
+| ~~Las páginas de Ajustes **no ocultan acciones por permiso**: el 403 llega recién al confirmar~~ **ARREGLADO 2026-08-21**: Parámetros y Políticas ocultan por permiso | `AjustesParametros.tsx`, `AjustesPoliticas.tsx` |
+| ~~`GET /api/politicas` sin `empresaId` **responde 400** por un `ParseIntPipe` sin `optional`~~ **ARREGLADO 2026-08-21**: `ParseIntPipe` opcional: se pueden listar todas | `politicas.controller.ts:15` |
+| ~~`DeudoresPage.tsx:20` tiene **el usuario hardcodeado** (`{ nombre: 'Maxi', rol: 'admin' }`) y de él dependen las solapas de la ficha. Conectarlo al contexto real las haría desaparecer para todos~~ **ARREGLADO 2026-08-21**: se sacó el mock y el gate por rol, que nunca funcionó: quien llega a la pantalla ya tiene `deudores.ver` | `DeudoresPage.tsx:20` |
+| ~~El aviso "sin política" del gestor **manda a un lugar equivocado**: dice *Ajustes → Políticas*, donde no se puede asociar~~ **ARREGLADO 2026-08-21**: manda al historial de importaciones | `PoliticaTab.tsx:53` |
+| ~~Tipos de auditoría fuera del enum (`'VALIDAR'`, `'ANULAR'`) escritos como strings sueltos~~ **ARREGLADO 2026-08-21**: `VALIDAR` y `ANULAR` al enum | `imports.controller.ts:220` |
 
 ### Los de la fase 6 (tableros, telefonía y email)
 
@@ -324,29 +324,29 @@ Ordenados por gravedad. Los cuatro primeros son de seguridad o de pérdida de da
 | ~~**El envío manual no respeta la lista de desuscriptos.**~~ **ARREGLADO 2026-08-21** (Sender): se omiten y quedan con estado `Desuscripto`, y la pantalla lo avisa | `manual-email.service.ts` |
 | ~~**En Timeline, todo lo malo se ve gris.**~~ **ARREGLADO 2026-08-21**: la lista estaba escrita contra los estados de WhatsApp; se agregaron `fallo`, `rebote` y `queja` en rojo, y `omitido`/`desuscripto` en naranja | `TimelineDeudorTab.tsx` |
 | ~~**El envío y la lectura del Timeline resuelven el documento distinto**~~ **ARREGLADO 2026-08-21** (Sender): las dos consultas usan `orderBy id desc` | `internal-email.controller.ts` |
-| **La previsualización y el render real usan reglas distintas**: el front reemplaza por coincidencia exacta, Sender con `/{{\s*(\w+)\s*}}/`. Una plantilla con `{{monto-total}}` se ve bien en pantalla y sale con el `{{}}` literal en el mail | `EnviarEmailDialog.tsx:319` vs `renderTemplate.ts:4` |
+| ~~**La previsualización y el render real usan reglas distintas**: el front reemplaza por coincidencia exacta, Sender con `/{{\s*(\w+)\s*}}/`. Una plantilla con `{{monto-total}}` se ve bien en pantalla y sale con el `{{}}` literal en el mail~~ **ARREGLADO 2026-08-21**: la previsualización usa la misma regla que Sender | `EnviarEmailDialog.tsx:319` vs `renderTemplate.ts:4` |
 | ~~**"Deuda total" y "% Recupero" suman `montoTotal`**~~ **ARREGLADO 2026-08-21**: ahora son **Deuda asignada** y **Saldo pendiente** (con `COALESCE(saldo, montoTotal)`), y el recupero pasó a ser **acumulado** —todo lo cobrado sobre lo asignado— en vez de un numerador de un mes sobre un denominador de toda la vida | `dashboards.service.ts` |
 | ~~**"Casos sin gestión" es estructuralmente 0**~~ **ARREGLADO 2026-08-21**: cuenta casos **sin un solo comentario**, que es lo que el nombre promete. En la base local pasó de 0 a 21.332 de 21.335 | `dashboards.service.ts` |
 | ~~**El funnel no es un embudo.**~~ **ARREGLADO 2026-08-21**: los escalones se definen por evidencia (`promesa_pago` y `pago` son históricas) y quedan **anidados por construcción**, así que siempre decrecen. El último pasó a ser *promesa cumplida* — de los que prometieron, cuántos pagaron —, que es lo único que lo deja estrictamente decreciente | `dashboards.service.ts` |
 | ~~**La opción "Todas" del selector de empresa deja el tablero en blanco**~~ **ARREGLADO 2026-08-21**: se sacó la opción y *Limpiar* ya no suelta la empresa | `DashboardFiltros.tsx` |
-| **"Mora promedio" mezcla relojes**: excluye por pagos del período dentro de una métrica que por lo demás es foto de hoy | `dashboards.service.ts:364-376` |
+| ~~**"Mora promedio" mezcla relojes**: excluye por pagos del período dentro de una métrica que por lo demás es foto de hoy~~ **ARREGLADO 2026-08-21**: el corte es el saldo, no los pagos del período | `dashboards.service.ts:364-376` |
 | ~~**La serie de pagos no dibuja la cantidad**~~ **ARREGLADO 2026-08-21**: `ComposedChart` con la cantidad en línea y su propio eje a la derecha | `SeriePagos.tsx` |
-| **El PDF del tablero no incluye las series temporales** — justo el formato "para mandar al cedente" no lleva la evolución de la cobranza | `dashboards-export.service.ts:262-349` |
+| ~~**El PDF del tablero no incluye las series temporales** — justo el formato "para mandar al cedente" no lleva la evolución de la cobranza~~ **ARREGLADO 2026-08-21**: las incluye en tablas | `dashboards-export.service.ts:262-349` |
 | ~~**El tope de 366 días no se valida en el front**~~ **ARREGLADO 2026-08-21**: los campos de fecha se marcan en rojo con "Máximo 366 días" | `DashboardFiltros.tsx` |
 | ~~**Los combos de situación/gestión/motivo del tablero no filtran por empresa**~~ **ARREGLADO 2026-08-21**: se piden con `empresaId` y cambiar de empresa limpia los códigos elegidos | `DashboardFiltros.tsx` |
 | ~~`casosConPago` trae **todos los `deudorId` distintos a memoria**~~ **ARREGLADO 2026-08-21**: `groupBy` | `dashboards.service.ts` |
-| Dos widgets dependen de `deudor.fechaVencimiento`, que casi ninguna cartera trae (3 de 21.338 en local): la barra de mora queda 100% en "Sin fecha" | `dashboards.service.ts:378-395` |
-| **No hay forma de marcar un mail como inválido.** `contacto.validado` existe y solo lo escribe la UI de teléfonos: una dirección que rebota solo se puede borrar | `FichaContactosPanel.tsx:210-241` |
-| **Pasar de 10 adjuntos descarta los sobrantes en silencio** (`.slice(0, MAX_FILES)`); solo el exceso de tamaño avisa. Y no hay tope de tamaño **total** | `EnviarEmailDialog.tsx:232-237` |
-| `GET /email/deudores/:id/envios` y `/envios/:id/estado` **no los consume nadie**: la tabla `envio_email` —la única que sabe qué valores se mandaron— es invisible en la UI desde que Timeline reemplazó al tab "Emails enviados" | `email-sender.controller.ts:112-122` |
+| ~~Dos widgets dependen de `deudor.fechaVencimiento`, que casi ninguna cartera trae (3 de 21.338 en local): la barra de mora queda 100% en "Sin fecha"~~ **ARREGLADO 2026-08-21**: empty state explícito cuando la cartera no trae el dato | `dashboards.service.ts:378-395` |
+| ~~**No hay forma de marcar un mail como inválido.** `contacto.validado` existe y solo lo escribe la UI de teléfonos: una dirección que rebota solo se puede borrar~~ **ARREGLADO 2026-08-21**: botón de rebote en el chip | `FichaContactosPanel.tsx:210-241` |
+| ~~**Pasar de 10 adjuntos descarta los sobrantes en silencio** (`.slice(0, MAX_FILES)`); solo el exceso de tamaño avisa. Y no hay tope de tamaño **total**~~ **ARREGLADO 2026-08-21**: avisa cuántos se descartaron y hay tope total | `EnviarEmailDialog.tsx:232-237` |
+| ~~`GET /email/deudores/:id/envios` y `/envios/:id/estado` **no los consume nadie**: la tabla `envio_email` —la única que sabe qué valores se mandaron— es invisible en la UI desde que Timeline reemplazó al tab "Emails enviados"~~ **ARREGLADO 2026-08-21**: panel en Timeline con los valores que se mandaron | `email-sender.controller.ts:112-122` |
 | ~~**Elegir un caso a mano en telefonía lo marcaba como dudoso**~~ **ARREGLADO 2026-08-21**: la home navegaba con `?id=`, alias de la CLAVE de Neotel, así que al caso que el operador acababa de elegir le salía el cartel de "confirmá que es el correcto". Entrenaba a ignorar el único cartel que no se puede ignorar | `TelefoniaHome.tsx` |
 | ~~**"Buscar otro caso" dejaba estado sucio**~~ **ARREGLADO 2026-08-21**: sobre la ficha nueva quedaban el nombre de la persona anterior y el cartel amarillo | `TelefoniaCaso.tsx` |
 | ~~**El "?" dentro de la Toolbar era un viaje de ida**~~ **ARREGLADO 2026-08-21**: navegaba a `/ayuda`, que vive bajo el shell completo, dejando al operador con sidebar y todo adentro del iframe | `AyudaContextual.tsx`, `EmbeddedShell.tsx` |
-| **Un separador mal configurado degrada hacia el camino peligroso**: si DATA llegó con contenido pero ningún valor es entero, se cae igual a la CLAVE de Neotel y puede abrir la ficha de un tercero. Debería ser "no se encontró" | `resolver-caso.ts:74-97` |
-| **`MAX_CANDIDATOS = 4` trunca en silencio**: si el id es el quinto valor numérico de DATA no se encuentra nunca, y el error lista cuatro números que no venían al caso | `resolver-caso.ts:21,100` |
-| **`/admin/neotel-test` no tiene guard de ruta y sus endpoints piden solo `telefonia.usar`.** El panel desloguea al agente de Neotel, lo pone en pausa y lo cambia de campaña: el día que se otorgue ese permiso para el softphone, cualquier agente puede pisar su estado por fuera de la Toolbar | `AppRoutes.tsx:67`, `neotel-sesion.controller.ts` |
+| ~~**Un separador mal configurado degrada hacia el camino peligroso**: si DATA llegó con contenido pero ningún valor es entero, se cae igual a la CLAVE de Neotel y puede abrir la ficha de un tercero. Debería ser "no se encontró"~~ **ARREGLADO 2026-08-21**: si DATA vino y no se pudo leer, no se cae a la CLAVE | `resolver-caso.ts:74-97` |
+| ~~**`MAX_CANDIDATOS = 4` trunca en silencio**: si el id es el quinto valor numérico de DATA no se encuentra nunca, y el error lista cuatro números que no venían al caso~~ **ARREGLADO 2026-08-21**: informa cuántos quedaron sin probar y sugiere `&pos=` | `resolver-caso.ts:21,100` |
+| ~~**`/admin/neotel-test` no tiene guard de ruta y sus endpoints piden solo `telefonia.usar`.** El panel desloguea al agente de Neotel, lo pone en pausa y lo cambia de campaña: el día que se otorgue ese permiso para el softphone, cualquier agente puede pisar su estado por fuera de la Toolbar~~ **ARREGLADO 2026-08-21**: los endpoints piden `telefonia.admin`, que ya se puede otorgar desde Roles | `AppRoutes.tsx:67`, `neotel-sesion.controller.ts` |
 | La integración con la Toolbar es **de una sola vía** —el sistema no se entera de que la llamada terminó— y sigue **sin probarse con una campaña real** | `neotel-toolbar-spec.md:3,185` |
-| **`DeudoresPage.tsx:20` tiene el usuario hardcodeado** (`{ nombre: 'Maxi', rol: 'admin' }`), lo que anula el gate por rol de las solapas Política y Timeline: hoy las ve todo el mundo. Ya estaba anotado en la fase 4 y sigue | `DeudoresPage.tsx:20` |
+| ~~**`DeudoresPage.tsx:20` tiene el usuario hardcodeado** (`{ nombre: 'Maxi', rol: 'admin' }`), lo que anula el gate por rol de las solapas Política y Timeline: hoy las ve todo el mundo. Ya estaba anotado en la fase 4 y sigue~~ **ARREGLADO 2026-08-21**: se sacó el mock y el gate por rol, que nunca funcionó: quien llega a la pantalla ya tiene `deudores.ver` | `DeudoresPage.tsx:20` |
 
 
 

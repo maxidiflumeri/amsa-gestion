@@ -83,10 +83,10 @@ Ver [Convenios](/ayuda/gestion/convenios).
 
 Esa remesa no tiene política asociada. Se asigna desde el historial de importaciones.
 
-### La política está pero es de otra cartera
+### La política está pero es la equivocada
 
-Se asoció la equivocada. El sistema **no valida** que la política pertenezca a la empresa de la remesa,
-así que el error es posible y no avisa. Se cambia desde la misma columna del historial.
+Se cambia desde la misma columna del historial. El sistema no te va a dejar asociar una de otra empresa
+ni una inactiva.
 
 ### No aparece ninguna política al querer asociarla
 

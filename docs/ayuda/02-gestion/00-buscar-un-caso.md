@@ -39,19 +39,17 @@ Se combinan con **Y**: el caso tiene que cumplir todos los que completes.
 **Buscar por teléfono es el más subestimado.** Cuando entra una llamada, es la forma de saber quién es
 antes de atender.
 
-> ### ⚠ Cómo escribir el teléfono
+> ### El teléfono se puede escribir como venga
 >
-> Los números se guardan en formato internacional, sin espacios ni guiones, y **sin el 15**. La
-> búsqueda compara contra eso tal cual lo escribas.
+> Los números se guardan en formato internacional, pero la búsqueda normaliza lo que tipeás: da igual
+> con espacios, con guiones o pegado.
 >
-> - `1155551234` → **encuentra**
-> - `11 5555-1234` o `11-5555-1234` → **no encuentra**
-> - `1565551234` (con el 15) → **no encuentra**
+> - `1155551234`, `11 5555-1234`, `(11) 5555-1234`, `+5491155551234` → **todas encuentran**
 >
-> Escribilo pegado y sin el 15.
+> Lo que sí conviene es no poner el `15`: los números se guardan con el `9` internacional en su lugar.
 
-> **La búsqueda devuelve como máximo 50 resultados**, y no avisa cuando corta. Si buscás por un
-> apellido común, acotá con la empresa.
+> **La búsqueda muestra hasta 200 resultados** y te dice cuántos hay en total: si son más, un cartel
+> te avisa para que agregues algún dato y achiques la búsqueda.
 
 ---
 

@@ -38,11 +38,6 @@ algo, y ahí entran tanto los errores como los rechazos por falta de permiso.
 
 Esta solapa **no tiene filtros**: es siempre el panorama completo de lo que te toca ver.
 
-> ⚠ Con una excepción: el **gráfico de actividad de los últimos 30 días no respeta el recorte por
-> permisos**. Muestra el total del sistema aunque solo tengas *Ver auditoría*. Los cuatro números de
-> arriba y los tres rankings sí lo respetan. Es un defecto conocido; mientras esté, ese gráfico no
-> sirve como "mi actividad".
-
 ### Stream
 
 Lo último que pasó, en vivo. Las 100 acciones más recientes, **refrescándose solas cada 30 segundos**.
@@ -56,7 +51,7 @@ La que sirve para investigar. Trae 50 por página, siempre del más nuevo al má
 | Filtro | Para qué |
 |---|---|
 | **Desde / Hasta** | El rango de fechas. Ojo con el aviso de abajo |
-| **Módulo** | Gestión, importación, reportes, administración, autenticación y sistema |
+| **Módulo** | Gestión, importación, reportes, tableros, email, administración, autenticación, telefonía y sistema |
 | **Estado** | OK o FALLIDO |
 | **Severidad** | INFO, WARN o ERROR |
 | **Entidad** | Sobre qué: Deudor, Comentario, Convenio, Pago… |
@@ -67,21 +62,9 @@ La que sirve para investigar. Trae 50 por página, siempre del más nuevo al má
 **Entidad y Tipo son campos de texto libre y buscan por coincidencia exacta**: hay que escribir
 `PERMISO_DENEGADO` o `Comentario` tal cual, con mayúsculas y acentos. No son listas.
 
-Y faltan en el desplegable de Módulo tres que el sistema **sí** registra —telefonía, email y
-tableros—: hoy no se pueden filtrar desde ahí.
-
 Clic en una fila abre el detalle.
 
-> ### ⚠ "Desde" y "Hasta" están corridos tres horas
->
-> Las dos fechas se interpretan en horario de Greenwich, no en hora argentina, así que el corte cae a
-> **las 21:00 del día anterior**:
->
-> - *Hasta = hoy* devuelve todo hasta **ayer a las 21:00**: se pierde lo de hoy **y las últimas tres
->   horas de ayer**.
-> - *Desde = hoy* arranca **ayer a las 21:00**: te trae de yapa el final de ayer.
->
-> Si buscás algo de hoy y no aparece, poné el día siguiente en *Hasta*, o dejá el campo vacío.
+Las dos fechas toman el **día completo**: *Hasta = hoy* incluye todo lo de hoy.
 
 ---
 
@@ -107,18 +90,17 @@ guarda los parámetros completos de cada operación: revisala antes de compartir
 
 ## ⚠ Qué NO vas a encontrar acá
 
-**Los procesos automáticos masivos no se registran caso por caso.** La consolidación por pagos y la
-desasignación masiva de una importación quedan como **un solo registro de la corrida completa**.
+**Los procesos automáticos masivos se registran como una sola corrida**, no caso por caso. La
+consolidación por pagos y la desasignación masiva de una importación quedan así, y el vencimiento
+nocturno de promesas también —con la lista de casos que tocó.
 
-El **vencimiento nocturno de promesas** es peor: **no deja ningún registro**. Solo queda rastro si
-alguien lo dispara a mano. Los cambios de estado que produce esa corrida no se pueden rastrear desde
-acá.
+**La excepción son las cancelaciones**: cuando la consolidación cierra un caso, eso sí queda con un
+registro propio, así que filtrando por el ID del deudor aparece.
 
-Consecuencia práctica: **filtrar por el ID de un deudor no te va a explicar todos sus cambios de
-estado.** Vas a ver los manuales y la carga de pagos a mano; lo que movió un proceso masivo hay que
-buscarlo por la corrida, no por el caso — y algunas cosas no están en ningún lado.
+Para el resto de las transiciones masivas, filtrar por un caso no las va a mostrar: hay que buscar la
+corrida.
 
-Tampoco quedan registrados: **consultar o exportar la propia auditoría**, ni **cerrar sesión**.
+**Consultar** la auditoría no queda registrado; **exportarla**, sí.
 
 ---
 
@@ -153,9 +135,7 @@ Tres límites que conviene saber antes de mandarlo al cedente:
 - **Se exportan hasta 10.000 registros** y no hay aviso cuando se corta: si el filtro devuelve más,
   bajás los 10.000 más recientes y nada te lo dice. Acotá el rango de fechas.
 - **El detalle de la operación no va en la exportación.** Ese solo se ve en pantalla.
-- **Exporta con los filtros del formulario, no con los de la última búsqueda.** Si cambiaste un filtro
-  y no apretaste *Buscar*, el archivo sale con el filtro nuevo y la pantalla muestra el viejo. Apretá
-  *Buscar* antes de exportar.
+- **Exporta lo que buscaste**, no lo que haya quedado tipeado en el formulario.
 
 ---
 
@@ -170,14 +150,15 @@ Te falta **Ver auditoría de todos**: estás viendo únicamente lo tuyo.
 Puede ser que no haya resultados, o que la consulta haya fallado — por ejemplo por falta de permiso. La
 búsqueda no muestra ningún cartel cuando falla, así que los dos casos se ven igual.
 
-### Busco algo de hoy y no aparece
+### La pantalla queda vacía después de buscar
 
-El filtro *Hasta* corta a las 21:00 del día anterior. Poné el día siguiente.
+Si hubo un error —falta de permiso, por ejemplo— ahora aparece el aviso. Si no dice nada, es que
+efectivamente no hay resultados.
 
 ### No encuentro el cambio de estado de un caso
 
-Lo hizo un proceso automático. No se registra caso por caso, y el vencimiento de promesas no se
-registra en absoluto.
+Lo hizo un proceso automático masivo, que se registra como una sola corrida. Las cancelaciones son la
+excepción: esas sí aparecen filtrando por el caso.
 
 ### El Excel tiene exactamente 10.000 filas
 
@@ -198,7 +179,7 @@ Desde la aplicación no hay ninguna forma de editarlos ni borrarlos. Ese es el p
 Indefinidamente. No hay borrado automático.
 
 **¿Queda registrado quién consultó la auditoría?**
-No: ni consultar ni exportar dejan rastro.
+Consultar no. **Exportar sí**: es la acción que se lleva datos afuera del sistema.
 
 **¿Puedo armar un reporte sobre la auditoría?**
 En parte. El armador de reportes arranca siempre desde el deudor, y desde ahí se puede llegar a la

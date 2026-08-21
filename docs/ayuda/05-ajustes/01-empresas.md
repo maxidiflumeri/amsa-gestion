@@ -97,13 +97,13 @@ Faltan los parámetros. Es la consecuencia más común de crear la empresa y no 
 
 Puede ser que esa pantalla filtre por otra cosa, o que falte el permiso de ver empresas.
 
-### ⚠ No me deja eliminar una empresa
+### No me deja eliminar una empresa
 
-Si tiene casos, remesas, plantillas **o políticas**, el borrado se rechaza. El mensaje que vas a ver es
-un error técnico poco claro: es eso.
+Solo se puede borrar una empresa **vacía**. Si tiene casos, remesas, plantillas o políticas, el mensaje
+te dice cuántos de cada cosa: hay que vaciar la cartera primero.
 
-Y al revés, si la empresa **sí** se deja borrar, se lleva puestas sin ningún aviso **las tasas y los
-índices de recargo por mora y todo el historial de emails enviados**. No hay vuelta atrás.
+Y si tiene tasas de recargo por mora o historial de emails, tampoco: borrarla se los llevaría puestos
+sin vuelta atrás, así que el sistema frena y eso lo tiene que resolver el equipo técnico.
 
 Eliminar una empresa es para un alta equivocada, no para dar de baja una cartera que trabajó.
 

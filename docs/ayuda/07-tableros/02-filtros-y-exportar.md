@@ -83,10 +83,7 @@ El botón **Exportar** baja lo que estás viendo, con los filtros aplicados, en 
 | | Qué trae |
 |---|---|
 | **Excel** | Una hoja por bloque: indicadores, las tres distribuciones, las dos de rangos, las dos series, top 10 de deudores y el funnel |
-| **PDF** | Indicadores, funnel, las distribuciones (**los 12 valores más grandes** de cada una) y el top 10 de deudores. **No trae las series** |
-
-El PDF es el formato "para mandar", y justo le falta la evolución de la cobranza. Si eso es lo que
-querés mostrar, va el Excel.
+| **PDF** | Indicadores, funnel, las distribuciones (**los 12 valores más grandes** de cada una), la evolución por período y el top 10 de deudores |
 
 > El archivo **se vuelve a calcular en el servidor** al exportar. Si entró un pago entre que miraste la
 > pantalla y apretaste Exportar, el archivo puede diferir en algún número.

@@ -98,8 +98,8 @@ completado.
 Se puede editar, y lo que escribas es lo que sale. Si dejás variables entre llaves, se completan igual
 que en el cuerpo.
 
-**Adjuntos.** Hasta **10 archivos** de **10 MB cada uno**. Si pasás uno más grande, avisa; si arrastrás
-más de diez, **los sobrantes se descartan sin decir nada**.
+**Adjuntos.** Hasta **10 archivos**, de **10 MB cada uno** y **20 MB en total**. Si te pasás de
+cualquiera de los tres, avisa.
 
 ## Paso 4 — Previsualizar y enviar
 
@@ -165,7 +165,7 @@ destinatario.
 
 ### Agregué adjuntos y no están todos
 
-Pasaste de diez. Los que sobran se descartan en silencio.
+Pasaste de diez archivos, o de 20 MB sumados. El aviso dice cuántos quedaron afuera.
 
 ### Salió un dato en blanco
 

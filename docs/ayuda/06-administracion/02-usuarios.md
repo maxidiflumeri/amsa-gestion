@@ -46,14 +46,8 @@ Dos consecuencias:
 | **Rol** | Sin rol la persona entra pero no puede hacer nada |
 | **Activo** | Si lo apagás, no puede volver a entrar |
 
-> ### ⚠ El email no se puede cambiar después
->
-> Una vez creado el usuario, **el campo de email queda bloqueado**. Y como el email es la credencial de
-> login, un error de tipeo ahí es un callejón: la única salida sería eliminar y recrear, y eliminar
-> **también puede estar bloqueado** o, peor, funcionar y llevarse la trazabilidad puesta (ver abajo).
->
-> **Revisá el email dos veces antes de guardar el alta.** Es el campo más caro de equivocar de toda la
-> pantalla.
+> **El email se puede corregir después.** Es la credencial de login, así que si lo cambiás, la persona
+> tiene que entrar con la cuenta nueva.
 
 > **El nombre y la foto los pisa Google.** En cada login el sistema toma el nombre y el avatar de la
 > cuenta de Google y sobrescribe lo que haya. Cargar acá "Juan Pérez" sirve para identificarlo hasta el
@@ -107,8 +101,7 @@ figurarían como "Sistema". Eliminar queda para el alta equivocada que nunca se 
 ### "No tenés acceso al sistema. Pedile al administrador que te dé de alta."
 
 El email no está cargado, o está cargado distinto del de su cuenta de Google. Es la causa más común, y
-suele ser una diferencia mínima: un punto de más, otro dominio. Y ya no se puede corregir desde la
-pantalla: escalalo.
+suele ser una diferencia mínima: un punto de más, otro dominio. Se corrige editando el usuario.
 
 ### "Tu cuenta está suspendida."
 
@@ -135,12 +128,6 @@ Esa persona tiene actividad registrada. El mensaje te dice cuál. Para darla de 
 ### Cambié el nombre y volvió al anterior
 
 Lo pisó Google en el siguiente login.
-
-### El DNI aparece vacío cuando edito
-
-El campo nunca se recupera: siempre se muestra en blanco, aunque esté cargado. Guardarlo vacío **no lo
-borra**, y tampoco hay forma de dejarlo vacío: solo se puede pisar con otro valor. Para saber cuál está
-cargado, hoy no hay forma desde esta pantalla.
 
 ---
 

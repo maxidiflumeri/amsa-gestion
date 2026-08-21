@@ -80,20 +80,13 @@ Tres que no son obvios:
 
 ---
 
-## ⚠ Los permisos de telefonía no están en esta pantalla
+## Los permisos de telefonía
 
-El sistema tiene cuatro permisos de telefonía —usar el softphone, click-to-call, supervisar y
-administrar— que **la pantalla de Roles no muestra**, porque la lista que dibuja está desactualizada
-respecto de la del servidor.
+Son cuatro: usar el softphone, click-to-call, supervisar y administrar. **Administrar telefonía** es el
+que habilita el panel de prueba de Neotel, que no es de solo lectura: desloguea al agente de la
+central, lo pausa y lo mueve de campaña.
 
-Consecuencia práctica: **desde acá no se pueden otorgar**. Lo bueno es que tampoco se pierden: si un rol
-ya los tiene, editarlo y guardarlo **los conserva**, aunque no los veas. El único síntoma raro es el
-contador de arriba del diálogo, que va a decir más permisos de los que tenés tildados — la diferencia
-son esos.
-
-El efecto visible es que el ítem de menú **Neotel (test)** no lo puede ver nadie: pide un permiso que
-esta pantalla no sabe dar. Si un rol necesita telefonía, hay que cargarlo por fuera de acá —escalalo a
-sistemas.
+Ya están: los cuatro se pueden tildar como cualquier otro.
 
 ---
 

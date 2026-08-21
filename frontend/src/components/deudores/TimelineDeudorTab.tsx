@@ -1,5 +1,8 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import {
+    AccordionSummary,
+    AccordionDetails,
+    Accordion,
     Alert,
     Avatar,
     Box,
@@ -24,6 +27,9 @@ import ChatIcon from '@mui/icons-material/Chat';
 import { timelineApi } from '../../api/timeline';
 import type { TimelineCanal, TimelineEntry, TimelineResponse } from '../../types/timeline';
 import { useNotify } from '../../hooks/useNotify';
+import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
+import { emailApi } from '../../api/email';
+import type { EnvioEmail } from '../../types/email';
 
 interface Props {
     deudorId: number | null;
@@ -163,6 +169,61 @@ const TimelineItem: React.FC<{ entry: TimelineEntry }> = ({ entry }) => {
     );
 };
 
+/**
+ * Los envíos hechos **desde esta ficha**, con los valores que se usaron.
+ *
+ * `envio_email` es la única fuente que sabe **qué valores se mandaron** en cada variable, y era
+ * invisible: los endpoints existían y no los llamaba nadie desde que Timeline reemplazó al tab de
+ * "emails enviados". Cuando un mail sale con un dato mal, esto es lo único que lo explica.
+ */
+const EnviosDeLaFicha: React.FC<{ deudorId: number }> = ({ deudorId }) => {
+    const [envios, setEnvios] = useState<EnvioEmail[]>([]);
+
+    useEffect(() => {
+        emailApi.listarEnviosDeudor(deudorId).then(setEnvios).catch(() => setEnvios([]));
+    }, [deudorId]);
+
+    if (envios.length === 0) return null;
+
+    return (
+        <Accordion sx={{ mb: 2 }} disableGutters>
+            <AccordionSummary expandIcon={<ExpandMoreIcon />}>
+                <Typography variant="subtitle2">
+                    Enviados desde esta ficha ({envios.length}) — con los valores que se usaron
+                </Typography>
+            </AccordionSummary>
+            <AccordionDetails>
+                {envios.map((e) => (
+                    <Box key={e.id} sx={{ mb: 1.5, pb: 1.5, borderBottom: '1px solid', borderColor: 'divider' }}>
+                        <Typography variant="body2" fontWeight={600}>{e.asunto || '(sin asunto)'}</Typography>
+                        <Typography variant="caption" color="text.secondary" display="block">
+                            {new Date(e.creadoAt).toLocaleString()} · {e.destinatarios}
+                            {e.usuario?.nombre ? ` · ${e.usuario.nombre}` : ''}
+                            {e.estado === 'ERROR' ? ' · falló' : ''}
+                        </Typography>
+                        {e.archivosNombres?.length > 0 && (
+                            <Typography variant="caption" color="text.secondary" display="block">
+                                Adjuntos: {e.archivosNombres.join(', ')}
+                            </Typography>
+                        )}
+                        <Stack direction="row" spacing={0.5} useFlexGap flexWrap="wrap" sx={{ mt: 0.5 }}>
+                            {Object.entries(e.variables || {}).map(([k, v]) => (
+                                <Chip
+                                    key={k}
+                                    size="small"
+                                    variant="outlined"
+                                    label={`${k}: ${v || '(vacío)'}`}
+                                    color={v ? 'default' : 'warning'}
+                                />
+                            ))}
+                        </Stack>
+                    </Box>
+                ))}
+            </AccordionDetails>
+        </Accordion>
+    );
+};
+
 const TimelineDeudorTab: React.FC<Props> = ({ deudorId }) => {
     const notify = useNotify();
     const [loading, setLoading] = useState(false);
@@ -211,6 +272,8 @@ const TimelineDeudorTab: React.FC<Props> = ({ deudorId }) => {
 
     return (
         <Box p={2}>
+            {deudorId != null && <EnviosDeLaFicha deudorId={deudorId} />}
+
             <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1.5} mb={2} alignItems={{ sm: 'center' }}>
                 <TextField
                     size="small"
