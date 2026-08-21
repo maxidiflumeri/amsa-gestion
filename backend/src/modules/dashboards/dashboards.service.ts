@@ -44,7 +44,7 @@ export class DashboardsService {
         private prisma: PrismaService,
     ) { }
 
-    async snapshot(dto: SnapshotDto, restrictEmpresaId: number | null): Promise<SnapshotResponse> {
+    async snapshot(dto: SnapshotDto): Promise<SnapshotResponse> {
         const t0 = Date.now();
         // Días COMPLETOS en hora local: `new Date('2026-07-31')` es medianoche UTC y dejaba
         // afuera todo el último día del rango. Ver `rango-fechas.ts`.
@@ -57,7 +57,7 @@ export class DashboardsService {
             this.logger.warn(`Snapshot con rango amplio diffDias=${diffDias} (máx=${RANGO_MAX_DIAS})`);
         }
 
-        const empresaIdEfectivo = restrictEmpresaId ?? dto.empresaId ?? null;
+        const empresaIdEfectivo = dto.empresaId ?? null;
 
         if (dto.remesaId) {
             const rem = await this.prisma.remesa.findUnique({
@@ -114,10 +114,47 @@ export class DashboardsService {
         const idsConPromesaEstado = idPromesaVigente > 0 ? [idPromesaVigente] : [];
         const idsConPagoEstado = [...idsPagando, ...idsCancelado];
 
+        // ── Escalones del funnel ────────────────────────────────────────────
+        //
+        // Se definen **por evidencia y anidados por construcción**, no por el estado actual. Antes
+        // los tres primeros leían `estadoSituacionId`, que es un solo valor: un caso que llegaba a
+        // promesa dejaba de contar en "contactados", así que las barras podían crecer hacia abajo y
+        // la diferencia entre dos no significaba nada. Medido en la base local daba
+        // 21.335 / 0 / 0 / 68.
+        //
+        // `promesa_pago` y `pago` son tablas históricas, así que ahí sí hay memoria de lo que pasó.
+        // Lo que no hay es histórico de transiciones de situación (ver CHANGELOG 2026-07-31), y por
+        // eso "contactados" se apoya en el estado actual **más** la evidencia de las etapas
+        // siguientes: un caso contactado que después se marcó incobrable, sin promesa ni pago, no
+        // cuenta. Es una subestimación conocida, no un error de cálculo.
+        const conPromesaWhere: Prisma.deudorWhereInput = {
+            OR: [
+                { promesas: { some: {} } },
+                ...(idsConPromesaEstado.length ? [{ estadoSituacionId: { in: idsConPromesaEstado } }] : []),
+                ...(idPromesaGestion > 0 ? [{ estadoGestionId: idPromesaGestion }] : []),
+            ],
+        };
+        const contactadoWhere: Prisma.deudorWhereInput = {
+            OR: [
+                ...(idsContactado.length ? [{ estadoSituacionId: { in: idsContactado } }] : []),
+                ...(idsConPagoEstado.length ? [{ estadoSituacionId: { in: idsConPagoEstado } }] : []),
+                { pagos: { some: {} } },
+                conPromesaWhere,
+            ],
+        };
+        // El último escalón es "de los que prometieron, cuántos pagaron": es la pregunta que el
+        // funnel existe para responder, y además es lo único que lo deja estrictamente decreciente.
+        // Quien pagó sin prometer no desaparece del tablero — está en el KPI "casos con pago".
+        const promesaCumplidaWhere: Prisma.deudorWhereInput = {
+            AND: [conPromesaWhere, { pagos: { some: {} } }],
+        };
+
         const [
             cantidadCasos,
             deudaAgg,
+            saldoRaw,
             pagosAgg,
+            pagosTotalesAgg,
             casosConPagoGrupos,
             promesasVigentes,
             cpcCount,
@@ -136,17 +173,27 @@ export class DashboardsService {
             moraRaw,
             funnelContactadosCount,
             funnelConPromesaCount,
-            funnelConPagoCount,
+            funnelPromesaCumplidaCount,
             topDeudoresRaw,
         ] = await Promise.all([
             this.prisma.deudor.count({ where }),
             this.prisma.deudor.aggregate({ where, _sum: { montoTotal: true } }),
+            // Va en SQL crudo por el COALESCE: `saldo` lo escribe la consolidación por pagos, y en un
+            // caso que nunca se consolidó es NULL — ahí lo que falta cobrar es el monto original.
+            this.prisma.$queryRaw<{ saldo: number | null }[]>`
+                SELECT SUM(COALESCE(d.saldo, d.montoTotal)) AS saldo
+                FROM deudor d
+                WHERE ${sqlDeudorWhere}
+            `,
             this.prisma.pago.aggregate({
                 where: pagoDeudorWhere,
                 _sum: { importe: true },
                 _avg: { importe: true },
                 _count: true,
             }),
+            // Sin filtro de fecha: el recupero acumulado se mide contra toda la vida de la cartera,
+            // que es contra lo que la mide el cedente.
+            this.prisma.pago.aggregate({ where: { deudor: where }, _sum: { importe: true } }),
             // `groupBy` en vez de traer todos los deudorId a memoria para hacer `.length`: en una
             // cartera con cientos de miles de pagadores eso es un array enorme en el proceso Node por
             // cada refresco del tablero, para terminar usando un solo número.
@@ -161,7 +208,9 @@ export class DashboardsService {
             idsCpc.length
                 ? this.prisma.deudor.count({ where: { ...where, estadoSituacionId: { in: idsCpc } } })
                 : Promise.resolve(0),
-            this.prisma.deudor.count({ where: { ...where, estadoGestionId: null } }),
+            // "Sin gestión" = **nadie lo tocó nunca**. Antes contaba `estadoGestionId: null`, que da 0
+            // siempre: la importación exige un estado inicial y se lo pone a todos los casos.
+            this.prisma.deudor.count({ where: { ...where, comentarios: { none: {} } } }),
             idsIncobrable.length
                 ? this.prisma.deudor.count({ where: { ...where, estadoSituacionId: { in: idsIncobrable } } })
                 : Promise.resolve(0),
@@ -182,32 +231,9 @@ export class DashboardsService {
             this.querySeriePagos(sqlDeudorWhere, desde, hasta, granularidad),
             this.querySerieGestiones(sqlDeudorWhere, desde, hasta, granularidad),
             this.queryMoraPromedia(sqlDeudorWhere, desde, hasta),
-            idsContactado.length
-                ? this.prisma.deudor.count({ where: { ...where, estadoSituacionId: { in: idsContactado } } })
-                : Promise.resolve(0),
-            this.prisma.deudor.count({
-                where: {
-                    ...where,
-                    OR: [
-                        ...(idsConPromesaEstado.length ? [{ estadoSituacionId: { in: idsConPromesaEstado } }] : []),
-                        ...(idPromesaGestion > 0 ? [{ estadoGestionId: idPromesaGestion }] : []),
-                    ],
-                },
-            }),
-            // Funnel "Con pago": estado ACUMULADO, sin filtrar por período — igual que los otros
-            // tres escalones (asignados, contactados, con promesa), que son todos foto del estado
-            // actual. Antes acá se cruzaban los pagos DEL PERÍODO con la situación, así que el
-            // funnel mezclaba dos relojes y sus proporciones no eran comparables entre sí.
-            // El KPI "casos con pago" sí mira el período: responde otra pregunta.
-            this.prisma.deudor.count({
-                where: {
-                    ...where,
-                    OR: [
-                        { pagos: { some: {} } },
-                        ...(idsConPagoEstado.length ? [{ estadoSituacionId: { in: idsConPagoEstado } }] : []),
-                    ],
-                },
-            }),
+            this.prisma.deudor.count({ where: { AND: [where, contactadoWhere] } }),
+            this.prisma.deudor.count({ where: { AND: [where, conPromesaWhere] } }),
+            this.prisma.deudor.count({ where: { AND: [where, promesaCumplidaWhere] } }),
             this.prisma.deudor.findMany({
                 where,
                 orderBy: { montoTotal: 'desc' },
@@ -287,17 +313,24 @@ export class DashboardsService {
         }));
 
         const pagosPeriodo = pagosAgg._sum.importe ?? 0;
-        const deudaTotal = deudaAgg._sum.montoTotal ?? 0;
+        const deudaAsignada = deudaAgg._sum.montoTotal ?? 0;
+        const saldoPendiente = Number(saldoRaw[0]?.saldo ?? 0);
+        const pagosTotales = pagosTotalesAgg._sum.importe ?? 0;
         const ticketPromedio = pagosAgg._avg.importe ?? 0;
 
-        this.logger.log(`Snapshot generado empresaId=${restrictEmpresaId ?? dto.empresaId ?? 'todos'} casos=${cantidadCasos} en ${Date.now() - t0}ms`);
+        this.logger.log(`Snapshot generado empresaId=${dto.empresaId ?? 'todos'} casos=${cantidadCasos} en ${Date.now() - t0}ms`);
 
         return {
             kpis: {
                 cantidadCasos,
-                deudaTotal,
+                deudaAsignada,
+                saldoPendiente,
+                // Antes esto era `pagos del período / deuda asignada`: un numerador de un mes sobre un
+                // denominador de toda la vida de la cartera. Daba 0,18% y no servía para nada.
+                recuperoAcumulado: deudaAsignada > 0
+                    ? Math.round((pagosTotales / deudaAsignada) * 10000) / 100
+                    : 0,
                 pagosPeriodo,
-                porcentajeRecupero: deudaTotal > 0 ? Math.round((pagosPeriodo / deudaTotal) * 10000) / 100 : 0,
                 casosConPago: casosConPagoGrupos.length,
                 ticketPromedio,
                 moraPromediaDias,
@@ -327,7 +360,7 @@ export class DashboardsService {
                 asignados: cantidadCasos,
                 contactados: funnelContactadosCount,
                 conPromesa: funnelConPromesaCount,
-                conPago: funnelConPagoCount,
+                promesaCumplida: funnelPromesaCumplidaCount,
             },
             meta: {
                 empresaId: empresaRec?.id ?? null,
@@ -492,10 +525,10 @@ export class DashboardsService {
 
     // ── Drill-down ───────────────────────────────────────────────────────
 
-    async drillDown(dto: DrillDownDto, restrictEmpresaId: number | null): Promise<DrillDownResponse> {
+    async drillDown(dto: DrillDownDto): Promise<DrillDownResponse> {
         const { desde, hasta } = resolverRango(dto.desde, dto.hasta);
 
-        const empresaIdEfectivo = restrictEmpresaId ?? dto.empresaId ?? null;
+        const empresaIdEfectivo = dto.empresaId ?? null;
         const page = Math.max(1, dto.page ?? 1);
         const pageSize = Math.min(100, Math.max(1, dto.pageSize ?? 25));
 

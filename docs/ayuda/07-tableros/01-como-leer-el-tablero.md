@@ -34,15 +34,15 @@ Es la confusión número uno del tablero, y hace que la gente vea contradiccione
 
 | Es una foto de hoy | Mira el período |
 |---|---|
-| Cantidad de casos | Pagos del período |
-| Deuda total | % Recupero |
-| Promesas vigentes | Casos con pago (período) |
-| % CPC | Ticket promedio |
-| Casos sin gestión | Mora promedio *(en parte — ver abajo)* |
-| Incobrables · En proceso legal | Las dos series de abajo |
+| Cantidad de casos | Cobrado en el período |
+| Deuda asignada · Saldo pendiente | Casos con pago (período) |
+| % Recupero acumulado | Ticket promedio |
+| Promesas vigentes · % CPC | Mora promedio *(en parte — ver abajo)* |
+| Casos sin gestión | Las dos series de abajo |
+| Incobrables · En proceso legal | |
 | El funnel y las cinco distribuciones | |
 
-Así que "Deuda total" no cambia si movés las fechas, y "Pagos del período" sí. No está roto.
+Así que "Deuda asignada" no cambia si movés las fechas, y "Cobrado en el período" sí. No está roto.
 
 El **funnel** lo dice en su propio subtítulo: *"Estado actual de la cartera — no depende del período
 seleccionado"*.
@@ -54,40 +54,29 @@ seleccionado"*.
 | Indicador | Qué es realmente |
 |---|---|
 | **Cantidad de casos** | Los casos que quedaron después de los filtros |
-| **Deuda total** | La suma de la deuda **original asignada**. Ver abajo |
-| **Pagos del período** | Lo cobrado dentro del rango de fechas |
-| **% Recupero** | Pagos del período sobre la deuda original. Ver abajo |
+| **Deuda asignada** | Lo que el cedente asignó. No baja al cobrar |
+| **Saldo pendiente** | Lo que falta cobrar hoy |
+| **% Recupero acumulado** | Todo lo cobrado sobre lo asignado, desde siempre |
+| **Cobrado en el período** | Lo cobrado dentro del rango de fechas |
 | **Casos con pago (período)** | Cuántos casos pagaron algo en el rango. Un caso cuenta una vez |
 | **Ticket promedio** | El pago promedio del período |
 | **Mora promedio** | Días de atraso promedio. Ver abajo |
 | **Promesas vigentes** | Casos cuya situación es *Promesa de pago vigente* |
 | **% CPC** | Contacto con persona correcta. Ver abajo |
-| **Casos sin gestión** | Casos sin código de gestión. Ver abajo |
+| **Casos sin gestión** | Casos que nadie tocó nunca: sin un solo comentario |
 | **Incobrables** | Casos en situación de categoría incobrable |
 | **En proceso legal** | Casos en instancia legal |
 
-### ⚠ Deuda total es la deuda original, no el saldo
+### Los dos números de deuda son distintos a propósito
 
-Suma **lo que se asignó**, no lo que falta cobrar. **No resta los pagos** y **no suma el recargo por
-mora**.
+**Deuda asignada** es lo que entró: no baja al cobrar. Es la referencia contra la que el cedente mide.
 
-O sea: cobrás y el número no baja. Solo se mueve si entra una remesa nueva o si una importación pisa
-el monto.
+**Saldo pendiente** es lo que falta cobrar hoy, ya descontados los pagos. Es el que se mueve.
 
-### El % de recupero, con cuidado
+La diferencia entre los dos es, justamente, lo cobrado — y eso es el **% de recupero acumulado**.
 
-Es *pagos del período* dividido *deuda original de la cartera*. Mezcla un numerador de un mes con un
-denominador de toda la vida de la cartera, así que:
-
-- **Una cartera vieja y bien cobrada igual muestra un recupero mensual bajo.** El denominador no se
-  achica nunca.
-- **Baja cuando entra una remesa nueva**, aunque nadie haya trabajado peor.
-
-Sirve para comparar el mismo tablero mes contra mes. **No** sirve como "cuánto recuperamos de esta
-cartera".
-
-Y no lo toca el recargo por mora: el tablero trabaja con la deuda original. Recalcular la mora no
-cambia ni un peso de acá.
+> Ninguno de los dos incluye el recargo por mora: el tablero trabaja con la deuda original.
+> Recalcular la mora no cambia ni un peso de acá.
 
 ### El % de CPC
 
@@ -103,14 +92,12 @@ Da más bajo de lo que uno espera, por dos motivos que conviene entender:
 
 Léelo como *"cuántos están hoy parados en contacto"*, no como *"a cuántos contactamos"*.
 
-### ⚠ Casos sin gestión da 0 casi siempre
+### Casos sin gestión
 
-Cuenta los casos que **no tienen ningún código de gestión**, y la importación le pone uno a todos: es
-obligatorio en la plantilla.
+Cuenta los casos **sin un solo comentario**: nadie los trabajó todavía.
 
-Así que el número va a ser 0 para cualquier cartera cargada por el flujo normal. **Para ver el trabajo
-sin empezar**, mirá en la torta de estado de gestión cuántos siguen en el código inicial — típicamente
-*Gestión sin definición*.
+Es el número más accionable del tablero. Si son muchos y la cartera es vieja, hay trabajo sin empezar;
+si son muchos y la remesa entró ayer, es normal.
 
 ### Mora promedio
 
@@ -157,21 +144,35 @@ la torta queda casi entera en "sin asignar" y el gráfico no dice nada.
 
 ## El funnel de gestión
 
-Cuatro barras: **Asignados**, **Contactados**, **Con promesa**, **Con pago**.
+Cuatro barras, **cada una contenida en la anterior**: **Asignados**, **Contactados**, **Con promesa**,
+**Promesa cumplida**. Siempre van de mayor a menor, así que la caída entre dos escalones se puede leer
+como lo que es: gente que se perdió en el camino.
 
-> ### ⚠ No es un embudo
->
-> Las tres primeras leen **la situación actual del caso, que es una sola**. Un caso que llegó a
-> *promesa* **deja de contar en Contactados**; uno cancelado tampoco cuenta ahí.
->
-> Por eso las barras **pueden no ir de mayor a menor**, y la diferencia entre dos de ellas **no es una
-> "caída"**: es gente parada en otro estado. Los porcentajes, además, son sobre Asignados, no sobre la
-> barra anterior.
+| Escalón | Qué cuenta |
+|---|---|
+| **Asignados** | Todos los casos del filtro |
+| **Contactados** | Los que tienen evidencia de contacto: situación de contacto, o alguna promesa, o algún pago |
+| **Con promesa** | Los que prometieron pagar alguna vez |
+| **Promesa cumplida** | De los que prometieron, los que además pagaron |
 
-Lo que sí se lee bien es **la primera diferencia**: cuántos casos todavía no llegaron a ningún
-contacto. Si son muchos y la cartera es vieja, hay un problema de datos de contacto — eso se ataca con
-una importación de enriquecimiento, no con más llamadas. Ver
-[Las categorías de importación](/ayuda/importacion/categorias).
+Dónde se pierde la cobranza:
+
+- **Asignados → Contactados** flojo: problema de **datos de contacto**, no de gestión. Se ataca con una
+  importación de enriquecimiento, no con más llamadas. Ver
+  [Las categorías de importación](/ayuda/importacion/categorias).
+- **Contactados → Con promesa** flojo: se llega a la gente pero no se cierra. Es entrenamiento, o una
+  política que no da margen.
+- **Con promesa → Promesa cumplida** flojo: prometen y no pagan. Ahí sirve el seguimiento de promesas
+  vencidas. Ver [Pagos y promesas](/ayuda/gestion/pagos-y-promesas).
+
+> **Quien pagó sin prometer no aparece en el último escalón** — el funnel mide el camino de la
+> gestión. Ese caso está en *Casos con pago*, arriba.
+
+> **"Contactados" subestima.** No hay histórico de cambios de situación, así que un caso que se
+> contactó y después se marcó incobrable, sin promesa ni pago, no cuenta. Es una limitación del dato,
+> no un error de cálculo.
+
+Los porcentajes de cada barra son sobre **Asignados**, no sobre la barra anterior.
 
 ---
 
@@ -198,8 +199,8 @@ Después: filtros de estado que no aplican a esa cartera, o demasiados filtros c
 
 ### Los números no coinciden con un reporte
 
-Casi siempre es el período, o que el reporte está mirando **saldo** y el tablero muestra **deuda
-original**. Fijate cuál de los dos números es de cartera y cuál de actividad.
+Casi siempre es el período, o que estás comparando **saldo pendiente** contra **deuda asignada**.
+Fijate cuál de los dos números es de cartera y cuál de actividad.
 
 ### El % de CPC da mucho más bajo de lo que sabemos
 
@@ -217,11 +218,12 @@ pueden calcular nada.
 
 ### El recupero bajó y nadie trabajó distinto
 
-Mirá el denominador: entró una remesa nueva. El recargo por mora, en cambio, no lo afecta.
+Entró una remesa nueva: el denominador creció. El recargo por mora, en cambio, no lo afecta.
 
-### "Casos sin gestión" siempre en cero
+### El saldo pendiente no baja aunque se cobre
 
-Es lo esperado. Ver arriba.
+El saldo lo escribe la consolidación por pagos. Si los pagos se cargaron pero no se consolidaron, el
+saldo sigue en el monto original.
 
 ---
 

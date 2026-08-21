@@ -13,7 +13,7 @@ const FunnelGestion: React.FC<Props> = ({ data }) => {
         { label: 'Asignados', value: data.asignados, color: theme.palette.primary.main },
         { label: 'Contactados', value: data.contactados, color: theme.palette.info.main },
         { label: 'Con promesa', value: data.conPromesa, color: theme.palette.warning.main },
-        { label: 'Con pago', value: data.conPago, color: theme.palette.success.main },
+        { label: 'Promesa cumplida', value: data.promesaCumplida, color: theme.palette.success.main },
     ];
 
     const base = Math.max(data.asignados, 1);

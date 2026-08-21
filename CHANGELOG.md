@@ -6,6 +6,78 @@
 
 ---
 
+## [2026-08-21] — Tableros: los números pasan a significar lo que dicen
+
+> Backend: `dashboards.service.ts`, `.controller.ts`, `snapshot.interface.ts`,
+> `dashboards-export.service.ts`, `permisos-catalogo.ts`. Frontend: `KpiGrid.tsx`,
+> `FunnelGestion.tsx`, `DashboardFiltros.tsx`, `types/dashboards.ts`.
+> Script nuevo: `prisma/scripts/limpiar-permisos-obsoletos.ts`.
+
+Las cuatro decisiones de producto que quedaban del backlog de la auditoría, ya tomadas.
+
+### La deuda: dos números, no uno
+
+`deudaTotal` sumaba `montoTotal` —lo asignado— y se llamaba "Deuda total", así que se leía como el
+saldo. Ahora son dos:
+
+- **Deuda asignada** — lo que entró. No baja al cobrar; es la referencia contra la que mide el cedente.
+- **Saldo pendiente** — lo que falta cobrar hoy. Va en SQL crudo por el `COALESCE(saldo, montoTotal)`:
+  `saldo` lo escribe la consolidación por pagos y es `NULL` en un caso que nunca se consolidó, donde lo
+  que falta cobrar es el monto original.
+
+Y el recupero pasó a ser **acumulado**: todo lo cobrado sobre lo asignado. El anterior dividía los
+pagos **del período** por la deuda de **toda la vida** de la cartera — un híbrido que daba 0,18% y no
+servía para nada. Lo del período sigue estando, ahora rotulado **Cobrado en el período**.
+
+### El funnel: anidado por construcción
+
+Las tres primeras etapas leían `estadoSituacionId`, que es un solo valor: un caso que llegaba a
+promesa **dejaba de contar en "contactados"**. Medido en la base local daba `21.335 / 0 / 0 / 68` — la
+última barra mayor que las dos anteriores.
+
+Ahora cada escalón se define **por evidencia** y es subconjunto del anterior:
+
+| Escalón | Qué cuenta |
+|---|---|
+| Asignados | todos |
+| Contactados | situación de contacto **∪** tiene alguna promesa **∪** tiene algún pago |
+| Con promesa | tiene alguna promesa registrada |
+| **Promesa cumplida** | de los que prometieron, los que además pagaron |
+
+`promesa_pago` y `pago` son tablas históricas, así que ahí sí hay memoria. El cuarto escalón cambió de
+significado a propósito: *"con pago"* no es subconjunto de *"con promesa"* —se puede pagar sin
+prometer— y era lo único que impedía que el embudo fuera monótono. Quien pagó sin prometer no
+desaparece: está en el KPI *Casos con pago*.
+
+Lo que **no** se pudo arreglar: no hay histórico de transiciones de situación, así que "contactados"
+subestima — un caso contactado que después se marcó incobrable, sin promesa ni pago, no cuenta. Queda
+documentado en la ayuda como limitación del dato.
+
+Verificado contra la cartera real de la base local: `21.335 / 68 / 0 / 0`, decreciente en todos los
+escalones, con `saldo ≤ asignada` y el recupero dentro de `[0,100]`.
+
+### "Casos sin gestión": de 0 siempre a los que nadie tocó
+
+Contaba `estadoGestionId: null`, que da 0 para cualquier cartera cargada por el flujo normal: la
+importación exige un estado inicial y se lo pone a todos. Ahora cuenta los casos **sin un solo
+comentario**, que es lo que el nombre promete. En la base local pasó de 0 a **21.332 de 21.335**.
+
+### `dashboards.ver_todas_empresas`: se retiró
+
+El controller leía `usuario.empresaId`, campo que no existe ni en el JWT ni en el schema, así que el
+recorte era siempre `null`. Se decidió **no implementar el modelo**: todos los usuarios son internos y
+trabajan sobre varias carteras, así que agregar `usuario.empresaId` habría sido inventar un requisito —
+y con todos en `null` no habría cambiado nada igual.
+
+Se sacó el permiso de los dos catálogos y el recorte muerto del controller y del servicio.
+
+> **Retirar un permiso no es gratis**: `RolesService.validarPermisos` rechaza cualquier clave
+> desconocida, así que un rol que lo tenía guardado **no se podía volver a guardar** desde la pantalla
+> de Roles. Por eso va `limpiar-permisos-obsoletos.ts`, idempotente y con dry-run por defecto. En local
+> limpió el rol ADMIN (56 → 55 claves). **Hay que correrlo en producción al desplegar.**
+
+---
+
 ## [2026-08-21] — Seguridad: la sesión que no se cortaba, el borrado que huerfanaba y la clave en claro
 
 > `auth/usuario-activo.service.ts` (nuevo), `auth/jwt-auth.guard.ts`, `auth/auth.module.ts`,

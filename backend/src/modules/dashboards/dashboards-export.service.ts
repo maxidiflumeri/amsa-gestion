@@ -140,9 +140,10 @@ export class DashboardsExportService {
         const kpis = snap.kpis;
         const filas: [string, string | number][] = [
             ['Cantidad de casos', fmtNumber(kpis.cantidadCasos)],
-            ['Deuda total', fmtMoney(kpis.deudaTotal)],
+            ['Deuda asignada', fmtMoney(kpis.deudaAsignada)],
+            ['Saldo pendiente', fmtMoney(kpis.saldoPendiente)],
             ['Pagos del período', fmtMoney(kpis.pagosPeriodo)],
-            ['% Recupero', fmtPercent(kpis.porcentajeRecupero)],
+            ['% Recupero acumulado', fmtPercent(kpis.recuperoAcumulado)],
             ['Casos con pago', fmtNumber(kpis.casosConPago)],
             ['Ticket promedio', fmtMoney(kpis.ticketPromedio)],
             ['Mora promedio (días)', kpis.moraPromediaDias != null ? Math.round(kpis.moraPromediaDias) : '—'],
@@ -245,7 +246,7 @@ export class DashboardsExportService {
             ['Asignados', snap.funnel.asignados],
             ['Contactados', snap.funnel.contactados],
             ['Con promesa', snap.funnel.conPromesa],
-            ['Con pago', snap.funnel.conPago],
+            ['Promesa cumplida', snap.funnel.promesaCumplida],
         ] as [string, number][];
         filas.forEach(([etapa, val], i) => {
             const r = ws.getRow(i + 2);
@@ -287,9 +288,10 @@ export class DashboardsExportService {
         const kpiRows: any[][] = [
             [{ text: 'Indicador', style: 'th' }, { text: 'Valor', style: 'th' }],
             ['Cantidad de casos', fmtNumber(k.cantidadCasos)],
-            ['Deuda total', fmtMoney(k.deudaTotal)],
+            ['Deuda asignada', fmtMoney(k.deudaAsignada)],
+            ['Saldo pendiente', fmtMoney(k.saldoPendiente)],
             ['Pagos del período', fmtMoney(k.pagosPeriodo)],
-            ['% Recupero', fmtPercent(k.porcentajeRecupero)],
+            ['% Recupero acumulado', fmtPercent(k.recuperoAcumulado)],
             ['Casos con pago', fmtNumber(k.casosConPago)],
             ['Ticket promedio', fmtMoney(k.ticketPromedio)],
             ['Mora promedio (días)', k.moraPromediaDias != null ? String(Math.round(k.moraPromediaDias)) : '—'],
@@ -312,7 +314,7 @@ export class DashboardsExportService {
             ['Asignados', fmtNumber(snap.funnel.asignados), fmtPercent((snap.funnel.asignados / base) * 100)],
             ['Contactados', fmtNumber(snap.funnel.contactados), fmtPercent((snap.funnel.contactados / base) * 100)],
             ['Con promesa', fmtNumber(snap.funnel.conPromesa), fmtPercent((snap.funnel.conPromesa / base) * 100)],
-            ['Con pago', fmtNumber(snap.funnel.conPago), fmtPercent((snap.funnel.conPago / base) * 100)],
+            ['Promesa cumplida', fmtNumber(snap.funnel.promesaCumplida), fmtPercent((snap.funnel.promesaCumplida / base) * 100)],
         ];
         content.push({
             table: { headerRows: 1, widths: ['*', 'auto', 'auto'], body: funnelRows },

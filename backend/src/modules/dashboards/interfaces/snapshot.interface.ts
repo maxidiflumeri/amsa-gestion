@@ -1,13 +1,19 @@
 export interface SnapshotKpis {
     cantidadCasos: number;
-    deudaTotal: number;
+    /** Lo que el cedente asignó. No baja al cobrar: es la referencia contra la que se mide. */
+    deudaAsignada: number;
+    /** Lo que falta cobrar hoy. Sale de `deudor.saldo`, y cae a `montoTotal` si nunca se consolidó. */
+    saldoPendiente: number;
+    /** Todo lo cobrado sobre lo asignado, desde siempre. Es el número que le importa al cedente. */
+    recuperoAcumulado: number;
+    /** Cobrado dentro del rango de fechas. */
     pagosPeriodo: number;
-    porcentajeRecupero: number;
     casosConPago: number;
     ticketPromedio: number;
     moraPromediaDias: number | null;
     promesasVigentes: number;
     porcentajeCpc: number;
+    /** Casos que nadie tocó nunca: sin un solo comentario. */
     casosSinGestion: number;
     casosIncobrables: number;
     casosLegales: number;
@@ -76,11 +82,16 @@ export interface SnapshotTop {
     motivos: TopMotivo[];
 }
 
+/**
+ * Escalones **anidados por construcción**: cada uno es subconjunto del anterior, así que las barras
+ * siempre decrecen y la diferencia entre dos se puede leer como una caída.
+ */
 export interface SnapshotFunnel {
     asignados: number;
     contactados: number;
     conPromesa: number;
-    conPago: number;
+    /** De los que prometieron, cuántos pagaron. Quien pagó sin prometer está en `casosConPago`. */
+    promesaCumplida: number;
 }
 
 export interface SnapshotMeta {

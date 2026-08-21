@@ -1,8 +1,12 @@
 export interface SnapshotKpis {
     cantidadCasos: number;
-    deudaTotal: number;
+    /** Lo que el cedente asignó. No baja al cobrar: es la referencia contra la que se mide. */
+    deudaAsignada: number;
+    /** Lo que falta cobrar hoy. */
+    saldoPendiente: number;
     pagosPeriodo: number;
-    porcentajeRecupero: number;
+    /** Todo lo cobrado sobre lo asignado, desde siempre. */
+    recuperoAcumulado: number;
     casosConPago: number;
     ticketPromedio: number;
     moraPromediaDias: number | null;
@@ -82,7 +86,8 @@ export interface SnapshotFunnel {
     asignados: number;
     contactados: number;
     conPromesa: number;
-    conPago: number;
+    /** De los que prometieron, cuántos pagaron. */
+    promesaCumplida: number;
 }
 
 export interface SnapshotMeta {

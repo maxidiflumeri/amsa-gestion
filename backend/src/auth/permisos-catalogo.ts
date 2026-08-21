@@ -138,7 +138,6 @@ export const TODOS_LOS_PERMISOS: PermisoSeccion[] = [
         seccion: 'Dashboards',
         permisos: [
             { key: 'dashboards.ver', label: 'Ver tableros' },
-            { key: 'dashboards.ver_todas_empresas', label: 'Ver tableros de todas las empresas', descripcion: 'Sin esta key sólo ve los de su empresa propia' },
             { key: 'dashboards.exportar', label: 'Exportar tableros a PDF/XLS' },
         ],
     },

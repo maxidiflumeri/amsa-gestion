@@ -27,15 +27,18 @@ const KpiGrid: React.FC<Props> = ({ kpis }) => {
                 <KpiCard label="Cantidad de casos" value={fmtNumber(kpis.cantidadCasos)} icon={<AssignmentIcon />} />
             </Grid>
             <Grid item xs={6} sm={4} md={3}>
-                <KpiCard label="Deuda total" value={fmtMoneyShort(kpis.deudaTotal)} hint={fmtMoney(kpis.deudaTotal)} icon={<AccountBalanceIcon />} color="primary" />
+                <KpiCard label="Deuda asignada" value={fmtMoneyShort(kpis.deudaAsignada)} hint={`${fmtMoney(kpis.deudaAsignada)} — lo que entró, no baja al cobrar`} icon={<AccountBalanceIcon />} color="primary" />
             </Grid>
             <Grid item xs={6} sm={4} md={3}>
-                <KpiCard label="Pagos del período" value={fmtMoneyShort(kpis.pagosPeriodo)} hint={fmtMoney(kpis.pagosPeriodo)} icon={<PaymentsIcon />} color="success" />
+                <KpiCard label="Saldo pendiente" value={fmtMoneyShort(kpis.saldoPendiente)} hint={`${fmtMoney(kpis.saldoPendiente)} — lo que falta cobrar hoy`} icon={<AccountBalanceIcon />} color="warning" />
             </Grid>
             <Grid item xs={6} sm={4} md={3}>
-                <KpiCard label="% Recupero" value={fmtPercent(kpis.porcentajeRecupero)} icon={<TrendingUpIcon />} color="success" />
+                <KpiCard label="% Recupero acumulado" value={fmtPercent(kpis.recuperoAcumulado)} hint="Todo lo cobrado sobre lo asignado" icon={<TrendingUpIcon />} color="success" />
             </Grid>
 
+            <Grid item xs={6} sm={4} md={3}>
+                <KpiCard label="Cobrado en el período" value={fmtMoneyShort(kpis.pagosPeriodo)} hint={fmtMoney(kpis.pagosPeriodo)} icon={<PaymentsIcon />} color="success" />
+            </Grid>
             <Grid item xs={6} sm={4} md={3}>
                 <KpiCard label="Casos con pago (período)" value={fmtNumber(kpis.casosConPago)} hint="Dentro del rango de fechas" icon={<GroupIcon />} />
             </Grid>
@@ -53,7 +56,7 @@ const KpiGrid: React.FC<Props> = ({ kpis }) => {
                 <KpiCard label="% CPC" value={fmtPercent(kpis.porcentajeCpc)} hint="Contacto con persona correcta" icon={<PhoneInTalkIcon />} />
             </Grid>
             <Grid item xs={6} sm={4} md={3}>
-                <KpiCard label="Casos sin gestión" value={fmtNumber(kpis.casosSinGestion)} icon={<HelpOutlineIcon />} color="warning" />
+                <KpiCard label="Casos sin gestión" value={fmtNumber(kpis.casosSinGestion)} hint="Sin un solo comentario: nadie los trabajó" icon={<HelpOutlineIcon />} color="warning" />
             </Grid>
             <Grid item xs={6} sm={4} md={3}>
                 <KpiCard label="Incobrables" value={fmtNumber(kpis.casosIncobrables)} icon={<BlockIcon />} color="error" />

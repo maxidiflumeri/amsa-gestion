@@ -17,13 +17,6 @@ export class DashboardsController {
         private readonly exportService: DashboardsExportService,
     ) { }
 
-    private resolverRestrictEmpresaId(req: any): number | null {
-        const usuario = req['usuario'];
-        const permisos: string[] = Array.isArray(usuario?.permisos) ? usuario.permisos : [];
-        const verTodas = permisos.includes('dashboards.ver_todas_empresas');
-        return verTodas ? null : (usuario?.empresaId ?? null);
-    }
-
     @Post('remesa/snapshot')
     @Audit({
         modulo: AuditModulo.DASHBOARDS,
@@ -41,8 +34,7 @@ export class DashboardsController {
         data: (_res, req) => ({ params: req.body }),
     })
     async snapshot(@Body() dto: SnapshotDto, @Req() req: any) {
-        const restrictEmpresaId = this.resolverRestrictEmpresaId(req);
-        return this.service.snapshot(dto, restrictEmpresaId);
+        return this.service.snapshot(dto);
     }
 
     @Post('remesa/export')
@@ -75,8 +67,7 @@ export class DashboardsController {
             throw new ForbiddenException('No tenés permiso para ver tableros.');
         }
 
-        const restrictEmpresaId = this.resolverRestrictEmpresaId(req);
-        const snapshot = await this.service.snapshot(dto, restrictEmpresaId);
+        const snapshot = await this.service.snapshot(dto);
         const { buffer, mimeType, filename } = await this.exportService.generar(
             dto.formato,
             snapshot,
@@ -102,7 +93,6 @@ export class DashboardsController {
         data: (_res, req) => ({ params: req.body }),
     })
     async drillDown(@Body() dto: DrillDownDto, @Req() req: any) {
-        const restrictEmpresaId = this.resolverRestrictEmpresaId(req);
-        return this.service.drillDown(dto, restrictEmpresaId);
+        return this.service.drillDown(dto);
     }
 }

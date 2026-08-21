@@ -19,7 +19,6 @@ import RefreshIcon from '@mui/icons-material/Refresh';
 import RestartAltIcon from '@mui/icons-material/RestartAlt';
 import api from '../../../api/axios';
 import { etiquetaRemesa } from '../../../utils/remesa';
-import { useAuth } from '../../../context/AuthContext';
 import { useEmpresas } from '../../../hooks/useEmpresas';
 import type { Granularidad, SnapshotFiltros } from '../../../types/dashboards';
 import { daysAgoIso, todayIso } from '../utils';
@@ -55,8 +54,6 @@ export const DEFAULT_FILTROS: SnapshotFiltros = {
 };
 
 const DashboardFiltros: React.FC<Props> = ({ value, onChange, onRefresh, loading }) => {
-    const { tienePermiso } = useAuth();
-    const verTodas = tienePermiso('dashboards.ver_todas_empresas');
     const { empresas } = useEmpresas();
 
     const [remesas, setRemesas] = useState<Remesa[]>([]);
@@ -147,7 +144,7 @@ const DashboardFiltros: React.FC<Props> = ({ value, onChange, onRefresh, loading
         >
             <Grid container spacing={2} alignItems="center">
                 <Grid item xs={12} sm={6} md={3}>
-                    <FormControl fullWidth size="small" disabled={!verTodas && empresas.length <= 1}>
+                    <FormControl fullWidth size="small" disabled={empresas.length <= 1}>
                         <InputLabel>Empresa</InputLabel>
                         <Select
                             label="Empresa"

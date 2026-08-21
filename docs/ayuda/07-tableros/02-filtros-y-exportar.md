@@ -95,9 +95,8 @@ querés mostrar, va el Excel.
 
 - **Dejá el período explícito en el mensaje** con el que lo mandás. El archivo se entiende mucho menos
   solo de lo que uno cree, por la mezcla de números de cartera y de actividad.
-- **Aclarále qué es "Deuda total"**: es la deuda **original asignada**, sin restar lo cobrado y sin el
-  recargo por mora. Si el cedente trabaja con deuda actualizada, los números no van a coincidir y
-  conviene mandar además un reporte con ese campo.
+- **Si el cedente trabaja con deuda actualizada por mora, avisalo**: el tablero muestra la deuda
+  original, así que los números no van a coincidir. Conviene mandar además un reporte con ese campo.
 - **Revisá el motivo de no pago antes de mostrarlo.** Es el gráfico que más se mira en una reunión y el
   que más depende de que el equipo haya cargado el dato.
 
