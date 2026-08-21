@@ -43,11 +43,9 @@ si no hace nada, al día siguiente lo tiene igual.
 
 **Vale en los dos sentidos: sacarle un permiso a alguien tampoco es inmediato.**
 
-Y ojo con la salida fácil: **desactivar el usuario tampoco corta la sesión abierta.** El "Activo" se
-verifica al entrar, no en cada operación, así que quien ya está adentro sigue trabajando hasta que su
-sesión venza —puede ser hasta un día— incluso si recarga la página. Desactivar sirve para que **no
-vuelva a entrar**, no para echarlo ahora mismo. Si hace falta cortar el acceso en el momento, hay que
-pedirle que cierre sesión, o escalarlo a sistemas.
+Si lo que necesitás es **cortarle el acceso ya**, no le saques permisos: **desactivá el usuario**. Eso
+sí es inmediato — la sesión abierta se corta sola y a la siguiente pantalla que toque le va a decir
+*"Tu cuenta fue deshabilitada"*.
 
 ---
 
@@ -124,10 +122,6 @@ técnica sobre el servidor. Que siempre quede otra persona con ese permiso.
 ### Le di el permiso y sigue sin poder
 
 No cerró sesión. Es lo primero a descartar siempre.
-
-### Lo desactivé y sigue trabajando
-
-Desactivar impide **entrar de nuevo**, no corta la sesión abierta. Puede seguir hasta un día.
 
 ### No me deja eliminar un rol
 

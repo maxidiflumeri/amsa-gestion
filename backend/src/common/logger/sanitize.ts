@@ -1,9 +1,17 @@
+/**
+ * El match acá es **exacto** (no substring), así que las variantes hay que enumerarlas: `password`
+ * no cubría `sipPassword`, ni `clave` cubría `claveNeotel`.
+ */
 const DEFAULT_SENSITIVE_KEYS = new Set([
     'password',
+    'sippassword',
     'clave',
+    'claveneotel',
+    'clavesip',
     'token',
     'apikey',
     'idtoken',
+    'credential',
     'authorization',
     'data',
     'xml_update',

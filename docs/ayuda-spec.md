@@ -276,9 +276,9 @@ Ordenados por gravedad. Los cuatro primeros son de seguridad o de pérdida de da
 
 | Hallazgo | Dónde |
 |---|---|
-| 🔴 **Desactivar un usuario no corta su sesión abierta.** El guard global solo verifica la firma del JWT; nadie revalida `activo`. Sesión viva = hasta 24 h de acceso pleno, ni siquiera un F5 lo corta. No hay lista de revocación | `jwt-auth.guard.ts:40`, `AuthContext.tsx:31` |
-| 🔴 **Borrar un usuario destruye trazabilidad en silencio.** `SET NULL` en comentario, pago, promesa, transacción, convenio, remesa, plantilla y tasa_mora: la operación tiene éxito y todo pasa a figurar como "Sistema" | FKs de `schema.prisma` |
-| 🔴 **La clave de Neotel queda en claro en la auditoría.** `claveNeotel` no matchea ningún `CAMPOS_SENSIBLES`, y el alta/edición de usuario audita `req.body` entero | `audit.enums.ts:84`, `usuarios.controller.ts:43` |
+| ~~🔴 **Desactivar un usuario no corta su sesión abierta.**~~ **ARREGLADO 2026-08-21**: `UsuarioActivoService` con caché de TTL corto, consultado por el guard e invalidado por el ABM. Verificado de punta a punta contra la app corriendo | `usuario-activo.service.ts`, `jwt-auth.guard.ts` |
+| ~~🔴 **Borrar un usuario destruye trazabilidad en silencio.**~~ **ARREGLADO 2026-08-21**: se cuenta la actividad en 8 tablas y se rechaza con un mensaje que dice qué tiene y manda a desactivar | `usuarios.service.ts` |
+| ~~🔴 **La clave de Neotel queda en claro en la auditoría.**~~ **ARREGLADO 2026-08-21**: se agregó `claveNeotel` a los campos sensibles, y `sipPassword` al sanitizador de logs, que hace match exacto y tampoco la cubría. **Falta revisar si en prod ya quedaron filas con la clave en claro** | `audit.enums.ts`, `sanitize.ts` |
 | ~~🔴 **Una cartera nueva no puede cargar su primera tasa de mora.**~~ **ARREGLADO 2026-08-21**: la pantalla consulta el estado de la cadena y ofrece iniciarla con confirmación explícita | `AjustesMora.tsx`, `mora.service.ts` |
 | ~~🔴 **Recargar un mes viejo recomputa la cadena migrada sin confirmación.**~~ **ARREGLADO 2026-08-21**: el conteo de posteriores lo da el backend y pisar índice migrado exige `permitirPisarMigrado` | `AjustesMora.tsx`, `mora.service.ts` |
 | **Fuga en el gráfico de 30 días de Auditoría**: el `$queryRaw` ignora el `where`, así que quien solo tiene `auditoria.ver` ve el volumen global | `transacciones.service.ts:131` |

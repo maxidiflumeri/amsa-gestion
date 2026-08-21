@@ -6,6 +6,7 @@ import { AuthService } from './auth.service';
 import { AuthController } from './auth.controller';
 import { JwtAuthGuard } from './jwt-auth.guard';
 import { PermisosGuard } from './permisos.guard';
+import { UsuarioActivoService } from './usuario-activo.service';
 import { TransaccionesModule } from '../modules/transacciones/transacciones.module';
 
 @Module({
@@ -21,6 +22,7 @@ import { TransaccionesModule } from '../modules/transacciones/transacciones.modu
     controllers: [AuthController],
     providers: [
         AuthService,
+        UsuarioActivoService,
         {
             provide: APP_GUARD,
             useClass: JwtAuthGuard,
@@ -30,6 +32,6 @@ import { TransaccionesModule } from '../modules/transacciones/transacciones.modu
             useClass: PermisosGuard,
         },
     ],
-    exports: [AuthService, JwtModule],
+    exports: [AuthService, JwtModule, UsuarioActivoService],
 })
 export class AuthModule {}

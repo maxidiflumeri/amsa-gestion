@@ -100,8 +100,8 @@ Sobre el detalle, una aclaración que evita frustraciones: **el "antes" casi nun
 guarda en unos pocos casos —cambios sobre el deudor y sobre los contactos—. En el resto vas a ver qué
 se mandó y cómo quedó, pero no contra qué.
 
-Las contraseñas SIP salen tachadas como `[REDACTED]`. **No todos los campos sensibles están cubiertos**,
-así que no asumas que la bitácora es apta para compartir tal cual con un tercero.
+Las contraseñas y las claves de telefonía salen tachadas como `[REDACTED]`. Aun así, la bitácora
+guarda los parámetros completos de cada operación: revisala antes de compartirla con un tercero.
 
 ---
 

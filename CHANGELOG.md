@@ -6,6 +6,76 @@
 
 ---
 
+## [2026-08-21] — Seguridad: la sesión que no se cortaba, el borrado que huerfanaba y la clave en claro
+
+> `auth/usuario-activo.service.ts` (nuevo), `auth/jwt-auth.guard.ts`, `auth/auth.module.ts`,
+> `modules/usuarios/usuarios.service.ts` y `.module.ts`, `modules/transacciones/audit.enums.ts`,
+> `common/logger/sanitize.ts`. Tres specs nuevos (33 casos).
+
+Los tres 🔴 del backlog que no dependían de ninguna decisión de producto.
+
+### 1. Desactivar a alguien no le cortaba la sesión
+
+`JwtAuthGuard` verificaba **solo la firma del token**. El `activo` se miraba únicamente en el login,
+así que desactivar a una persona no la echaba: seguía operando con todos sus permisos hasta que el
+token venciera —con `JWT_EXPIRES_IN=1d`, hasta un día— y **ni siquiera recargar la página la cortaba**,
+porque el frontend restaura la sesión desde `localStorage` sin consultar al servidor.
+
+**`UsuarioActivoService`**, con caché en memoria de TTL corto (`AUTH_ESTADO_CACHE_TTL_MS`, default
+30 s). No se le pega a la base en cada request a propósito: esto está en el camino de **todas** las
+llamadas autenticadas y los endpoints de polling —notificaciones, importaciones en curso— multiplican
+el tráfico. El ABM de usuarios llama a `invalidar()` al guardar, así que **por la app el corte es
+inmediato**; el TTL es el techo para cambios hechos por fuera (o desde otra instancia).
+
+Un detalle que casi se escapa: el `throw` del rechazo tiene que ir **fuera del `try`** del
+`verifyAsync`, si no el `catch` se lo come y lo reporta como "Token inválido o expirado", que manda al
+usuario a mirar el lugar equivocado.
+
+### 2. Borrar un usuario funcionaba, y se llevaba la trazabilidad puesta
+
+Casi todas las FKs que apuntan al usuario son `ON DELETE SET NULL`, así que el borrado **no fallaba**:
+sus comentarios, pagos, promesas, convenios y registros de auditoría quedaban huérfanos y pasaban a
+figurar como "Sistema", en silencio y sin vuelta atrás. Justo lo contrario de lo que una bitácora
+inmutable promete.
+
+Ahora `remove()` cuenta la actividad en 8 tablas y rechaza con un 409 que dice **qué** tiene:
+
+> *No se puede eliminar a Juan Pérez: tiene 12 comentarios, 2 promesas, 69 registros de auditoría.
+> Borrarlo dejaría esos registros sin autor. Para darle de baja, desactivalo con el interruptor.*
+
+Sigue permitido borrar un alta equivocada que nunca se usó, que es el único caso legítimo.
+
+### 3. La clave de Neotel quedaba en claro en la auditoría
+
+`CAMPOS_SENSIBLES` no incluía `claveNeotel`, y el alta/edición de usuario audita `req.body` **entero**:
+la clave de la API de Neotel quedaba legible en `transaccion.data` para cualquiera con
+`auditoria.ver_todos`.
+
+Se agregó ahí y, de paso, al sanitizador de logs — que hace match **exacto** y por eso tampoco cubría
+`sipPassword` ni `claveNeotel`. Hay un test que verifica que **`parametro.clave` siga visible**: el
+match de la auditoría es por substring, así que agregar `clave` a secas habría tapado un código de
+negocio (`SIT-050`) creyendo que es un secreto.
+
+> ⚠ **Pendiente**: revisar si en producción ya quedaron filas de `transaccion` con la clave en claro.
+> Si hay agentes de telefonía cargados, las hay.
+
+### Verificación
+
+Además de los 33 tests nuevos, se probó **contra la app corriendo** con la base local:
+
+| | |
+|---|---|
+| Usuario activo, token válido | `200` |
+| Desactivado por base, dentro del TTL | `200` (cacheado) |
+| Desactivado por base, pasado el TTL | `401` *"Tu cuenta fue deshabilitada"* |
+| Desactivado **por la app** (`PATCH /usuarios/:id`) | `401` **sin esperar el TTL** |
+| Reactivado | `200` |
+| `DELETE` de un usuario con actividad | `409` con el detalle |
+
+La suite queda con los mismos 6 suites y 19 tests fallando de siempre, todos preexistentes y ajenos.
+
+---
+
 ## [2026-08-21] — Tableros y timeline: siete arreglos, y una decisión que queda abierta
 
 > Backend: `dashboards.controller.ts`, `dashboards.service.ts`.

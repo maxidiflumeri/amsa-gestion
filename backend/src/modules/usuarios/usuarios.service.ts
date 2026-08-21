@@ -8,6 +8,7 @@ import {
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { SipCryptoService } from '../neotel/crypto/sip-crypto.service';
+import { UsuarioActivoService } from '../../auth/usuario-activo.service';
 import { CreateUsuarioDto } from './dto/create-usuario.dto';
 import { UpdateUsuarioDto } from './dto/update-usuario.dto';
 
@@ -91,6 +92,7 @@ export class UsuariosService {
     constructor(
         private readonly prisma: PrismaService,
         private readonly crypto: SipCryptoService,
+        private readonly usuarioActivo: UsuarioActivoService,
     ) {}
 
     async findAll() {
@@ -258,13 +260,65 @@ export class UsuariosService {
             });
         } catch (err) {
             handlePrismaUniqueViolation(err);
+        } finally {
+            // Corta la sesión abierta en el momento si se lo desactivó, sin esperar al TTL de la
+            // caché. Va en `finally` porque una violación de unicidad puede haber tocado el usuario
+            // igual antes de fallar en el agente.
+            this.usuarioActivo.invalidar(id);
         }
     }
 
+    /**
+     * Borra un usuario, **solo si nunca hizo nada**.
+     *
+     * Las FKs que apuntan al usuario son casi todas `ON DELETE SET NULL`, así que el borrado
+     * funcionaba: no fallaba, se llevaba puesta la trazabilidad. Sus comentarios, pagos, promesas,
+     * convenios y registros de auditoría quedaban huérfanos y pasaban a figurar como "Sistema", en
+     * silencio y sin vuelta atrás. Justo lo contrario de lo que una bitácora inmutable promete.
+     *
+     * Para dar de baja a alguien está el interruptor **activo**, que además ahora corta la sesión
+     * abierta (ver `UsuarioActivoService`). Esto queda para el alta equivocada que nunca se usó.
+     */
     async remove(id: number) {
         const usuario = await this.findOne(id);
-        this.logger.log(`Eliminando usuario: ${id} (${usuario.email})`);
+
+        const [comentarios, pagos, promesas, transacciones, convenios, remesas, ejecuciones, envios] =
+            await Promise.all([
+                this.prisma.comentario.count({ where: { usuarioId: id } }),
+                this.prisma.pago.count({ where: { usuarioId: id } }),
+                this.prisma.promesa_pago.count({ where: { usuarioId: id } }),
+                this.prisma.transaccion.count({ where: { usuarioId: id } }),
+                this.prisma.convenio.count({ where: { usuarioId: id } }),
+                this.prisma.remesa.count({ where: { usuarioCreadorId: id } }),
+                this.prisma.ejecucion_reporte.count({ where: { usuarioId: id } }),
+                this.prisma.envio_email.count({ where: { usuarioId: id } }),
+            ]);
+
+        // Singular y plural explícitos: agregarle una "s" al final da "69 registro de auditorías".
+        const actividad: Array<[string, string, number]> = [
+            ['comentario', 'comentarios', comentarios],
+            ['pago', 'pagos', pagos],
+            ['promesa', 'promesas', promesas],
+            ['registro de auditoría', 'registros de auditoría', transacciones],
+            ['convenio', 'convenios', convenios],
+            ['importación', 'importaciones', remesas],
+            ['ejecución de reporte', 'ejecuciones de reporte', ejecuciones],
+            ['email enviado', 'emails enviados', envios],
+        ];
+        const conActividad = actividad.filter(([, , n]) => n > 0);
+
+        if (conActividad.length > 0) {
+            const detalle = conActividad.map(([uno, varios, n]) => `${n} ${n === 1 ? uno : varios}`).join(', ');
+            this.logger.warn(`Borrado de usuario ${id} rechazado — tiene actividad: ${detalle}`);
+            throw new ConflictException(
+                `No se puede eliminar a ${usuario.nombre}: tiene ${detalle}. Borrarlo dejaría ` +
+                `esos registros sin autor. Para darle de baja, desactivalo con el interruptor.`,
+            );
+        }
+
+        this.logger.log(`Eliminando usuario: ${id} (${usuario.email}) — sin actividad registrada`);
         await this.prisma.usuario.delete({ where: { id } });
+        this.usuarioActivo.invalidar(id);
         return { mensaje: 'Usuario eliminado correctamente' };
     }
 }

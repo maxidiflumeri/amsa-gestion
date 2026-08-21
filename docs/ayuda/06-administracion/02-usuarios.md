@@ -79,24 +79,22 @@ Las claves se guardan cifradas y no se pueden volver a ver: si alguien las perdi
 
 ---
 
-## ⚠ Dar de baja: desactivar, nunca eliminar
+## Dar de baja: desactivar
 
-**Lo correcto es apagar el interruptor Activo.** A partir de ahí la persona **no puede volver a
-entrar**: al intentarlo ve *"Tu cuenta está suspendida. Contactá al administrador."*
+**Lo correcto es apagar el interruptor Activo**, y es inmediato: la persona **no puede volver a
+entrar** —al intentarlo ve *"Tu cuenta está suspendida"*— y **la sesión que tenga abierta se corta
+sola**, sin esperar a que venza. A la siguiente pantalla que toque le va a decir *"Tu cuenta fue
+deshabilitada"*.
 
-Lo que **no** hace es echarla si ya está adentro. La sesión abierta sigue funcionando hasta que venza,
-hasta un día después. Para una baja normal da igual; para una urgencia, no alcanza.
+**Eliminar es otra cosa, y el sistema solo te deja si esa persona nunca hizo nada.** Si tiene
+comentarios, pagos, promesas, convenios, importaciones, reportes ejecutados, mails enviados o
+registros de auditoría, el borrado se rechaza diciéndote exactamente qué tiene:
 
-**Eliminar es otra cosa, y es peligrosa.** Borra el registro del usuario, y en la mayoría de los casos
-**el sistema te deja hacerlo**: sus comentarios, pagos, promesas, convenios y registros de auditoría no
-se borran, pero **pierden el autor** y a partir de ahí figuran como "Sistema". La trazabilidad de todo
-lo que hizo esa persona se va, en silencio y sin vuelta atrás.
+> *No se puede eliminar a Juan Pérez: tiene 12 comentarios, 2 promesas, 69 registros de auditoría.
+> Borrarlo dejaría esos registros sin autor. Para darle de baja, desactivalo con el interruptor.*
 
-Solo falla —con un error feo, *"Internal server error"*— si la persona ejecutó reportes, mandó mails
-desde el sistema o tiene telefonía configurada.
-
-**La regla es simple: no elimines usuarios.** Desactivalos. Eliminar sirve únicamente para un alta
-equivocada que nunca se usó.
+Es a propósito: borrarlo no borraría esos registros, **les sacaría el autor**, y a partir de ahí
+figurarían como "Sistema". Eliminar queda para el alta equivocada que nunca se usó.
 
 ---
 
@@ -126,9 +124,9 @@ No tiene rol asignado, o el rol no tiene permisos.
 Tiene que cerrar sesión y volver a entrar. Ver
 [Roles y permisos](/ayuda/administracion/roles-y-permisos).
 
-### Lo desactivé y sigue trabajando
+### "No se puede eliminar a…"
 
-Desactivar impide volver a entrar; no corta la sesión que ya está abierta.
+Esa persona tiene actividad registrada. El mensaje te dice cuál. Para darla de baja, desactivala.
 
 ### Cambié el nombre y volvió al anterior
 
@@ -151,7 +149,7 @@ No hay contraseñas. Se entra con Google.
 No va a poder entrar: el login valida contra Google.
 
 **¿Qué pasa con los comentarios de un usuario desactivado?**
-Quedan intactos, con su nombre. Por eso conviene desactivar y no eliminar.
+Quedan intactos, con su nombre.
 
 **¿Puedo reactivar a alguien que desactivé?**
 Sí, prendiendo el interruptor. Vuelve con el mismo rol y el mismo historial.

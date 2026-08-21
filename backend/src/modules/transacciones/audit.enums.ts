@@ -81,7 +81,26 @@ export type AuditData = {
     [k: string]: any;
 };
 
-const CAMPOS_SENSIBLES = ['password', 'passwordHash', 'token', 'secret', 'apiKey', 'authorization'];
+/**
+ * El match es por **substring** del nombre del campo (ver `redactarCamposSensibles`), así que hay que
+ * tener cuidado con lo que se agrega: poner `clave` a secas también taparía `parametro.clave`, que es
+ * un código de negocio (`SIT-050`) y no un secreto.
+ *
+ * `claveNeotel` estaba afuera y el alta/edición de usuario audita `req.body` entero, así que la clave
+ * de la API de Neotel quedaba **legible en `transaccion.data`** para cualquiera con
+ * `auditoria.ver_todos`.
+ */
+const CAMPOS_SENSIBLES = [
+    'password',
+    'passwordHash',
+    'claveNeotel',
+    'claveSip',
+    'token',
+    'secret',
+    'apiKey',
+    'credential',
+    'authorization',
+];
 
 export function redactarCamposSensibles<T = any>(obj: T): T {
     if (obj === null || obj === undefined) return obj;
