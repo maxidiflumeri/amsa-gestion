@@ -6,6 +6,37 @@
 
 ---
 
+## [2026-08-21] — La pantalla de la Toolbar mostraba una sola solapa
+
+**Reportado mirando la pantalla real:** dentro de la Toolbar de Neotel solo se veía el contenido de
+*Datos del deudor*. Las solapas **Lista de deudores**, **Política** y **Timeline** no aparecían.
+
+### Frontend
+
+- `TelefoniaCaso` renderizaba `FichaDeudor` **directamente**, salteándose el `TabsPanel` que arma las
+  cuatro solapas. La ficha es la solapa 0: por eso se veía justo eso y nada más. Ahora monta el mismo
+  `TabsPanel` que usa la pantalla de Gestión, así que el operador tiene Política (qué puede ofrecer) y
+  Timeline (qué se le mandó antes) con la persona en línea, que es cuando hacen falta.
+- El `BuscadorAvanzadoModal` que tenía `TelefoniaCaso` se sacó: `TabsPanel` ya renderiza el suyo. Para
+  no perder el refresco del chip *"En llamada — Apellido, Nombre"*, la selección pasa por un único
+  `seleccionarDeudor()` que se le pasa como `setSelectedDeudorId`. Con eso el nombre también se
+  actualiza al elegir una fila desde *Lista de deudores*, cosa que antes no existía.
+- El panel se monta aunque el caso **no** se haya resuelto: con `deudorId` en null la solapa de datos
+  queda vacía —el cartel de arriba ya explica por qué— pero el operador puede ir a *Lista de deudores*
+  y encontrarlo a mano sin salir de la Toolbar.
+- Cada llamada nueva vuelve a la solapa 0. Si no, el screen pop del caso siguiente abría en la solapa
+  donde había quedado el anterior.
+
+### Documentación
+
+Tres páginas describían la limitación como si fuera el comportamiento esperado, e incluso daban
+rodeos para compensarla (*"abrí la política en otra pestaña antes de arrancar el turno"*). Se
+corrigieron: la sección *"Lo que NO vas a tener durante la llamada"* pasó a ser *"Qué ves durante la
+llamada"* con una tabla de las cuatro solapas, y `04-linea-de-tiempo.md` ahora responde también a la
+ruta `/telefonia`.
+
+---
+
 ## [2026-08-21] — Se cerró el backlog de la auditoría: 87 de 89 hallazgos
 
 Barrida completa de `docs/ayuda-spec.md` §7, módulo por módulo. Lo que sigue son los cambios que no

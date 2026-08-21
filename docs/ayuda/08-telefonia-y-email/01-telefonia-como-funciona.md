@@ -44,8 +44,9 @@ entran llamadas, eso se resuelve en la Toolbar, no en el sistema.
 > para atender. Ver [Usuarios](/ayuda/administracion/usuarios).
 
 > La columna derecha describe al sistema completo, no a lo que el operador tiene a mano durante la
-> llamada. **Dentro de la Toolbar no hay menú**: se ve la ficha y nada más. Reportes, tableros y las
-> solapas de Política y Timeline se miran desde la ventana normal del sistema.
+> llamada. **Dentro de la Toolbar no hay menú**: tiene la ficha del caso con sus cuatro solapas —
+> Datos del deudor, Lista de deudores, Política y Timeline—, que es lo que se necesita para gestionar.
+> Reportes, tableros y ajustes se miran desde la ventana normal del sistema.
 
 ---
 

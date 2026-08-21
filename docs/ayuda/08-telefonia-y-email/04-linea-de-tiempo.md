@@ -2,7 +2,7 @@
 seccion: Telefonía y Email
 resumen: Qué se le mandó al deudor y qué hizo con eso.
 revisado: 2026-08-21
-rutas: /gestion
+rutas: /gestion, /telefonia
 -->
 # La línea de tiempo
 
@@ -20,7 +20,8 @@ Es una de las **solapas de arriba de todo en Gestión**, al lado de *Datos del d
 solapa de adentro de la ficha. Muestra el caso que tengas seleccionado. Ver
 [La ficha del caso](/ayuda/gestion/la-ficha).
 
-Durante una llamada **no está disponible**: la pantalla de telefonía muestra solo la ficha.
+Durante una llamada **también la tenés**: es una de las solapas de la pantalla de telefonía, arriba
+de la ficha.
 
 ## Antes de empezar
 

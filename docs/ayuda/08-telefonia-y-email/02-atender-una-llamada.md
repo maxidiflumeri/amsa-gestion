@@ -18,13 +18,20 @@ Estar conectado en la Toolbar de Neotel. La telefonía es de ahí: acá se traba
 
 ---
 
-## ⚠ Lo que NO vas a tener durante la llamada
+## Qué ves durante la llamada
 
-Dentro de la Toolbar **no hay menú**: se ve la ficha del caso y nada más. Quedan afuera **la solapa
-Política** y **la solapa Timeline**, que viven en la ventana normal del sistema, en Gestión.
+Dentro de la Toolbar **no hay menú ni barra superior**: ese espacio se usa para gestionar. Pero tenés
+las **mismas cuatro solapas que en Gestión**, arriba de la ficha:
 
-Si atendés seguido en una misma cartera, **abrí la política en otra pestaña antes de arrancar el
-turno**. Buscarla con alguien en línea no es una opción.
+| Solapa | Para qué te sirve con alguien en línea |
+| --- | --- |
+| **Datos del deudor** | La ficha: comentarios, facturas, pagos, convenios y otras cuentas. Es la que se abre sola. |
+| **Lista de deudores** | Llegar a otro caso sin salir de la Toolbar. Doble clic en la fila y te lleva a su ficha. |
+| **Política** | Qué le podés ofrecer: cuotas, quitas, intereses. **Miralo antes de prometer nada.** |
+| **Timeline** | Qué se le dijo y se le mandó antes, todo junto. Evita repetirle algo que ya sabe. |
+
+Al entrar una llamada nueva siempre volvés a **Datos del deudor**, no a la solapa donde quedaste con
+el caso anterior.
 
 ---
 
@@ -141,7 +148,11 @@ para un administrador. Se cambia en Ajustes → Empresas, no en la remesa ni en 
 
 ### Quiero ver la política y no la encuentro
 
-No está dentro de la pantalla de la llamada. Es una solapa de Gestión, en la ventana normal.
+Está en la solapa **Política**, arriba de la ficha, dentro de la misma pantalla de la llamada.
+
+Si la solapa aparece vacía, no es un error de la pantalla: **la remesa del caso no tiene una política
+asignada**. Se asigna desde Importación de Datos → Historial, en la columna Política. Ver
+[Políticas](/ayuda/ajustes/politicas).
 
 ---
 
@@ -160,5 +171,5 @@ del contacto de tipo email, en el panel de la derecha. Ver
 [Enviar un email](/ayuda/telefonia-y-email/enviar-un-email).
 
 **¿Dónde veo lo que ya se le mandó a esta persona?**
-En la solapa Timeline, que está en Gestión — no en la pantalla de la llamada. Ver
+En la solapa **Timeline**, arriba de la ficha, sin salir de la llamada. Ver
 [La línea de tiempo](/ayuda/telefonia-y-email/linea-de-tiempo).

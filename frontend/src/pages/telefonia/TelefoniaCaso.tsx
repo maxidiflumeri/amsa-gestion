@@ -3,8 +3,7 @@ import { Alert, AlertTitle, Box, Button, Chip, Stack, Tooltip, Typography } from
 import PhoneInTalkIcon from '@mui/icons-material/PhoneInTalk'
 import SearchIcon from '@mui/icons-material/Search'
 import { useSearchParams } from 'react-router-dom'
-import FichaDeudor from '../../components/deudores/ficha'
-import BuscadorAvanzadoModal from '../../components/deudores/BuscadorAvanzadoModal'
+import TabsPanel from '../../components/deudores/TabsPanel'
 import { LoadingSkeleton } from '../../components/ui'
 import api from '../../api/axios'
 import { resolverCaso } from './resolver-caso'
@@ -23,6 +22,10 @@ import { resolverCaso } from './resolver-caso'
  *
  * Si ninguno resuelve, la pantalla **no queda en blanco**: muestra lo que mandó la central y ofrece
  * el buscador, para que el operador pueda atender igual mientras se corrige la configuración.
+ *
+ * Muestra el **mismo `TabsPanel` que la pantalla de Gestión**, no solo la ficha: Política y Timeline
+ * son justo lo que el operador necesita mirar con la persona en línea (qué se le puede ofrecer y qué
+ * se le dijo antes), y Lista de deudores le permite llegar a otro caso sin salir de la toolbar.
  */
 const TelefoniaCaso: React.FC = () => {
     const [params] = useSearchParams()
@@ -42,6 +45,7 @@ const TelefoniaCaso: React.FC = () => {
         [params],
     )
 
+    const [tab, setTab] = useState(0)
     const [estado, setEstado] = useState<'cargando' | 'ok' | 'no-encontrado'>('cargando')
     const [deudorId, setDeudorId] = useState<number | null>(null)
     const [nombre, setNombre] = useState('')
@@ -54,6 +58,8 @@ const TelefoniaCaso: React.FC = () => {
 
         const buscar = async () => {
             setEstado('cargando')
+            // Cada llamada nueva arranca en la ficha, no en la solapa que quedó de la anterior.
+            setTab(0)
             // Limpiar antes de resolver: si esta búsqueda no encuentra nada, el chip de arriba no
             // puede seguir mostrando el nombre del caso anterior.
             setNombre('')
@@ -88,6 +94,28 @@ const TelefoniaCaso: React.FC = () => {
             vigente = false
         }
     }, [candidatos])
+
+    /**
+     * Caso elegido **por una persona**: desde el buscador avanzado o haciendo clic en la solapa
+     * Lista de deudores. Baja la marca de `dudoso` (no hay nada que confirmar si lo eligió el
+     * operador) y refresca el nombre del chip, que si no queda mostrando el del caso anterior.
+     */
+    const seleccionarDeudor = async (id: number | null) => {
+        setDeudorId(id)
+        setDudoso(false)
+        setNombre('')
+        // Deseleccionar una fila no es "no se encontró el caso": se deja el estado como está para
+        // no disparar el cartel de error de la llamada.
+        if (id == null) return
+        setEstado('ok')
+        try {
+            const res = await api.get(`/deudores/${id}`)
+            const d = res.data?.data ?? res.data
+            setNombre([d?.apellido, d?.nombre].filter(Boolean).join(', '))
+        } catch {
+            /* el chip queda sin nombre; la ficha se muestra igual */
+        }
+    }
 
     return (
         <Box>
@@ -180,28 +208,22 @@ const TelefoniaCaso: React.FC = () => {
                 </Alert>
             )}
 
-            {deudorId != null && <FichaDeudor deudorId={deudorId} />}
-
-            <BuscadorAvanzadoModal
-                open={buscadorAbierto}
-                onClose={() => setBuscadorAbierto(false)}
-                onSelectDeudor={async (id) => {
-                    setBuscadorAbierto(false)
-                    setDeudorId(id)
-                    setEstado('ok')
-                    // Lo eligió una persona, así que no hay nada que confirmar. Y hay que refrescar el
-                    // nombre del chip: si no, sobre la ficha nueva queda el de la anterior.
-                    setDudoso(false)
-                    setNombre('')
-                    try {
-                        const res = await api.get(`/deudores/${id}`)
-                        const d = res.data?.data ?? res.data
-                        setNombre([d?.apellido, d?.nombre].filter(Boolean).join(', '))
-                    } catch {
-                        /* el chip queda sin nombre; la ficha se muestra igual */
-                    }
-                }}
-            />
+            {/*
+              Se monta aunque el caso no se haya resuelto: con `deudorId` en null la solapa de datos
+              queda vacía (el cartel de arriba ya explica por qué), pero el operador puede pasarse a
+              Lista de deudores y encontrar el caso a mano sin salir de la toolbar.
+              El buscador avanzado lo renderiza el propio TabsPanel, por eso acá no va uno aparte.
+            */}
+            {estado !== 'cargando' && (
+                <TabsPanel
+                    selectedTab={tab}
+                    setSelectedTab={setTab}
+                    selectedDeudorId={deudorId}
+                    setSelectedDeudorId={seleccionarDeudor}
+                    advancedSearchOpen={buscadorAbierto}
+                    setAdvancedSearchOpen={setBuscadorAbierto}
+                />
+            )}
         </Box>
     )
 }
