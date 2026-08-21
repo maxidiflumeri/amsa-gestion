@@ -4,6 +4,10 @@ export interface DeudorParaMapper {
     nombre: string;
     apellido: string;
     montoTotal: number | null;
+    /** Lo que falta cobrar, que escribe la consolidación por pagos. */
+    saldo: number | null;
+    /** `montoTotal + recargoMora`, del último recálculo de mora. */
+    deudaActualizada: number | null;
     fechaVencimiento: Date | null;
     camposAdicionales: any;
     empresa?: { nombre?: string | null } | null;
@@ -67,7 +71,23 @@ export const CATALOG: CatalogEntry[] = [
     { canon: 'empresa', label: 'Empresa', synonyms: ['empresa', 'cliente', 'razon_social'], resolve: d => d.empresa?.nombre ?? null },
     { canon: 'remesa', label: 'Remesa', synonyms: ['remesa', 'cartera'], resolve: d => d.remesa?.nombre ?? null },
     { canon: 'monto_total', label: 'Monto total ($)', synonyms: ['monto_total', 'monto', 'total', 'deuda_total', 'importe'], resolve: d => fmtMoney(d.montoTotal) },
-    { canon: 'deuda', label: 'Deuda ($)', synonyms: ['deuda', 'saldo'], resolve: d => fmtMoney(d.montoTotal) },
+    { canon: 'deuda', label: 'Deuda original ($)', synonyms: ['deuda'], resolve: d => fmtMoney(d.montoTotal) },
+    // `saldo` tenía que ser sinónimo de `deuda` y devolvía el monto original: un deudor que había
+    // pagado la mitad recibía un mail reclamándole el total, con la palabra "saldo" adelante.
+    {
+        canon: 'saldo',
+        label: 'Saldo pendiente ($)',
+        synonyms: ['saldo', 'saldo_pendiente', 'resto', 'restante'],
+        resolve: d => fmtMoney(d.saldo ?? d.montoTotal),
+    },
+    // Solo tiene valor en las carteras con régimen de recargos, y sale del último recálculo de mora:
+    // si nadie recalculó hace días, el número es el de esa corrida. Ver mora-aysa-spec.md.
+    {
+        canon: 'deuda_actualizada',
+        label: 'Deuda actualizada con mora ($)',
+        synonyms: ['deuda_actualizada', 'deudaactualizada', 'total_actualizado', 'monto_actualizado'],
+        resolve: d => fmtMoney(d.deudaActualizada),
+    },
     {
         canon: 'fecha_vencimiento',
         label: 'Fecha de vencimiento',

@@ -83,7 +83,14 @@ const EnviarEmailDialog: React.FC<Props> = ({
 
     const [templateSeleccionado, setTemplateSeleccionado] = useState<EmailTemplateListItem | null>(null)
     const [previewBase, setPreviewBase] = useState<EmailTemplateDetalle | null>(null)
-    const [showPreview, setShowPreview] = useState(false)
+    /**
+     * La plantilla que se está espiando con la lupa del paso 1.
+     *
+     * Va aparte de `previewBase` a propósito: antes la lupa pisaba `previewBase` sin tocar
+     * `templateSeleccionado`, así que espiar una segunda plantilla cambiaba lo que mostraban los
+     * pasos 2 y 4 pero no lo que se enviaba. Se leía una y se mandaba otra.
+     */
+    const [templateEspiado, setTemplateEspiado] = useState<EmailTemplateDetalle | null>(null)
 
     const [loadingVars, setLoadingVars] = useState(false)
     const [variables, setVariables] = useState<Record<string, string>>({})
@@ -107,7 +114,7 @@ const EnviarEmailDialog: React.FC<Props> = ({
         setActiveStep(0)
         setTemplateSeleccionado(null)
         setPreviewBase(null)
-        setShowPreview(false)
+        setTemplateEspiado(null)
         setVariables({})
         setSugerencias([])
         setDestinatariosDisp([])
@@ -181,9 +188,7 @@ const EnviarEmailDialog: React.FC<Props> = ({
 
     const handlePreview = async (templateId: number) => {
         try {
-            const detalle = await emailApi.previewTemplate(templateId)
-            setPreviewBase(detalle)
-            setShowPreview(true)
+            setTemplateEspiado(await emailApi.previewTemplate(templateId))
         } catch (err) {
             notify.error(err as Error)
         }
@@ -298,8 +303,17 @@ const EnviarEmailDialog: React.FC<Props> = ({
                 variables,
                 archivos,
             })
+            // Un destinatario dado de baja no es un error del envío: el resto sí sale. Se avisa aparte
+            // para que el gestor sepa que a esa dirección no le llegó y busque otro canal.
+            if (res.omitidos?.length) {
+                notify.warning(
+                    `No se envió a ${res.omitidos.map((o) => o.email).join(', ')}: se dio de baja de los envíos.`,
+                )
+            }
             if (res.ok) {
-                notify.success(`Email enviado a ${res.enviados} destinatario${res.enviados === 1 ? '' : 's'}`)
+                if (res.enviados > 0) {
+                    notify.success(`Email enviado a ${res.enviados} destinatario${res.enviados === 1 ? '' : 's'}`)
+                }
                 onEnviado?.()
                 onClose()
             } else {
@@ -668,18 +682,30 @@ const EnviarEmailDialog: React.FC<Props> = ({
                 </DialogActions>
             </Dialog>
 
-            <Dialog open={showPreview} onClose={() => setShowPreview(false)} maxWidth="md" fullWidth>
-                <DialogTitle>{previewBase?.nombre}</DialogTitle>
+            <Dialog open={!!templateEspiado} onClose={() => setTemplateEspiado(null)} maxWidth="md" fullWidth>
+                <DialogTitle>{templateEspiado?.nombre}</DialogTitle>
                 <DialogContent>
                     <Typography variant="caption" color="text.secondary">Asunto</Typography>
-                    <Typography variant="body2" mb={2} fontWeight={600}>{previewBase?.asunto}</Typography>
+                    <Typography variant="body2" mb={2} fontWeight={600}>{templateEspiado?.asunto}</Typography>
                     <Box
                         sx={{ p: 1.5, border: '1px solid', borderColor: 'divider', borderRadius: 1, bgcolor: 'background.default' }}
-                        dangerouslySetInnerHTML={{ __html: previewBase?.html || '' }}
+                        dangerouslySetInnerHTML={{ __html: templateEspiado?.html || '' }}
                     />
                 </DialogContent>
                 <DialogActions>
-                    <Button onClick={() => setShowPreview(false)}>Cerrar</Button>
+                    <Button onClick={() => setTemplateEspiado(null)}>Cerrar</Button>
+                    {templateEspiado && templateEspiado.id !== templateSeleccionado?.id && (
+                        <Button
+                            variant="contained"
+                            onClick={() => {
+                                const t = templateEspiado
+                                setTemplateEspiado(null)
+                                handleSeleccionarTemplate({ id: t.id, nombre: t.nombre } as EmailTemplateListItem)
+                            }}
+                        >
+                            Usar esta plantilla
+                        </Button>
+                    )}
                 </DialogActions>
             </Dialog>
         </>

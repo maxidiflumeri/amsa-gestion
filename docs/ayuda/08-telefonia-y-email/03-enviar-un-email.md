@@ -43,13 +43,8 @@ asignada**, que son compartidas por todas las carteras.
 Cada una tiene una **lupa de vista previa**. Elegir una plantilla te lleva solo al paso 2, sin apretar
 Siguiente.
 
-> ### ⚠ Ojo con la lupa
->
-> La vista previa **cambia lo que ves en los pasos siguientes pero no cambia la plantilla elegida**.
-> Si volvés atrás y espiás otra con la lupa, el paso 2 y el paso 4 te van a mostrar **esa**, y al
-> enviar sale **la primera**.
->
-> Para cambiar de plantilla, tocá su nombre. La lupa es solo para espiar antes de elegir.
+La lupa es solo para mirar: no cambia la plantilla elegida. Si la que estás espiando te sirve más,
+tiene un botón **Usar esta plantilla** que sí la cambia.
 
 Las plantillas se crean en AMSA Sender, no acá.
 
@@ -70,15 +65,20 @@ Debajo de cada uno dice de dónde salió el valor.
 >
 > Un mapeo mal hecho no arruina un mail: arruina todos los que vengan.
 
-> ### ⚠ Los importes son siempre el monto original
->
-> Aunque la plantilla diga `{{saldo}}` o `{{deuda}}`, el sistema completa las tres variables de importe
-> con el **monto total del caso**. Nunca la deuda actualizada por mora, nunca el saldo después de los
-> pagos.
->
-> En una cartera con recargo, o en un caso con pagos parciales, **el número del mail va a estar por
-> debajo del que muestra la ficha**. Si necesitás el importe correcto, escribilo a mano encima de la
-> variable.
+### Los tres importes son distintos
+
+| Variable | Qué manda |
+|---|---|
+| `{{monto_total}}` · `{{deuda}}` | La **deuda original** asignada |
+| `{{saldo}}` | Lo que **falta cobrar**, ya descontados los pagos |
+| `{{deuda_actualizada}}` | El monto **con el recargo por mora** |
+
+Elegí la que corresponda a lo que le estás diciendo a la persona. Reclamarle el total a alguien que
+pagó la mitad es la forma más rápida de perder un acuerdo que ya estaba cerrado.
+
+> **`{{deuda_actualizada}}` sale del último recálculo de mora.** Si hace días que nadie recalcula esa
+> cartera, el número es el de esa corrida. Y en una cartera sin régimen de recargos queda vacía. Ver
+> [Recargo por mora](/ayuda/ajustes/recargo-por-mora).
 
 ## Paso 3 — Destino y adjuntos
 
@@ -95,8 +95,8 @@ mandó.
 **Asunto.** Sale de la plantilla, todavía con los `{{huecos}}` a la vista; en el paso 4 lo ves
 completado.
 
-> **El campo de asunto se puede editar pero la edición no llega al mail.** Sale siempre el asunto de la
-> plantilla. Si el asunto no sirve, hay que cambiar de plantilla.
+Se puede editar, y lo que escribas es lo que sale. Si dejás variables entre llaves, se completan igual
+que en el cuerpo.
 
 **Adjuntos.** Hasta **10 archivos** de **10 MB cada uno**. Si pasás uno más grande, avisa; si arrastrás
 más de diez, **los sobrantes se descartan sin decir nada**.
@@ -167,19 +167,20 @@ destinatario.
 
 Pasaste de diez. Los que sobran se descartan en silencio.
 
-### Cambié el asunto y salió el de la plantilla
-
-Es así: el campo se edita pero no se usa.
-
 ### Salió un dato en blanco
 
 Una variable quedó sin valor. El cartel amarillo del paso 4 las lista antes de mandar; no hay forma de
 corregir un mail ya enviado.
 
+### "No se envió a tal dirección: se dio de baja de los envíos"
+
+Esa persona apretó "Desuscribite" en algún mail. No hay forma de forzarlo desde acá: si es urgente, usá
+otro canal.
+
 ### El mail no aparece en Timeline
 
-Timeline cruza por **documento**. Si el caso no tiene documento cargado, o esa persona figura más de
-una vez en el sistema de envíos, puede no encontrarlo aunque el mail haya salido.
+Timeline cruza por **documento**. Si el caso no tiene documento cargado, no va a encontrarlo aunque el
+mail haya salido.
 
 ### Rebotó
 
@@ -201,8 +202,9 @@ No. Siempre parte de una plantilla.
 No. Una vez que se aprieta Enviar, sale.
 
 **¿Le puedo mandar a alguien que se dio de baja?**
-El sistema **no lo frena**: la lista de desuscriptos la respetan las campañas masivas, no el envío de a
-uno. Conviene mirar el Timeline antes.
+No: el sistema no se lo manda. Si alguno de los destinatarios apretó "Desuscribite" alguna vez, ese
+queda afuera y te avisa por pantalla; a los demás les llega normalmente. En el Timeline del caso queda
+el renglón, con estado *Desuscripto*.
 
 **¿Se puede mandar un mail en una cuenta cancelada?**
 Sí. El bloqueo de las cuentas canceladas no alcanza al envío de mails.

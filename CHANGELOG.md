@@ -6,6 +6,64 @@
 
 ---
 
+## [2026-08-21] — Email: cinco arreglos de lo que le llega mal al deudor
+
+> Gestión: `variables-mapper.ts` (+ spec nuevo), `email-sender.service.ts`, `sender-http.client.ts`,
+> `EnviarEmailDialog.tsx`, `types/email.ts`.
+> **Sender** (repo `amsa-sender`): `manual-email.service.ts`, `internal-email.controller.ts`.
+
+Todos salieron de la auditoría de documentación de la fase 6. El criterio para arrancar por acá: es el
+único grupo donde el bug **sale del sistema y llega a una persona**.
+
+**1. `{{saldo}}` devolvía el monto original.** En el catálogo, `deuda` tenía `synonyms: ['deuda',
+'saldo']` y resolvía a `montoTotal`. Un deudor que había pagado la mitad recibía un mail reclamándole
+el total, con la palabra "saldo" adelante; y en una cartera con recargo por mora el número quedaba
+corto. Ahora son tres variables distintas:
+
+| Variable | Qué manda |
+|---|---|
+| `{{monto_total}}` · `{{deuda}}` | la deuda original asignada |
+| `{{saldo}}` | lo que falta cobrar, ya descontados los pagos |
+| `{{deuda_actualizada}}` | el monto con el recargo por mora |
+
+`{{saldo}}` cae al monto original si la consolidación todavía no escribió el saldo —que es lo que se
+debe—, y `{{deuda_actualizada}}` queda **vacía** en vez de mentir si esa cartera nunca se recalculó.
+Cubierto por `variables-mapper.spec.ts` (8 casos).
+
+**2. Editar el asunto no hacía nada.** Con `templateId` presente, Sender hacía
+`subject = renderTemplate(template.asunto, vars)` y nunca leía `dto.subject`; Gestión siempre manda
+`templateId`. El gestor editaba, **veía su texto en la previsualización del paso 4**, y al destinatario
+le llegaba otro. Ahora el asunto del dto gana, renderizado igual para que las variables resuelvan. Si
+no viene, el comportamiento es idéntico al anterior.
+
+**3. La lupa hacía mandar otra plantilla.** `handlePreview` pisaba `previewBase` —que alimenta los
+pasos 2 y 4— sin tocar `templateSeleccionado`, que es lo que se envía. Elegir A, volver atrás, espiar B
+con la lupa y seguir: se leía B y se mandaba A. La lupa ahora usa su propio estado, y de paso tiene un
+botón **Usar esta plantilla**.
+
+**4. El envío manual ignoraba la lista de desuscriptos.** Las campañas la consultan
+(`email-worker.service.ts`); el envío de a uno, no. Quien había apretado "Desuscribite" seguía
+recibiendo los de la ficha. Ahora se omiten con el mismo estado `Desuscripto` que usan las campañas
+—así aparece en el timeline del deudor— y la pantalla lo avisa por separado: **no es un error del
+envío**, los demás destinatarios salen igual.
+
+**5. El mail podía no aparecer nunca en Timeline.** `Deudor.documento` no es único en Sender (hay una
+fila por cartera). Al mandar, la resolución era `findFirst` **sin orden** → id más bajo; al leer el
+timeline, `orderBy: { id: 'desc' }` → el más alto. Con documentos repetidos, el mail se colgaba de un
+registro y se leía de otro. Las dos consultas ahora ordenan igual.
+
+### Verificación
+
+`variables-mapper.spec.ts` pasa (8/8). El resto de la suite queda igual que antes: **6 suites y 19
+tests fallando, todos preexistentes y ajenos** (reportes, consolidación y comentarios, con errores de
+inyección en los módulos de test). Los dos backends compilan.
+
+El flujo de email **no se pudo probar de punta a punta en local**: las 26 empresas tienen
+`cuentaSmtpId = null` y `envio_email` está vacía, así que nunca se ejercitó acá. Lo verificado es la
+lógica del mapper y la compilación.
+
+---
+
 ## [2026-08-21] — Wiki completa: tableros, telefonía y email (+ 3 bugs de telefonía)
 
 > Docs: `docs/ayuda/07-tableros/` y `08-telefonia-y-email/` (6 páginas nuevas).

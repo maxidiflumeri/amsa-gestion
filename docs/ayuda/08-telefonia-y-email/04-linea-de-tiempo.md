@@ -77,7 +77,7 @@ No hay botón de refrescar: se recarga al tocar un filtro, o saliendo y volviend
 | **rebote** | No se pudo entregar: la dirección no existe o rechaza |
 | **fallo** | Falló el envío |
 | **queja** | El destinatario lo marcó como spam |
-| **omitido** / **Desuscripto** | No se mandó porque el destinatario está dado de baja (solo en campañas) |
+| **omitido** / **Desuscripto** | No se mandó porque el destinatario se dio de baja |
 | Renglón **"Email · Open"** | Lo abrió |
 | Renglón **"Email · Click"** | Tocó un enlace |
 

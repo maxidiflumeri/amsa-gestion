@@ -80,6 +80,8 @@ export interface EnviarEmailResponse {
     ok: boolean
     enviados: number
     errores?: { email: string; error: string }[]
+    /** Destinatarios que no se enviaron a propósito: hoy, los que se dieron de baja. */
+    omitidos?: { email: string; motivo: string }[]
 }
 
 export interface EnvioEmail {

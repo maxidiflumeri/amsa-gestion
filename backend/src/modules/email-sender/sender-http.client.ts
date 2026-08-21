@@ -31,6 +31,8 @@ export interface SenderEnvioResult {
     enviados: number;
     reporteIds: number[];
     errores?: { email: string; error: string }[];
+    /** Destinatarios que Sender no envió a propósito: hoy, los que se dieron de baja. */
+    omitidos?: { email: string; motivo: string }[];
 }
 
 export interface SenderReporteEstado {

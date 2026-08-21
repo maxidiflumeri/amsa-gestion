@@ -185,7 +185,7 @@ export class EmailSenderService {
         asunto?: string;
         variables: Record<string, string>;
         archivos: any[];
-    }): Promise<{ envioId: number; empresaId: number; reporteIds: number[]; ok: boolean; enviados: number; errores?: { email: string; error: string }[] }> {
+    }): Promise<{ envioId: number; empresaId: number; reporteIds: number[]; ok: boolean; enviados: number; errores?: { email: string; error: string }[]; omitidos?: { email: string; motivo: string }[] }> {
         const { deudorId, usuarioId, templateId, destinatarios, asunto, variables, archivos } = params;
 
         if (!destinatarios.length) throw new BadRequestException('Indicá al menos un destinatario.');
@@ -254,6 +254,7 @@ export class EmailSenderService {
             ok: resultado.ok,
             enviados: resultado.enviados,
             errores: resultado.errores,
+            omitidos: resultado.omitidos,
         };
     }
 
