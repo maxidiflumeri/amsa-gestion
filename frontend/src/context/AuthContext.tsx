@@ -53,6 +53,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }, []);
 
     const logout = useCallback(() => {
+        // El endpoint existía desde siempre y no lo llamaba nadie, así que **el logout no quedaba
+        // auditado**. Se avisa primero y se limpia después, sin esperar la respuesta: si el pedido
+        // falla, la sesión igual se cierra — es lo que el usuario pidió.
+        api.post('/auth/logout').catch(() => undefined);
         localStorage.removeItem('amsa_token');
         localStorage.removeItem('amsa_usuario');
         setToken(null);

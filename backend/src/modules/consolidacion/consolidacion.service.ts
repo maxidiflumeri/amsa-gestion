@@ -408,5 +408,27 @@ export class ConsolidacionSituacionService implements OnModuleInit {
         }
 
         await this.prisma.$transaction(ops);
+
+        // Un registro **por caso** para las cancelaciones. El resto de las transiciones se auditan
+        // como una sola corrida, pero "¿por qué se canceló este caso?" es la pregunta que más se
+        // hace y la que la corrida no puede responder: filtrando por el deudor no aparecía nada.
+        //
+        // El volumen está acotado: un caso se cancela una sola vez — en la corrida siguiente ya no
+        // cambia y no vuelve a registrarse.
+        if (sit050Ids.length > 0) {
+            await Promise.all(
+                sit050Ids.map((deudorId) =>
+                    this.auditoria.log({
+                        modulo: AuditModulo.GESTION,
+                        entidad: 'Deudor',
+                        entidadId: String(deudorId),
+                        deudorId,
+                        tipo: AuditTipo.UPDATE,
+                        resumen: 'Cancelado por consolidación: lo pagado cubre la deuda',
+                        data: { after: { estadoSituacion: 'SIT-050' }, contexto: { origen: 'consolidacion' } },
+                    }),
+                ),
+            );
+        }
     }
 }

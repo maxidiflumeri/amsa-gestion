@@ -6,8 +6,22 @@ import { QueryTransaccionesDto } from './dtos/query-transacciones.dto';
 import { XlsxExportador } from '../reportes/exportadores/xlsx.exportador';
 import { CsvExportador } from '../reportes/exportadores/csv.exportador';
 import { PdfExportador } from '../reportes/exportadores/pdf.exportador';
+import { finDelDia, inicioDelDia } from '../../common/utils/dia-local';
 
 export type FormatoExport = 'xlsx' | 'csv' | 'pdf';
+
+/** Cuenta registros por día local, para la serie del dashboard. */
+function agruparPorDia(filas: { createdAt: Date }[]): { fecha: string; count: number }[] {
+    const porDia = new Map<string, number>();
+    for (const f of filas) {
+        const d = f.createdAt;
+        const clave = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+        porDia.set(clave, (porDia.get(clave) ?? 0) + 1);
+    }
+    return [...porDia.entries()]
+        .sort(([a], [b]) => a.localeCompare(b))
+        .map(([fecha, count]) => ({ fecha, count }));
+}
 
 @Injectable()
 export class TransaccionesService {
@@ -59,9 +73,12 @@ export class TransaccionesService {
         if (q.severidad) where.severidad = q.severidad;
         if (q.estado) where.estado = q.estado;
         if (q.desde || q.hasta) {
+            // Días completos en hora local. `new Date('2026-08-21')` es medianoche **UTC**: en
+            // Argentina, las 21:00 del 20 — así que "Hasta = hoy" se comía todo el día de hoy y
+            // además las últimas tres horas de ayer. Ver `common/utils/dia-local.ts`.
             where.createdAt = {};
-            if (q.desde) (where.createdAt as any).gte = new Date(q.desde);
-            if (q.hasta) (where.createdAt as any).lte = new Date(q.hasta);
+            if (q.desde) (where.createdAt as any).gte = inicioDelDia(q.desde);
+            if (q.hasta) (where.createdAt as any).lte = finDelDia(q.hasta);
         }
         if (q.q) {
             where.OR = [
@@ -128,13 +145,14 @@ export class TransaccionesService {
                 this.prisma.transaccion.groupBy({ by: ['tipo'], where, _count: { _all: true }, orderBy: { _count: { tipo: 'desc' } }, take: 15 }),
                 this.prisma.transaccion.groupBy({ by: ['usuarioId'], where, _count: { _all: true }, orderBy: { _count: { usuarioId: 'desc' } }, take: 10 }),
                 this.prisma.transaccion.count({ where: { ...where, estado: 'FALLIDO', createdAt: { gte: hace24h } } }),
-                this.prisma.$queryRaw<{ fecha: Date; count: bigint }[]>`
-                    SELECT DATE(createdAt) as fecha, COUNT(*) as count
-                    FROM transaccion
-                    WHERE createdAt >= ${mes}
-                    GROUP BY DATE(createdAt)
-                    ORDER BY fecha ASC
-                `,
+                // Va por Prisma y no por SQL crudo para que **aplique el mismo `where`** que el
+                // resto: la consulta cruda lo ignoraba, así que quien solo tiene `auditoria.ver`
+                // —que debería ver únicamente lo suyo— veía en este gráfico el volumen diario de
+                // todo el sistema.
+                this.prisma.transaccion.findMany({
+                    where: { ...where, createdAt: { gte: mes } },
+                    select: { createdAt: true },
+                }),
             ]);
 
         const userIds = porUsuarioRaw.map((u) => u.usuarioId).filter((u): u is number => u != null);
@@ -156,7 +174,7 @@ export class TransaccionesService {
                 count: p._count._all,
             })),
             fallidos: { ultimas24h: fallidos24h },
-            seriePorDia: serieRaw.map((r) => ({ fecha: r.fecha, count: Number(r.count) })),
+            seriePorDia: agruparPorDia(serieRaw),
         };
     }
 

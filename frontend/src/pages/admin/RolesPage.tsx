@@ -190,15 +190,30 @@ const RolesPage: React.FC = () => {
                                                 <EditIcon fontSize="small" />
                                             </IconButton>
                                         </Tooltip>
-                                        <Tooltip title="Eliminar">
-                                            <IconButton
-                                                size="small"
-                                                color="error"
-                                                onClick={() => eliminar(rol)}
-                                                disabled={(rol._count?.usuarios ?? 0) > 0}
-                                            >
-                                                <DeleteIcon fontSize="small" />
-                                            </IconButton>
+                                        {/*
+                                          El botón se deshabilitaba sin decir por qué, y el mensaje
+                                          bueno del backend ("tiene N usuarios asignados") era
+                                          inalcanzable justamente porque nunca se llegaba a llamarlo.
+                                          El `span` es necesario: MUI no muestra el tooltip de un
+                                          botón deshabilitado.
+                                        */}
+                                        <Tooltip
+                                            title={
+                                                (rol._count?.usuarios ?? 0) > 0
+                                                    ? `No se puede eliminar: tiene ${rol._count?.usuarios} usuario(s) asignado(s). Movelos a otro rol primero.`
+                                                    : 'Eliminar'
+                                            }
+                                        >
+                                            <span>
+                                                <IconButton
+                                                    size="small"
+                                                    color="error"
+                                                    onClick={() => eliminar(rol)}
+                                                    disabled={(rol._count?.usuarios ?? 0) > 0}
+                                                >
+                                                    <DeleteIcon fontSize="small" />
+                                                </IconButton>
+                                            </span>
                                         </Tooltip>
                                     </TableCell>
                                 </TableRow>

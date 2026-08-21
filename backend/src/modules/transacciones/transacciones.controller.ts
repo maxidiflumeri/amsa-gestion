@@ -3,6 +3,8 @@ import type { Response } from 'express';
 import { FormatoExport, TransaccionesService } from './transacciones.service';
 import { QueryTransaccionesDto } from './dtos/query-transacciones.dto';
 import { Permisos } from '../../auth/decorators';
+import { Audit } from './audit.decorator';
+import { AuditModulo, AuditTipo } from './audit.enums';
 
 @Controller('transacciones')
 @Permisos('auditoria.ver')
@@ -28,6 +30,15 @@ export class TransaccionesController {
     }
 
     @Post('export')
+    // Bajarse la bitácora es una acción que también tiene que quedar en la bitácora: es la que se
+    // lleva datos afuera del sistema. Antes el controller no tenía un solo `@Audit`.
+    @Audit({
+        modulo: AuditModulo.ADMIN,
+        entidad: 'Auditoria',
+        tipo: AuditTipo.REPORTE_DESCARGAR,
+        resumen: (_res, req) => `Exportó la auditoría (${req.body?.formato ?? '-'})`,
+        data: (_res, req) => ({ params: req.body }),
+    })
     async exportar(
         @Query() query: QueryTransaccionesDto & { formato?: FormatoExport },
         @Req() req: any,

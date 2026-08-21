@@ -26,8 +26,11 @@ import { auditoriaApi } from '../../api/auditoria';
 import type { QueryAuditoria, Transaccion } from '../../types/auditoria';
 import AuditDiffView from './AuditDiffView';
 import { useAuth } from '../../context/AuthContext';
+import { useNotify } from '../../hooks/useNotify';
 
-const MODULOS = ['GESTION', 'IMPORT', 'REPORTES', 'ADMIN', 'AUTH', 'SISTEMA'];
+// Los nueve del enum `AuditModulo`. Faltaban TELEFONIA, EMAIL y DASHBOARDS: el sistema los registra
+// y no se podían filtrar desde el desplegable.
+const MODULOS = ['GESTION', 'IMPORT', 'REPORTES', 'DASHBOARDS', 'EMAIL', 'ADMIN', 'AUTH', 'TELEFONIA', 'SISTEMA'];
 const ESTADOS = ['OK', 'FALLIDO'];
 const SEVERIDADES = ['INFO', 'WARN', 'ERROR'];
 
@@ -60,6 +63,9 @@ const downloadCSV = (items: Transaccion[]) => {
 const AuditoriaBusqueda: React.FC = () => {
     const { tienePermiso } = useAuth();
     const [filters, setFilters] = useState<QueryAuditoria>({});
+    /** Los filtros de la última búsqueda ejecutada: es lo que se exporta. */
+    const [filtrosAplicados, setFiltrosAplicados] = useState<QueryAuditoria>({});
+    const notify = useNotify();
     const [page, setPage] = useState(1);
     const [items, setItems] = useState<Transaccion[]>([]);
     const [total, setTotal] = useState(0);
@@ -72,7 +78,7 @@ const AuditoriaBusqueda: React.FC = () => {
         setExportAnchor(null);
         setExporting(true);
         try {
-            const blob = await auditoriaApi.exportar({ ...filters, formato });
+            const blob = await auditoriaApi.exportar({ ...filtrosAplicados, formato });
             const url = URL.createObjectURL(blob);
             const a = document.createElement('a');
             a.href = url;
@@ -96,10 +102,20 @@ const AuditoriaBusqueda: React.FC = () => {
             const r = await auditoriaApi.listar(params);
             setItems(r.items);
             setTotal(r.total);
+            // Lo que se exporta es lo que se buscó, no lo que haya quedado tipeado en el formulario:
+            // antes, cambiar un filtro sin apretar Buscar hacía que el archivo saliera con el filtro
+            // nuevo mientras la pantalla mostraba el viejo.
+            setFiltrosAplicados(filters);
+        } catch (e) {
+            // Sin este catch, un 403 o un 500 dejaban la pantalla en blanco, indistinguible de
+            // "no hay resultados".
+            notify.error(e as Error);
+            setItems([]);
+            setTotal(0);
         } finally {
             setLoading(false);
         }
-    }, [filters, page]);
+    }, [filters, page, notify]);
 
     useEffect(() => { buscar(); /* eslint-disable-next-line */ }, [page]);
 

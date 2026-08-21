@@ -8,6 +8,8 @@ import {
 } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import { DeudorBloqueoService } from '../deudores/utils/deudor-bloqueo';
+import { AuditoriaHelper } from '../transacciones/auditoria.helper';
+import { AuditModulo, AuditTipo } from '../transacciones/audit.enums';
 import { CreatePromesaDto } from './dtos/create-promesa.dto';
 
 /**
@@ -32,6 +34,7 @@ export class PromesasService implements OnModuleInit {
     constructor(
         private readonly prisma: PrismaService,
         private readonly bloqueo: DeudorBloqueoService,
+        private readonly auditoria: AuditoriaHelper,
     ) {}
 
     async onModuleInit(): Promise<void> {
@@ -310,6 +313,23 @@ export class PromesasService implements OnModuleInit {
             this.logger.log(
                 `procesarVencidas: evaluadas=${vencidas.length} cumplidas=${cumplidas} incumplidas=${incumplidas}`,
             );
+            // La corrida queda auditada. El `@Audit` estaba en el controller, así que solo dejaba
+            // rastro el disparo manual: la corrida nocturna —que es la que mueve los estados casi
+            // siempre— no registraba nada y Auditoría no podía explicar esos cambios.
+            await this.auditoria.log({
+                modulo: AuditModulo.GESTION,
+                entidad: 'PromesaPago',
+                tipo: AuditTipo.EJECUTAR,
+                resumen:
+                    `Procesó promesas vencidas: ${vencidas.length} evaluadas, ` +
+                    `${cumplidas} cumplida(s), ${incumplidas} incumplida(s)`,
+                data: {
+                    contexto: { evaluadas: vencidas.length, cumplidas, incumplidas },
+                    // Los casos afectados, para poder cruzarlo desde la ficha.
+                    params: { deudorIds: [...new Set(vencidas.map((p) => p.deudorId))] },
+                },
+            });
+
             return { evaluadas: vencidas.length, cumplidas, incumplidas };
         } finally {
             this.procesandoVencidas = false;
