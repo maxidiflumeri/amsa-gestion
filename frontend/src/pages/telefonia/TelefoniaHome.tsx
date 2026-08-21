@@ -64,7 +64,10 @@ const TelefoniaHome: React.FC = () => {
                 onClose={() => setBuscadorAbierto(false)}
                 onSelectDeudor={(id) => {
                     setBuscadorAbierto(false)
-                    navigate(`/telefonia/caso?id=${id}`)
+                    // `deudor` y no `id`: `id` es alias de la CLAVE de Neotel, así que el caso quedaba
+                    // marcado como dudoso y le salía el cartel de "confirmá que es el correcto" a un
+                    // caso que el operador acababa de elegir a mano.
+                    navigate(`/telefonia/caso?deudor=${id}`)
                 }}
             />
         </Box>

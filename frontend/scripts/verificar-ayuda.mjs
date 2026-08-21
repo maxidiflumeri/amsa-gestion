@@ -16,7 +16,7 @@ const DOCS = join(RAIZ, 'docs', 'ayuda')
 const NAV = join(RAIZ, 'frontend', 'src', 'components', 'layout', 'AppShell', 'navConfig.ts')
 
 /** Pantallas que todavía no tienen página, a propósito. Sacar de acá al escribirlas. */
-const SIN_AYUDA_TODAVIA = new Set(['/dashboards', '/admin/neotel-test', '/ayuda'])
+const SIN_AYUDA_TODAVIA = new Set(['/ayuda'])
 
 const errores = []
 const avisos = []
@@ -127,8 +127,10 @@ for (const ruta of [...new Set(rutasMenu)].sort()) {
     if (SIN_AYUDA_TODAVIA.has(ruta)) continue
     const r = resolver(ruta)
     if (!r) continue
+    // Sin principal ya hay un error de la regla 3; acá solo se evita romper el listado.
+    const destino = r.principal ? r.principal.slug : '(sin principal)'
     resoluciones.push(
-        `  ${ruta.padEnd(26)} → ${r.principal.slug}` + (r.hermanas ? ` (+${r.hermanas} hermana(s))` : ''),
+        `  ${ruta.padEnd(26)} → ${destino}` + (r.hermanas ? ` (+${r.hermanas} hermana(s))` : ''),
     )
 }
 

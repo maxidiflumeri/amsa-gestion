@@ -35,7 +35,18 @@ import Markdown from './Markdown'
 
 const ANCHO = 560
 
-const AyudaContextual: React.FC = () => {
+interface Props {
+    /**
+     * Abrir el visor en una pestaña nueva en vez de navegar.
+     *
+     * Es lo que corresponde dentro de la Toolbar de Neotel: `/ayuda` vive bajo el shell completo, así
+     * que navegar ahí le deja al operador el sistema entero —sidebar incluido— adentro del iframe, sin
+     * forma de volver a la ficha de la llamada hasta que entre la siguiente.
+     */
+    enPestanaNueva?: boolean
+}
+
+const AyudaContextual: React.FC<Props> = ({ enPestanaNueva = false }) => {
     const theme = useTheme()
     const angosto = useMediaQuery(theme.breakpoints.down('sm'))
     const navigate = useNavigate()
@@ -55,7 +66,12 @@ const AyudaContextual: React.FC = () => {
 
     const irAlVisor = () => {
         setAbierto(false)
-        navigate(pagina ? `/ayuda/${pagina.slug}` : '/ayuda')
+        const destino = pagina ? `/ayuda/${pagina.slug}` : '/ayuda'
+        if (enPestanaNueva) {
+            window.open(destino, '_blank', 'noopener')
+            return
+        }
+        navigate(destino)
     }
 
     return (

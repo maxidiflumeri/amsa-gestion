@@ -54,6 +54,10 @@ const TelefoniaCaso: React.FC = () => {
 
         const buscar = async () => {
             setEstado('cargando')
+            // Limpiar antes de resolver: si esta búsqueda no encuentra nada, el chip de arriba no
+            // puede seguir mostrando el nombre del caso anterior.
+            setNombre('')
+            setDudoso(false)
             // Se prueban en orden; el primero que exista gana. Un candidato equivocado devuelve 404
             // y se sigue con el siguiente.
             for (const c of candidatos) {
@@ -168,10 +172,21 @@ const TelefoniaCaso: React.FC = () => {
             <BuscadorAvanzadoModal
                 open={buscadorAbierto}
                 onClose={() => setBuscadorAbierto(false)}
-                onSelectDeudor={(id) => {
+                onSelectDeudor={async (id) => {
+                    setBuscadorAbierto(false)
                     setDeudorId(id)
                     setEstado('ok')
-                    setBuscadorAbierto(false)
+                    // Lo eligió una persona, así que no hay nada que confirmar. Y hay que refrescar el
+                    // nombre del chip: si no, sobre la ficha nueva queda el de la anterior.
+                    setDudoso(false)
+                    setNombre('')
+                    try {
+                        const res = await api.get(`/deudores/${id}`)
+                        const d = res.data?.data ?? res.data
+                        setNombre([d?.apellido, d?.nombre].filter(Boolean).join(', '))
+                    } catch {
+                        /* el chip queda sin nombre; la ficha se muestra igual */
+                    }
                 }}
             />
         </Box>

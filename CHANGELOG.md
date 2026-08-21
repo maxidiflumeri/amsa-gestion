@@ -6,6 +6,68 @@
 
 ---
 
+## [2026-08-21] — Wiki completa: tableros, telefonía y email (+ 3 bugs de telefonía)
+
+> Docs: `docs/ayuda/07-tableros/` y `08-telefonia-y-email/` (6 páginas nuevas).
+> Frontend: `TelefoniaHome.tsx`, `TelefoniaCaso.tsx`, `AyudaContextual.tsx`, `EmbeddedShell.tsx`.
+
+Cierra la wiki: **36 páginas, las 17 pantallas del menú cubiertas**. La única sin página propia es
+`/ayuda`.
+
+### Los tres agentes revisores volvieron con 40 correcciones
+
+Las seis páginas salieron con errores, como todas. Las que más dolieron:
+
+- **Tableros (15 errores).** "Deuda total" suma `montoTotal`, no el saldo: **no resta lo cobrado ni
+  incluye el recargo por mora**. El **funnel no es un embudo** —las tres primeras etapas leen
+  `estadoSituacionId`, que es excluyente, así que un caso que llegó a promesa deja de contar en
+  "Contactados"— y medido en local da 21.335 / 0 / 0 / **68**: la última barra es mayor que las dos
+  anteriores. **"Casos sin gestión" es estructuralmente 0**, porque la importación exige estado
+  inicial. Y el `%` CPC baja cuanto mejor convierte el equipo, porque mira el estado actual.
+- **Email.** Una variable sin mapear **no sale con el `{{hueco}}`: sale vacía**. Editar el asunto
+  **no hace nada**. Solo viene precargado el destinatario que clickeaste. Y mapear una variable
+  **la guarda pegada a la plantilla, para todo el equipo y para siempre**.
+- **Timeline.** La tabla de estados que había escrito estaba inventada entera: los reales son
+  `enviado`, `pendiente`, `rebote`, `fallo`, `queja`, `omitido`, `Desuscripto`. **No existe
+  "entregado"**, y apertura y clic **no son estados**: son renglones aparte. Y el cruce por documento
+  trae **de menos**, no de más: resuelve a un solo registro de Sender, así que si la persona figura en
+  varias carteras solo se ve la última.
+- **Telefonía.** Política y Timeline **no son solapas de la ficha**: son hermanas, y dentro de la
+  Toolbar no existen. El panel de prueba de Neotel **no es de solo lectura**: desloguea al agente, lo
+  pone en pausa y lo cambia de campaña.
+
+### Tres bugs arreglados en el camino
+
+1. **El `?` dentro de la Toolbar era un viaje de ida.** Lo había agregado el mismo día: navegaba a
+   `/ayuda`, que vive bajo el shell completo, así que el operador terminaba con el sistema entero
+   —sidebar incluido— adentro del iframe y sin forma de volver a la ficha hasta la próxima llamada.
+   Ahora abre en pestaña nueva.
+2. **Elegir un caso a mano lo marcaba como dudoso.** La home navegaba con `?id=`, que es alias de la
+   **CLAVE de Neotel**, no del deudor: al caso que el operador acababa de elegir le salía el cartel
+   *"Confirmá que es el caso correcto"*. El efecto de segundo orden es el peor — entrena a ignorar el
+   único cartel que no se puede ignorar.
+3. **"Buscar otro caso" dejaba estado sucio.** Sobre la ficha nueva quedaban el nombre de la persona
+   anterior en el chip y el cartel amarillo, porque `nombre` y `dudoso` no se reseteaban. Justo el
+   botón que la documentación recomienda cuando la ficha abrió mal.
+
+### Guarda
+
+Al sacar `/dashboards` y `/admin/neotel-test` de la lista de pendientes, `verificar-ayuda` tiró un
+`TypeError`: una página declaraba una ruta sin ser principal de ella. El error de fondo era real —lo
+detecta la regla de "una principal por pantalla"— pero el script moría antes de reportarlo. Ahora
+informa en vez de explotar.
+
+### Hallazgos de producto
+
+Los más graves, en `docs/ayuda-spec.md` §7: **`dashboards.ver_todas_empresas` no restringe nada**
+(lee `usuario.empresaId`, campo que no existe, así que cualquiera con `dashboards.ver` puede ver la
+cartera de otra empresa, drill-down con nombres y documentos incluido); **el export de tableros no
+exige `dashboards.ver`**; **`{{saldo}}` y `{{deuda}}` resuelven a `montoTotal`**, así que un deudor
+que pagó la mitad recibe un mail reclamándole el total; y **el envío manual no respeta la lista de
+desuscriptos**.
+
+---
+
 ## [2026-08-21] — Ayuda contextual: el botón "?" en todas las pantallas
 
 > Frontend: `pages/ayuda/AyudaContextual.tsx` y `Markdown.tsx` (nuevos), `contenido.ts`,

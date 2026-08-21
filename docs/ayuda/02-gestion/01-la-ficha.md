@@ -22,7 +22,7 @@ desde acá.
 | **Política** | Lo que el cedente autoriza para esa remesa |
 | **Timeline** | Los envíos de mail y WhatsApp registrados por AMSA Sender |
 
-Las últimas dos solo aparecen para algunos roles.
+Las cuatro las ve todo el mundo: el filtro por rol que había quedó sin efecto.
 
 Y **dentro de la ficha** hay otras cinco solapas, que son las del caso. Es fácil confundirlas.
 

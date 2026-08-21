@@ -1,7 +1,7 @@
 # Documentación de uso (wiki interna) — spec
 
-> Estado: **en uso**. 30 páginas escritas y auditadas, visor con buscador y el `?` contextual cableado
-> en todas las pantallas. Falta Tableros y Telefonía/Email.
+> Estado: **completa**. 36 páginas escritas y auditadas, visor con buscador y el `?` contextual en
+> todas las pantallas. Las 17 pantallas del menú están cubiertas.
 
 El sistema creció y no tiene documentación de uso. Hay flujos que no se entienden sin que alguien te
 los explique —crear una plantilla de importación, las 10 categorías, el builder de reportes— y eso
@@ -171,8 +171,9 @@ transforms, ancho fijo, multiarchivo, multirregistro, filtros de fila.
 | 3 | Primeros pasos + gestión del caso (6 páginas) | **HECHA** — auditada y corregida |
 | 4 | Ajustes + administración (8 páginas) | **HECHA** — auditada y corregida |
 | 5 | Ayuda contextual (el `?` en cada pantalla) | **HECHA** — panel lateral con la principal abierta |
+| 6 | Tableros + telefonía y email (6 páginas) | **HECHA** — auditada y corregida |
 
-Escritas hasta ahora (30):
+Escritas hasta ahora (36):
 
 | Página | Estado |
 |---|---|
@@ -206,6 +207,12 @@ Escritas hasta ahora (30):
 | `06-administracion/01-roles-y-permisos` | auditada y corregida |
 | `06-administracion/02-usuarios` | auditada y corregida |
 | `06-administracion/03-auditoria` | auditada y corregida |
+| `07-tableros/01-como-leer-el-tablero` | auditada y corregida |
+| `07-tableros/02-filtros-y-exportar` | auditada y corregida |
+| `08-telefonia-y-email/01-telefonia-como-funciona` | auditada y corregida |
+| `08-telefonia-y-email/02-atender-una-llamada` | auditada y corregida |
+| `08-telefonia-y-email/03-enviar-un-email` | auditada y corregida |
+| `08-telefonia-y-email/04-linea-de-tiempo` | auditada y corregida |
 
 Las tres de mayor riesgo son `06-actualizaciones`, `07-acciones-masivas` y `08-historial-y-problemas`:
 documentan operaciones que pueden cancelar una cartera, borrar contactos de toda una empresa o perder
@@ -224,7 +231,7 @@ catálogo de permisos (que se agregó justamente porque esa clase de desincroniz
 - **Los enlaces internos resuelven** a un slug que existe.
 - **Exactamente una principal por pantalla**, y que la principal declare también esa ruta.
 - **Cada entrada de `navConfig` tiene ayuda**, salvo las que estén en la lista explícita de
-  pendientes — hoy `/dashboards`, `/admin/neotel-test` y `/ayuda`.
+  pendientes — hoy solo `/ayuda`, que es la wiki misma.
 - Imprime **qué abre el `?` en cada pantalla**, que es la forma más rápida de ver si una principal
   quedó mal elegida.
 
@@ -303,5 +310,42 @@ Ordenados por gravedad. Los cuatro primeros son de seguridad o de pérdida de da
 | `DeudoresPage.tsx:20` tiene **el usuario hardcodeado** (`{ nombre: 'Maxi', rol: 'admin' }`) y de él dependen las solapas de la ficha. Conectarlo al contexto real las haría desaparecer para todos | `DeudoresPage.tsx:20` |
 | El aviso "sin política" del gestor **manda a un lugar equivocado**: dice *Ajustes → Políticas*, donde no se puede asociar | `PoliticaTab.tsx:53` |
 | Tipos de auditoría fuera del enum (`'VALIDAR'`, `'ANULAR'`) escritos como strings sueltos | `imports.controller.ts:220` |
+
+### Los de la fase 6 (tableros, telefonía y email)
+
+| Hallazgo | Dónde |
+|---|---|
+| 🔴 **`dashboards.ver_todas_empresas` no restringe nada y deja ver la cartera de cualquier empresa.** El controller lee `usuario.empresaId`, campo que **no existe** ni en el JWT ni en el modelo, así que la restricción es siempre `null`. Cualquiera con `dashboards.ver` puede pedir el snapshot y el drill-down —con nombres y documentos— de otra empresa; el combo del front tampoco filtra | `dashboards.controller.ts:24` vs `schema.prisma:376` |
+| 🔴 **El export de tableros no exige `dashboards.ver`.** El `@Permisos` del método pisa al de la clase, así que un rol con solo "Exportar tableros" baja el tablero entero por API | `dashboards.controller.ts:49`, `permisos.guard.ts:22` |
+| 🔴 **Editar el asunto de un email no hace nada.** El campo se manda pero Sender lo descarta cuando viene `templateId`, y Gestión siempre lo manda. El gestor edita, ve **su** texto en la previsualización, y al deudor le llega otro | `manual-email.service.ts:185`, `EnviarEmailDialog.tsx:297` |
+| 🔴 **La lupa de vista previa puede hacerte mandar otra plantilla.** Espiar una plantilla pisa el contenido de los pasos 2 y 4 pero no cambia la elegida: se lee una y se manda otra | `EnviarEmailDialog.tsx:182-190,295` |
+| **`{{saldo}}` no es el saldo y `{{deuda}}` no es la deuda actualizada**: las tres variables de importe resuelven a `montoTotal`. Un deudor que pagó la mitad recibe un mail reclamándole el total, con la palabra "saldo" adelante | `variables-mapper.ts:69-70` |
+| **El envío manual no respeta la lista de desuscriptos.** El worker de campañas la consulta; el envío de a uno no. Es cumplimiento, no UX | `manual-email.service.ts` vs `email-worker.service.ts:156` |
+| **En Timeline, todo lo malo se ve gris.** `estadoColor()` busca `fallido/failed/error/bounced` y Sender escribe `fallo` y `rebote`: rebotes, fallos, quejas y desuscriptos salen indistinguibles de "desconocido". La lista parece escrita contra los estados de WhatsApp | `TimelineDeudorTab.tsx:63-71` |
+| **El envío y la lectura del Timeline resuelven el documento distinto**: al mandar, `findFirst` sin orden (id más bajo); al leer, `orderBy id desc` (el más alto). Con documentos repetidos en Sender, el mail recién mandado nunca aparece | `internal-email.controller.ts:121` vs `internal-timeline.controller.ts:48` |
+| **La previsualización y el render real usan reglas distintas**: el front reemplaza por coincidencia exacta, Sender con `/{{\s*(\w+)\s*}}/`. Una plantilla con `{{monto-total}}` se ve bien en pantalla y sale con el `{{}}` literal en el mail | `EnviarEmailDialog.tsx:319` vs `renderTemplate.ts:4` |
+| **"Deuda total" y "% Recupero" suman `montoTotal`**, no `saldo` ni `deudaActualizada`: no restan lo cobrado ni incluyen el recargo. El recupero mezcla numerador de un período con denominador de toda la vida de la cartera — en local da 0,18% | `dashboards.service.ts:143,287` |
+| **"Casos sin gestión" es estructuralmente 0**: la importación exige estado inicial y se lo pone a todos (21.338 de 21.338). El KPI ocupa un lugar del grid sin poder informar nada | `dashboards.service.ts:161` vs `imports.service.ts:1134` |
+| **El funnel no es un embudo.** Las tres primeras etapas leen `estadoSituacionId`, que es excluyente: un caso que llegó a promesa deja de contar en "Contactados". Medido en local: 21.335 / 0 / 0 / **68** | `dashboards.service.ts:182-207` |
+| **La opción "Todas" del selector de empresa deja el tablero en blanco**, y *Limpiar* resetea la empresa a `null` justo para quien tiene el permiso | `DashboardFiltros.tsx:96,135` |
+| **"Mora promedio" mezcla relojes**: excluye por pagos del período dentro de una métrica que por lo demás es foto de hoy | `dashboards.service.ts:364-376` |
+| **La serie de pagos no dibuja la cantidad**: el backend la calcula, el tooltip tiene una rama para ella, y no hay serie con ese `dataKey` | `SeriePagos.tsx:42-51` |
+| **El PDF del tablero no incluye las series temporales** — justo el formato "para mandar al cedente" no lleva la evolución de la cobranza | `dashboards-export.service.ts:262-349` |
+| **El tope de 366 días no se valida en el front**: se escribe el rango y vuelve un error del servidor | `DashboardFiltros.tsx:160-180` |
+| **Los combos de situación/gestión/motivo del tablero no filtran por empresa**, aunque el endpoint acepta `empresaId` | `DashboardFiltros.tsx:66-71` |
+| `casosConPago` trae **todos los `deudorId` distintos a memoria** para hacer `.length` | `dashboards.service.ts:150-154` |
+| Dos widgets dependen de `deudor.fechaVencimiento`, que casi ninguna cartera trae (3 de 21.338 en local): la barra de mora queda 100% en "Sin fecha" | `dashboards.service.ts:378-395` |
+| **No hay forma de marcar un mail como inválido.** `contacto.validado` existe y solo lo escribe la UI de teléfonos: una dirección que rebota solo se puede borrar | `FichaContactosPanel.tsx:210-241` |
+| **Pasar de 10 adjuntos descarta los sobrantes en silencio** (`.slice(0, MAX_FILES)`); solo el exceso de tamaño avisa. Y no hay tope de tamaño **total** | `EnviarEmailDialog.tsx:232-237` |
+| `GET /email/deudores/:id/envios` y `/envios/:id/estado` **no los consume nadie**: la tabla `envio_email` —la única que sabe qué valores se mandaron— es invisible en la UI desde que Timeline reemplazó al tab "Emails enviados" | `email-sender.controller.ts:112-122` |
+| ~~**Elegir un caso a mano en telefonía lo marcaba como dudoso**~~ **ARREGLADO 2026-08-21**: la home navegaba con `?id=`, alias de la CLAVE de Neotel, así que al caso que el operador acababa de elegir le salía el cartel de "confirmá que es el correcto". Entrenaba a ignorar el único cartel que no se puede ignorar | `TelefoniaHome.tsx` |
+| ~~**"Buscar otro caso" dejaba estado sucio**~~ **ARREGLADO 2026-08-21**: sobre la ficha nueva quedaban el nombre de la persona anterior y el cartel amarillo | `TelefoniaCaso.tsx` |
+| ~~**El "?" dentro de la Toolbar era un viaje de ida**~~ **ARREGLADO 2026-08-21**: navegaba a `/ayuda`, que vive bajo el shell completo, dejando al operador con sidebar y todo adentro del iframe | `AyudaContextual.tsx`, `EmbeddedShell.tsx` |
+| **Un separador mal configurado degrada hacia el camino peligroso**: si DATA llegó con contenido pero ningún valor es entero, se cae igual a la CLAVE de Neotel y puede abrir la ficha de un tercero. Debería ser "no se encontró" | `resolver-caso.ts:74-97` |
+| **`MAX_CANDIDATOS = 4` trunca en silencio**: si el id es el quinto valor numérico de DATA no se encuentra nunca, y el error lista cuatro números que no venían al caso | `resolver-caso.ts:21,100` |
+| **`/admin/neotel-test` no tiene guard de ruta y sus endpoints piden solo `telefonia.usar`.** El panel desloguea al agente de Neotel, lo pone en pausa y lo cambia de campaña: el día que se otorgue ese permiso para el softphone, cualquier agente puede pisar su estado por fuera de la Toolbar | `AppRoutes.tsx:67`, `neotel-sesion.controller.ts` |
+| La integración con la Toolbar es **de una sola vía** —el sistema no se entera de que la llamada terminó— y sigue **sin probarse con una campaña real** | `neotel-toolbar-spec.md:3,185` |
+| **`DeudoresPage.tsx:20` tiene el usuario hardcodeado** (`{ nombre: 'Maxi', rol: 'admin' }`), lo que anula el gate por rol de las solapas Política y Timeline: hoy las ve todo el mundo. Ya estaba anotado en la fase 4 y sigue | `DeudoresPage.tsx:20` |
+
 
 
