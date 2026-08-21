@@ -6,6 +6,69 @@
 
 ---
 
+## [2026-08-21] — Mora: tres guardas que faltaban, encontradas auditando la documentación
+
+> Backend: `mora.service.ts`, `mora.controller.ts`, `cargar-tasa.dto.ts`, `mora.interface.ts`.
+> Frontend: `AjustesMora.tsx`, `api/mora.ts`. Script nuevo: `prisma/scripts/verificar-mora-guardas.ts`.
+
+Los tres salieron de los agentes revisores de la wiki de ayuda, no de un incidente. Ninguno se había
+manifestado todavía porque **la única cartera con recargos es AYSA y su índice vino migrado del
+`ud60`** — que es justamente lo que los tapaba.
+
+**1. Una cartera nueva no podía cargar su primera tasa. La funcionalidad no arrancaba.**
+`generarMes` exige el índice del día anterior y, sin él, solo cede con `permitirInicioDeCadena`. Ese
+flag existía en el servicio y en el DTO desde el día uno, pero **el frontend no lo mandaba nunca** —
+ni estaba en el tipo de `moraApi.cargarTasa`. Resultado: en cualquier empresa sin índice previo el
+error mandaba a "generá primero los meses anteriores", meses que tampoco se podían generar por la
+misma razón. Un callejón cerrado.
+
+**2. Recargar un mes viejo recomputaba la cadena migrada sin preguntar nada.**
+El confirm de la pantalla se calculaba sobre `tasas`, que trae **24 meses**. Un mes más viejo que esa
+ventana caía en `yaExiste === false` y se regeneraba en silencio hacia adelante — en AYSA, 295 meses.
+Y peor que el silencio: reemplazaba índice `origen='UD60'` por `CALCULADO`. **39 de los 305 meses
+históricos tuvieron más de una tasa vigente** (spec §5.2), así que reconstruirlos desde la tasa
+mensual única los empeora. Era una degradación disfrazada de corrección.
+
+**3. La fecha de corte salía en UTC.**
+`normalizarFecha(new Date())` leía los componentes con `getUTC*`. En Argentina, a partir de las 21:00
+devolvía **el día de mañana**: el último día del mes, recalcular fallaba con *"No hay índice para el
+{fecha}"* aunque la tasa del mes estuviera perfectamente cargada.
+
+### Lo que se hizo
+
+- **`preverGeneracion(empresaId, periodo)`** — método nuevo, expuesto en `GET /mora/tasas/previo`.
+  Devuelve si la cadena está vacía, si falta el día anterior, **cuántos meses posteriores hay de
+  verdad** y **cuáles de los que se tocarían tienen índice migrado**. La pantalla ya no deduce nada de
+  las filas que tenga a mano.
+- **Las validaciones se hoistearon a `generarMes` y corren antes del `upsert` de `tasa_mora`.** Antes
+  la tasa se escribía primero, así que una generación rechazada dejaba una fila con 0 días de índice
+  que en la tabla se lee como si estuviera cargada.
+- **`permitirPisarMigrado`** — bandera nueva. Sin ella, regenerar un mes con índice del cedente se
+  rechaza nombrando los meses afectados. Con ella, queda un `warn` con el usuario y los periodos.
+- **`hoyUtc()`** — helper que arma el día del calendario local. Reemplaza a
+  `normalizarFecha(new Date())` en `calcularDeudor`, `recalcularCartera` y `mesesFaltantes`.
+  `normalizarFecha` se queda para lo que sí es UTC: las columnas `@db.Date`.
+- **La pantalla pregunta lo que corresponde**, en tres confirmaciones distintas y con el texto que
+  explica la consecuencia: iniciar la cadena (con el aviso de que la deuda anterior a ese mes queda
+  sin recargo), regenerar N posteriores, y pisar índice del cedente (en rojo, "Pisar igual").
+
+### Verificación
+
+`npx ts-node --transpile-only prisma/scripts/verificar-mora-guardas.ts [--apply]` — 15 checks contra
+la base real, sin empresas ni fechas hardcodeadas. Sin `--apply` no escribe nada; con `--apply` prueba
+el arranque de cadena en una empresa sin mora y borra lo que creó.
+
+Confirmado además que **la carga mensual de rutina no cambió**: para el mes siguiente al último con
+índice, el preview da `periodosPosteriores: []` y `periodosMigrados: []`, así que no aparece ninguna
+confirmación nueva. Los 20 tests unitarios de mora siguen pasando.
+
+Quedan sin arreglar, anotados en `docs/ayuda-spec.md` §7: que no hay ningún proceso que recalcule la
+mora (el indicador naranja de la ficha, con umbral de 48 h, está encendido de forma permanente), que
+la tabla muestra solo 24 meses sin manera de ver más, y que los multiplicadores ×1,5 y ×2 están
+hardcodeados en la UI mientras el backend los lee de la configuración de la empresa.
+
+---
+
 ## [2026-08-20] — AYSA: descifrado el recargo por mora, y un bug de 3 meses en el CRM del cedente
 
 > Sin cambios de código. Spec nuevo: [docs/mora-aysa-spec.md](docs/mora-aysa-spec.md).

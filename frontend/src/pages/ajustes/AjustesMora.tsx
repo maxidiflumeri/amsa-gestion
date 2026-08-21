@@ -123,22 +123,71 @@ const AjustesMora: React.FC = () => {
             if (!ok) return
         }
 
-        // Recargar un mes ya cargado obliga a regenerar todos los posteriores.
-        const yaExiste = tasas.some((t) => t.periodo === periodo && t.tasaBase != null)
-        if (yaExiste) {
-            const posteriores = tasas.filter((t) => t.periodo > periodo && t.diasIndice > 0).length
+        // Qué va a pasar realmente se lo pregunta al backend, no se deduce de las filas que hay en
+        // pantalla: la tabla trae solo 24 meses, y recargar uno más viejo regeneraba cientos sin
+        // avisar nada.
+        const previo = await moraApi.previo(empresaId, periodo).catch((e) => {
+            notify.error(e as Error)
+            return null
+        })
+        if (!previo) return
+
+        // Empresa sin ningún índice: este mes sería el arranque de la cadena. El backend lo rechaza
+        // salvo que se lo pidan explícito, justamente para que no pase por accidente.
+        let permitirInicioDeCadena = false
+        if (previo.cadenaVacia) {
             const ok = await confirm({
-                title: `Ya hay una tasa para ${nombrePeriodo(periodo)}`,
-                description: posteriores
-                    ? `Se va a reemplazar y a regenerar el índice de ${posteriores} mes(es) posterior(es), porque la cadena es acumulativa.`
-                    : 'Se va a reemplazar y a regenerar el índice de ese mes.',
+                title: 'Iniciar la cadena de esta cartera',
+                description:
+                    `Esta cartera no tiene ningún índice todavía, así que ${nombrePeriodo(periodo)} va a ser su punto de partida. ` +
+                    `Las facturas que hayan vencido antes de ese mes van a quedar sin recargo, y no hay forma de calcularlas después. ` +
+                    `Si la cartera tiene deuda más vieja, cargá primero el mes más antiguo que necesites.`,
+                confirmLabel: 'Iniciar la cadena',
+            })
+            if (!ok) return
+            permitirInicioDeCadena = true
+        }
+
+        // Recargar un mes ya cargado obliga a regenerar todos los posteriores.
+        if (previo.yaHayTasa || previo.periodosPosteriores.length) {
+            const n = previo.periodosPosteriores.length
+            const ok = await confirm({
+                title: `Ya hay índice para ${nombrePeriodo(periodo)}`,
+                description: n
+                    ? `Se va a reemplazar, y además se van a regenerar los ${n} mes(es) posterior(es), porque la cadena es acumulativa.`
+                    : 'Se va a reemplazar el índice de ese mes.',
             })
             if (!ok) return
         }
 
+        // Pisar índice migrado es una degradación, no una corrección: el dato del cedente es más
+        // fiel que lo que se reconstruye desde una tasa mensual única.
+        let permitirPisarMigrado = false
+        if (previo.periodosMigrados.length) {
+            const n = previo.periodosMigrados.length
+            const ok = await confirm({
+                title: `Vas a pisar ${n} mes(es) de índice del cedente`,
+                description:
+                    `${previo.periodosMigrados.slice(0, 8).join(', ')}${n > 8 ? ` y ${n - 8} más` : ''} tienen el índice tal como lo informó el cedente. ` +
+                    `Regenerarlos lo reemplaza por uno reconstruido desde la tasa mensual, que es menos fiel: hubo meses con más de una tasa vigente. ` +
+                    `Salvo que sepas que la tasa cargada está mal, no lo hagas.`,
+                confirmLabel: 'Pisar igual',
+                confirmColor: 'error',
+            })
+            if (!ok) return
+            permitirPisarMigrado = true
+        }
+
         setGuardando(true)
         try {
-            const r = await moraApi.cargarTasa({ empresaId, periodo, tasaBase: valor, observacion: observacion || undefined })
+            const r = await moraApi.cargarTasa({
+                empresaId,
+                periodo,
+                tasaBase: valor,
+                observacion: observacion || undefined,
+                ...(permitirInicioDeCadena && { permitirInicioDeCadena }),
+                ...(permitirPisarMigrado && { permitirPisarMigrado }),
+            })
             notify.success(
                 `Índice de ${nombrePeriodo(periodo)} generado: ${r.diasGenerados} días` +
                 (r.periodosRegenerados.length ? ` · ${r.periodosRegenerados.length} mes(es) posterior(es) regenerado(s)` : ''),

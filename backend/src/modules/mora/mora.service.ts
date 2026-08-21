@@ -32,6 +32,7 @@ import {
     DetalleMoraFactura,
     EstadoTasa,
     MoraDeudor,
+    PrevioGeneracion,
     ResultadoGeneracion,
     ResultadoRecalculo,
 } from './interfaces/mora.interface';
@@ -42,6 +43,13 @@ import {
  * transacción para no dejar la cartera a medio resetear si algo falla.
  */
 const TIMEOUT_RECALCULO_MS = Number(process.env.MORA_RECALCULO_TIMEOUT_MS ?? 300_000);
+
+/**
+ * Origen que lleva el índice que genera este servicio. Cualquier otro valor (`UD60`) es dato del
+ * cedente: más fiel que lo que se reconstruye desde la tasa mensual, porque hubo meses con más de
+ * una tasa vigente (docs/mora-aysa-spec.md §5.2). Pisarlo es una degradación, no una corrección.
+ */
+const ORIGEN_CALCULADO = 'CALCULADO';
 
 @Injectable()
 export class MoraService {
@@ -85,12 +93,20 @@ export class MoraService {
      * @param permitirInicioDeCadena Solo para arrancar una cadena desde cero en una empresa sin
      *   historia. Es un acto deliberado y queda logueado en warn: si se usa por error sobre una
      *   cadena existente, todas las deudas actualizadas quedan mal.
+     * @param permitirPisarMigrado Necesario para regenerar meses cuyo índice vino migrado del
+     *   cedente. Reemplaza dato autoritativo por una reconstrucción: se pide explícito.
      */
     async generarMes(
         empresaId: number,
         periodo: string,
         tasaBase: number,
-        opts: { usuarioId?: number; fuente?: string; observacion?: string; permitirInicioDeCadena?: boolean } = {},
+        opts: {
+            usuarioId?: number;
+            fuente?: string;
+            observacion?: string;
+            permitirInicioDeCadena?: boolean;
+            permitirPisarMigrado?: boolean;
+        } = {},
     ): Promise<ResultadoGeneracion> {
         const t0 = Date.now();
         this.logger.log(
@@ -104,6 +120,45 @@ export class MoraService {
             );
         }
         const config = await this.obtenerConfig(empresaId);
+
+        // Se valida ANTES de tocar `tasa_mora`: si la generación falla después del upsert, queda una
+        // tasa cargada con cero días de índice, que en la tabla se lee como si estuviera puesta.
+        const previo = await this.preverGeneracion(empresaId, periodo);
+
+        if (previo.cadenaVacia && !opts.permitirInicioDeCadena) {
+            throw new BadRequestException(
+                `Esta empresa no tiene ningún índice cargado, así que ${periodo} sería el arranque de ` +
+                `la cadena. Es una decisión deliberada: confirmala desde la pantalla o mandá ` +
+                `permitirInicioDeCadena. Los meses anteriores a ${periodo} quedan sin poder calcularse.`,
+            );
+        }
+
+        if (!previo.cadenaVacia && previo.faltaDiaAnterior) {
+            throw new BadRequestException(
+                `Falta el índice del día anterior a ${periodo}. La cadena es acumulativa y no se puede ` +
+                `reiniciar: generá primero los meses anteriores. (Arrancar en 1 a mitad de la serie es ` +
+                `el bug que puso todas las deudas en negativo en el sistema del cedente — ver ` +
+                `mora-aysa-spec.md §8.1.)`,
+            );
+        }
+
+        if (previo.periodosMigrados.length && !opts.permitirPisarMigrado) {
+            throw new BadRequestException(
+                `Generar ${periodo} reemplazaría el índice migrado del cedente de ${previo.periodosMigrados.length} ` +
+                `mes(es): ${previo.periodosMigrados.slice(0, 12).join(', ')}` +
+                (previo.periodosMigrados.length > 12 ? ` y ${previo.periodosMigrados.length - 12} más` : '') +
+                `. El índice migrado es más fiel que el que se reconstruye desde una tasa mensual única, ` +
+                `porque hubo meses con más de una tasa vigente. Si igual querés hacerlo, mandá ` +
+                `permitirPisarMigrado.`,
+            );
+        }
+
+        if (opts.permitirPisarMigrado && previo.periodosMigrados.length) {
+            this.logger.warn(
+                `Pisando índice migrado empresaId=${empresaId} periodos=${previo.periodosMigrados.join(',')} ` +
+                `usuarioId=${opts.usuarioId ?? 'SYS'}`,
+            );
+        }
 
         await this.prisma.tasa_mora.upsert({
             where: { empresaId_periodo: { empresaId, periodo } },
@@ -126,7 +181,7 @@ export class MoraService {
         const generado = await this.generarUnMes(empresaId, periodo, tasaBase, config, opts.permitirInicioDeCadena);
 
         // La cadena es acumulativa: los meses posteriores ya generados quedaron inválidos.
-        const posteriores = await this.periodosPosteriores(empresaId, periodo);
+        const posteriores = previo.periodosPosteriores;
         const regenerados: string[] = [];
         for (const p of posteriores) {
             const tasa = await this.prisma.tasa_mora.findUnique({
@@ -158,6 +213,48 @@ export class MoraService {
             indicesFinales: finales,
             periodosRegenerados: regenerados,
             durationMs,
+        };
+    }
+
+    /**
+     * Estado de la cadena antes de cargar una tasa, para que la pantalla pregunte lo que
+     * corresponda **antes** de mandar la carga.
+     *
+     * Existe porque la pantalla lo deducía de las filas que tenía a mano —las últimas 24— y con eso
+     * no alcanzaba: recargar un mes más viejo que esa ventana regeneraba cientos de meses sin
+     * preguntar nada.
+     */
+    async preverGeneracion(empresaId: number, periodo: string): Promise<PrevioGeneracion> {
+        const { anio, mes } = parsearPeriodo(periodo);
+        const primerDia = fechaUtc(anio, mes, 1);
+        const diaAnterior = new Date(primerDia.getTime() - 86400000);
+
+        const [tasa, totalIndice, indiceAnterior, posteriores, migrados] = await Promise.all([
+            this.prisma.tasa_mora.findUnique({
+                where: { empresaId_periodo: { empresaId, periodo } },
+                select: { periodo: true },
+            }),
+            this.prisma.indice_mora.count({ where: { empresaId } }),
+            this.prisma.indice_mora.count({
+                where: { empresaId, tipo: TIPO_DEUDA_ACTUALIZADA, fecha: diaAnterior },
+            }),
+            this.periodosPosteriores(empresaId, periodo),
+            // El mes que se carga se pisa a sí mismo, así que va incluido en el rango.
+            this.prisma.$queryRaw<{ periodo: string }[]>`
+                SELECT DISTINCT DATE_FORMAT(fecha, '%Y-%m') AS periodo
+                FROM indice_mora
+                WHERE empresaId = ${empresaId} AND fecha >= ${primerDia} AND origen <> ${ORIGEN_CALCULADO}
+                ORDER BY periodo ASC
+            `,
+        ]);
+
+        return {
+            periodo,
+            yaHayTasa: tasa != null,
+            cadenaVacia: totalIndice === 0,
+            faltaDiaAnterior: indiceAnterior === 0,
+            periodosPosteriores: posteriores,
+            periodosMigrados: migrados.map((m) => m.periodo),
         };
     }
 
@@ -213,7 +310,7 @@ export class MoraService {
                     fecha: fechaUtc(anio, mes, d),
                     tasa: new Prisma.Decimal(tasaTipo.toFixed(8)),
                     indice: new Prisma.Decimal(anterior.toFixed(12)),
-                    origen: 'CALCULADO',
+                    origen: ORIGEN_CALCULADO,
                 });
             }
         }
@@ -276,7 +373,7 @@ export class MoraService {
         if (!deudor) throw new NotFoundException(`No existe el deudor ${deudorId}`);
 
         const config = await this.obtenerConfig(deudor.empresaId);
-        const corte = normalizarFecha(fecha ?? new Date());
+        const corte = fecha ? normalizarFecha(fecha) : hoyUtc();
 
         // Un solo viaje a la base por todos los índices que hacen falta.
         const fechasNecesarias = new Set<number>([corte.getTime()]);
@@ -386,7 +483,7 @@ export class MoraService {
     ): Promise<ResultadoRecalculo> {
         const t0 = Date.now();
         const dryRun = opts.dryRun ?? false;
-        const corte = normalizarFecha(opts.fecha ?? new Date());
+        const corte = opts.fecha ? normalizarFecha(opts.fecha) : hoyUtc();
         const iso = aIsoFecha(corte);
         const config = await this.obtenerConfig(empresaId);
 
@@ -530,7 +627,7 @@ export class MoraService {
         if (!estado.length) return [];
         const completos = new Set(estado.filter((e) => e.completo).map((e) => e.periodo));
         const primero = parsearPeriodo(estado[estado.length - 1].periodo);
-        const hoy = new Date();
+        const hoy = hoyUtc();
 
         const faltantes: string[] = [];
         let anio = primero.anio;
@@ -554,4 +651,17 @@ function numeroValido(x: unknown): number | undefined {
 /** Lleva cualquier Date a medianoche UTC, que es como se guardan las columnas `@db.Date`. */
 function normalizarFecha(d: Date): Date {
     return new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()));
+}
+
+/**
+ * El día de hoy **según el calendario local**, llevado a medianoche UTC para poder comparar contra
+ * las columnas `@db.Date`.
+ *
+ * No es lo mismo que `normalizarFecha(new Date())`: eso lee los componentes en UTC, así que en
+ * Argentina (UTC−3) a partir de las 21:00 devuelve el día de mañana — y pide un índice que todavía
+ * no existe. El último día del mes eso hacía fallar el recálculo con la tasa correctamente cargada.
+ */
+function hoyUtc(): Date {
+    const ahora = new Date();
+    return new Date(Date.UTC(ahora.getFullYear(), ahora.getMonth(), ahora.getDate()));
 }

@@ -256,8 +256,8 @@ Ordenados por gravedad. Los cuatro primeros son de seguridad o de pérdida de da
 | 🔴 **Desactivar un usuario no corta su sesión abierta.** El guard global solo verifica la firma del JWT; nadie revalida `activo`. Sesión viva = hasta 24 h de acceso pleno, ni siquiera un F5 lo corta. No hay lista de revocación | `jwt-auth.guard.ts:40`, `AuthContext.tsx:31` |
 | 🔴 **Borrar un usuario destruye trazabilidad en silencio.** `SET NULL` en comentario, pago, promesa, transacción, convenio, remesa, plantilla y tasa_mora: la operación tiene éxito y todo pasa a figurar como "Sistema" | FKs de `schema.prisma` |
 | 🔴 **La clave de Neotel queda en claro en la auditoría.** `claveNeotel` no matchea ningún `CAMPOS_SENSIBLES`, y el alta/edición de usuario audita `req.body` entero | `audit.enums.ts:84`, `usuarios.controller.ts:43` |
-| 🔴 **Una cartera nueva no puede cargar su primera tasa de mora.** `permitirInicioDeCadena` no lo manda nunca el frontend, así que sin índice previo el error manda a generar meses que tampoco se pueden generar. Solo funcionan las carteras con índice migrado | `AjustesMora.tsx:141`, `mora.service.ts:190` |
-| 🔴 **Recargar un mes viejo recomputa la cadena migrada sin confirmación.** El confirm solo dispara si el mes está entre los últimos 24 (los que trae la tabla); más viejo que eso, regenera cientos de meses en silencio y reetiqueta el origen de UD60 a CALCULADO | `AjustesMora.tsx:126`, `mora.service.ts:129` |
+| ~~🔴 **Una cartera nueva no puede cargar su primera tasa de mora.**~~ **ARREGLADO 2026-08-21**: la pantalla consulta el estado de la cadena y ofrece iniciarla con confirmación explícita | `AjustesMora.tsx`, `mora.service.ts` |
+| ~~🔴 **Recargar un mes viejo recomputa la cadena migrada sin confirmación.**~~ **ARREGLADO 2026-08-21**: el conteo de posteriores lo da el backend y pisar índice migrado exige `permitirPisarMigrado` | `AjustesMora.tsx`, `mora.service.ts` |
 | **Fuga en el gráfico de 30 días de Auditoría**: el `$queryRaw` ignora el `where`, así que quien solo tiene `auditoria.ver` ve el volumen global | `transacciones.service.ts:131` |
 | **La corrida nocturna de promesas vencidas no audita nada**: el `@Audit` está en el controller y el cron llama al servicio directo | `promesas.scheduler.ts:16` |
 | **Consultar y exportar la auditoría no se audita** (cero `@Audit` en el controller), y **el logout tampoco**: el endpoint existe y el frontend no lo llama | `transacciones.controller.ts`, `AuthContext.tsx:55` |
@@ -270,9 +270,9 @@ Ordenados por gravedad. Los cuatro primeros son de seguridad o de pérdida de da
 | `buscar()` **no tiene `catch`**: un 403 o un 500 dejan la pantalla en blanco, indistinguible de "sin resultados" | `AuditoriaBusqueda.tsx:87` |
 | **Exportar usa los filtros del formulario, no los de la última búsqueda** | `AuditoriaBusqueda.tsx:75` |
 | El botón de eliminar rol **se deshabilita sin explicación**; el mensaje bueno del backend es inalcanzable | `RolesPage.tsx:193` |
-| **`recalcularCartera` usa la fecha en UTC**: después de las 21 h locales pide el índice de mañana, y el último día del mes eso falla aunque la tasa esté cargada | `mora.service.ts:389,555` |
+| ~~**`recalcularCartera` usa la fecha en UTC**~~ **ARREGLADO 2026-08-21**: nuevo helper `hoyUtc()` que toma el día del calendario local | `mora.service.ts` |
 | **No hay ningún proceso que recalcule la mora.** Con el umbral de 48 h, el indicador naranja de la ficha queda encendido de forma permanente | sin cron; `FichaHeader.tsx:41` |
-| La tasa **se guarda aunque la generación del índice falle** (upsert antes, fuera de transacción): queda una fila con 0 días que se lee como "cargada" | `mora.service.ts:108` |
+| ~~La tasa **se guarda aunque la generación del índice falle**~~ **ARREGLADO 2026-08-21**: las validaciones de cadena corren antes del upsert | `mora.service.ts` |
 | **`mesesFaltantes` no detecta huecos anteriores** al mes más viejo cargado — justo las facturas que van a salir sin índice | `mora.service.ts:532` |
 | Los multiplicadores ×1,5 y ×2 están **hardcodeados en la tabla de la UI**, mientras el backend los lee de la configuración de la empresa | `AjustesMora.tsx:270` |
 | El `Alert` de meses faltantes **dice algo que no es cierto** ("cuya deuda cruce esos meses se valúa mal"): lo que importa es el índice del vencimiento y el del corte | `AjustesMora.tsx:236` |

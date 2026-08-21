@@ -72,18 +72,20 @@ quedan mal, y el sistema los regenera solo.
 
 ### Antes de recargar un mes viejo, leé esto
 
-La regeneración automática tiene dos comportamientos que conviene tener presentes:
+La pantalla te dice **cuántos meses posteriores va a regenerar** antes de hacer nada, sea el mes que
+sea. Confirmá recién cuando el número tenga sentido: si esperabas tocar dos meses y te avisa de
+doscientos, cancelá.
 
-- **Solo pregunta si el mes está entre los últimos 24**, que son los que muestra la tabla. Si recargás
-  uno más viejo **no pregunta nada**: regenera toda la cadena hacia adelante en silencio. En una
-  cartera con historia larga eso son cientos de meses.
-- **Si algún mes posterior tiene índice pero nunca tuvo tasa cargada, ese mes no se regenera** y queda
-  desactualizado, sin ningún aviso en pantalla.
+Y hay una segunda pregunta que puede aparecer, más seria: **si alguno de los meses a regenerar tiene
+el índice migrado del cedente**, el sistema te lo dice por nombre y te pide una confirmación aparte.
 
-Para las carteras cuyo índice vino migrado del sistema anterior hay un motivo extra para no tocar meses
-viejos: ese índice es más fiel que el que se reconstruye desde una tasa mensual única, porque hubo
-meses con más de una tasa vigente. Recalcularlo lo empeora. **Si necesitás corregir un mes histórico,
-consultalo antes.**
+Vale la pena entender por qué. El índice migrado es **el dato tal como lo informó el cedente**;
+regenerarlo lo reemplaza por una reconstrucción a partir de una única tasa mensual, y eso es menos
+fiel, porque hubo meses con más de una tasa vigente. **No es una corrección: es una degradación.**
+Salvo que sepas que la tasa cargada está mal, cancelá.
+
+Un detalle menor: si algún mes posterior tiene índice pero nunca tuvo tasa cargada, ese mes no se
+regenera y queda desactualizado. Queda en el registro técnico, no en pantalla.
 
 ---
 
@@ -162,14 +164,14 @@ fecha queda en naranja indefinidamente.
 
 ## Qué puede salir mal
 
-### ⚠ En una cartera nueva no me deja cargar la primera tasa
+### En una cartera nueva me pregunta si quiero iniciar la cadena
 
-Es una limitación conocida y hoy **no tiene solución desde la pantalla**. El sistema exige que exista
-el índice del día anterior, y en una cartera que arranca de cero no existe ninguno — así que el error
-te manda a generar meses anteriores que tampoco vas a poder generar.
+Es correcto y hay que confirmarlo: en una cartera sin ningún índice, el mes que cargues es **el punto
+de partida de la serie**.
 
-Las carteras que hoy funcionan tienen el índice cargado por migración. Para una cartera nueva hay que
-escalarlo a sistemas.
+Lo importante es **elegir bien ese mes**, porque las facturas que hayan vencido antes van a quedar sin
+recargo y no hay forma de calcularlas después. Si la cartera trae deuda de hace tres años, arrancá por
+el mes más viejo que necesites, no por el actual.
 
 ### No me deja generar el índice del mes
 
@@ -180,11 +182,6 @@ que faltan, en orden.
 
 Es correcto: estás recargando un mes que ya tenía índice, y los posteriores dependen de él. Si el mes
 es viejo, leé la advertencia de más arriba antes de confirmar.
-
-### Cargué la tasa, dio error, y sin embargo aparece en la tabla
-
-Pasa: la tasa se guarda antes de generar el índice. Si la generación falla, la fila queda con **0 días
-de índice**. No está cargada de verdad — hay que resolver el motivo del error y volver a cargarla.
 
 ### "No hay índice para el {fecha}. Cargá la tasa del mes antes de recalcular."
 
@@ -221,8 +218,8 @@ Una vez por mes, cuando llega el mail, y en cada cartera de ese cedente.
 Las facturas que vencen en ese mes quedan sin recargo. El aviso de la pantalla está para eso.
 
 **¿Puedo corregir una tasa mal cargada?**
-Sí: se vuelve a cargar el mes y el sistema regenera los posteriores. Con las salvedades de la sección
-sobre meses viejos.
+Sí: se vuelve a cargar el mes y el sistema regenera los posteriores, avisándote cuántos son. Si alguno
+tiene índice migrado del cedente, te lo pregunta aparte.
 
 **¿Y si el cedente corrige la tasa a mitad de mes?**
 Hay que recargarla. El índice del mes se genera completo de una vez, así que no se ajusta solo.

@@ -42,6 +42,19 @@ export class MoraController {
         return this.mora.estadoTasas(empresaId, Number.isFinite(n) && n > 0 ? n : 24);
     }
 
+    /**
+     * Estado de la cadena antes de cargar una tasa: si arrancaría la cadena, si hay un hueco, y qué
+     * meses se van a regenerar. La pantalla lo usa para preguntar lo que corresponda antes de mandar.
+     */
+    @Get('tasas/previo')
+    @Permisos('mora.ver')
+    async previo(
+        @Query('empresaId', ParseIntPipe) empresaId: number,
+        @Query('periodo') periodo: string,
+    ) {
+        return this.mora.preverGeneracion(empresaId, periodo);
+    }
+
     @Get('tasas/faltantes')
     @Permisos('mora.ver')
     async faltantes(@Query('empresaId', ParseIntPipe) empresaId: number) {
@@ -65,6 +78,7 @@ export class MoraController {
             fuente: dto.fuente,
             observacion: dto.observacion,
             permitirInicioDeCadena: dto.permitirInicioDeCadena,
+            permitirPisarMigrado: dto.permitirPisarMigrado,
         });
     }
 

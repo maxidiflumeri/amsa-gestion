@@ -94,10 +94,9 @@ Si algo está mal, se corrige la plantilla y se vuelve a probar. Con 20 casos es
 
 Solo si el cedente actualiza la deuda. **Ajustes → Recargo por mora.**
 
-> ⚠ **Hoy esto no se puede hacer desde la pantalla en una cartera nueva.** El sistema exige que ya
-> exista el índice del día anterior, y una cartera que arranca de cero no tiene ninguno. Las carteras
-> que funcionan hoy tienen el índice cargado por migración. Si la cartera nueva necesita recargos, hay
-> que escalarlo a sistemas.
+> **Empezá por el mes más viejo que necesites, no por el actual.** En una cartera sin historia, el
+> primer mes que cargues es el arranque de la serie: la pantalla te lo va a preguntar. Las facturas
+> que hayan vencido antes de ese mes quedan sin recargo, y no hay forma de calcularlas después.
 
 Ver [Recargo por mora](/ayuda/ajustes/recargo-por-mora).
 

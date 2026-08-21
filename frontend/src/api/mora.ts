@@ -53,6 +53,16 @@ export interface ResultadoGeneracion {
     durationMs: number;
 }
 
+/** Estado de la cadena antes de cargar una tasa. Lo que la pantalla necesita para preguntar bien. */
+export interface PrevioGeneracion {
+    periodo: string;
+    yaHayTasa: boolean;
+    cadenaVacia: boolean;
+    faltaDiaAnterior: boolean;
+    periodosPosteriores: string[];
+    periodosMigrados: string[];
+}
+
 export interface ResultadoRecalculo {
     empresaId: number;
     fechaCalculo: string;
@@ -72,13 +82,26 @@ export const moraApi = {
         return api.get('/mora/tasas/faltantes', { params: { empresaId } }).then((r) => r.data);
     },
 
-    /** `tasaBase` va como la informa el cedente: 2.169 para 2,169%. Sin dividir por 100. */
+    /** Qué va a pasar si se carga la tasa de ese periodo. Se consulta antes de mandar la carga. */
+    previo(empresaId: number, periodo: string): Promise<PrevioGeneracion> {
+        return api.get('/mora/tasas/previo', { params: { empresaId, periodo } }).then((r) => r.data);
+    },
+
+    /**
+     * `tasaBase` va como la informa el cedente: 2.169 para 2,169%. Sin dividir por 100.
+     *
+     * Las dos banderas son destructivas y el backend las exige explícitas: `permitirInicioDeCadena`
+     * arranca la cadena en una empresa sin índice, y `permitirPisarMigrado` reemplaza el índice que
+     * vino del cedente por uno reconstruido. Mandarlas solo con confirmación del usuario.
+     */
     cargarTasa(body: {
         empresaId: number;
         periodo: string;
         tasaBase: number;
         fuente?: string;
         observacion?: string;
+        permitirInicioDeCadena?: boolean;
+        permitirPisarMigrado?: boolean;
     }): Promise<ResultadoGeneracion> {
         return api.post('/mora/tasas', body).then((r) => r.data);
     },

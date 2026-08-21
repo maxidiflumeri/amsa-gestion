@@ -36,4 +36,13 @@ export class CargarTasaDto {
     @IsOptional()
     @IsBoolean()
     permitirInicioDeCadena?: boolean;
+
+    /**
+     * Deja regenerar meses cuyo índice vino migrado del cedente. Es una degradación: el índice
+     * migrado es más fiel que el que se reconstruye desde una tasa mensual única, porque hubo meses
+     * con más de una tasa vigente (mora-aysa-spec.md §5.2).
+     */
+    @IsOptional()
+    @IsBoolean()
+    permitirPisarMigrado?: boolean;
 }

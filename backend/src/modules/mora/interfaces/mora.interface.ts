@@ -71,3 +71,24 @@ export interface ResultadoRecalculo {
     dryRun: boolean;
     durationMs: number;
 }
+
+/**
+ * Estado de la cadena antes de cargar una tasa. Lo consume la pantalla para preguntar lo que
+ * corresponda **antes** de mandar la carga, en vez de deducirlo de las filas que tenga a mano.
+ */
+export interface PrevioGeneracion {
+    periodo: string;
+    /** Ya hay una tasa cargada para ese periodo: recargarla regenera la cadena hacia adelante. */
+    yaHayTasa: boolean;
+    /** La empresa no tiene ningún índice todavía. Es el único caso en que se puede iniciar la cadena. */
+    cadenaVacia: boolean;
+    /** Falta el índice del último día del mes anterior; con la cadena ya arrancada, es un hueco. */
+    faltaDiaAnterior: boolean;
+    /** Periodos con índice posteriores al que se va a cargar. Todos se regeneran. */
+    periodosPosteriores: string[];
+    /**
+     * De los periodos que se tocarían (el propio incluido), los que tienen índice **migrado**.
+     * Regenerarlos reemplaza el dato del cedente por una reconstrucción menos fiel.
+     */
+    periodosMigrados: string[];
+}
