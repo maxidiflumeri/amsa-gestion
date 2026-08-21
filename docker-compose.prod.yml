@@ -22,7 +22,6 @@ services:
       - REDIS_PORT=6379
       - CORS_ORIGINS=https://amsagestion.anamayasa.com
       - REPORTES_STORAGE_PATH=/app/storage
-      - REPORTES_V2_STORAGE_PATH=/app/storage
       - REPORTES_RETENTION_DAYS=30
       - LOG_DIR=/app/logs
       - LOG_LEVEL=log

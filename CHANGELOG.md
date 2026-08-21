@@ -131,14 +131,20 @@ Dos de los 89. El **bloque de telefonía del ABM de usuarios** sigue ahí por de
 documentación avisando que no hay que completarlo. Y que **la integración con la Toolbar es de una sola
 vía** no es un bug: es una limitación del modelo, y sigue sin probarse con una campaña real.
 
-### Para el deploy
+### Para el deploy — verificado contra producción
 
-- `npx ts-node --transpile-only prisma/scripts/limpiar-permisos-obsoletos.ts --apply` — sin esto, los
-  roles que tengan `dashboards.ver_todas_empresas` o `deudores.exportar` **no se van a poder guardar**
-  desde la pantalla de Roles.
-- `npx prisma db push` — la FK nueva de `accion_masiva_snapshot`.
-- Corregir las `REPORTES_V2_*` del `.env` de producción.
-- Revisar si en `transaccion` quedaron filas con la clave de Neotel en claro.
+- **Los permisos retirados ya se limpiaron en prod** (2026-08-21, por SSM). El rol ADMIN tenía las dos
+  claves y pasó de 63 a 61, que es lo mismo que quedó en local. Se hizo con un script equivalente y no
+  con `limpiar-permisos-obsoletos.ts`, porque ese deriva las claves **del catálogo del código**: corrido
+  antes del deploy no habría encontrado nada. Después del deploy conviene correrlo igual —es idempotente—
+  para que quede como el camino oficial.
+- `npx prisma db push` — la FK nueva de `accion_masiva_snapshot`. Lo hace el CI/CD.
+- **Las `REPORTES_*` de producción ya estaban bien.** El compose define `REPORTES_STORAGE_PATH` y
+  `REPORTES_RETENTION_DAYS` con los nombres correctos; lo único era un `REPORTES_V2_STORAGE_PATH`
+  duplicado, que se sacó. Ojo que `SYNC_THRESHOLD`, `CHUNK_SIZE` y `HARD_LIMIT` **no se definen en
+  prod**: corren con los defaults del código (5000 / 1000 / 200000).
+- **La clave de Neotel nunca llegó a filtrarse**: 0 filas de `transaccion` la mencionan, aunque hay 1
+  agente cargado — se dio de alta por fuera de la API. Nada que limpiar.
 
 ---
 
