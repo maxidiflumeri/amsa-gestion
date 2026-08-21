@@ -2,6 +2,10 @@ import { Injectable, NotFoundException, BadRequestException, Logger } from '@nes
 import { PrismaService } from '../../prisma/prisma.service';
 import { CreateConvenioDto } from './dtos/create-convenio.dto';
 import { DeudorBloqueoService } from '../deudores/utils/deudor-bloqueo';
+import { ConsolidacionSituacionService } from '../consolidacion/consolidacion.service';
+
+/** Centavos de tolerancia al comparar el importe pagado contra el de la cuota. */
+const TOLERANCIA_CUOTA = 0.01;
 
 @Injectable()
 export class ConveniosService {
@@ -10,6 +14,7 @@ export class ConveniosService {
   constructor(
       private prisma: PrismaService,
       private bloqueo: DeudorBloqueoService,
+      private readonly consolidacion: ConsolidacionSituacionService,
   ) {}
 
   async findByDeudor(deudorId: number) {
@@ -157,6 +162,16 @@ export class ConveniosService {
 
     await this.bloqueo.assertNoBloqueado(cuota.convenio.deudorId, 'marcar cuota pagada');
 
+    // El importe era editable y la cuota quedaba PAGADA igual: se podía saldar una cuota de $50.000
+    // pagando $100. Se admite de más (paga adelantado) pero no de menos.
+    const esperado = Number(cuota.importe);
+    if (pagoData.importe + TOLERANCIA_CUOTA < esperado) {
+      throw new BadRequestException(
+        `El importe (${pagoData.importe}) no alcanza para saldar la cuota ${cuota.nroCuota}, que es de ${esperado}. ` +
+        `Si el deudor pagó menos, cargalo como un pago suelto en vez de marcar la cuota.`,
+      );
+    }
+
     const fechaPago = new Date(pagoData.fecha);
 
     const [cuotaActualizada] = await this.prisma.$transaction([
@@ -169,11 +184,18 @@ export class ConveniosService {
           deudorId: cuota.convenio.deudorId,
           fecha: fechaPago,
           importe: pagoData.importe,
+          // Sin `origen` el pago quedaba en NULL: no se podía borrar desde la ficha ni se
+          // distinguía de uno cargado a mano.
+          origen: 'CONVENIO',
           origenArchivo: `CONVENIO_${cuota.convenio.id}`,
           observacion: pagoData.observacion ?? `Cuota ${cuota.nroCuota} convenio #${cuota.convenio.id}`,
         },
       }),
     ]);
+
+    // Igual que la carga de un pago suelto: sin esto el pago entraba pero el saldo del caso no
+    // bajaba, y un convenio pagado entero dejaba la cuenta como si no se hubiera cobrado nada.
+    await this.consolidacion.consolidar({ tipo: 'DEUDORES', deudorIds: [cuota.convenio.deudorId] });
 
     this.logger.log(`Cuota ${cuotaId} pagada y pago generado para deudor ${cuota.convenio.deudorId}`);
     return cuotaActualizada;
