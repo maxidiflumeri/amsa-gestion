@@ -1,4 +1,4 @@
-import { Controller, Get, Post, Body, Patch, Param, Delete, Query, ParseIntPipe } from '@nestjs/common';
+import { Controller, Get, Post, Body, Patch, Param, Delete, Query, ParseIntPipe, Put } from '@nestjs/common';
 import { ParametrosService } from './parametros.service';
 import { Permisos } from '../../auth/decorators';
 import { Audit } from '../transacciones/audit.decorator';
@@ -103,5 +103,31 @@ export class ParametrosController {
     })
     setEmpresas(@Param('id', ParseIntPipe) id: number, @Body() body: { empresaIds: number[] }) {
         return this.parametrosService.setEmpresasForParametro(id, body.empresaIds);
+    }
+
+    /**
+     * Asigna o desasigna **un código en una empresa**.
+     *
+     * Es lo que usa la solapa de asignación. Existe aparte de `POST :id/empresas` porque ese
+     * reescribe la lista completa de empresas del parámetro: dos administradores configurando
+     * empresas distintas al mismo tiempo se pisaban.
+     */
+    @Put(':id/empresas/:empresaId')
+    @Permisos('parametros.editar')
+    @Audit({
+        modulo: AuditModulo.ADMIN,
+        entidad: 'ParametroEmpresas',
+        tipo: AuditTipo.UPDATE,
+        entidadIdParam: 'id',
+        resumen: (_res, req) =>
+            `${req.body?.asignado ? 'Asignó' : 'Desasignó'} el parámetro ${req.params.id} en la empresa ${req.params.empresaId}`,
+        data: (_res, req) => ({ params: { ...req.params, ...req.body } }),
+    })
+    setAsignacion(
+        @Param('id', ParseIntPipe) id: number,
+        @Param('empresaId', ParseIntPipe) empresaId: number,
+        @Body() body: { asignado: boolean },
+    ) {
+        return this.parametrosService.setAsignacion(id, empresaId, body.asignado === true);
     }
 }

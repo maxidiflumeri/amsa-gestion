@@ -37,6 +37,7 @@ import {
 import type { DataTableColumn } from '../../components/ui'
 import { useNotify } from '../../hooks/useNotify'
 import { useConfirm } from '../../context/ConfirmContext'
+import { useAuth } from '../../context/AuthContext'
 
 interface Empresa {
     id: number
@@ -69,6 +70,10 @@ const AjustesPoliticas: React.FC = () => {
     const isMobile = useMediaQuery(theme.breakpoints.down('md'))
     const notify = useNotify()
     const confirm = useConfirm()
+    const { tienePermiso } = useAuth()
+    const puedeCrear = tienePermiso('politicas.crear')
+    const puedeEditar = tienePermiso('politicas.editar')
+
 
     const [empresas, setEmpresas] = useState<Empresa[]>([])
     const [empresaId, setEmpresaId] = useState<number | ''>('')
@@ -244,6 +249,7 @@ const AjustesPoliticas: React.FC = () => {
                             <IconButton
                                 size="small"
                                 color="primary"
+                                disabled={!puedeEditar}
                                 onClick={(e) => {
                                     e.stopPropagation()
                                     handleAbrir(p)
@@ -256,6 +262,7 @@ const AjustesPoliticas: React.FC = () => {
                             <IconButton
                                 size="small"
                                 color={p.activa ? 'error' : 'success'}
+                                disabled={!puedeEditar}
                                 onClick={(e) => {
                                     e.stopPropagation()
                                     handleToggleActiva(p)
@@ -290,7 +297,7 @@ const AjustesPoliticas: React.FC = () => {
                         onClick: () => handleAbrir(),
                         startIcon: <AddIcon />,
                         variant: 'contained',
-                        disabled: !empresaId,
+                        disabled: !empresaId || !puedeCrear,
                     },
                 ]}
             />

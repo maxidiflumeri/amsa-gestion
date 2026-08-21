@@ -11,8 +11,15 @@ import { AuditModulo, AuditTipo } from '../transacciones/audit.enums';
 export class PoliticasController {
   constructor(private readonly politicasService: PoliticasService) {}
 
+  /**
+   * `empresaId` es opcional: sin él se listan las políticas de todas las empresas.
+   *
+   * El `ParseIntPipe` sin `{ optional: true }` rechazaba `undefined`, así que el `?` de la firma y el
+   * `findAll(empresaId?)` del servicio —que soporta `where = {}`— eran inalcanzables: no había forma
+   * de listar todas.
+   */
   @Get()
-  findAll(@Query('empresaId', ParseIntPipe) empresaId?: number) {
+  findAll(@Query('empresaId', new ParseIntPipe({ optional: true })) empresaId?: number) {
     return this.politicasService.findAll(empresaId);
   }
 

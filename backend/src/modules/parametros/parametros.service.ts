@@ -69,13 +69,59 @@ export class ParametrosService {
         return this.prisma.parametro.delete({ where: { id } });
     }
 
-    async assignToCompanies(parametroId: number, empresaIds: number[]) {
-        await this.prisma.empresa_parametro.deleteMany({ where: { parametroId } });
-        if (empresaIds.length > 0) {
-            return this.prisma.empresa_parametro.createMany({
-                data: empresaIds.map(empresaId => ({ parametroId, empresaId })),
+    /**
+     * Asigna o desasigna **un código en una empresa**.
+     *
+     * Es la operación que usa la pantalla. Antes se hacía con `assignToCompanies`, que reescribía la
+     * lista completa de empresas del parámetro: dos administradores configurando **empresas
+     * distintas** al mismo tiempo se pisaban, porque cada uno mandaba la foto que había leído y el
+     * segundo en guardar borraba lo del primero. Tocando una sola fila el problema desaparece.
+     */
+    async setAsignacion(parametroId: number, empresaId: number, asignado: boolean) {
+        if (asignado) {
+            // Upsert y no create: si la fila ya existe se conserva lo que tenga (`nombreOverride`,
+            // `activo`), en vez de recrearla con los defaults.
+            return this.prisma.empresa_parametro.upsert({
+                where: { empresaId_parametroId: { empresaId, parametroId } },
+                create: { empresaId, parametroId },
+                update: { activo: true },
             });
         }
+        return this.prisma.empresa_parametro.deleteMany({ where: { empresaId, parametroId } });
+    }
+
+    /**
+     * Reemplaza la lista de empresas de un parámetro.
+     *
+     * Se hace por diferencia y no con `deleteMany` + `createMany`: así las asignaciones que no
+     * cambian conservan sus columnas (`nombreOverride`, `activo`) en vez de recrearse en cero.
+     */
+    async assignToCompanies(parametroId: number, empresaIds: number[]) {
+        const actuales = await this.prisma.empresa_parametro.findMany({
+            where: { parametroId },
+            select: { empresaId: true },
+        });
+        const antes = new Set(actuales.map((a) => a.empresaId));
+        const despues = new Set(empresaIds);
+
+        const aQuitar = [...antes].filter((id) => !despues.has(id));
+        const aSumar = [...despues].filter((id) => !antes.has(id));
+
+        if (aQuitar.length === 0 && aSumar.length === 0) return { count: 0 };
+
+        return this.prisma.$transaction(async (tx) => {
+            if (aQuitar.length > 0) {
+                await tx.empresa_parametro.deleteMany({
+                    where: { parametroId, empresaId: { in: aQuitar } },
+                });
+            }
+            if (aSumar.length > 0) {
+                await tx.empresa_parametro.createMany({
+                    data: aSumar.map((empresaId) => ({ parametroId, empresaId })),
+                });
+            }
+            return { count: aQuitar.length + aSumar.length };
+        });
     }
 
     async setEmpresasForParametro(parametroId: number, empresaIds: number[]) {

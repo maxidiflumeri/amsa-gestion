@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react'
+import React, { useState, useEffect, useCallback, useMemo } from 'react'
 import {
     Box,
     Button,
@@ -56,6 +56,7 @@ import {
 } from '../../components/ui'
 import { useNotify } from '../../hooks/useNotify'
 import { useConfirm } from '../../context/ConfirmContext'
+import { useAuth } from '../../context/AuthContext'
 
 // ── Tipos ─────────────────────────────────────────────────────────────────────
 interface Parametro {
@@ -80,10 +81,19 @@ const GRUPOS = [
     { value: 'motivo_no_pago', label: 'Motivo No Pago' },
 ]
 
-const CATEGORIAS_POR_GRUPO: Record<string, string[]> = {
+/**
+ * Orden preferido de las categorías, para que la pantalla no las liste alfabéticamente.
+ *
+ * **No es la lista de categorías**: esa se calcula de los códigos que hay en la base. Cuando estaba
+ * hardcodeada le faltaban cinco —LEGAL e INCOBRABLE en situación, y OLVIDO, PERSONAL, NEGATIVA y
+ * SINIESTRO en motivo de no pago—, así que **15 códigos del catálogo no se podían asignar a ninguna
+ * empresa desde acá**: la solapa de asignación itera sobre esta lista y los que no estaban no se
+ * renderizaban nunca.
+ */
+const ORDEN_CATEGORIAS: Record<string, string[]> = {
     gestion: ['CONTACTO', 'SIN_CONTACTO', 'DATO_INCORRECTO', 'PROMESA', 'PAGO', 'CONVENIO', 'NEGATIVA', 'RECLAMO', 'DERIVACION', 'ADMIN'],
-    situacion: ['SIN_CONTACTO', 'CONTACTADO', 'PROMESA', 'CONVENIO', 'PAGANDO', 'CANCELADO', 'NEGATIVA', 'BAJA'],
-    motivo_no_pago: ['ECONOMICO', 'DESCONOCE', 'DISPUTA', 'FACTURACION', 'MEDIO_PAGO', 'ACUERDO', 'BAJA'],
+    situacion: ['SIN_CONTACTO', 'CONTACTADO', 'PROMESA', 'CONVENIO', 'PAGANDO', 'CANCELADO', 'NEGATIVA', 'LEGAL', 'INCOBRABLE', 'BAJA'],
+    motivo_no_pago: ['ECONOMICO', 'OLVIDO', 'PERSONAL', 'DESCONOCE', 'DISPUTA', 'FACTURACION', 'MEDIO_PAGO', 'SINIESTRO', 'NEGATIVA', 'ACUERDO', 'BAJA'],
 }
 
 const GRUPO_COLOR: Record<string, 'primary' | 'info' | 'warning'> = {
@@ -113,6 +123,13 @@ const AjustesParametros: React.FC = () => {
     const confirm = useConfirm()
 
     const [tab, setTab] = useState(0)
+    // Los permisos los verifica el backend igual, pero la pantalla no los miraba: el admin
+    // completaba el formulario y el 403 llegaba recién al confirmar.
+    const { tienePermiso } = useAuth()
+    const puedeCrear = tienePermiso('parametros.crear')
+    const puedeEditar = tienePermiso('parametros.editar')
+    const puedeEliminar = tienePermiso('parametros.eliminar')
+
     const [parametros, setParametros] = useState<Parametro[]>([])
     const [loading, setLoading] = useState(true)
 
@@ -163,6 +180,31 @@ const AjustesParametros: React.FC = () => {
 
     // ── Lógica pestaña Códigos ─────────────────────────────────────────────────
     const toggleCat = (cat: string) => setOpenCats(p => ({ ...p, [cat]: !p[cat] }))
+
+    /**
+     * Las categorías que existen de verdad, sacadas de los códigos cargados. Se ordenan por
+     * `ORDEN_CATEGORIAS` y lo que no esté ahí va al final, alfabético: una categoría nueva en el
+     * seed aparece sola, sin tocar esta pantalla.
+     */
+    const categoriasPorGrupo = useMemo(() => {
+        const porGrupo: Record<string, string[]> = {}
+        for (const p of parametros) {
+            if (!p.categoria) continue
+            ;(porGrupo[p.grupo] ??= []).push(p.categoria)
+        }
+        for (const grupo of Object.keys(porGrupo)) {
+            const orden = ORDEN_CATEGORIAS[grupo] ?? []
+            porGrupo[grupo] = [...new Set(porGrupo[grupo])].sort((a, b) => {
+                const ia = orden.indexOf(a)
+                const ib = orden.indexOf(b)
+                if (ia === -1 && ib === -1) return a.localeCompare(b)
+                if (ia === -1) return 1
+                if (ib === -1) return -1
+                return ia - ib
+            })
+        }
+        return porGrupo
+    }, [parametros])
 
     const codigosFiltrados = parametros.filter(p => {
         if (p.grupo !== grupoSel) return false
@@ -300,19 +342,19 @@ const AjustesParametros: React.FC = () => {
             const removidos = [...asignadosPrev].filter(id => !asignados.has(id))
             const paramsCambiados = new Set([...agregados, ...removidos])
 
-            for (const paramId of paramsCambiados) {
-                const paramActual = await api.get(`/parametros/${paramId}`)
-                const empresasActuales: number[] = (paramActual.data.empresas || []).map((ep: any) => ep.empresaId)
-                let nuevasEmpresas: number[]
-                if (asignados.has(paramId)) {
-                    nuevasEmpresas = empresasActuales.includes(empresaSel as number)
-                        ? empresasActuales
-                        : [...empresasActuales, empresaSel as number]
-                } else {
-                    nuevasEmpresas = empresasActuales.filter(id => id !== empresaSel)
-                }
-                await api.post(`/parametros/${paramId}/empresas`, { empresaIds: nuevasEmpresas })
-            }
+            // Una sola llamada por código, tocando **solo la fila de esta empresa**.
+            //
+            // Antes eran dos: leer el parámetro entero, agregarle o sacarle esta empresa de la lista,
+            // y reescribir la lista completa. Eso hacía dos cosas malas: ~224 requests en serie para
+            // una empresa nueva con el catálogo completo, y un read-modify-write sobre datos
+            // compartidos — dos administradores configurando empresas distintas se pisaban.
+            await Promise.all(
+                [...paramsCambiados].map(paramId =>
+                    api.put(`/parametros/${paramId}/empresas/${empresaSel}`, {
+                        asignado: asignados.has(paramId),
+                    }),
+                ),
+            )
 
             setAsignadosPrev(new Set(asignados))
             notify.success(`Asignación guardada correctamente (${paramsCambiados.size} cambios)`)
@@ -332,7 +374,7 @@ const AjustesParametros: React.FC = () => {
             <PageHeader
                 title="Parámetros"
                 subtitle="Códigos CRM y asignación a empresas"
-                actions={tab === 0 ? [
+                actions={tab === 0 && puedeCrear ? [
                     {
                         label: 'Nuevo código',
                         onClick: () => handleOpenForm(),
@@ -389,7 +431,7 @@ const AjustesParametros: React.FC = () => {
                                     </Box>
                                 </AccordionSummary>
                                 <AccordionDetails sx={{ p: 0 }}>
-                                    {(CATEGORIAS_POR_GRUPO[g.value] || []).map(cat => {
+                                    {(categoriasPorGrupo[g.value] || []).map(cat => {
                                         const items = parametros.filter(p => {
                                             if (p.grupo !== g.value || p.categoria !== cat) return false
                                             if (filterTexto) {
@@ -438,10 +480,10 @@ const AjustesParametros: React.FC = () => {
                                                                 onChange={() => handleToggleActivo(p)}
                                                                 color="success"
                                                             />
-                                                            <IconButton size="small" color="primary" onClick={() => handleOpenForm(p)}>
+                                                            <IconButton size="small" color="primary" disabled={!puedeEditar} onClick={() => handleOpenForm(p)}>
                                                                 <EditIcon fontSize="small" />
                                                             </IconButton>
-                                                            <IconButton size="small" color="error" onClick={() => handleDelete(p)}>
+                                                            <IconButton size="small" color="error" disabled={!puedeEliminar} onClick={() => handleDelete(p)}>
                                                                 <DeleteIcon fontSize="small" />
                                                             </IconButton>
                                                         </Box>
@@ -476,7 +518,7 @@ const AjustesParametros: React.FC = () => {
                                     </ListItemButton>
                                     <Collapse in={openCats[g.value] ?? true}>
                                         <List dense disablePadding sx={{ pl: 2 }}>
-                                            {(CATEGORIAS_POR_GRUPO[g.value] || []).map(cat => (
+                                            {(categoriasPorGrupo[g.value] || []).map(cat => (
                                                 <ListItemButton
                                                     key={cat}
                                                     selected={grupoSel === g.value && categoriaSel === cat}
@@ -567,12 +609,12 @@ const AjustesParametros: React.FC = () => {
                                                     </TableCell>
                                                     <TableCell align="right">
                                                         <Tooltip title="Editar código">
-                                                            <IconButton size="small" color="primary" onClick={() => handleOpenForm(p)}>
+                                                            <IconButton size="small" color="primary" disabled={!puedeEditar} onClick={() => handleOpenForm(p)}>
                                                                 <EditIcon fontSize="small" />
                                                             </IconButton>
                                                         </Tooltip>
                                                         <Tooltip title="Eliminar código">
-                                                            <IconButton size="small" color="error" onClick={() => handleDelete(p)}>
+                                                            <IconButton size="small" color="error" disabled={!puedeEliminar} onClick={() => handleDelete(p)}>
                                                                 <DeleteIcon fontSize="small" />
                                                             </IconButton>
                                                         </Tooltip>
@@ -681,7 +723,7 @@ const AjustesParametros: React.FC = () => {
                                         </Button>
                                     </Box>
                                     <Divider sx={{ mb: 1 }} />
-                                    {(CATEGORIAS_POR_GRUPO[g.value] || []).map(cat => {
+                                    {(categoriasPorGrupo[g.value] || []).map(cat => {
                                         const paramsCat = paramsGrupo.filter(p => p.categoria === cat)
                                         if (paramsCat.length === 0) return null
                                         const todosCatMarcados = paramsCat.every(p => asignados.has(p.id))
@@ -780,21 +822,19 @@ const AjustesParametros: React.FC = () => {
                                 onChange={e => setFormData({ ...formData, categoria: e.target.value })}
                             >
                                 <MenuItem value=""><em>Sin categoría</em></MenuItem>
-                                {(CATEGORIAS_POR_GRUPO[formData.grupo] || []).map(c => (
+                                {(categoriasPorGrupo[formData.grupo] || []).map(c => (
                                     <MenuItem key={c} value={c}>{c}</MenuItem>
                                 ))}
                             </Select>
                         </FormControl>
+                        {/*
+                          Acá había un check "Global (todas las empresas)". Se sacó porque **no hacía
+                          nada**: se persistía en `parametro.esGlobal` y ningún filtro lo leía, así
+                          que un código creado como global no aparecía en ninguna cartera hasta que
+                          alguien lo asignara a mano. Prometía justo lo contrario de lo que pasaba.
+                          La visibilidad depende solo de la asignación por empresa, en la otra solapa.
+                        */}
                         <Box sx={{ display: 'flex', gap: 3, flexWrap: 'wrap' }}>
-                            <FormControlLabel
-                                control={
-                                    <Checkbox
-                                        checked={formData.esGlobal}
-                                        onChange={e => setFormData({ ...formData, esGlobal: e.target.checked })}
-                                    />
-                                }
-                                label="Global (todas las empresas)"
-                            />
                             <FormControlLabel
                                 control={
                                     <Checkbox

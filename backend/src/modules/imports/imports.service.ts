@@ -1694,7 +1694,38 @@ export class ImportService {
     }
 
     // --- POLÍTICA ---
+    /**
+     * Asocia una política a una remesa.
+     *
+     * Antes escribía el id sin verificar nada: se podía dejar una remesa apuntando a una política
+     * **de otra empresa**, a una inactiva o a una que no existe, y el gestor terminaba leyendo
+     * condiciones que no son las de esa cartera.
+     */
     async updatePolitica(remesaId: number, politicaId: number | null) {
+        const remesa = await this.prisma.remesa.findUnique({
+            where: { id: remesaId },
+            select: { id: true, empresaId: true },
+        });
+        if (!remesa) throw new NotFoundException(`Remesa ${remesaId} no encontrada`);
+
+        if (politicaId != null) {
+            const politica = await this.prisma.politica.findUnique({
+                where: { id: politicaId },
+                select: { id: true, empresaId: true, activa: true, nombre: true },
+            });
+            if (!politica) throw new NotFoundException(`Política ${politicaId} no encontrada`);
+            if (politica.empresaId !== remesa.empresaId) {
+                throw new BadRequestException(
+                    `La política "${politica.nombre}" es de otra empresa: no se puede asociar a esta remesa.`,
+                );
+            }
+            if (!politica.activa) {
+                throw new BadRequestException(
+                    `La política "${politica.nombre}" está inactiva. Activala antes de asociarla.`,
+                );
+            }
+        }
+
         return this.prisma.remesa.update({
             where: { id: remesaId },
             data: { politicaId: politicaId ?? null },
