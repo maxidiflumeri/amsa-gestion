@@ -161,10 +161,10 @@ transforms, ancho fijo, multiarchivo, multirregistro, filtros de fila.
 | 1 | Importación completa (10 páginas) | **escrita**, en auditoría |
 | 2 | Reportes (6 páginas) | **HECHA** — auditada y corregida |
 | 3 | Primeros pasos + gestión del caso (6 páginas) | **HECHA** — auditada y corregida |
-| 4 | Ajustes + administración | |
+| 4 | Ajustes + administración (8 páginas) | **HECHA** — auditada y corregida |
 | 5 | Ayuda contextual (el `?` en cada pantalla) | necesita las páginas escritas |
 
-Escritas hasta ahora (22):
+Escritas hasta ahora (30):
 
 | Página | Estado |
 |---|---|
@@ -190,6 +190,14 @@ Escritas hasta ahora (22):
 | `04-reportes/04-formatos` | auditada y corregida |
 | `04-reportes/05-ejecutar-y-descargar` | auditada y corregida |
 | `04-reportes/06-recetas` | auditada y corregida |
+| `05-ajustes/01-empresas` | auditada y corregida |
+| `05-ajustes/02-parametros` | auditada y corregida |
+| `05-ajustes/03-politicas` | auditada y corregida |
+| `05-ajustes/04-recargo-por-mora` | auditada y corregida |
+| `05-ajustes/05-cartera-nueva-de-cero` | auditada y corregida |
+| `06-administracion/01-roles-y-permisos` | auditada y corregida |
+| `06-administracion/02-usuarios` | auditada y corregida |
+| `06-administracion/03-auditoria` | auditada y corregida |
 
 Las tres de mayor riesgo son `06-actualizaciones`, `07-acciones-masivas` y `08-historial-y-problemas`:
 documentan operaciones que pueden cancelar una cartera, borrar contactos de toda una empresa o perder
@@ -238,5 +246,47 @@ porque no tienen otro dueño:
 | Los cambios de estado **automáticos no se auditan por caso**, así que Auditoría no los explica | `consolidacion.service.ts`, `promesas.service.ts` |
 | Solo **SIT-050** bloquea la ficha; SIT-051/052/053 no | `deudor-bloqueo.ts` |
 | `accion_masiva_snapshot` no tiene FK a `remesa`: borrar una remesa de acciones deja filas huérfanas | `schema.prisma` |
+
+### Los de la fase 4 (ajustes + administración)
+
+Ordenados por gravedad. Los cuatro primeros son de seguridad o de pérdida de datos.
+
+| Hallazgo | Dónde |
+|---|---|
+| 🔴 **Desactivar un usuario no corta su sesión abierta.** El guard global solo verifica la firma del JWT; nadie revalida `activo`. Sesión viva = hasta 24 h de acceso pleno, ni siquiera un F5 lo corta. No hay lista de revocación | `jwt-auth.guard.ts:40`, `AuthContext.tsx:31` |
+| 🔴 **Borrar un usuario destruye trazabilidad en silencio.** `SET NULL` en comentario, pago, promesa, transacción, convenio, remesa, plantilla y tasa_mora: la operación tiene éxito y todo pasa a figurar como "Sistema" | FKs de `schema.prisma` |
+| 🔴 **La clave de Neotel queda en claro en la auditoría.** `claveNeotel` no matchea ningún `CAMPOS_SENSIBLES`, y el alta/edición de usuario audita `req.body` entero | `audit.enums.ts:84`, `usuarios.controller.ts:43` |
+| 🔴 **Una cartera nueva no puede cargar su primera tasa de mora.** `permitirInicioDeCadena` no lo manda nunca el frontend, así que sin índice previo el error manda a generar meses que tampoco se pueden generar. Solo funcionan las carteras con índice migrado | `AjustesMora.tsx:141`, `mora.service.ts:190` |
+| 🔴 **Recargar un mes viejo recomputa la cadena migrada sin confirmación.** El confirm solo dispara si el mes está entre los últimos 24 (los que trae la tabla); más viejo que eso, regenera cientos de meses en silencio y reetiqueta el origen de UD60 a CALCULADO | `AjustesMora.tsx:126`, `mora.service.ts:129` |
+| **Fuga en el gráfico de 30 días de Auditoría**: el `$queryRaw` ignora el `where`, así que quien solo tiene `auditoria.ver` ve el volumen global | `transacciones.service.ts:131` |
+| **La corrida nocturna de promesas vencidas no audita nada**: el `@Audit` está en el controller y el cron llama al servicio directo | `promesas.scheduler.ts:16` |
+| **Consultar y exportar la auditoría no se audita** (cero `@Audit` en el controller), y **el logout tampoco**: el endpoint existe y el frontend no lo llama | `transacciones.controller.ts`, `AuthContext.tsx:55` |
+| **El catálogo de permisos está triplicado y desincronizado: 63 / 59 / 48.** Backend 63, frontend 59 (falta *Telefonía* entera), y el seed una tercera copia inline con 48 — el rol ADMIN recién sembrado no tiene `mora.*`, `auditoria.*`, `dashboards.*` ni `email.*`. El endpoint `GET /roles/permisos-catalogo` existe y no lo consume nadie | `permisos-catalogo.ts` vs `permisosCatalogo.ts` vs `seed.ts:4` |
+| Ítem de menú inalcanzable: **Neotel (test)** pide `telefonia.usar`, que la pantalla de Roles no sabe otorgar | `navConfig.ts:65` |
+| **El email de un usuario no es editable** después del alta, y el único remedio (borrar y recrear) puede estar bloqueado o ser destructivo | `update-usuario.dto.ts` |
+| **El DNI es de solo escritura**: `USUARIO_SELECT` no lo devuelve y el update ignora el valor vacío. Se puede cargar y pisar, nunca ver ni limpiar | `usuarios.service.ts:25,168` |
+| **Filtros de fecha de Auditoría en UTC** contra datos en hora local: corrimiento sistemático de 3 h en *Desde* y *Hasta* | `transacciones.service.ts:63` |
+| Tres módulos (`TELEFONIA`, `EMAIL`, `DASHBOARDS`) **se registran pero no están en el desplegable** de Búsqueda | `AuditoriaBusqueda.tsx:30` |
+| `buscar()` **no tiene `catch`**: un 403 o un 500 dejan la pantalla en blanco, indistinguible de "sin resultados" | `AuditoriaBusqueda.tsx:87` |
+| **Exportar usa los filtros del formulario, no los de la última búsqueda** | `AuditoriaBusqueda.tsx:75` |
+| El botón de eliminar rol **se deshabilita sin explicación**; el mensaje bueno del backend es inalcanzable | `RolesPage.tsx:193` |
+| **`recalcularCartera` usa la fecha en UTC**: después de las 21 h locales pide el índice de mañana, y el último día del mes eso falla aunque la tasa esté cargada | `mora.service.ts:389,555` |
+| **No hay ningún proceso que recalcule la mora.** Con el umbral de 48 h, el indicador naranja de la ficha queda encendido de forma permanente | sin cron; `FichaHeader.tsx:41` |
+| La tasa **se guarda aunque la generación del índice falle** (upsert antes, fuera de transacción): queda una fila con 0 días que se lee como "cargada" | `mora.service.ts:108` |
+| **`mesesFaltantes` no detecta huecos anteriores** al mes más viejo cargado — justo las facturas que van a salir sin índice | `mora.service.ts:532` |
+| Los multiplicadores ×1,5 y ×2 están **hardcodeados en la tabla de la UI**, mientras el backend los lee de la configuración de la empresa | `AjustesMora.tsx:270` |
+| El `Alert` de meses faltantes **dice algo que no es cierto** ("cuya deuda cruce esos meses se valúa mal"): lo que importa es el índice del vencimiento y el del corte | `AjustesMora.tsx:236` |
+| **15 códigos de parámetro son imposibles de asignar desde la UI**: la lista de categorías está hardcodeada y no incluye LEGAL, INCOBRABLE ni tres de motivo de no pago | `AjustesParametros.tsx:83` |
+| **El checkbox "Global (todas las empresas)" no hace nada**: se persiste y no lo lee ningún filtro | `AjustesParametros.tsx:792` vs `parametros.service.ts:14` |
+| **Lost update en la asignación de parámetros**: read-modify-write del listado completo + `deleteMany`/`createMany`. Dos admins configurando empresas distintas se pisan | `AjustesParametros.tsx:303`, `parametros.service.ts:72` |
+| `empresa_parametro.nombreOverride` y `.activo` son **columnas muertas**, y además se destruyen en cada guardado | `parametros.service.ts:72` |
+| **Asociar una política a una remesa no valida nada** (ni empresa, ni activa, ni existencia) y solo pide `importacion.ver_historial` | `imports.service.ts:1697` |
+| **Borrar una empresa no tiene manejo de errores**: con FK RESTRICT sale un 500 opaco, y si pasa se lleva en cascada tasas, índices y el historial de emails | `empresas.service.ts:40` |
+| Las páginas de Ajustes **no ocultan acciones por permiso**: el 403 llega recién al confirmar | `AjustesParametros.tsx`, `AjustesPoliticas.tsx` |
+| `GET /api/politicas` sin `empresaId` **responde 400** por un `ParseIntPipe` sin `optional` | `politicas.controller.ts:15` |
+| `DeudoresPage.tsx:20` tiene **el usuario hardcodeado** (`{ nombre: 'Maxi', rol: 'admin' }`) y de él dependen las solapas de la ficha. Conectarlo al contexto real las haría desaparecer para todos | `DeudoresPage.tsx:20` |
+| El aviso "sin política" del gestor **manda a un lugar equivocado**: dice *Ajustes → Políticas*, donde no se puede asociar | `PoliticaTab.tsx:53` |
+| Tipos de auditoría fuera del enum (`'VALIDAR'`, `'ANULAR'`) escritos como strings sueltos | `imports.controller.ts:220` |
+
 
 > Estas guardas se agregan al cerrar la fase 1. Ponerlas ahora, con 2 páginas de 40, solo daría rojo.
