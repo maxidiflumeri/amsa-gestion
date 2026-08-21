@@ -6,6 +6,12 @@ export interface FilaConSubtotales {
   nivel?: number;
   grupoLabel?: string;
   datos: Record<string, any>;
+  /**
+   * Solo en las cabeceras: este grupo arranca en una página nueva del PDF.
+   *
+   * Sale de `agrupacion.saltoPagina`, que la pantalla guardaba y **no leía nadie**.
+   */
+  saltoPagina?: boolean;
 }
 
 @Injectable()
@@ -49,6 +55,7 @@ export class GroupingService {
           nivel,
           grupoLabel: `${labelGrupo}: ${key} (${filasDelGrupo.length})`,
           datos: this.filaVacia(columnas),
+          saltoPagina: agrupaciones[nivel]?.saltoPagina === true,
         });
 
         if (nivel < agrupaciones.length - 1) {

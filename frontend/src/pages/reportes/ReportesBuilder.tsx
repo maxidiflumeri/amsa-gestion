@@ -4,7 +4,7 @@ import { Box, Grid, Alert, Tabs, Tab, Paper, Button } from '@mui/material'
 import { v4 as uuidv4 } from 'uuid'
 import SaveIcon from '@mui/icons-material/Save'
 import CloseIcon from '@mui/icons-material/Close'
-import { Plantilla, Columna, NodoCatalogo, Filtro, Agrupacion, Total } from '../../types/reportes'
+import { Plantilla, Columna, NodoCatalogo, Filtro, Agrupacion, Total, Ordenamiento } from '../../types/reportes'
 import { reportesApi } from '../../api/reportes'
 import api from '../../api/axios'
 import { PageHeader, SectionCard, LoadingSkeleton } from '../../components/ui'
@@ -18,6 +18,7 @@ import ColumnCanvas from './components/ColumnCanvas/ColumnCanvas'
 import PropertiesPanel from './components/PropertiesPanel/PropertiesPanel'
 import FilterBuilder from './components/FilterBuilder/FilterBuilder'
 import GroupingBuilder from './components/GroupingBuilder/GroupingBuilder'
+import SortBuilder from './components/SortBuilder/SortBuilder'
 import PreviewPanel from './components/Preview/PreviewPanel'
 import { validatePlantilla, ValidationError } from './utils/validatePlantilla'
 
@@ -46,6 +47,7 @@ type BuilderAction =
   | { type: 'REMOVE_COLUMNA'; id: string }
   | { type: 'SET_FILTROS'; filtros: Filtro[] }
   | { type: 'SET_AGRUPACIONES_TOTALES'; agrupaciones: Agrupacion[]; totales: Total[] }
+  | { type: 'SET_ORDENAMIENTOS'; ordenamientos: Ordenamiento[] }
   | { type: 'SET_LOADING'; loading: boolean }
   | { type: 'SET_CATALOGO_LOADING'; loading: boolean }
   | { type: 'SET_SAVING'; saving: boolean }
@@ -166,6 +168,15 @@ const builderReducer = (state: BuilderState, action: BuilderAction): BuilderStat
         },
         hasChanges: true,
       }
+    case 'SET_ORDENAMIENTOS':
+      return {
+        ...state,
+        plantilla: {
+          ...state.plantilla,
+          definicion: { ...state.plantilla.definicion!, ordenamientos: action.ordenamientos },
+        },
+        hasChanges: true,
+      }
     case 'SET_LOADING':
       return { ...state, loading: action.loading }
     case 'SET_CATALOGO_LOADING':
@@ -283,6 +294,10 @@ const ReportesBuilder = () => {
 
   const handleAgrupacionesTotalesChange = (agrupaciones: Agrupacion[], totales: Total[]) => {
     dispatch({ type: 'SET_AGRUPACIONES_TOTALES', agrupaciones, totales })
+  }
+
+  const handleOrdenamientosChange = (ordenamientos: Ordenamiento[]) => {
+    dispatch({ type: 'SET_ORDENAMIENTOS', ordenamientos })
   }
 
   useEffect(() => {
@@ -413,7 +428,7 @@ const ReportesBuilder = () => {
               >
                 <Tab label="Columnas" />
                 <Tab label="Filtros" />
-                <Tab label="Agrupaciones y Totales" />
+                <Tab label="Orden, agrupaciones y totales" />
                 <Tab label="Preview" />
               </Tabs>
             </Paper>
@@ -518,6 +533,11 @@ const ReportesBuilder = () => {
 
             {state.currentTab === 2 && (
               <Box sx={{ mb: 2 }}>
+                <SortBuilder
+                  ordenamientos={state.plantilla.definicion?.ordenamientos || []}
+                  columnas={state.plantilla.definicion?.columnas || []}
+                  onChange={handleOrdenamientosChange}
+                />
                 <GroupingBuilder
                   agrupaciones={state.plantilla.definicion?.agrupaciones || []}
                   totales={state.plantilla.definicion?.totales || []}

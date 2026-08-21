@@ -48,35 +48,45 @@ export class PdfExportador {
       content.push({ text: '', margin: [0, 10] });
     }
 
-    const tableBody: any[][] = [];
+    const conAgrupaciones = filas.length > 0 && this.esFilaConSubtotales(filas[0]);
 
-    tableBody.push(
-      columnas.map(col => ({
-        text: col,
-        style: 'tableHeader',
-        fillColor: '#1565C0',
-        color: '#FFFFFF',
-        bold: true,
-      })),
-    );
+    // Un grupo con "salto de página" arranca en una hoja nueva. En pdfmake el `pageBreak` va en un
+    // nodo de contenido, no en una fila de tabla, así que las filas se parten en varias tablas —una
+    // por corte— y cada una repite el encabezado. Sin esto el switch se guardaba y no lo leía nadie.
+    const bloques = conAgrupaciones
+      ? this.partirEnBloques(filas as FilaConSubtotales[])
+      : [filas as Record<string, any>[]];
 
-    if (filas.length > 0 && this.esFilaConSubtotales(filas[0])) {
-      this.agregarFilasConAgrupaciones(tableBody, filas as FilaConSubtotales[], columnas);
-    } else {
-      this.agregarFilasSimples(tableBody, filas as Record<string, any>[], columnas);
-    }
+    bloques.forEach((bloque, i) => {
+      const tableBody: any[][] = [
+        columnas.map(col => ({
+          text: col,
+          style: 'tableHeader',
+          fillColor: '#1565C0',
+          color: '#FFFFFF',
+          bold: true,
+        })),
+      ];
 
-    content.push({
-      table: {
-        headerRows: 1,
-        widths: columnas.map(() => 'auto'),
-        body: tableBody,
-      },
-      layout: {
-        fillColor: (rowIndex: number) => {
-          return rowIndex === 0 ? '#1565C0' : rowIndex % 2 === 0 ? '#F5F5F5' : null;
+      if (conAgrupaciones) {
+        this.agregarFilasConAgrupaciones(tableBody, bloque as FilaConSubtotales[], columnas);
+      } else {
+        this.agregarFilasSimples(tableBody, bloque as Record<string, any>[], columnas);
+      }
+
+      content.push({
+        ...(i > 0 ? { pageBreak: 'before' as const } : {}),
+        table: {
+          headerRows: 1,
+          widths: columnas.map(() => 'auto'),
+          body: tableBody,
         },
-      },
+        layout: {
+          fillColor: (rowIndex: number) => {
+            return rowIndex === 0 ? '#1565C0' : rowIndex % 2 === 0 ? '#F5F5F5' : null;
+          },
+        },
+      });
     });
 
     const docDefinition: TDocumentDefinitions = {
@@ -183,6 +193,27 @@ export class PdfExportador {
       }));
       tableBody.push(row);
     }
+  }
+
+  /**
+   * Parte las filas en bloques, cortando **antes** de cada cabecera marcada con salto de página.
+   *
+   * El primer corte no cuenta: si la primera fila ya es una cabecera con salto, no hace falta una
+   * hoja en blanco adelante.
+   */
+  private partirEnBloques(filas: FilaConSubtotales[]): FilaConSubtotales[][] {
+    const bloques: FilaConSubtotales[][] = [];
+    let actual: FilaConSubtotales[] = [];
+
+    for (const fila of filas) {
+      if (fila.tipo === 'cabecera' && fila.saltoPagina && actual.length > 0) {
+        bloques.push(actual);
+        actual = [];
+      }
+      actual.push(fila);
+    }
+    if (actual.length > 0) bloques.push(actual);
+    return bloques.length > 0 ? bloques : [[]];
   }
 
   private agregarFilasConAgrupaciones(

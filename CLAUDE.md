@@ -105,7 +105,7 @@ src/
 `BullModule.forRoot` en `app.module.ts` lee `REDIS_HOST`/`REDIS_PORT`. Workers actuales:
 
 - **Imports**: [backend/src/modules/imports/processors/](backend/src/modules/imports/processors/) — un processor por tipo de archivo (`deudores`, `facturas`, `pagos`, `contactos`, `actualizaciones`, `deudores-facturas`, `enriquecimiento`). Registry en `processor-registry.ts`.
-- **Reportes async**: [backend/src/modules/reportes/async/](backend/src/modules/reportes/async/) — `async-executor.service.ts` decide sync vs async según `REPORTES_V2_SYNC_THRESHOLD`. Streaming con cursor de Prisma, chunk `REPORTES_V2_CHUNK_SIZE`, hard limit `REPORTES_V2_HARD_LIMIT`.
+- **Reportes async**: [backend/src/modules/reportes/async/](backend/src/modules/reportes/async/) — `async-executor.service.ts` decide sync vs async según `REPORTES_SYNC_THRESHOLD`. Streaming con cursor de Prisma, chunk `REPORTES_V2_CHUNK_SIZE`, hard limit `REPORTES_V2_HARD_LIMIT`.
 - **Neotel state**: [backend/src/modules/neotel/neotel-redis.service.ts](backend/src/modules/neotel/neotel-redis.service.ts) usa Redis (ioredis, dependencia transitiva de BullMQ) para cachear sesión/estado del agente (`neotel:agente:{id}:sesion` y `:estado`). Modo degradado si Redis no responde.
 
 ### Realtime (Socket.IO)
@@ -150,7 +150,7 @@ Plantilla en [backend/.env.example](backend/.env.example). Críticas:
 - `PORT` (default 3000 si no se define)
 - `REDIS_HOST` / `REDIS_PORT` — usado por BullMQ y Neotel Redis cache
 - `JWT_SECRET` — firma de tokens (también usado por el gateway Socket.IO)
-- `REPORTES_V2_SYNC_THRESHOLD` / `CHUNK_SIZE` / `HARD_LIMIT` / `STORAGE_PATH` / `RETENTION_DAYS`
+- `REPORTES_SYNC_THRESHOLD` / `CHUNK_SIZE` / `HARD_LIMIT` / `STORAGE_PATH` / `RETENTION_DAYS`
 - `NEOTEL_API_HOST` / `NEOTEL_TIMEOUT_MS` / `NEOTEL_RETRY_ATTEMPTS` / `NEOTEL_SIP_DOMAIN` / `NEOTEL_WSS_URL`
 - `NEOTEL_SIP_ENCRYPTION_KEY` — `openssl rand -hex 32`. Rotarla obliga a re-correr `encrypt-sip-passwords.ts`.
 

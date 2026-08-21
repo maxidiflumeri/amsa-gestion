@@ -15,7 +15,6 @@ export const TODOS_LOS_PERMISOS: PermisoSeccion[] = [
         permisos: [
             { key: 'deudores.ver', label: 'Ver deudores' },
             { key: 'deudores.editar_estado', label: 'Editar estado de deudores' },
-            { key: 'deudores.exportar', label: 'Exportar deudores' },
             { key: 'deudores.acciones_masivas', label: 'Acciones masivas', descripcion: 'Ejecutar y revertir importaciones de acciones masivas sobre la base' },
         ],
     },
