@@ -50,7 +50,9 @@ const PoliticaTab: React.FC<Props> = ({ deudorId }) => {
             <EmptyState
                 icon={<InboxIcon />}
                 title="Sin política asignada"
-                description={`La remesa ${numeroRemesa} no tiene una política de gestión asignada. Podés asociarla desde Ajustes → Políticas o desde el Historial de Importaciones.`}
+                // En Ajustes → Políticas solo se **crean**; asociarla a una remesa se hace únicamente
+                // desde el historial de importaciones. El texto anterior mandaba a los dos lados.
+                description={`La remesa ${numeroRemesa} no tiene una política de gestión asignada. Se asocia desde Importación de Datos → Historial, en la columna Política de la remesa.`}
             />
         )
     }

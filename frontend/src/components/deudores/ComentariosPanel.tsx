@@ -1,16 +1,35 @@
 import React, { useEffect, useRef, useState } from 'react'
 import {
-    Box,
-    Typography,
     Avatar,
-    TextField,
+    Box,
+    Chip,
     IconButton,
+    TextField,
+    Tooltip,
+    Typography,
 } from '@mui/material'
 import SendIcon from '@mui/icons-material/Send'
 import CommentIcon from '@mui/icons-material/Comment'
+import DeleteOutlineIcon from '@mui/icons-material/DeleteOutline'
+import SettingsSuggestIcon from '@mui/icons-material/SettingsSuggest'
 import { EmptyState, SectionCard } from '../ui'
 import api from '../../api/axios'
 import { useNotify } from '../../hooks/useNotify'
+import { useAuth } from '../../context/AuthContext'
+import { useConfirm } from '../../context/ConfirmContext'
+
+/** Un comentario sin autor lo dejó un proceso: una acción masiva o una importación. */
+const esDeSistema = (c: Comentario) => !c.usuario?.nombre
+
+const ETIQUETAS_ORIGEN: Record<string, string> = {
+    accion_masiva: 'Acción masiva',
+    import: 'Importación',
+    importacion: 'Importación',
+    sistema: 'Sistema',
+}
+
+const etiquetaOrigen = (origen: string) =>
+    ETIQUETAS_ORIGEN[origen] ?? origen.replace(/_/g, ' ')
 
 interface Comentario {
     id: number
@@ -34,9 +53,34 @@ const ComentariosPanel: React.FC<ComentariosProps> = ({
     disabled = false,
 }) => {
     const notify = useNotify()
+    const confirm = useConfirm()
+    const { usuario, tienePermiso } = useAuth()
+    const puedeEliminar = tienePermiso('comentarios.eliminar')
+    const nombreUsuario = usuario?.nombre
     const [nuevoComentario, setNuevoComentario] = useState('')
     const [sending, setSending] = useState(false)
     const bottomRef = useRef<HTMLDivElement | null>(null)
+
+    /**
+     * El endpoint y el permiso existían desde siempre y no había botón: el único camino para borrar
+     * un comentario propio era la API.
+     */
+    const handleEliminar = async (id: number) => {
+        const ok = await confirm({
+            title: 'Eliminar tu comentario',
+            description: 'No se puede deshacer.',
+            confirmLabel: 'Eliminar',
+            confirmColor: 'error',
+        })
+        if (!ok) return
+        try {
+            await api.delete(`/comentarios/${id}`)
+            notify.success('Comentario eliminado')
+            onCreated?.()
+        } catch (err) {
+            notify.error(err as Error)
+        }
+    }
 
     // Cargar draft del localStorage
     useEffect(() => {
@@ -103,18 +147,42 @@ const ComentariosPanel: React.FC<ComentariosProps> = ({
                                 borderRadius: 2,
                             }}
                         >
-                            <Avatar sx={{ bgcolor: 'primary.main', mr: 1 }}>
-                                {c.usuario?.nombre ? c.usuario.nombre.charAt(0).toUpperCase() : '?'}
+                            {/*
+                              Un comentario sin autor lo dejó un proceso, no una persona. Antes se
+                              renderizaba como "Usuario" con la inicial "?", indistinguible de uno
+                              escrito a mano, y el `origen` que ya viene del backend no se mostraba.
+                            */}
+                            <Avatar sx={{ bgcolor: esDeSistema(c) ? 'grey.600' : 'primary.main', mr: 1 }}>
+                                {esDeSistema(c) ? (
+                                    <SettingsSuggestIcon fontSize="small" />
+                                ) : (
+                                    c.usuario!.nombre!.charAt(0).toUpperCase()
+                                )}
                             </Avatar>
                             <Box sx={{ flex: 1 }}>
-                                <Typography variant="subtitle2">
-                                    {c.usuario?.nombre || 'Usuario'}{' '}
+                                <Typography variant="subtitle2" component="div">
+                                    {esDeSistema(c) ? 'Sistema' : c.usuario!.nombre}{' '}
                                     <Typography component="span" variant="caption" color="text.secondary">
                                         {new Date(c.fecha).toLocaleString()}
                                     </Typography>
+                                    {c.origen && c.origen !== 'manual' && (
+                                        <Chip
+                                            size="small"
+                                            variant="outlined"
+                                            label={etiquetaOrigen(c.origen)}
+                                            sx={{ ml: 1, height: 18, fontSize: 11 }}
+                                        />
+                                    )}
                                 </Typography>
                                 <Typography variant="body2">{c.texto}</Typography>
                             </Box>
+                            {puedeEliminar && !esDeSistema(c) && c.usuario?.nombre === nombreUsuario && !disabled && (
+                                <Tooltip title="Eliminar mi comentario">
+                                    <IconButton size="small" onClick={() => handleEliminar(c.id)}>
+                                        <DeleteOutlineIcon fontSize="small" />
+                                    </IconButton>
+                                </Tooltip>
+                            )}
                         </Box>
                     ))
                 )}

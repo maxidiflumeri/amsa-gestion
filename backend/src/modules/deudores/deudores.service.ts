@@ -5,6 +5,10 @@ import { CreateDeudorDto } from './dtos/create-deudor.dto';
 import { UpdateDeudorDto } from './dtos/update-deudor.dto';
 import { AdvancedSearchDto } from './dtos/advanced-search.dto';
 import { DeudorBloqueoService } from './utils/deudor-bloqueo';
+import { normalizarTelefonoArgentino } from '../../common/utils/phone-utils';
+
+/** Tope de filas de la búsqueda avanzada. El total real se devuelve aparte. */
+const LIMITE_BUSQUEDA_AVANZADA = 200;
 
 @Injectable()
 export class DeudoresService {
@@ -111,17 +115,45 @@ export class DeudoresService {
             andConditions.push({ contactos: { some: { tipo: 'email', valor: { contains: dto.email } } } });
         }
         if (dto.telefono) {
-            andConditions.push({ contactos: { some: { tipo: 'telefono', valor: { contains: dto.telefono } } } });
+            andConditions.push({ contactos: { some: { tipo: 'telefono', OR: this.candidatosTelefono(dto.telefono) } } });
         }
 
-        // Si no mandaron filtros, podemos devolver vacío o todo con limit, pero elegimos los primeros 50
         const where: Prisma.deudorWhereInput = andConditions.length > 0 ? { AND: andConditions } : {};
 
-        return this.prisma.deudor.findMany({
-            where,
-            take: 50,
-            include: { empresa: true, remesa: true, contactos: true },
-        });
+        // Se devuelve el total además de las filas: antes cortaba en 50 en silencio, así que una
+        // búsqueda floja parecía tener 50 resultados y el caso buscado podía estar afuera sin que
+        // nada lo dijera. No se pagina a propósito — esto es "encontrá un caso", no un listado: lo
+        // útil es saber que hay que afinar la búsqueda.
+        const [items, total] = await this.prisma.$transaction([
+            this.prisma.deudor.findMany({
+                where,
+                take: LIMITE_BUSQUEDA_AVANZADA,
+                include: { empresa: true, remesa: true, contactos: true },
+            }),
+            this.prisma.deudor.count({ where }),
+        ]);
+
+        return { items, total, limite: LIMITE_BUSQUEDA_AVANZADA };
+    }
+
+    /**
+     * Formas en que un teléfono tipeado puede aparecer en la base.
+     *
+     * Los contactos se guardan normalizados en E.164 (`+5491155551234`), así que buscar el texto tal
+     * cual lo escribe el gestor —`11 5555-1234`— no encontraba nada nunca.
+     */
+    private candidatosTelefono(entrada: string): Prisma.contactoWhereInput[] {
+        const candidatos = new Set<string>([entrada.trim()]);
+
+        // Solo los dígitos: `11 5555-1234` → `1155551234`, que sí es substring del E.164 guardado.
+        const soloDigitos = entrada.replace(/\D/g, '');
+        if (soloDigitos.length >= 6) candidatos.add(soloDigitos);
+
+        // Y el E.164 completo, por si lo tipeó con área y prefijo.
+        const norm = normalizarTelefonoArgentino(entrada);
+        if (norm.valido && norm.e164) candidatos.add(norm.e164);
+
+        return [...candidatos].filter(Boolean).map((valor) => ({ valor: { contains: valor } }));
     }
 
     async getEmpresas() {
@@ -220,11 +252,21 @@ export class DeudoresService {
             data.estadoGestionId = gestion.id;
         }
 
-        if (motivoNoPagoClave) {
-            const motivo = await this.prisma.parametro.findUnique({
-                where: { clave: motivoNoPagoClave },
-            });
-            if (motivo) data.motivoNoPagoId = motivo.id;
+        // Se distingue "no lo mandaron" (undefined → se conserva) de "lo mandaron vacío"
+        // (null o '' → se borra). Antes las dos ramas caían en lo mismo, así que **el motivo de no
+        // pago no se podía quitar**: una vez cargado quedaba pegado al caso para siempre.
+        if (motivoNoPagoClave !== undefined) {
+            if (motivoNoPagoClave === null || motivoNoPagoClave === '') {
+                data.motivoNoPagoId = null;
+            } else {
+                const motivo = await this.prisma.parametro.findUnique({
+                    where: { clave: motivoNoPagoClave },
+                });
+                // Antes una clave inexistente se ignoraba en silencio, igual que si no la hubieran
+                // mandado: un error de tipeo no cambiaba nada y nadie se enteraba.
+                if (!motivo) throw new NotFoundException('Motivo de no pago no encontrado');
+                data.motivoNoPagoId = motivo.id;
+            }
         }
 
         const deudor = await this.prisma.deudor.findUnique({ where: { id } });
@@ -235,7 +277,9 @@ export class DeudoresService {
             data: {
                 estadoSituacionId: data.estadoSituacionId ?? deudor.estadoSituacionId,
                 estadoGestionId: data.estadoGestionId ?? deudor.estadoGestionId,
-                motivoNoPagoId: data.motivoNoPagoId ?? deudor.motivoNoPagoId,
+                // `?? ` no sirve acá: `null` es un valor válido —"quitar el motivo"— y `??` lo
+                // trataría como "no vino".
+                motivoNoPagoId: 'motivoNoPagoId' in data ? data.motivoNoPagoId : deudor.motivoNoPagoId,
             },
             include: {
                 estadoSituacion: true,

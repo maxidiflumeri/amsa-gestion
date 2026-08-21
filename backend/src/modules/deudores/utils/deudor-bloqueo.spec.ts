@@ -4,8 +4,8 @@
  * Ejecutar: npx jest deudor-bloqueo.spec.ts --no-coverage
  *
  * Casos cubiertos:
- *  - Con SIT-050 seedeado: bloquea si el deudor está en SIT-050, no bloquea si no.
- *  - Sin SIT-050 seedeado (modo degradado): no bloquea en ningún caso.
+ *  - Con los códigos seedeados: bloquea toda la categoría CANCELADO (SIT-050 a SIT-053).
+ *  - Sin códigos seedeados (modo degradado): no bloquea en ningún caso.
  *  - Deudor inexistente: no lanza (no hay estado que comparar).
  */
 import { ForbiddenException } from '@nestjs/common';
@@ -14,15 +14,21 @@ import { DeudorBloqueoService } from './deudor-bloqueo';
 // ─── Helpers de mock ──────────────────────────────────────────────────────────
 
 function makeService(
-    sit050EnDb: boolean,
+    codigosEnDb: boolean,
     deudorEstadoSituacionId: number | null,
 ): DeudorBloqueoService {
-    const SIT050_ID = 42;
-
     const prisma = {
         parametro: {
-            findUnique: jest.fn().mockResolvedValue(
-                sit050EnDb ? { id: SIT050_ID, clave: 'SIT-050' } : null,
+            // Los cuatro códigos de categoría CANCELADO del catálogo real.
+            findMany: jest.fn().mockResolvedValue(
+                codigosEnDb
+                    ? [
+                        { id: 42, clave: 'SIT-050' },
+                        { id: 51, clave: 'SIT-051' },
+                        { id: 52, clave: 'SIT-052' },
+                        { id: 53, clave: 'SIT-053' },
+                    ]
+                    : [],
             ),
         },
         deudor: {
@@ -40,13 +46,13 @@ function makeService(
 // ─── Tests ───────────────────────────────────────────────────────────────────
 
 describe('DeudorBloqueoService', () => {
-    describe('onModuleInit — con SIT-050 seedeado', () => {
-        it('cachea sit050Id correctamente', async () => {
+    describe('onModuleInit — con los códigos seedeados', () => {
+        it('cachea los códigos de cancelación correctamente', async () => {
             const svc = makeService(true, null);
             await svc.onModuleInit();
-            // El servicio no expone sit050Id directamente — lo verificamos
+            // El servicio no expone los ids directamente — lo verificamos
             // comprobando el comportamiento en assertNoBloqueado.
-            // Si sit050Id quedó seteado, un deudor con ese id será bloqueado.
+            // Si quedaron cacheados, un deudor con uno de esos ids será bloqueado.
             await expect(
                 (() => {
                     // Reemplazamos el mock de deudor para que retorne estadoSituacionId = 42
@@ -59,14 +65,14 @@ describe('DeudorBloqueoService', () => {
         });
     });
 
-    describe('onModuleInit — sin SIT-050 seedeado (modo degradado)', () => {
-        it('no lanza en onModuleInit cuando SIT-050 no existe', async () => {
+    describe('onModuleInit — sin códigos seedeados (modo degradado)', () => {
+        it('no lanza en onModuleInit cuando no hay códigos de cancelación', async () => {
             const svc = makeService(false, null);
             await expect(svc.onModuleInit()).resolves.not.toThrow();
         });
     });
 
-    describe('assertNoBloqueado — CON SIT-050 seedeado', () => {
+    describe('assertNoBloqueado — CON los códigos seedeados', () => {
         let svc: DeudorBloqueoService;
 
         beforeEach(async () => {
@@ -82,6 +88,18 @@ describe('DeudorBloqueoService', () => {
             await expect(svc.assertNoBloqueado(1, 'crear convenio')).rejects.toThrow(ForbiddenException);
         });
 
+        it.each([51, 52, 53])(
+            'también bloquea los otros códigos de cancelación (id %i)',
+            async (id) => {
+                // Antes solo bloqueaba SIT-050: un caso puesto a mano en "Cancelado antes de la
+                // gestión" se seguía pudiendo gestionar como si estuviera abierto.
+                (svc as any).prisma.deudor.findUnique = jest.fn().mockResolvedValue({
+                    estadoSituacionId: id,
+                });
+                await expect(svc.assertNoBloqueado(1, 'crear comentario')).rejects.toThrow(ForbiddenException);
+            },
+        );
+
         it('el error tiene code=DEUDOR_CANCELADO', async () => {
             (svc as any).prisma.deudor.findUnique = jest.fn().mockResolvedValue({
                 estadoSituacionId: 42,
@@ -94,7 +112,7 @@ describe('DeudorBloqueoService', () => {
                 expect(e).toBeInstanceOf(ForbiddenException);
                 const resp = (e as ForbiddenException).getResponse() as any;
                 expect(resp.code).toBe('DEUDOR_CANCELADO');
-                expect(resp.message).toContain('SIT-050');
+                expect(resp.message).toContain('cancelado');
             }
         });
 
@@ -121,7 +139,7 @@ describe('DeudorBloqueoService', () => {
         });
     });
 
-    describe('assertNoBloqueado — SIN SIT-050 seedeado (modo degradado)', () => {
+    describe('assertNoBloqueado — SIN códigos seedeados (modo degradado)', () => {
         let svc: DeudorBloqueoService;
 
         beforeEach(async () => {
@@ -130,7 +148,7 @@ describe('DeudorBloqueoService', () => {
         });
 
         it('NO lanza aunque el deudor tenga estadoSituacionId que coincidiría con SIT-050', async () => {
-            // En modo degradado, sit050Id === null, no se hace el check
+            // En modo degradado no hay ids cacheados, no se hace el check
             (svc as any).prisma.deudor.findUnique = jest.fn().mockResolvedValue({
                 estadoSituacionId: 42,
             });

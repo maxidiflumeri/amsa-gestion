@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react'
 import {
+    Alert,
     Dialog,
     DialogTitle,
     DialogContent,
@@ -93,6 +94,8 @@ const BuscadorAvanzadoModal: React.FC<BuscadorAvanzadoModalProps> = ({ open, onC
 
     const [params, setParams] = useState<SearchParams>(initialParams)
     const [resultados, setResultados] = useState<ResultRow[]>([])
+    /** Total real en la base: puede ser mayor a lo que se muestra. */
+    const [total, setTotal] = useState(0)
     const [loading, setLoading] = useState(false)
     const [searched, setSearched] = useState(false)
     const [empresas, setEmpresas] = useState<any[]>([])
@@ -133,10 +136,13 @@ const BuscadorAvanzadoModal: React.FC<BuscadorAvanzadoModalProps> = ({ open, onC
         setSearched(true)
         try {
             const res = await api.post('/deudores/advanced-search', payload)
-            setResultados(res.data as ResultRow[])
+            const { items, total: encontrados } = res.data as { items: ResultRow[]; total: number }
+            setResultados(items)
+            setTotal(encontrados)
         } catch (error) {
             notify.error(error as Error)
             setResultados([])
+            setTotal(0)
         } finally {
             setLoading(false)
         }
@@ -223,6 +229,18 @@ const BuscadorAvanzadoModal: React.FC<BuscadorAvanzadoModalProps> = ({ open, onC
                         <LoadingSkeleton variant="table" rows={5} columns={5} />
                     ) : searched ? (
                         resultados.length > 0 ? (
+                            <>
+                            {/*
+                              Antes cortaba en 50 en silencio: una búsqueda floja parecía tener 50
+                              resultados y el caso buscado podía estar afuera sin que nada lo dijera.
+                            */}
+                            {total > resultados.length && (
+                                <Alert severity="info" sx={{ mb: 1 }}>
+                                    Hay <strong>{total.toLocaleString('es-AR')}</strong> casos que coinciden y se
+                                    muestran los primeros {resultados.length}. Agregá algún dato más para achicar
+                                    la búsqueda.
+                                </Alert>
+                            )}
                             <Box sx={{ maxHeight: 300, overflowY: 'auto' }}>
                                 <DataTableResponsive<ResultRow>
                                     columns={resultColumns}
@@ -234,6 +252,7 @@ const BuscadorAvanzadoModal: React.FC<BuscadorAvanzadoModalProps> = ({ open, onC
                                     }}
                                 />
                             </Box>
+                            </>
                         ) : (
                             <EmptyState
                                 title="Sin resultados"

@@ -29,6 +29,8 @@ import ContentCopyIcon from '@mui/icons-material/ContentCopy';
 import SendIcon from '@mui/icons-material/Send';
 import { formatearTelefonoParaUI } from '../../../utils/phone';
 import { useNotify } from '../../../hooks/useNotify';
+import ReportProblemIcon from '@mui/icons-material/ReportProblem';
+import ReportProblemOutlinedIcon from '@mui/icons-material/ReportProblemOutlined';
 
 interface Props {
     contactos: any[];
@@ -37,6 +39,8 @@ interface Props {
     onAgregar: (tipo: string) => void;
     onEliminar: (contacto: any) => void;
     onToggleWhatsapp?: (contacto: any) => void;
+    /** Marcar/desmarcar un mail como rebotado. */
+    onToggleMailValido?: (contacto: any) => void;
     onMarcarPrincipal?: (contacto: any) => void;
     onEnviarEmail?: (contacto: any) => void;
     puedeEnviarEmail?: boolean;
@@ -111,6 +115,7 @@ const FichaContactosPanel: React.FC<Props> = ({
     onAgregar,
     onEliminar,
     onToggleWhatsapp,
+    onToggleMailValido,
     onMarcarPrincipal,
     onEnviarEmail,
     puedeEnviarEmail,
@@ -219,6 +224,23 @@ const FichaContactosPanel: React.FC<Props> = ({
                                                 <ContentCopyIcon sx={{ fontSize: 16 }} />
                                             </IconButton>
                                         </Tooltip>
+                                        {tipo === 'email' && onToggleMailValido && !disabled && (
+                                            <Tooltip title={c.validado === false ? 'Rebota — marcar como válido' : 'Marcar como que rebota'}>
+                                                <IconButton
+                                                    size="small"
+                                                    color={c.validado === false ? 'error' : 'default'}
+                                                    onClick={(e) => {
+                                                        e.stopPropagation();
+                                                        onToggleMailValido(c);
+                                                    }}
+                                                    sx={{ p: 0.25 }}
+                                                >
+                                                    {c.validado === false
+                                                        ? <ReportProblemIcon sx={{ fontSize: 16 }} />
+                                                        : <ReportProblemOutlinedIcon sx={{ fontSize: 16 }} />}
+                                                </IconButton>
+                                            </Tooltip>
+                                        )}
                                         {tipo === 'email' && puedeEnviarEmail && onEnviarEmail && (
                                             <Tooltip title="Enviar email">
                                                 <IconButton

@@ -42,6 +42,7 @@ const FichaDeudor: React.FC<Props> = ({ deudorId }) => {
     const confirm = useConfirm();
     const { tienePermiso } = useAuth();
     const puedeEnviarEmail = tienePermiso('email.enviar');
+    const puedeEditarEstado = tienePermiso('deudores.editar_estado');
     const puedeCargarPago = tienePermiso('pagos.crear');
     const puedeEliminarPago = tienePermiso('pagos.eliminar');
     const puedeCrearPromesa = tienePermiso('promesas.crear');
@@ -158,11 +159,30 @@ const FichaDeudor: React.FC<Props> = ({ deudorId }) => {
     );
 
     const handleGuardarEstados = useCallback(async () => {
+        // Cancelar a mano deja el caso de solo lectura: se deshabilitan los controles y desaparece la
+        // caja de comentarios. Desde la ficha no hay vuelta atrás, así que conviene preguntarlo antes
+        // y no descubrirlo después.
+        const situacionElegida = estadosSituacion?.find((e: any) => e.clave === estadoSituacion);
+        const vaACancelar = situacionElegida?.categoria === 'CANCELADO' && !cuentaCancelada;
+        if (vaACancelar) {
+            const ok = await confirm({
+                title: `Vas a cerrar el caso como "${situacionElegida.descripcion}"`,
+                description:
+                    'La cuenta queda de solo lectura: no vas a poder dejar comentarios, cargar promesas ni armar ' +
+                    'convenios. Desde la ficha no se puede revertir. ¿Seguro?',
+                confirmLabel: 'Cerrar el caso',
+                confirmColor: 'error',
+            });
+            if (!ok) return;
+        }
+
         try {
             await api.put(`/deudores/${deudorId}`, {
                 estadoSituacionClave: estadoSituacion,
                 estadoGestionClave: estadoGestion,
-                motivoNoPagoClave: motivoNoPago || undefined,
+                // `null` y no `undefined`: es lo que le dice al backend "quitá el motivo". Con
+                // `undefined` el campo no viajaba y el motivo anterior quedaba pegado al caso.
+                motivoNoPagoClave: motivoNoPago || null,
             });
             setCambiosPendientes(false);
             notify.success('Estados actualizados correctamente');
@@ -170,7 +190,7 @@ const FichaDeudor: React.FC<Props> = ({ deudorId }) => {
         } catch (err) {
             notify.error(err as Error);
         }
-    }, [deudorId, estadoSituacion, estadoGestion, motivoNoPago, cargarInicial]);
+    }, [deudorId, estadoSituacion, estadoGestion, motivoNoPago, cargarInicial, estadosSituacion, cuentaCancelada, confirm]);
 
     const handleOpenModalAgregar = useCallback((tipo: string) => {
         setTipoSeleccionado(tipo);
@@ -195,6 +215,34 @@ const FichaDeudor: React.FC<Props> = ({ deudorId }) => {
             }
         },
         [confirm, deudorId, cargarInicial],
+    );
+
+    /**
+     * Marca un mail como rebotado (o le saca la marca).
+     *
+     * `contacto.validado` existía en el modelo y solo lo escribía la UI de teléfonos: una dirección
+     * que rebota no se podía señalar de ninguna forma, así que el próximo gestor la volvía a usar.
+     */
+    const handleToggleMailValido = useCallback(
+        async (contacto: any) => {
+            const rebota = contacto.validado === false;
+            const ok = await confirm({
+                title: rebota ? 'Marcar el mail como válido' : 'Marcar el mail como rebotado',
+                description: rebota
+                    ? `¿Sacarle la marca de rebote a "${contacto.valor}"?`
+                    : `"${contacto.valor}" va a quedar señalado como que rebota, para que nadie más pierda tiempo con él. No se borra.`,
+                confirmLabel: rebota ? 'Marcar válido' : 'Marcar rebotado',
+            });
+            if (!ok) return;
+            try {
+                await api.put(`/contactos/${contacto.id}`, { validado: rebota });
+                notify.success(rebota ? 'Mail marcado como válido' : 'Mail marcado como rebotado');
+                cargarInicial();
+            } catch (err) {
+                notify.error(err as Error);
+            }
+        },
+        [confirm, notify, cargarInicial],
     );
 
     const handleToggleWhatsapp = useCallback(
@@ -358,6 +406,7 @@ const FichaDeudor: React.FC<Props> = ({ deudorId }) => {
                         onEstadoChange={handleEstadoChange}
                         onGuardar={handleGuardarEstados}
                         disabled={cuentaCancelada}
+                        puedeEditar={puedeEditarEstado}
                     />
 
                     {/* TABS DASHBOARD */}
@@ -464,6 +513,7 @@ const FichaDeudor: React.FC<Props> = ({ deudorId }) => {
                         onToggleWhatsapp={handleToggleWhatsapp}
                         onMarcarPrincipal={handleMarcarPrincipal}
                         onEnviarEmail={handleEnviarEmail}
+                        onToggleMailValido={handleToggleMailValido}
                         puedeEnviarEmail={puedeEnviarEmail}
                         disabled={cuentaCancelada}
                     />

@@ -15,6 +15,8 @@ import CheckCircleIcon from '@mui/icons-material/CheckCircle';
 
 interface Props {
     estadoSituacion: string;
+    /** Sin el permiso de editar estados, los tres selectores van deshabilitados. */
+    puedeEditar?: boolean;
     estadoGestion: string;
     motivoNoPago: string;
     estadosSituacion: any[] | null;
@@ -27,6 +29,7 @@ interface Props {
 }
 
 const TOOLTIP_CANCELADA = 'Cuenta cancelada — no se puede modificar';
+const TOOLTIP_SIN_PERMISO = 'No tenés permiso para editar los estados de un caso';
 
 const FichaEstadosCard: React.FC<Props> = ({
     estadoSituacion,
@@ -39,7 +42,13 @@ const FichaEstadosCard: React.FC<Props> = ({
     onEstadoChange,
     onGuardar,
     disabled = false,
+    puedeEditar = true,
 }) => {
+    // El permiso lo verifica el backend igual, pero antes el frontend no lo miraba: el gestor
+    // completaba los tres selectores y el rechazo aparecía recién al apretar Guardar.
+    const bloqueado = disabled || !puedeEditar;
+    const motivoBloqueo = disabled ? TOOLTIP_CANCELADA : !puedeEditar ? TOOLTIP_SIN_PERMISO : '';
+
     return (
         <Card elevation={2} sx={{ mb: 3, borderRadius: 3 }}>
             <CardHeader
@@ -50,7 +59,7 @@ const FichaEstadosCard: React.FC<Props> = ({
             <CardContent>
                 <Grid container spacing={2} alignItems="center">
                     <Grid item xs={12} sm={4}>
-                        <Tooltip title={disabled ? TOOLTIP_CANCELADA : ''} disableHoverListener={!disabled}>
+                        <Tooltip title={motivoBloqueo} disableHoverListener={!bloqueado}>
                             <span>
                                 <TextField
                                     select
@@ -60,7 +69,7 @@ const FichaEstadosCard: React.FC<Props> = ({
                                     value={estadoSituacion}
                                     onChange={(e) => onEstadoChange('situacion', e.target.value)}
                                     variant="outlined"
-                                    disabled={disabled}
+                                    disabled={bloqueado}
                                 >
                                     {estadosSituacion?.map((est: any) => (
                                         <MenuItem key={est.clave} value={est.clave}>
@@ -72,7 +81,7 @@ const FichaEstadosCard: React.FC<Props> = ({
                         </Tooltip>
                     </Grid>
                     <Grid item xs={12} sm={4}>
-                        <Tooltip title={disabled ? TOOLTIP_CANCELADA : ''} disableHoverListener={!disabled}>
+                        <Tooltip title={motivoBloqueo} disableHoverListener={!bloqueado}>
                             <span>
                                 <TextField
                                     select
@@ -82,7 +91,7 @@ const FichaEstadosCard: React.FC<Props> = ({
                                     value={estadoGestion}
                                     onChange={(e) => onEstadoChange('gestion', e.target.value)}
                                     variant="outlined"
-                                    disabled={disabled}
+                                    disabled={bloqueado}
                                 >
                                     {estadosGestion?.map((est: any) => (
                                         <MenuItem key={est.clave} value={est.clave}>
@@ -94,7 +103,7 @@ const FichaEstadosCard: React.FC<Props> = ({
                         </Tooltip>
                     </Grid>
                     <Grid item xs={12} sm={4}>
-                        <Tooltip title={disabled ? TOOLTIP_CANCELADA : ''} disableHoverListener={!disabled}>
+                        <Tooltip title={motivoBloqueo} disableHoverListener={!bloqueado}>
                             <span>
                                 <TextField
                                     select
@@ -104,7 +113,7 @@ const FichaEstadosCard: React.FC<Props> = ({
                                     value={motivoNoPago}
                                     onChange={(e) => onEstadoChange('motivoNoPago', e.target.value)}
                                     variant="outlined"
-                                    disabled={disabled}
+                                    disabled={bloqueado}
                                 >
                                     <MenuItem value="">
                                         <em>Sin motivo</em>
@@ -119,7 +128,7 @@ const FichaEstadosCard: React.FC<Props> = ({
                         </Tooltip>
                     </Grid>
                     <Grid item xs={12}>
-                        <Tooltip title={disabled ? TOOLTIP_CANCELADA : ''} disableHoverListener={!disabled}>
+                        <Tooltip title={motivoBloqueo} disableHoverListener={!bloqueado}>
                             <span>
                                 <Button
                                     fullWidth
@@ -127,7 +136,7 @@ const FichaEstadosCard: React.FC<Props> = ({
                                     color={cambiosPendientes ? 'primary' : 'inherit'}
                                     startIcon={cambiosPendientes ? <SaveIcon /> : <CheckCircleIcon />}
                                     onClick={onGuardar}
-                                    disabled={!cambiosPendientes || disabled}
+                                    disabled={!cambiosPendientes || bloqueado}
                                     sx={{ height: '40px' }}
                                 >
                                     {cambiosPendientes ? 'Guardar' : 'OK'}

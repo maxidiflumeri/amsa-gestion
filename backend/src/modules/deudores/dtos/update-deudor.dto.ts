@@ -7,6 +7,11 @@ export class UpdateDeudorDto {
     @IsOptional()
     estadoGestionClave?: string;
 
+    /**
+     * `undefined` conserva el motivo actual; `null` o `''` lo **borran**.
+     *
+     * La distinción importa: sin ella el motivo de no pago no se podía quitar nunca.
+     */
     @IsOptional()
-    motivoNoPagoClave?: string;
+    motivoNoPagoClave?: string | null;
 }
