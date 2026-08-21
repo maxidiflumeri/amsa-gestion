@@ -205,7 +205,7 @@ const UsuariosPage: React.FC = () => {
 
     const guardar = async () => {
         // Validaciones
-        if (!editando && (!formNombre.trim() || !formEmail.trim())) {
+        if (!formNombre.trim() || !formEmail.trim()) {
             notify.warning('Nombre y email son requeridos');
             return;
         }
@@ -231,6 +231,9 @@ const UsuariosPage: React.FC = () => {
             if (editando) {
                 const payload: Record<string, unknown> = {
                     nombre: formNombre.trim(),
+                    // El email ahora es editable: un error de tipeo en el alta dejaba a la persona
+                    // sin poder entrar y sin forma de arreglarlo.
+                    email: formEmail.trim(),
                     rolId: formRolId !== '' ? Number(formRolId) : null,
                     activo: formActivo,
                     legajo: formLegajo.trim() || null,
@@ -461,13 +464,12 @@ const UsuariosPage: React.FC = () => {
                                         value={formEmail}
                                         onChange={(e) => setFormEmail(e.target.value)}
                                         fullWidth
-                                        required={!editando}
-                                        disabled={!!editando}
+                                        required
                                         inputProps={{ maxLength: 200 }}
                                         helperText={
-                                            !editando
-                                                ? 'El usuario deberá usar esta cuenta de Google para ingresar'
-                                                : undefined
+                                            editando
+                                                ? 'Es la cuenta de Google con la que entra: si la cambiás, tiene que usar la nueva'
+                                                : 'El usuario deberá usar esta cuenta de Google para ingresar'
                                         }
                                     />
                                     <Stack direction="row" spacing={2}>

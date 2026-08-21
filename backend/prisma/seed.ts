@@ -1,56 +1,15 @@
 import { PrismaClient } from '@prisma/client';
 
-// Inline de TODAS_LAS_KEYS para no depender de compilación de módulos NestJS
-const TODAS_LAS_KEYS: string[] = [
-    'deudores.ver',
-    'deudores.editar_estado',
-    'deudores.exportar',
-    'deudores.acciones_masivas',
-    'comentarios.ver',
-    'comentarios.crear',
-    'comentarios.eliminar',
-    'convenios.ver',
-    'convenios.crear',
-    'convenios.cancelar',
-    'convenios.registrar_pago',
-    'pagos.ver',
-    'pagos.crear',
-    'pagos.eliminar',
-    'promesas.ver',
-    'promesas.crear',
-    'promesas.cancelar',
-    'promesas.procesar_vencidas',
-    'importacion.ejecutar',
-    'importacion.ver_historial',
-    'importacion.ver_progreso_otros',
-    'importacion.eliminar',
-    'consolidacion.ejecutar',
-    'plantillas_import.ver',
-    'plantillas_import.crear',
-    'plantillas_import.editar',
-    'plantillas_import.eliminar',
-    'reportes.ver',
-    'reportes.crear',
-    'reportes.editar',
-    'reportes.eliminar',
-    'reportes.ejecutar',
-    'reportes.ver_ejecuciones',
-    'reportes.gestionar_formatos',
-    'empresas.ver',
-    'empresas.crear',
-    'empresas.editar',
-    'empresas.eliminar',
-    'parametros.ver',
-    'parametros.crear',
-    'parametros.editar',
-    'parametros.eliminar',
-    'politicas.ver',
-    'politicas.crear',
-    'politicas.editar',
-    'politicas.eliminar',
-    'admin.gestionar_roles',
-    'admin.gestionar_usuarios',
-];
+/**
+ * El catálogo se importa del código, no se copia.
+ *
+ * Estaba duplicado inline y se había quedado corto: 48 claves contra las 63 del catálogo real, sin
+ * `mora.*`, `auditoria.*`, `dashboards.*` ni `email.*`. O sea que **el rol ADMIN recién sembrado no
+ * tenía todos los permisos**, que es exactamente lo único que ese rol promete.
+ *
+ * El seed corre con ts-node, así que importar el módulo no cuesta nada.
+ */
+import { TODAS_LAS_KEYS } from '../src/auth/permisos-catalogo';
 
 const PERMISOS_OPERADOR: string[] = [
     'deudores.ver',

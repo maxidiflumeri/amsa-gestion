@@ -32,12 +32,9 @@ describeSiHayFront('catálogo de permisos: backend y frontend en sincronía', ()
         const front = new Set(keysDelFrontend());
         const faltantes = TODAS_LAS_KEYS.filter((k) => !front.has(k));
 
-        expect(faltantes).toEqual(
-            // Deuda preexistente: los 4 permisos de telefonía nunca se agregaron a la copia del
-            // front, así que hoy no se pueden otorgar desde la UI. Se dejan anotados en vez de
-            // ocultos, para que la lista no crezca en silencio.
-            ['telefonia.usar', 'telefonia.click_to_call', 'telefonia.supervisar', 'telefonia.admin'],
-        );
+        // Sin excepciones: todo permiso que el backend valida se tiene que poder otorgar desde la
+        // pantalla de Roles. Los 4 de telefonía eran deuda preexistente y ya están.
+        expect(faltantes).toEqual([]);
     });
 
     it('el frontend no ofrece permisos que el backend no conoce', () => {

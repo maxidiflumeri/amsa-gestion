@@ -18,6 +18,15 @@ import { CampañaAgenteService } from './campaña-agente.service';
 import { SetEstadoDto, AsignarCampañaDto } from './dto/neotel-api.dto';
 
 @Controller('neotel')
+/**
+ * Endpoints del panel de prueba de Neotel.
+ *
+ * Piden `telefonia.admin` y no `telefonia.usar`: **no son de solo lectura**. Desloguean al agente de
+ * la central, le cambian el estado, lo ponen en pausa y lo mueven de campaña — o sea, hacen lo mismo
+ * que la Toolbar. Con `telefonia.usar`, el día que se le dé ese permiso a un agente para el softphone,
+ * ese mismo agente podría pisarse su propio estado por fuera de la Toolbar, que es justo el desfasaje
+ * que el spec quiere evitar (neotel-toolbar-spec.md §6).
+ */
 export class NeotelSesionController {
     constructor(
         private readonly sesionSvc:  SesionAgenteService,
@@ -35,7 +44,7 @@ export class NeotelSesionController {
      */
     @Post('sesion/login')
     @HttpCode(HttpStatus.OK)
-    @Permisos('telefonia.usar')
+    @Permisos('telefonia.admin')
     @Audit({
         modulo:                AuditModulo.TELEFONIA,
         entidad:               'SesionAgenteNeotel',
@@ -59,7 +68,7 @@ export class NeotelSesionController {
      */
     @Post('sesion/logout')
     @HttpCode(HttpStatus.OK)
-    @Permisos('telefonia.usar')
+    @Permisos('telefonia.admin')
     @Audit({
         modulo:  AuditModulo.TELEFONIA,
         entidad: 'SesionAgenteNeotel',
@@ -76,7 +85,7 @@ export class NeotelSesionController {
      * Retorna null si no hay sesión activa.
      */
     @Get('sesion/actual')
-    @Permisos('telefonia.usar')
+    @Permisos('telefonia.admin')
     getSesionActual(@UsuarioActual() usuario: { sub: number }) {
         return this.sesionSvc.getSesionActiva(usuario.sub);
     }
@@ -90,7 +99,7 @@ export class NeotelSesionController {
      */
     @Put('estado')
     @HttpCode(HttpStatus.OK)
-    @Permisos('telefonia.usar')
+    @Permisos('telefonia.admin')
     @Audit({
         modulo:  AuditModulo.TELEFONIA,
         entidad: 'EstadoAgenteEvento',
@@ -109,7 +118,7 @@ export class NeotelSesionController {
      * Devuelve el estado actual del agente (desde Redis con fallback a DB).
      */
     @Get('estado/actual')
-    @Permisos('telefonia.usar')
+    @Permisos('telefonia.admin')
     getEstadoActual(@UsuarioActual() usuario: { sub: number }) {
         return this.estadoSvc.getEstadoActual(usuario.sub);
     }
@@ -119,7 +128,7 @@ export class NeotelSesionController {
      * Devuelve los motivos de pausa activos configurados por el admin.
      */
     @Get('motivos-pausa')
-    @Permisos('telefonia.usar')
+    @Permisos('telefonia.admin')
     listarMotivosPausa() {
         return this.estadoSvc.listarMotivosPausa();
     }
@@ -131,7 +140,7 @@ export class NeotelSesionController {
      * Lista las campanias activas disponibles.
      */
     @Get('campanias')
-    @Permisos('telefonia.usar')
+    @Permisos('telefonia.admin')
     listarCampañas() {
         return this.campaniaSvc.listarCampañasDisponibles();
     }
@@ -142,7 +151,7 @@ export class NeotelSesionController {
      */
     @Post('campania/asignar')
     @HttpCode(HttpStatus.OK)
-    @Permisos('telefonia.usar')
+    @Permisos('telefonia.admin')
     @Audit({
         modulo:  AuditModulo.TELEFONIA,
         entidad: 'CampaniaSesionNeotel',
@@ -162,7 +171,7 @@ export class NeotelSesionController {
      */
     @Post('campania/desasignar')
     @HttpCode(HttpStatus.OK)
-    @Permisos('telefonia.usar')
+    @Permisos('telefonia.admin')
     @Audit({
         modulo:  AuditModulo.TELEFONIA,
         entidad: 'CampaniaSesionNeotel',

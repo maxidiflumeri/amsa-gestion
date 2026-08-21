@@ -28,6 +28,9 @@ const USUARIO_SELECT = {
     nombre: true,
     email: true,
     legajo: true,
+    // Faltaba: el formulario de edición lo mostraba siempre vacío aunque estuviera cargado, así que
+    // no había forma de ver ni de corregir el DNI de alguien.
+    dni: true,
     avatarUrl: true,
     activo: true,
     rolId: true,
@@ -47,6 +50,7 @@ function mapUsuario(u: {
     nombre: string;
     email: string;
     legajo: string | null;
+    dni: string | null;
     avatarUrl: string | null;
     activo: boolean;
     rolId: number | null;
@@ -167,7 +171,10 @@ export class UsuariosService {
 
     async update(id: number, dto: UpdateUsuarioDto) {
         await this.findOne(id);
-        const dniNormalizado = dto.dni ? normalizarDni(dto.dni) : undefined;
+        // `undefined` conserva; `null` o `''` borran. Antes las dos ramas caían en `undefined`, así
+        // que un DNI cargado no se podía dejar vacío nunca.
+        const dniNormalizado =
+            dto.dni === undefined ? undefined : dto.dni === null || dto.dni === '' ? null : normalizarDni(dto.dni);
 
         this.logger.log(`Actualizando usuario: ${id}`);
         try {
@@ -178,7 +185,11 @@ export class UsuariosService {
                 if (dto.rolId    !== undefined) dataUsuario.rolId   = dto.rolId;
                 if (dto.activo   !== undefined) dataUsuario.activo  = dto.activo;
                 if (dto.legajo   !== undefined) dataUsuario.legajo  = dto.legajo?.trim() || null;
-                if (dniNormalizado !== undefined) dataUsuario.dni   = dniNormalizado || null;
+                if (dniNormalizado !== undefined) dataUsuario.dni   = dniNormalizado;
+                // El email es la credencial de login: un error de tipeo en el alta dejaba a la
+                // persona sin poder entrar y sin forma de arreglarlo desde la pantalla. La unicidad
+                // la sigue verificando la base.
+                if (dto.email !== undefined) dataUsuario.email = dto.email.trim();
 
                 await tx.usuario.update({
                     where: { id },
