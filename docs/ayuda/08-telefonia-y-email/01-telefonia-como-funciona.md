@@ -35,6 +35,14 @@ cuando entra la llamada**.
 Así que **el softphone no está acá**. Si un operador pregunta cómo poner una pausa o por qué no le
 entran llamadas, eso se resuelve en la Toolbar, no en el sistema.
 
+> ### Al operador no hay que configurarle nada en AMSA Gestión
+>
+> Entra al sistema de Neotel, la Toolbar se abre con la pantalla de gestión adentro, y ya está.
+>
+> El formulario de usuarios tiene un interruptor **Es agente** que pide credenciales SIP: **quedó del
+> plan viejo**, en el que el softphone iba a vivir dentro de AMSA Gestión. No hace falta completarlo
+> para atender. Ver [Usuarios](/ayuda/administracion/usuarios).
+
 > La columna derecha describe al sistema completo, no a lo que el operador tiene a mano durante la
 > llamada. **Dentro de la Toolbar no hay menú**: se ve la ficha y nada más. Reportes, tableros y las
 > solapas de Política y Timeline se miran desde la ventana normal del sistema.

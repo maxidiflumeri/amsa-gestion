@@ -61,21 +61,25 @@ Dos consecuencias:
 
 ---
 
-## El bloque de telefonía
+## ⚠ El bloque de telefonía: hoy no hace falta
 
-Si la persona atiende llamadas, se activa **Es agente** y se completan los datos que da Neotel: usuario
-Neotel, device, SIP auth user, display name, clave Neotel y SIP password.
+El formulario tiene un interruptor **Es agente** que pide usuario Neotel, device, SIP auth user, clave
+Neotel y SIP password.
 
-Al **crear** son obligatorios cinco: usuario Neotel, device, SIP auth user, clave Neotel y SIP
-password. El display name es opcional, y así está rotulado.
+**No lo completes.** Quedó del plan viejo, en el que el softphone iba a estar dentro de AMSA Gestión y
+el sistema se logueaba contra la central con esas credenciales. Ese plan se descartó: ahora se usa la
+**Toolbar de Neotel**, que tiene su propio softphone y su propia sesión, y AMSA Gestión solo muestra la
+ficha del caso.
 
-Al **editar**, las claves solo se tocan si las cambiás explícitamente: dejarlas vacías las conserva.
+**Para que alguien atienda llamadas no hay que configurarle nada acá.** Entra al sistema de Neotel,
+la Toolbar se abre con la pantalla de gestión adentro, y listo. Ver
+[Cómo funciona la telefonía](/ayuda/telefonia-y-email/telefonia-como-funciona).
 
-> **Apagar "Es agente" borra la configuración de telefonía**, credenciales incluidas. Volver a
-> activarla obliga a pedirle todo de nuevo a Neotel. Si es una baja temporal, usá **Habilitado** dentro
-> del bloque en vez de apagar el interruptor.
+Lo único que todavía usa esos datos es el panel de prueba de Neotel, que es una herramienta técnica.
 
-Las claves se guardan cifradas y no se pueden volver a ver: si alguien las perdió, se cargan de nuevo.
+Si igual necesitás tocarlo: las claves se guardan cifradas y no se pueden volver a ver; al editar, se
+conservan si las dejás vacías; y apagar **Es agente** borra la configuración entera, credenciales
+incluidas.
 
 ---
 
