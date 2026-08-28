@@ -31,7 +31,7 @@ import {
 import { validarArchivosHomogeneos } from './utils/archivos-homogeneos';
 import { describirFiltros, pasaFiltro } from './utils/filtro-filas';
 import { siguienteNumeroRemesa } from './utils/numero-remesa';
-import { AcumuladorCortes, columnasDeDivision, divide, numeroConGestion } from './utils/division-remesa';
+import { AcumuladorCortes, columnasDeDivision, divide, numerosSugeridos } from './utils/division-remesa';
 import { ContadorColisiones, resolverIdentidad } from './utils/identidad-deudor';
 import { RequestContextService } from 'src/common/logger/request-context';
 import { ConsolidacionSituacionService } from '../consolidacion/consolidacion.service';
@@ -566,19 +566,14 @@ export class ImportService {
 
             const cortes = acumulador.cortes();
 
-            // Número base de las sugerencias. Con división por nómina cada corte necesita el suyo,
-            // así que el correlativo avanza; si solo divide por gestión, todos comparten la base y
-            // el prefijo de la gestión es lo que los distingue (100 → 10100, 20100, 30100).
+            // Número base de las sugerencias. El correlativo avanza por cada combinación distinta
+            // de las columnas de CORTE; la gestión no avanza nada, solo prefija. Ver
+            // `numerosSugeridos`.
             const previas = await this.prisma.remesa.findMany({
                 where: { empresaId }, select: { numeroRemesa: true },
             });
             const base = siguienteNumeroRemesa(previas.map((r) => r.numeroRemesa), numeroBase);
-            const avanzaPorCorte = !!cfg!.porNomina;
-
-            const sugeridos = cortes.map((c, i) => {
-                const propio = avanzaPorCorte ? this.correlativoDesde(base, i) : base;
-                return numeroConGestion(propio, c.gestion);
-            });
+            const sugeridos = numerosSugeridos(cortes, base);
 
             this.logger.log(
                 `División (plantilla ${plantillaId}): ${cortes.length} corte(s) en ${total} fila(s) — ` +
@@ -592,20 +587,12 @@ export class ImportService {
                 cortes: cortes.map((c, i) => ({
                     valores: c.valores,
                     filas: c.filas,
-                    nomina: c.nomina,
-                    gestion: c.gestion,
                     numeroSugerido: sugeridos[i],
                 })),
             };
         } finally {
             fs.rmSync(dirTmp, { recursive: true, force: true });
         }
-    }
-
-    /** `00100` + 2 → `00102`, conservando el ancho del correlativo. */
-    private correlativoDesde(base: string, offset: number): string {
-        if (!/^\d+$/.test(base)) return base;
-        return String(parseInt(base, 10) + offset).padStart(base.length, '0');
     }
 
     // --- REMESA / ARCHIVO ---

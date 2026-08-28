@@ -126,19 +126,31 @@ export interface ColumnaDivision {
  * tiene que ser su propia remesa. El archivo del 27/05 trae 5 nóminas y 4 gestiones en 19.538
  * filas.
  *
- * Los dos criterios cortan; lo que cambia es de dónde sale el número de remesa:
- *  - `porNomina`: se pide un número para cada valor encontrado.
- *  - `porGestion`: el número se deriva prefijándole el primer dígito de la gestión, que es la
- *    convención de la operación (gestión `3GH` sobre la remesa `100` → `30100`).
+ * Las columnas se dividen en dos roles, que es lo que define el número de remesa:
  *
- * Si se declaran los dos, se arma una remesa por cada combinación (nómina, gestión).
+ *  - **`cortes`** — la nómina, y lo que haga falta agregarle. Cada combinación distinta de estos
+ *    valores recibe **su propio número base** (`100`, `101`, `102`…), que el operador confirma o
+ *    corrige en la pantalla de carga.
+ *  - **`prefijo`** — la gestión. NO avanza el número: le antepone su primer dígito al base de su
+ *    corte, que es la convención de la operación. Una nómina con tres gestiones da `10100`,
+ *    `20100` y `30100`: el mismo `100`, tres prefijos.
+ *
+ * Un mismo CA puede traer nóminas de **prebaja** y de **posbaja**, que son carteras de empresas
+ * distintas. Declarar esa columna como corte hace que se vea en la tabla y el operador pueda tildar
+ * solo las nóminas de la empresa que está cargando (sube el archivo una vez por empresa).
  *
  * Es una decisión de la **plantilla** porque depende de cómo exporta el cedente: fuera de Telecom
  * y Telecom Personal ninguna cartera necesita esto, y sin el bloque declarado la carga se comporta
  * como siempre (una remesa por archivo).
  */
 export interface DivisionRemesaConfig {
+    /** Columnas que cortan y reciben su propio número base. */
+    cortes?: ColumnaDivision[];
+    /** Columna cuyo primer dígito prefija el número base. Como mucho una. */
+    prefijo?: ColumnaDivision;
+    /** Forma con la que nació la función: equivale a un `cortes` de un elemento. Se sigue leyendo. */
     porNomina?: ColumnaDivision;
+    /** Forma con la que nació la función: equivale a `prefijo`. Se sigue leyendo. */
     porGestion?: ColumnaDivision;
 }
 

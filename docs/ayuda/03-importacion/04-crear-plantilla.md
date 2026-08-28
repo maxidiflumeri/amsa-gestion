@@ -363,15 +363,38 @@ Las filas descartadas **no cuentan como error**: se informan aparte en la vista 
 Para los cedentes que exportan filtrando **solo por día**: si ese día asignaron cuatro nóminas, el
 archivo llega con las cuatro adentro y en gestión cada una tiene que ser su propia remesa.
 
-Se declaran dos columnas, cada una opcional (`-1` = no se usa):
+Las columnas tienen **dos roles**, y de ahí sale el número de remesa:
 
-- **Columna de la nómina** — se crea una remesa por cada valor distinto y la pantalla de carga pide
-  el número de cada una.
-- **Columna de la gestión** — también corta, pero el número se deriva solo: se le antepone el
-  **primer dígito** de la gestión al número de remesa. Sobre la remesa `100`, la gestión `1GH` es la
-  `10100`, la `2GH` la `20100` y la `3GH` la `30100`.
+**Columnas que cortan.** Cada combinación distinta de sus valores es una remesa, y **cada una recibe
+su propio número base**: `100`, `101`, `102`… Acá va la nómina.
 
-Si declarás las dos, se arma una remesa por cada **combinación** de nómina y gestión.
+**Columna que prefija.** La gestión. **No crea un número nuevo**: le antepone su primer dígito al
+número del corte al que pertenece.
+
+La diferencia entre los dos roles se ve cuando una nómina trae varias gestiones:
+
+| Configuración | Archivo | Números |
+|---|---|---|
+| Solo nómina | 3 nóminas | `100` · `101` · `102` |
+| Solo gestión | 3 gestiones | `10100` · `20100` · `30100` |
+| Nómina + gestión | 1 nómina con 3 gestiones | `10100` · `20100` · `30100` |
+| Nómina + gestión | 2 nóminas con 3 gestiones c/u | `10100` · `20100` · `30100` y `10101` · `20101` · `30101` |
+
+O sea: **el número es de la nómina y la gestión solo lo prefija.** Dos nóminas son dos números; tres
+gestiones de una misma nómina son el mismo número con tres prefijos.
+
+> Si dos gestiones empiezan con el mismo dígito —`3G` y `3GH`— y no hay columna de corte que las
+> separe, sale el mismo número para las dos. La pantalla de carga lo marca y no deja seguir hasta
+> que corrijas una a mano.
+
+### Cuando el archivo mezcla dos empresas
+
+Un mismo CA puede traer nóminas de **prebaja** y de **posbaja**, que son carteras de empresas
+distintas (Telecom / Telecom Personal). Agregá esa columna como **columna de corte**: se ve en la
+tabla de carga, y así el operador sabe de cuál es cada nómina.
+
+El archivo se sube **una vez por empresa**: en cada carga se tildan solo las nóminas que
+corresponden a la empresa que estás cargando y las demás se destildan.
 
 Al cargar, el operador ve la tabla de cortes con la cantidad de casos de cada uno antes de crear
 nada. Las N remesas comparten **el mismo archivo**: no se sube ni se guarda varias veces.

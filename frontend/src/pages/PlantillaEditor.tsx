@@ -32,6 +32,7 @@ import MultirregistroEditor, { PRESET_TOYOTA_87 } from '../components/import/Mul
 import MultiarchivoEditor, { PRESET_TOYOTA_TCFA } from '../components/import/MultiarchivoEditor'
 import AnchoFijoEditor, { layoutATexto, parsearLayout } from '../components/import/AnchoFijoEditor'
 import FiltroFilasEditor, { FiltroFila } from '../components/import/FiltroFilasEditor'
+import DivisionRemesaEditor, { DivisionRemesa } from '../components/import/DivisionRemesaEditor'
 
 // ─── Constantes ──────────────────────────────────────────────────────────────
 
@@ -244,9 +245,8 @@ const PlantillaEditor: React.FC = () => {
     // cliente es lo que necesitan las carteras donde un mismo DNI tiene varias cuentas.
     const [identidadDeudor, setIdentidadDeudor] =
         useState<'DOCUMENTO' | 'NRO_CLIENTE'>('DOCUMENTO')
-    // División de la carga en una remesa por corte. `-1` = el criterio no se usa.
-    const [divNominaIndex, setDivNominaIndex] = useState<number>(-1)
-    const [divGestionIndex, setDivGestionIndex] = useState<number>(-1)
+    // División de la carga en una remesa por corte. Vacío = no divide.
+    const [divisionRemesa, setDivisionRemesa] = useState<DivisionRemesa>({})
 
     const [accionesConfig, setAccionesConfig] = useState<AccionesConfig>({
         matchMode: 'DEUDOR',
@@ -354,8 +354,19 @@ const PlantillaEditor: React.FC = () => {
             }
             setFiltroFilas(p.mappingJson?.filtroFilas ?? [])
             setIdentidadDeudor(p.mappingJson?.identidadDeudor === 'NRO_CLIENTE' ? 'NRO_CLIENTE' : 'DOCUMENTO')
-            setDivNominaIndex(p.mappingJson?.divisionRemesa?.porNomina?.fromIndex ?? -1)
-            setDivGestionIndex(p.mappingJson?.divisionRemesa?.porGestion?.fromIndex ?? -1)
+            // Se acepta la forma vieja (porNomina/porGestion) para las plantillas ya guardadas.
+            const div = p.mappingJson?.divisionRemesa
+            setDivisionRemesa(
+                div
+                    ? {
+                          cortes: [
+                              ...(div.porNomina ? [div.porNomina] : []),
+                              ...(div.cortes ?? []),
+                          ],
+                          prefijo: div.prefijo ?? div.porGestion,
+                      }
+                    : {},
+            )
         } catch (err) {
             notify.error(err as Error)
             navigate('/plantillas')
@@ -498,14 +509,11 @@ const PlantillaEditor: React.FC = () => {
         if (esFlujoCasos && identidadDeudor === 'NRO_CLIENTE') {
             ;(mappingJson as Record<string, unknown>).identidadDeudor = 'NRO_CLIENTE'
         }
-        if (divNominaIndex >= 0 || divGestionIndex >= 0) {
+        const cortesDivision = (divisionRemesa.cortes ?? []).filter((c) => c.etiqueta.trim())
+        if (cortesDivision.length > 0 || divisionRemesa.prefijo) {
             ;(mappingJson as Record<string, unknown>).divisionRemesa = {
-                ...(divNominaIndex >= 0
-                    ? { porNomina: { fromIndex: divNominaIndex, etiqueta: 'Nómina' } }
-                    : {}),
-                ...(divGestionIndex >= 0
-                    ? { porGestion: { fromIndex: divGestionIndex, etiqueta: 'Gestión' } }
-                    : {}),
+                ...(cortesDivision.length ? { cortes: cortesDivision } : {}),
+                ...(divisionRemesa.prefijo ? { prefijo: divisionRemesa.prefijo } : {}),
             }
         }
 
@@ -785,34 +793,10 @@ const PlantillaEditor: React.FC = () => {
                             Para los archivos que traen varias asignaciones juntas porque el cedente
                             exporta filtrando solo por día. Al cargar, el sistema cuenta los casos de
                             cada corte y crea una remesa por cada uno, todas sobre el mismo archivo.
-                            Dejá los dos en "No dividir" y la carga se comporta como siempre.
                         </Typography>
-                        <Stack direction={{ xs: 'column', md: 'row' }} spacing={2} sx={{ mb: 3 }}>
-                            <TextField
-                                label="Columna de la nómina"
-                                type="number"
-                                sx={{ maxWidth: 280 }}
-                                value={divNominaIndex}
-                                onChange={(e) => setDivNominaIndex(parseInt(e.target.value, 10))}
-                                helperText={
-                                    divNominaIndex >= 0
-                                        ? 'Se pide un número de remesa para cada nómina.'
-                                        : '-1 = no dividir por nómina.'
-                                }
-                            />
-                            <TextField
-                                label="Columna de la gestión"
-                                type="number"
-                                sx={{ maxWidth: 280 }}
-                                value={divGestionIndex}
-                                onChange={(e) => setDivGestionIndex(parseInt(e.target.value, 10))}
-                                helperText={
-                                    divGestionIndex >= 0
-                                        ? 'El número de remesa se prefija con el dígito de la gestión (3GH sobre la 100 → 30100).'
-                                        : '-1 = no dividir por gestión.'
-                                }
-                            />
-                        </Stack>
+                        <Box sx={{ mb: 3 }}>
+                            <DivisionRemesaEditor value={divisionRemesa} onChange={setDivisionRemesa} />
+                        </Box>
                     </>
                 )}
 

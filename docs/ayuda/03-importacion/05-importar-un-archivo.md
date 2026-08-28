@@ -70,25 +70,30 @@ Algunos cedentes exportan filtrando **solo por día**: si ese día asignaron cua
 archivo con las cuatro adentro. Es el caso de Telecom y Telecom Personal, que se bajan de Deimos.
 
 Cuando la plantilla tiene configurada la división, el botón dice **"Ver los cortes del archivo"** en
-vez de "Crear remesa y validar". Se abre una tabla con **una fila por nómina y gestión**, cuántos
-casos tiene cada una y qué número de remesa le va a tocar:
+vez de "Crear remesa y validar". Se abre una tabla con una fila por corte, cuántos casos tiene cada
+uno y qué número de remesa le va a tocar:
 
-| Nómina | Gestión | Casos | Nº de remesa |
-|---|---|---|---|
-| 3082 | 3GH | 13.948 | `30100` |
-| 3083 | 1G | 1.957 | `10101` |
+| | Nómina | Gestión | Casos | Nº de remesa |
+|---|---|---|---|---|
+| ☑ | 3082 | 3GH | 13.948 | `30100` |
+| ☑ | 3083 | 1G | 1.957 | `10101` |
 
 **Compará los casos con lo que informó el cedente por mail antes de seguir.** Podés editar cualquier
-número y destildar los cortes que no quieras cargar todavía.
+número y **destildar los cortes que no quieras cargar**.
 
-El número se propone solo: cuando la división es por gestión, se le antepone su primer dígito al
-número de remesa (la gestión `3GH` sobre la remesa `100` es la `30100`). Si dos gestiones empiezan
-con el mismo dígito —`3G` y `3GH`— sale el mismo número para las dos y hay que corregir una a mano;
-la pantalla te avisa y no deja seguir hasta que lo hagas.
+El número se propone solo: el corte recibe un número base y la gestión le antepone su primer dígito
+(la gestión `3GH` sobre la remesa `100` es la `30100`). Una nómina con tres gestiones da `10100`,
+`20100` y `30100` — el mismo número con tres prefijos. Si dos números salen iguales, la pantalla te
+avisa y no deja seguir hasta que corrijas uno.
 
 Al confirmar se crean todas las remesas de una, **sobre el mismo archivo** (no se sube ni se guarda
 varias veces), y se importan **una después de la otra**. Mientras corre vas a ver "Procesando la
 remesa 2 de 5".
+
+> **Si el archivo mezcla dos empresas.** Un CA puede traer nóminas de prebaja y de posbaja, que son
+> carteras de empresas distintas. Subilo **dos veces, una por empresa**: en cada carga elegís la
+> empresa arriba y tildás solo las nóminas que le corresponden. La columna que las distingue aparece
+> en la tabla si la plantilla la declara como columna de corte.
 
 ## Paso 3 — Vista previa
 
