@@ -93,6 +93,55 @@ export interface AccionesConfig {
     operaciones: AccionOperacion[];
 }
 
+/**
+ * Qué columna identifica un caso dentro de la remesa.
+ *
+ * - `DOCUMENTO` (**default**): un DNI/CUIT es un caso. Vale para las carteras donde la persona
+ *   debe una sola cosa.
+ * - `NRO_CLIENTE`: cada número de cliente/cuenta/trámite es un caso, aunque el DNI se repita.
+ *   Es lo que necesitan Telecom y Telecom Personal, donde un titular tiene la cuenta madre
+ *   (`…0001`) y las hijas (`…0002`, `…0003`), cada una con su deuda y sus facturas.
+ *
+ * La lógica y el porqué están en `utils/identidad-deudor.ts`.
+ */
+export type IdentidadDeudor = 'DOCUMENTO' | 'NRO_CLIENTE';
+
+/* ────────────────────────────────────────────────────────────────────────────
+ * DIVISIÓN DE REMESA — un archivo, varias asignaciones adentro
+ * ──────────────────────────────────────────────────────────────────────────── */
+
+/** Una columna por la que se puede cortar el archivo. */
+export interface ColumnaDivision {
+    /** Índice de columna del archivo (0-based), igual que en {@link MappingColumn}. */
+    fromIndex: number;
+    /** Cómo se llama el corte en la pantalla de carga ("Nómina", "Gestión"). */
+    etiqueta: string;
+}
+
+/**
+ * Cómo se parte un archivo que trae **varias asignaciones juntas** en una remesa por cada una.
+ *
+ * El caso: Telecom y Telecom Personal se bajan de Deimos filtrando **solo por día**. Si ese día
+ * hubo cuatro asignaciones, el CA y el MA vienen con las cuatro adentro, y en gestión cada una
+ * tiene que ser su propia remesa. El archivo del 27/05 trae 5 nóminas y 4 gestiones en 19.538
+ * filas.
+ *
+ * Los dos criterios cortan; lo que cambia es de dónde sale el número de remesa:
+ *  - `porNomina`: se pide un número para cada valor encontrado.
+ *  - `porGestion`: el número se deriva prefijándole el primer dígito de la gestión, que es la
+ *    convención de la operación (gestión `3GH` sobre la remesa `100` → `30100`).
+ *
+ * Si se declaran los dos, se arma una remesa por cada combinación (nómina, gestión).
+ *
+ * Es una decisión de la **plantilla** porque depende de cómo exporta el cedente: fuera de Telecom
+ * y Telecom Personal ninguna cartera necesita esto, y sin el bloque declarado la carga se comporta
+ * como siempre (una remesa por archivo).
+ */
+export interface DivisionRemesaConfig {
+    porNomina?: ColumnaDivision;
+    porGestion?: ColumnaDivision;
+}
+
 export interface MappingJson {
     entity: 'DEUDOR' | 'FACTURA' | 'PAGO' | 'CONTACTO' | 'ENRIQ_MIXTO' | 'MIXTO';
     matchKeys: string[];        // ej: ["empresaId","documento"]
@@ -102,6 +151,17 @@ export interface MappingJson {
     defaults?: Record<string, any>;
     validations?: Array<{ field: string; rule: string }>;
     dedup?: { strategy: 'keep-last' | 'keep-first'; orderBy?: string[] };
+    /**
+     * Qué identifica a un caso dentro de la remesa (default `DOCUMENTO`). Ver {@link IdentidadDeudor}.
+     * Aplica a las categorías DEUDORES y DEUDORES_Y_FACTURAS.
+     */
+    identidadDeudor?: IdentidadDeudor;
+    /**
+     * Cómo partir un archivo que trae varias asignaciones en una remesa por cada una.
+     * Ausente = una remesa por archivo, el comportamiento de siempre.
+     * Ver {@link DivisionRemesaConfig}.
+     */
+    divisionRemesa?: DivisionRemesaConfig;
     /** Modo de cálculo de `deudor.montoTotal` desde las facturas (default `SI_VACIO`). */
     montoDeudorDesdeFacturas?: MontoDeudorMode;
     /** Modo del import de ACTUALIZACIONES (default `RECONCILIAR`). */

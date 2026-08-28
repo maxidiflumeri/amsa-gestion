@@ -240,6 +240,13 @@ const PlantillaEditor: React.FC = () => {
     const [crearNuevosCasos, setCrearNuevosCasos] = useState(true)
     const [accionAusente, setAccionAusente] =
         useState<'PAGO_TODO' | 'DESASIGNAR' | 'IGNORAR'>('PAGO_TODO')
+    // Qué identifica a un caso dentro de la remesa. Por documento es lo de siempre; por número de
+    // cliente es lo que necesitan las carteras donde un mismo DNI tiene varias cuentas.
+    const [identidadDeudor, setIdentidadDeudor] =
+        useState<'DOCUMENTO' | 'NRO_CLIENTE'>('DOCUMENTO')
+    // División de la carga en una remesa por corte. `-1` = el criterio no se usa.
+    const [divNominaIndex, setDivNominaIndex] = useState<number>(-1)
+    const [divGestionIndex, setDivGestionIndex] = useState<number>(-1)
 
     const [accionesConfig, setAccionesConfig] = useState<AccionesConfig>({
         matchMode: 'DEUDOR',
@@ -251,6 +258,8 @@ const PlantillaEditor: React.FC = () => {
 
     // Flujos donde tiene sentido calcular el importe del deudor desde las facturas
     const esFlujoFacturas = categoria === 'FACTURAS' || categoria === 'DEUDORES_Y_FACTURAS'
+    // Categorías que crean casos: son las únicas donde la identidad cambia algo.
+    const esFlujoCasos = categoria === 'DEUDORES' || categoria === 'DEUDORES_Y_FACTURAS'
     const esActualizacion = categoria === 'ACTUALIZACIONES'
     const esAcciones = categoria === 'ACCIONES'
     // MULTIRREGISTRO tampoco usa el mapeo columna→campo: el parser arma las filas y acá solo se
@@ -344,6 +353,9 @@ const PlantillaEditor: React.FC = () => {
                 setAnchoFijoEncoding(p.mappingJson.anchoFijo?.encoding === 'utf8' ? 'utf8' : 'latin1')
             }
             setFiltroFilas(p.mappingJson?.filtroFilas ?? [])
+            setIdentidadDeudor(p.mappingJson?.identidadDeudor === 'NRO_CLIENTE' ? 'NRO_CLIENTE' : 'DOCUMENTO')
+            setDivNominaIndex(p.mappingJson?.divisionRemesa?.porNomina?.fromIndex ?? -1)
+            setDivGestionIndex(p.mappingJson?.divisionRemesa?.porGestion?.fromIndex ?? -1)
         } catch (err) {
             notify.error(err as Error)
             navigate('/plantillas')
@@ -482,6 +494,19 @@ const PlantillaEditor: React.FC = () => {
         }
         if (filtroFilas.length > 0) {
             ;(mappingJson as Record<string, unknown>).filtroFilas = filtroFilas
+        }
+        if (esFlujoCasos && identidadDeudor === 'NRO_CLIENTE') {
+            ;(mappingJson as Record<string, unknown>).identidadDeudor = 'NRO_CLIENTE'
+        }
+        if (divNominaIndex >= 0 || divGestionIndex >= 0) {
+            ;(mappingJson as Record<string, unknown>).divisionRemesa = {
+                ...(divNominaIndex >= 0
+                    ? { porNomina: { fromIndex: divNominaIndex, etiqueta: 'Nómina' } }
+                    : {}),
+                ...(divGestionIndex >= 0
+                    ? { porGestion: { fromIndex: divGestionIndex, etiqueta: 'Gestión' } }
+                    : {}),
+            }
         }
 
         try {
@@ -714,6 +739,81 @@ const PlantillaEditor: React.FC = () => {
                     )}
                 </Stack>
                 </>
+                )}
+
+                {/* Qué identifica a un caso dentro de la remesa (solo flujos que crean casos) */}
+                {esFlujoCasos && (
+                    <>
+                        <Divider sx={{ my: 3 }} />
+                        <Typography variant="h6" sx={{ fontWeight: 600, mb: 2 }}>
+                            Identidad del caso
+                        </Typography>
+                        <FormControl sx={{ flex: '1 1 360px', maxWidth: 520, mb: 3 }}>
+                            <InputLabel>Qué cuenta como un caso distinto</InputLabel>
+                            <Select
+                                value={identidadDeudor}
+                                label="Qué cuenta como un caso distinto"
+                                onChange={(e) =>
+                                    setIdentidadDeudor(e.target.value as 'DOCUMENTO' | 'NRO_CLIENTE')
+                                }
+                            >
+                                <MenuItem value="DOCUMENTO">
+                                    El documento: un DNI es un caso (por defecto)
+                                </MenuItem>
+                                <MenuItem value="NRO_CLIENTE">
+                                    El Nº de cliente: cada cuenta es un caso, aunque el DNI se repita
+                                </MenuItem>
+                            </Select>
+                            <FormHelperText>
+                                Elegí "Nº de cliente" cuando el cedente manda varias cuentas por titular
+                                (Telecom y Personal: la cuenta madre termina en 0001 y las hijas en 0002,
+                                0003). Con "documento", esas cuentas se pisan entre sí: entra una sola y
+                                las facturas y pagos de las otras después no encuentran su caso.
+                            </FormHelperText>
+                        </FormControl>
+                    </>
+                )}
+
+                {/* División de la carga en varias remesas (un archivo con varias asignaciones) */}
+                {!esMultirregistro && !esMultiarchivo && (
+                    <>
+                        <Divider sx={{ my: 3 }} />
+                        <Typography variant="h6" sx={{ fontWeight: 600, mb: 1 }}>
+                            Dividir la carga en varias remesas
+                        </Typography>
+                        <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+                            Para los archivos que traen varias asignaciones juntas porque el cedente
+                            exporta filtrando solo por día. Al cargar, el sistema cuenta los casos de
+                            cada corte y crea una remesa por cada uno, todas sobre el mismo archivo.
+                            Dejá los dos en "No dividir" y la carga se comporta como siempre.
+                        </Typography>
+                        <Stack direction={{ xs: 'column', md: 'row' }} spacing={2} sx={{ mb: 3 }}>
+                            <TextField
+                                label="Columna de la nómina"
+                                type="number"
+                                sx={{ maxWidth: 280 }}
+                                value={divNominaIndex}
+                                onChange={(e) => setDivNominaIndex(parseInt(e.target.value, 10))}
+                                helperText={
+                                    divNominaIndex >= 0
+                                        ? 'Se pide un número de remesa para cada nómina.'
+                                        : '-1 = no dividir por nómina.'
+                                }
+                            />
+                            <TextField
+                                label="Columna de la gestión"
+                                type="number"
+                                sx={{ maxWidth: 280 }}
+                                value={divGestionIndex}
+                                onChange={(e) => setDivGestionIndex(parseInt(e.target.value, 10))}
+                                helperText={
+                                    divGestionIndex >= 0
+                                        ? 'El número de remesa se prefija con el dígito de la gestión (3GH sobre la 100 → 30100).'
+                                        : '-1 = no dividir por gestión.'
+                                }
+                            />
+                        </Stack>
+                    </>
                 )}
 
                 {/* Importe del deudor desde facturas (solo flujos con facturas) */}

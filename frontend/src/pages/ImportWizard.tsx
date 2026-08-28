@@ -11,14 +11,25 @@ import {
     MenuItem,
     Select,
     Checkbox,
+    Dialog,
+    DialogActions,
+    DialogContent,
+    DialogTitle,
     ListItemText,
     FormControl,
     FormControlLabel,
     FormHelperText,
     InputLabel,
     LinearProgress,
+    Paper,
     Stack,
     Switch,
+    Table,
+    TableBody,
+    TableCell,
+    TableContainer,
+    TableHead,
+    TableRow,
     TextField,
     useMediaQuery,
     useTheme,
@@ -45,6 +56,15 @@ const steps = [
     "Importando",
     "Resultado",
 ];
+
+/** Un corte del archivo con el número de remesa que le va a tocar (editable por el operador). */
+interface CorteEditable {
+    valores: Record<string, string>;
+    filas: number;
+    numeroRemesa: string;
+    /** El operador puede sacar un corte de la carga (una nómina que todavía no se gestiona). */
+    incluir: boolean;
+}
 
 export default function ImportWizard() {
     const theme = useTheme();
@@ -90,6 +110,11 @@ export default function ImportWizard() {
         { archivos?: string[]; descartadas?: number; filtro?: string } | null
     >(null);
     const [remesasDeudores, setRemesasDeudores] = useState<any[]>([]);
+    // El combo mostraba TODAS las remesas de la empresa —las de facturas, las de pagos, las de
+    // acciones— y con 100 remesas encima elegir era imposible. Ahora se piden solo las que
+    // cargaron casos y, por defecto, solo las que todavía tienen alguno vivo: son las que se
+    // gestionan hoy, que es a las que se les aplica un archivo de cobros.
+    const [soloEnGestion, setSoloEnGestion] = useState(true);
     const [remesaOrigenId, setRemesaOrigenId] = useState<number | null>(null);
     // PAGOS: se pueden elegir VARIAS remesas origen (archivo de pagos para toda la empresa),
     // así una sola corrida cubre las N remesas en vez de correr el archivo una vez por cada una.
@@ -121,6 +146,20 @@ export default function ImportWizard() {
     const [previewStats, setPreviewStats] = useState({ total: 0, ok: 0, err: 0 });
     const [accionesImpacto, setAccionesImpacto] = useState<{ matchMode: string; deudoresAfectados: number; contactosAEliminar?: number; valoresDistintos: number; operaciones: string[] } | null>(null);
 
+    // Avisos del preview que no invalidan la carga pero conviene leer antes de ejecutar
+    // (importes negativos, cuentas que van a colapsar por la identidad elegida).
+    const [advertencias, setAdvertencias] = useState<string[]>([]);
+
+    // ─── División de la carga en varias remesas ───────────────────────────
+    // Los archivos de Telecom/Personal traen varias asignaciones juntas porque Deimos exporta
+    // filtrando solo por día. Se cuenta cada corte ANTES de crear nada, el operador confirma los
+    // números contra lo que le informó el cedente, y recién ahí se crean las N remesas.
+    const [cortes, setCortes] = useState<CorteEditable[] | null>(null);
+    const [dialogoDivision, setDialogoDivision] = useState(false);
+    // Remesas creadas por la división, que se validan y ejecutan una atrás de la otra.
+    const [colaRemesas, setColaRemesas] = useState<number[]>([]);
+    const [indiceCola, setIndiceCola] = useState(0);
+
     // Paso 4 – resultado final
     const [finalResult, setFinalResult] = useState({ total: 0, ok: 0, err: 0 });
 
@@ -141,12 +180,22 @@ export default function ImportWizard() {
             setRemesasDeudores([]);
             return;
         }
-        api.get(`/import/remesas/empresa/${empresaId}`)
+        api.get(`/import/remesas/empresa/${empresaId}`, {
+            params: { conDeudores: true, ...(soloEnGestion ? { enGestion: true } : {}) },
+        })
             .then((res) => setRemesasDeudores(
                 res.data.filter((r: any) => r.estadoProceso === "FINALIZADA")
             ))
             .catch((err) => notify.error(err));
-    }, [needsOrigen, esAcciones, empresaId]);
+    }, [needsOrigen, esAcciones, empresaId, soloEnGestion]);
+
+    // Si al apretar el filtro desaparece una remesa elegida, se saca de la selección: dejarla
+    // marcada sin verla llevaba a ejecutar sobre una remesa que el operador creía descartada.
+    useEffect(() => {
+        const visibles = new Set(remesasDeudores.map((r: any) => r.id));
+        setRemesaOrigenIds((prev) => prev.filter((id) => visibles.has(id)));
+        setRemesaOrigenId((prev) => (prev != null && !visibles.has(prev) ? null : prev));
+    }, [remesasDeudores]);
 
     // ─── Handlers ────────────────────────────────────────────
 
@@ -167,8 +216,64 @@ export default function ImportWizard() {
         setActiveStep((prev) => prev - 1);
     };
 
+    /** Config de división de la plantilla elegida, si la declara. */
+    const divisionConfig = plantillas.find((p) => p.id === selectedPlantilla)
+        ?.mappingJson?.divisionRemesa as
+        | { porNomina?: { etiqueta: string }; porGestion?: { etiqueta: string } }
+        | undefined;
+    const plantillaDivide = !!(divisionConfig?.porNomina || divisionConfig?.porGestion);
+
+    /** Adjunta los archivos subidos al FormData con la clave que espera el backend. */
+    const adjuntarArchivos = (formData: FormData) => {
+        if (esMultiarchivo) {
+            // El backend acepta `file` (uno) o `files` (varios); el rol de cada archivo del
+            // paquete lo resuelve por el nombre, así que el orden en que se agregan no importa.
+            for (const f of archivosPaquete) formData.append("files", f);
+        } else if (archivos.length === 1) {
+            formData.append("file", archivos[0]);
+        } else {
+            // Varios archivos del mismo formato: se recorren en el orden en que se subieron.
+            for (const f of archivos) formData.append("files", f);
+        }
+    };
+
+    /**
+     * Paso previo a crear nada: se lee el archivo y se cuenta cuántos casos tiene cada nómina y
+     * cada gestión. Es lo que le permite al operador cotejar contra el mail del cedente ("nómina
+     * 3082 por 13.948 casos") antes de cargar.
+     */
+    const handlePrevisualizarDivision = async () => {
+        setLoading(true);
+        try {
+            const formData = new FormData();
+            formData.append("plantillaId", String(selectedPlantilla));
+            formData.append("empresaId", String(empresaId));
+            formData.append("numeroRemesa", numeroRemesa.trim());
+            if (isExcelFile && hojaExcel.trim() !== "") formData.append("hoja", hojaExcel.trim());
+            adjuntarArchivos(formData);
+
+            const res = await api.post("/import/remesas/division-preview", formData, {
+                headers: { "Content-Type": "multipart/form-data" },
+            });
+
+            setCortes(
+                (res.data.cortes ?? []).map((c: any) => ({
+                    valores: c.valores,
+                    filas: c.filas,
+                    numeroRemesa: c.numeroSugerido ?? "",
+                    incluir: true,
+                })),
+            );
+            setDialogoDivision(true);
+        } catch (err: any) {
+            notify.error(err);
+        } finally {
+            setLoading(false);
+        }
+    };
+
     // Paso 1 → 2: Crear remesa + validar
-    const handleCrearYValidar = async () => {
+    const handleCrearYValidar = async (divisiones?: CorteEditable[]) => {
         if (!selectedPlantilla || !categoria) {
             notify.warning("Seleccioná categoría y plantilla.");
             return;
@@ -203,15 +308,19 @@ export default function ImportWizard() {
             if (fechaVencimiento) {
                 formData.append("fechaVencimiento", fechaVencimiento);
             }
-            if (esMultiarchivo) {
-                // El backend acepta `file` (uno) o `files` (varios); el rol de cada archivo del
-                // paquete lo resuelve por el nombre, así que el orden en que se agregan no importa.
-                for (const f of archivosPaquete) formData.append("files", f);
-            } else if (archivos.length === 1) {
-                formData.append("file", archivos[0]);
-            } else {
-                // Varios archivos del mismo formato: se recorren en el orden en que se subieron.
-                for (const f of archivos) formData.append("files", f);
+            adjuntarArchivos(formData);
+
+            // Carga dividida: las N remesas se crean de una, todas apuntando al mismo archivo.
+            if (divisiones?.length) {
+                formData.append(
+                    "divisiones",
+                    JSON.stringify(
+                        divisiones.map((d) => ({
+                            valores: d.valores,
+                            numeroRemesa: d.numeroRemesa.trim(),
+                        })),
+                    ),
+                );
             }
 
             if (isExcelFile && hojaExcel.trim() !== "") {
@@ -224,9 +333,15 @@ export default function ImportWizard() {
                 headers: { "Content-Type": "multipart/form-data" },
             });
 
-            const newRemesaId = resRemesa.data.remesaId;
+            const creadas: number[] = resRemesa.data.remesaIds ?? [resRemesa.data.remesaId];
+            const newRemesaId = creadas[0];
             setRemesaId(newRemesaId);
+            setColaRemesas(creadas);
+            setIndiceCola(0);
 
+            // Con la carga dividida se valida la primera para mostrar el preview del mapeo; las
+            // demás se validan justo antes de ejecutarse, para que cada una tenga su total y la
+            // barra de progreso no arranque clavada en 0.
             const resValidar = await api.post(`/import/validar/${newRemesaId}`);
 
             setPreview(resValidar.data.sample ?? []);
@@ -236,6 +351,7 @@ export default function ImportWizard() {
                 err: resValidar.data.err ?? 0,
             });
 
+            setAdvertencias(resValidar.data.advertencias ?? []);
             setMultiResumen(resValidar.data.multirregistro ?? null);
             setPaqueteResumen(resValidar.data.multiarchivo ?? null);
             setResumenArchivos(
@@ -269,6 +385,15 @@ export default function ImportWizard() {
         }
     };
 
+    /** Dispara una remesa de la cola. La primera ya viene validada del paso 2. */
+    const ejecutarRemesa = async (id: number, yaValidada: boolean) => {
+        if (!yaValidada) await api.post(`/import/validar/${id}`);
+        await api.post(`/import/ejecutar/${id}`, {
+            remesaOrigenId: multiOrigen ? undefined : (remesaOrigenId ?? undefined),
+            remesaOrigenIds: multiOrigen && remesaOrigenIds.length ? remesaOrigenIds : undefined,
+        });
+    };
+
     // Paso 2 → 3: Confirmar y ejecutar
     const handleEjecutar = async () => {
         if (!remesaId) return;
@@ -276,10 +401,7 @@ export default function ImportWizard() {
         setActiveStep(3);
 
         try {
-            await api.post(`/import/ejecutar/${remesaId}`, {
-                remesaOrigenId: multiOrigen ? undefined : (remesaOrigenId ?? undefined),
-                remesaOrigenIds: multiOrigen && remesaOrigenIds.length ? remesaOrigenIds : undefined,
-            });
+            await ejecutarRemesa(remesaId, true);
         } catch (err: any) {
             notify.error(err);
             setActiveStep(2);
@@ -288,10 +410,36 @@ export default function ImportWizard() {
 
     const handleImportComplete = useCallback(
         (result: { total: number; ok: number; err: number }) => {
-            setFinalResult(result);
-            setActiveStep(4);
+            // Carga dividida: los totales se van sumando y se arranca la remesa siguiente. Van una
+            // atrás de la otra y no en paralelo a propósito: comparten el archivo y el worker, y
+            // lanzarlas juntas solo haría que se peleen por la base sin terminar antes.
+            const siguiente = indiceCola + 1;
+            const quedan = siguiente < colaRemesas.length;
+
+            setFinalResult((prev) =>
+                colaRemesas.length > 1
+                    ? {
+                          total: prev.total + result.total,
+                          ok: prev.ok + result.ok,
+                          err: prev.err + result.err,
+                      }
+                    : result,
+            );
+
+            if (!quedan) {
+                setActiveStep(4);
+                return;
+            }
+
+            const id = colaRemesas[siguiente];
+            setIndiceCola(siguiente);
+            ejecutarRemesa(id, false).catch((err) => {
+                notify.error(err);
+                setActiveStep(4);
+            });
         },
-        []
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+        [indiceCola, colaRemesas, multiOrigen, remesaOrigenId, remesaOrigenIds]
     );
 
     const handleNewImport = () => {
@@ -311,8 +459,26 @@ export default function ImportWizard() {
         setPreview([]);
         setPreviewStats({ total: 0, ok: 0, err: 0 });
         setAccionesImpacto(null);
+        setAdvertencias([]);
+        setCortes(null);
+        setColaRemesas([]);
+        setIndiceCola(0);
         setFinalResult({ total: 0, ok: 0, err: 0 });
     };
+
+    // Números que chocan entre sí. La combinación 3G / 3GH del archivo real produce el mismo
+    // sugerido para las dos, así que el choque hay que mostrarlo, no dejarlo llegar al backend.
+    const numerosRepetidos = (() => {
+        const usados = (cortes ?? [])
+            .filter((c) => c.incluir)
+            .map((c) => c.numeroRemesa.trim())
+            .filter(Boolean);
+        return [...new Set(usados.filter((n, i) => usados.indexOf(n) !== i))];
+    })();
+    const divisionValida =
+        (cortes ?? []).some((c) => c.incluir) &&
+        (cortes ?? []).every((c) => !c.incluir || c.numeroRemesa.trim()) &&
+        numerosRepetidos.length === 0;
 
     // ─── Render ──────────────────────────────────────────────
 
@@ -512,7 +678,9 @@ export default function ImportWizard() {
                                 >
                                     {remesasDeudores.length === 0 && (
                                         <MenuItem disabled value="">
-                                            No hay remesas de deudores finalizadas
+                                            {soloEnGestion
+                                                ? "No hay remesas de deudores en gestión"
+                                                : "No hay remesas de deudores finalizadas"}
                                         </MenuItem>
                                     )}
                                     {remesasDeudores.map((r: any) => (
@@ -524,8 +692,44 @@ export default function ImportWizard() {
                                         </MenuItem>
                                     ))}
                                 </Select>
+
+                                <Box sx={{ display: "flex", alignItems: "center", gap: 1, mt: 1, flexWrap: "wrap" }}>
+                                    <Button
+                                        size="small"
+                                        onClick={() => setRemesaOrigenIds(remesasDeudores.map((r: any) => r.id))}
+                                        disabled={
+                                            remesasDeudores.length === 0 ||
+                                            remesaOrigenIds.length === remesasDeudores.length
+                                        }
+                                    >
+                                        Seleccionar todas ({remesasDeudores.length})
+                                    </Button>
+                                    <Button
+                                        size="small"
+                                        color="inherit"
+                                        onClick={() => setRemesaOrigenIds([])}
+                                        disabled={remesaOrigenIds.length === 0}
+                                    >
+                                        Limpiar
+                                    </Button>
+                                    <FormControlLabel
+                                        sx={{ ml: "auto" }}
+                                        control={
+                                            <Switch
+                                                size="small"
+                                                checked={soloEnGestion}
+                                                onChange={(e) => setSoloEnGestion(e.target.checked)}
+                                            />
+                                        }
+                                        label="Solo remesas en gestión"
+                                    />
+                                </Box>
+
                                 <FormHelperText>
-                                    El archivo de pagos se aplica a todas las remesas elegidas en una sola corrida.
+                                    {soloEnGestion
+                                        ? "Se listan las remesas que todavía tienen casos activos (sin cancelar ni desasignar). \"Seleccionar todas\" alcanza para el archivo de cobros del mes."
+                                        : "Se listan todas las remesas que cargaron casos, incluidas las ya cerradas."}
+                                    {" "}El archivo de pagos se aplica a todas las elegidas en una sola corrida.
                                 </FormHelperText>
                             </FormControl>
                         )}
@@ -551,7 +755,9 @@ export default function ImportWizard() {
                                     )}
                                     {remesasDeudores.length === 0 && !esAcciones && (
                                         <MenuItem disabled value="">
-                                            No hay remesas de deudores finalizadas
+                                            {soloEnGestion
+                                                ? "No hay remesas de deudores en gestión"
+                                                : "No hay remesas de deudores finalizadas"}
                                         </MenuItem>
                                     )}
                                     {remesasDeudores.map((r: any) => (
@@ -596,6 +802,29 @@ export default function ImportWizard() {
                 {/* PASO 2 — Preview */}
                 {activeStep === 2 && (
                     <>
+                        {/* Lo que el preview detectó y conviene mirar ANTES de ejecutar: cuentas
+                            que van a colapsar por la identidad elegida, importes en negativo. */}
+                        {advertencias.length > 0 && (
+                            <Alert severity="warning" sx={{ mb: 2 }}>
+                                <AlertTitle>Revisá esto antes de importar</AlertTitle>
+                                <Box component="ul" sx={{ m: 0, pl: 2.5 }}>
+                                    {advertencias.map((a, i) => (
+                                        <li key={i}>
+                                            <Typography variant="body2">{a}</Typography>
+                                        </li>
+                                    ))}
+                                </Box>
+                            </Alert>
+                        )}
+                        {colaRemesas.length > 1 && (
+                            <Alert severity="info" sx={{ mb: 2 }}>
+                                <AlertTitle>
+                                    Se crearon {colaRemesas.length} remesas a partir de este archivo
+                                </AlertTitle>
+                                Abajo se ve el preview de la primera. Al confirmar se importan todas,
+                                una después de la otra.
+                            </Alert>
+                        )}
                         {esMultirregistro && multiResumen && (
                             <Alert severity={multiResumen.advertencias?.length ? "warning" : "info"} sx={{ mb: 2 }}>
                                 <AlertTitle>
@@ -706,10 +935,20 @@ export default function ImportWizard() {
 
                 {/* PASO 3 — Progreso */}
                 {activeStep === 3 && remesaId && (
-                    <ImportProgress
-                        remesaId={remesaId}
-                        onComplete={handleImportComplete}
-                    />
+                    <>
+                        {colaRemesas.length > 1 && (
+                            <Alert severity="info" sx={{ mb: 2 }}>
+                                Procesando la remesa {indiceCola + 1} de {colaRemesas.length}. Las
+                                remesas de la división se cargan una después de la otra; no cierres
+                                la pantalla.
+                            </Alert>
+                        )}
+                        <ImportProgress
+                            key={colaRemesas[indiceCola] ?? remesaId}
+                            remesaId={colaRemesas[indiceCola] ?? remesaId}
+                            onComplete={handleImportComplete}
+                        />
+                    </>
                 )}
 
                 {/* PASO 4 — Resumen */}
@@ -760,9 +999,17 @@ export default function ImportWizard() {
                             variant="contained"
                             endIcon={<ArrowForwardIcon />}
                             disabled={!canGoNext() || loading}
-                            onClick={handleCrearYValidar}
+                            onClick={() =>
+                                plantillaDivide
+                                    ? handlePrevisualizarDivision()
+                                    : handleCrearYValidar()
+                            }
                         >
-                            {loading ? "Procesando..." : "Crear remesa y validar"}
+                            {loading
+                                ? "Procesando..."
+                                : plantillaDivide
+                                    ? "Ver los cortes del archivo"
+                                    : "Crear remesa y validar"}
                         </Button>
                     )}
 
@@ -777,6 +1024,99 @@ export default function ImportWizard() {
                     )}
                 </Box>
             )}
+
+            {/* Cortes del archivo: una remesa por nómina/gestión */}
+            <Dialog
+                open={dialogoDivision}
+                onClose={() => setDialogoDivision(false)}
+                maxWidth="md"
+                fullWidth
+            >
+                <DialogTitle>El archivo trae varias asignaciones</DialogTitle>
+                <DialogContent dividers>
+                    <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+                        Se va a crear una remesa por cada corte, todas sobre el mismo archivo.
+                        Compará la cantidad de casos con la que informó el cedente antes de seguir, y
+                        corregí los números de remesa si hace falta.
+                    </Typography>
+
+                    <TableContainer component={Paper} variant="outlined">
+                        <Table size="small">
+                            <TableHead>
+                                <TableRow>
+                                    <TableCell padding="checkbox" />
+                                    {Object.keys(cortes?.[0]?.valores ?? {}).map((k) => (
+                                        <TableCell key={k}>{k}</TableCell>
+                                    ))}
+                                    <TableCell align="right">Casos</TableCell>
+                                    <TableCell>Nº de remesa</TableCell>
+                                </TableRow>
+                            </TableHead>
+                            <TableBody>
+                                {(cortes ?? []).map((c, i) => (
+                                    <TableRow key={i} hover>
+                                        <TableCell padding="checkbox">
+                                            <Checkbox
+                                                checked={c.incluir}
+                                                onChange={(e) =>
+                                                    setCortes((prev) =>
+                                                        (prev ?? []).map((x, j) =>
+                                                            j === i ? { ...x, incluir: e.target.checked } : x,
+                                                        ),
+                                                    )
+                                                }
+                                            />
+                                        </TableCell>
+                                        {Object.keys(cortes?.[0]?.valores ?? {}).map((k) => (
+                                            <TableCell key={k}>{c.valores[k] || "—"}</TableCell>
+                                        ))}
+                                        <TableCell align="right">
+                                            {c.filas.toLocaleString("es-AR")}
+                                        </TableCell>
+                                        <TableCell>
+                                            <TextField
+                                                size="small"
+                                                value={c.numeroRemesa}
+                                                disabled={!c.incluir}
+                                                error={c.incluir && !c.numeroRemesa.trim()}
+                                                onChange={(e) =>
+                                                    setCortes((prev) =>
+                                                        (prev ?? []).map((x, j) =>
+                                                            j === i ? { ...x, numeroRemesa: e.target.value } : x,
+                                                        ),
+                                                    )
+                                                }
+                                                sx={{ width: 140 }}
+                                            />
+                                        </TableCell>
+                                    </TableRow>
+                                ))}
+                            </TableBody>
+                        </Table>
+                    </TableContainer>
+
+                    {numerosRepetidos.length > 0 && (
+                        <Alert severity="error" sx={{ mt: 2 }}>
+                            El número {numerosRepetidos.join(", ")} está repetido. Puede pasar cuando
+                            dos gestiones distintas empiezan con el mismo dígito (3G y 3GH): cambiá
+                            una a mano.
+                        </Alert>
+                    )}
+                </DialogContent>
+                <DialogActions>
+                    <Button onClick={() => setDialogoDivision(false)}>Cancelar</Button>
+                    <Button
+                        variant="contained"
+                        disabled={!divisionValida || loading}
+                        onClick={() => {
+                            setDialogoDivision(false);
+                            handleCrearYValidar((cortes ?? []).filter((c) => c.incluir));
+                        }}
+                    >
+                        Crear {(cortes ?? []).filter((c) => c.incluir).length} remesa(s)
+                    </Button>
+                </DialogActions>
+            </Dialog>
 
             {/* Loading inline */}
             {loading && <LinearProgress sx={{ mt: 2, borderRadius: 1 }} />}

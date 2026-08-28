@@ -7,14 +7,16 @@ import { resolveDelimiter } from './utils/delimitador';
 import { FileStorageService } from './file-storage.service';
 import * as fs from 'fs';
 import * as path from 'path';
+import * as os from 'os';
 import * as crypto from 'crypto';
 import * as fastcsv from 'fast-csv';
 import * as xlsx from 'xlsx';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from 'src/prisma/prisma.service';
 import { ClonarPlantillaDto, CreatePlantillaDto, CreateRemesaDto } from './dtos/import.dto';
-import { AnchoFijoConfig, MappingJson } from './mapping-types';
+import { AnchoFijoConfig, FiltroFila, MappingJson } from './mapping-types';
 import { getProcessor, getSupportedCategories } from './processors/processor-registry';
+import { importeDePago } from './processors/pagos.processor';
 import { ProcessContext, MappedRow } from './processors/processor.interface';
 import { RealtimeService } from '../realtime/realtime.service';
 import { NotificacionesService } from '../notificaciones/notificaciones.service';
@@ -22,13 +24,15 @@ import { ProgressEmitter } from './utils/progress-emitter';
 import { parseMultirregistro } from './utils/multirregistro-parser';
 import { ArchivosMultiarchivo, parseMultiarchivo } from './utils/multiarchivo-parser';
 import { resolverRolesArchivos } from './utils/roles-multiarchivo';
-import { conOrigen, recorrerFilas } from './utils/recorrer-filas';
+import { conOrigen, ErrorDeParseo, recorrerFilas } from './utils/recorrer-filas';
 import {
     anchoTotal, inferirColumnasAnchoFijo, parseLineaAnchoFijo, validarColumnasAnchoFijo,
 } from './utils/ancho-fijo';
 import { validarArchivosHomogeneos } from './utils/archivos-homogeneos';
 import { describirFiltros, pasaFiltro } from './utils/filtro-filas';
 import { siguienteNumeroRemesa } from './utils/numero-remesa';
+import { AcumuladorCortes, columnasDeDivision, divide, numeroConGestion } from './utils/division-remesa';
+import { ContadorColisiones, resolverIdentidad } from './utils/identidad-deudor';
 import { RequestContextService } from 'src/common/logger/request-context';
 import { ConsolidacionSituacionService } from '../consolidacion/consolidacion.service';
 import { PromesasService } from '../promesas/promesas.service';
@@ -467,6 +471,143 @@ export class ImportService {
         return mapping.anchoFijo;
     }
 
+    /**
+     * Condiciones que tiene que cumplir una fila para entrar en ESTA remesa: las de la plantilla
+     * (qué subconjunto del archivo sirve) más las de la propia remesa (qué corte del archivo le
+     * tocó, cuando la carga se dividió por nómina/gestión). Se combinan con Y, igual que entre sí.
+     */
+    private filtrosDeRemesa(remesa: { filtroFilas?: any }, mapping: MappingJson | null | undefined): FiltroFila[] {
+        const dePlantilla = mapping?.filtroFilas ?? [];
+        const deRemesa = Array.isArray(remesa?.filtroFilas) ? (remesa.filtroFilas as FiltroFila[]) : [];
+        return [...dePlantilla, ...deRemesa];
+    }
+
+    /**
+     * Un archivo que no se puede leer es un problema de lo que subió el operador, no una falla del
+     * sistema: tiene que volver como 400 con el motivo, no como el 500 opaco que veía antes.
+     *
+     * El caso real: el archivo de pagos de Personal manda la columna `PAYMENT_METHOD_DES` dos
+     * veces y fast-csv cortaba con `Duplicate headers found`. Ya no puede pasar —el parser dejó de
+     * interpretar el encabezado— pero cualquier otro error de formato entra por acá.
+     */
+    private comoErrorDeUsuario(e: any): never {
+        if (e instanceof ErrorDeParseo) throw new BadRequestException(e.message);
+        throw e;
+    }
+
+    /**
+     * Cortes que trae un archivo, para la pantalla que decide en cuántas remesas se parte.
+     *
+     * Lee el archivo entero **sin guardar nada** y cuenta las filas de cada combinación
+     * (nómina, gestión). El operador ve la grilla, confirma los números y recién ahí se crean las
+     * remesas: es la única forma de que pueda comparar los totales contra lo que le informó el
+     * cedente por mail antes de cargar nada.
+     *
+     * @param numeroBase Número desde el que arrancan las sugerencias. Si no viene, el correlativo
+     *   siguiente de la empresa.
+     */
+    async previewDivision(archivos: any, plantillaId: number, empresaId: number, numeroBase?: string, hoja?: string) {
+        const plantilla = await this.prisma.plantillaimport.findUnique({ where: { id: plantillaId } });
+        if (!plantilla) throw new NotFoundException('Plantilla no encontrada');
+
+        const mapping = plantilla.mappingJson as unknown as MappingJson;
+        const cfg = mapping?.divisionRemesa;
+        if (!divide(cfg)) {
+            throw new BadRequestException(
+                'La plantilla no tiene configurada la división por nómina/gestión.',
+            );
+        }
+
+        const lista: any[] = Array.isArray(archivos) ? archivos : archivos ? [archivos] : [];
+        if (lista.length === 0) throw new BadRequestException('No se subió ningún archivo.');
+
+        // Se escribe a un temporal en vez de guardarlo en uploads: mirar el archivo para decidir el
+        // corte no es cargarlo, y una remesa que el operador cancela no debe dejar basura en disco.
+        const dirTmp = fs.mkdtempSync(path.join(os.tmpdir(), 'amsa-division-'));
+        const paths: string[] = [];
+        const nombres: string[] = [];
+
+        try {
+            for (const [i, f] of lista.entries()) {
+                const nombre = f.originalname ?? `archivo_${i}`;
+                const destino = path.join(dirTmp, `${i}_${path.basename(nombre)}`);
+                fs.writeFileSync(destino, f.buffer);
+                paths.push(destino);
+                nombres.push(nombre);
+            }
+
+            const acumulador = new AcumuladorCortes(cfg!);
+            let descartadas = 0;
+            let total = 0;
+
+            try {
+                await recorrerFilas(
+                    {
+                        paths,
+                        nombres,
+                        tieneHeader: !!plantilla.tieneHeader,
+                        separador: resolveDelimiter(plantilla.separador ?? '|'),
+                        anchoFijo: this.layoutAnchoFijo(mapping),
+                        hoja,
+                    },
+                    ({ valores }) => {
+                        // El corte se calcula sobre las filas que la plantilla realmente importa.
+                        if (!pasaFiltro(valores, mapping?.filtroFilas)) {
+                            descartadas++;
+                            return;
+                        }
+                        total++;
+                        acumulador.agregar(valores);
+                    },
+                );
+            } catch (e: any) {
+                this.comoErrorDeUsuario(e);
+            }
+
+            const cortes = acumulador.cortes();
+
+            // Número base de las sugerencias. Con división por nómina cada corte necesita el suyo,
+            // así que el correlativo avanza; si solo divide por gestión, todos comparten la base y
+            // el prefijo de la gestión es lo que los distingue (100 → 10100, 20100, 30100).
+            const previas = await this.prisma.remesa.findMany({
+                where: { empresaId }, select: { numeroRemesa: true },
+            });
+            const base = siguienteNumeroRemesa(previas.map((r) => r.numeroRemesa), numeroBase);
+            const avanzaPorCorte = !!cfg!.porNomina;
+
+            const sugeridos = cortes.map((c, i) => {
+                const propio = avanzaPorCorte ? this.correlativoDesde(base, i) : base;
+                return numeroConGestion(propio, c.gestion);
+            });
+
+            this.logger.log(
+                `División (plantilla ${plantillaId}): ${cortes.length} corte(s) en ${total} fila(s) — ` +
+                cortes.map((c) => `${Object.values(c.valores).join('/')}=${c.filas}`).join(', '),
+            );
+
+            return {
+                columnas: columnasDeDivision(cfg).map((c) => c.etiqueta),
+                total,
+                descartadas: descartadas || undefined,
+                cortes: cortes.map((c, i) => ({
+                    valores: c.valores,
+                    filas: c.filas,
+                    nomina: c.nomina,
+                    gestion: c.gestion,
+                    numeroSugerido: sugeridos[i],
+                })),
+            };
+        } finally {
+            fs.rmSync(dirTmp, { recursive: true, force: true });
+        }
+    }
+
+    /** `00100` + 2 → `00102`, conservando el ancho del correlativo. */
+    private correlativoDesde(base: string, offset: number): string {
+        if (!/^\d+$/.test(base)) return base;
+        return String(parseInt(base, 10) + offset).padStart(base.length, '0');
+    }
+
     // --- REMESA / ARCHIVO ---
     /**
      * Alta de remesa.
@@ -561,24 +702,101 @@ export class ImportService {
             );
         }
 
+        const comun = {
+            empresaId: dto.empresaId,
+            categoria: dto.categoria as any,
+            plantillaId: dto.plantillaId,
+            archivo: archivoPrincipal,
+            archivos: paths ?? Prisma.JsonNull,
+            archivoHash,
+            hoja: dto.hoja,
+            fechaVencimiento: dto.fechaVencimiento ? new Date(dto.fechaVencimiento) : null,
+            validarDomicilios: dto.validarDomicilios ?? false,
+            estadoProceso: 'PENDIENTE' as const,
+            usuarioCreadorId: usuarioCreadorId ?? null,
+        };
+
+        // ── Carga dividida: N remesas sobre el MISMO archivo ────────────────────────────────
+        // Cada una se queda con su corte gracias a `remesa.filtroFilas`, que el runner suma a los
+        // filtros de la plantilla. El archivo se guardó una sola vez y las N lo comparten.
+        if (dto.divisiones?.length) {
+            const mapping = plantilla.mappingJson as unknown as MappingJson;
+            const cfg = mapping?.divisionRemesa;
+            if (!divide(cfg)) {
+                throw new BadRequestException(
+                    'Se pidió dividir la carga pero la plantilla no tiene configurada la división ' +
+                    'por nómina/gestión.',
+                );
+            }
+            const porEtiqueta = new Map(columnasDeDivision(cfg).map((c) => [c.etiqueta, c]));
+
+            const numeros = dto.divisiones.map((d) => String(d.numeroRemesa ?? '').trim());
+            if (numeros.some((n) => !n)) {
+                throw new BadRequestException('Todas las remesas de la división necesitan un número.');
+            }
+            const repetidos = numeros.filter((n, i) => numeros.indexOf(n) !== i);
+            if (repetidos.length) {
+                throw new BadRequestException(
+                    `El número de remesa ${[...new Set(repetidos)].join(', ')} está repetido entre los cortes.`,
+                );
+            }
+            const yaUsados = await this.prisma.remesa.findMany({
+                where: { empresaId: dto.empresaId, numeroRemesa: { in: numeros } },
+                select: { numeroRemesa: true },
+            });
+            if (yaUsados.length) {
+                throw new BadRequestException(
+                    `La empresa ya tiene la(s) remesa(s) ${yaUsados.map((r) => r.numeroRemesa).join(', ')}. ` +
+                    'Elegí otros números.',
+                );
+            }
+
+            const creadas: number[] = [];
+            for (const [i, division] of dto.divisiones.entries()) {
+                const filtros: FiltroFila[] = [];
+                for (const [etiqueta, valor] of Object.entries(division.valores ?? {})) {
+                    const columna = porEtiqueta.get(etiqueta);
+                    if (!columna) {
+                        throw new BadRequestException(
+                            `El corte "${etiqueta}" no es una columna de división de esta plantilla.`,
+                        );
+                    }
+                    filtros.push({ fromIndex: columna.fromIndex, operador: 'IGUAL', valor: String(valor) });
+                }
+                if (!filtros.length) {
+                    throw new BadRequestException('Un corte de la división llegó sin valores.');
+                }
+
+                const detalle = Object.entries(division.valores)
+                    .map(([k, v]) => `${k} ${v}`)
+                    .join(' / ');
+
+                const creada = await this.prisma.remesa.create({
+                    data: {
+                        ...comun,
+                        numeroRemesa: numeros[i],
+                        nombre: `${dto.nombre} — ${detalle}`,
+                        filtroFilas: filtros as unknown as Prisma.InputJsonValue,
+                        divisionValores: division.valores as unknown as Prisma.InputJsonValue,
+                    },
+                    select: { id: true },
+                });
+                creadas.push(creada.id);
+            }
+
+            this.logger.log(
+                `Carga dividida en ${creadas.length} remesa(s) para empresa ${dto.empresaId}: ` +
+                `${numeros.join(', ')} (archivo compartido).`,
+            );
+
+            // `remesaId` se sigue devolviendo para no romper a los llamadores de siempre.
+            return { remesaId: creadas[0], remesaIds: creadas };
+        }
+
         const remesa = await this.prisma.remesa.create({
-            data: {
-                numeroRemesa,
-                empresaId: dto.empresaId,
-                nombre: dto.nombre,
-                categoria: dto.categoria as any,
-                plantillaId: dto.plantillaId,
-                archivo: archivoPrincipal,
-                archivos: paths ?? Prisma.JsonNull,
-                archivoHash,
-                hoja: dto.hoja,
-                fechaVencimiento: dto.fechaVencimiento ? new Date(dto.fechaVencimiento) : null,
-                validarDomicilios: dto.validarDomicilios ?? false,
-                estadoProceso: 'PENDIENTE',
-                usuarioCreadorId: usuarioCreadorId ?? null,
-            },
+            data: { ...comun, numeroRemesa, nombre: dto.nombre },
         });
-        return { remesaId: remesa.id };
+        return { remesaId: remesa.id, remesaIds: [remesa.id] };
     }
 
     // --- PARSEAR FILAS (shared entre validate y execute) ---
@@ -781,39 +999,94 @@ export class ImportService {
         }
 
         const { paths, nombres } = this.archivosDeRemesa(remesa);
-        // Las filas que el filtro de la plantilla descarta no son parte del import: no se cuentan
-        // en el total ni se procesan. Se informan aparte para que el operador confirme el criterio
-        // antes de ejecutar (ver `filtro-filas.ts`).
+        // Las filas que el filtro descarta no son parte del import: no se cuentan en el total ni se
+        // procesan. Se informan aparte para que el operador confirme el criterio antes de ejecutar
+        // (ver `filtro-filas.ts`). Incluye el corte propio de la remesa si la carga se dividió.
         let descartadas = 0;
+        const filtros = this.filtrosDeRemesa(remesa, mapping);
+        // Importes negativos en un archivo de PAGOS: no bajan la deuda, la suben (el saldo es
+        // `montoTotal - Σpagos`). Es lo que pasa con las notas de crédito de Personal, que vienen
+        // todas en negativo. Se cuenta acá para poder avisarlo ANTES de ejecutar.
+        let importesNegativos = 0;
 
-        await recorrerFilas(
-            {
-                paths,
-                nombres,
-                tieneHeader: hasHeader,
-                separador: sep,
-                anchoFijo: this.layoutAnchoFijo(mapping),
-                hoja,
-            },
-            ({ valores, origen }) => {
-                if (!pasaFiltro(valores, mapping.filtroFilas)) {
-                    descartadas++;
-                    return;
-                }
-                const indice = totalRows++;
-                // El preview son las primeras N filas; el resto solo se cuenta.
-                if (indice >= sampleRows) return;
-                try {
-                    const obj = this.mapRow(valores, mapping);
-                    this.validateMappedRow(obj, mapping);
-                    preview.push({ row: indice, data: obj, error: null, origen });
-                    ok++;
-                } catch (e: any) {
-                    preview.push({ row: indice, data: null, error: conOrigen(e.message, origen), origen });
-                    err++;
-                }
-            },
-        );
+        // Archivos de casos cargados con identidad por DOCUMENTO: cuántas cuentas se perderían por
+        // colapsar en una sola. Se lee directo de la fila cruda (dos índices del mapeo) para no
+        // pagar el mapeo completo del archivo solo para contar.
+        const identidad = resolverIdentidad(mapping?.identidadDeudor);
+        const esCategoriaDeCasos =
+            remesa.categoria === 'DEUDORES' || remesa.categoria === 'DEUDORES_Y_FACTURAS';
+        const idxDocumento = mapping?.columns?.documento?.fromIndex;
+        const idxNroCliente = mapping?.columns?.nro_cliente?.fromIndex;
+        const mideColisiones =
+            esCategoriaDeCasos && identidad === 'DOCUMENTO' &&
+            typeof idxDocumento === 'number' && idxDocumento >= 0 &&
+            typeof idxNroCliente === 'number' && idxNroCliente >= 0;
+        const colisiones = new ContadorColisiones();
+
+        try {
+            await recorrerFilas(
+                {
+                    paths,
+                    nombres,
+                    tieneHeader: hasHeader,
+                    separador: sep,
+                    anchoFijo: this.layoutAnchoFijo(mapping),
+                    hoja,
+                },
+                ({ valores, origen }) => {
+                    if (!pasaFiltro(valores, filtros)) {
+                        descartadas++;
+                        return;
+                    }
+                    if (mideColisiones) {
+                        colisiones.agregar(
+                            String(valores[idxDocumento!] ?? '').trim(),
+                            String(valores[idxNroCliente!] ?? '').trim() || null,
+                        );
+                    }
+                    const indice = totalRows++;
+                    // El preview son las primeras N filas; el resto solo se cuenta.
+                    if (indice >= sampleRows) return;
+                    try {
+                        const obj = this.mapRow(valores, mapping);
+                        this.validateMappedRow(obj, mapping);
+                        if (remesa.categoria === 'PAGOS') {
+                            const imp = importeDePago(obj.importe ?? obj.monto);
+                            if (imp != null && imp < 0) importesNegativos++;
+                        }
+                        preview.push({ row: indice, data: obj, error: null, origen });
+                        ok++;
+                    } catch (e: any) {
+                        preview.push({ row: indice, data: null, error: conOrigen(e.message, origen), origen });
+                        err++;
+                    }
+                },
+            );
+        } catch (e: any) {
+            this.comoErrorDeUsuario(e);
+        }
+
+        // Avisos que no invalidan la carga pero que el operador tiene que ver antes de ejecutar.
+        const advertencias: string[] = [];
+        if (colisiones.colisiones > 0) {
+            advertencias.push(
+                `El archivo trae ${colisiones.cuentasDistintas.toLocaleString('es-AR')} cuentas de ` +
+                `${colisiones.personas.toLocaleString('es-AR')} personas distintas, pero la plantilla ` +
+                'identifica los casos por DOCUMENTO: ' +
+                `${colisiones.colisiones.toLocaleString('es-AR')} cuenta(s) van a quedar sin cargar ` +
+                '(la última del archivo pisa a las anteriores) y sus facturas y pagos después no ' +
+                'van a encontrar su caso. Si en esta cartera cada cuenta es un caso, cambiá la ' +
+                'plantilla a identificar por NÚMERO DE CLIENTE.',
+            );
+        }
+        if (importesNegativos > 0) {
+            advertencias.push(
+                `${importesNegativos} de las primeras ${Math.min(totalRows, sampleRows)} filas traen el ` +
+                'importe en NEGATIVO. Un pago negativo AUMENTA la deuda en vez de reducirla. Si son ' +
+                'notas de crédito o ajustes a favor, agregá el transform `removeDashes` al importe ' +
+                'en la plantilla.',
+            );
+        }
 
         await this.prisma.remesa.update({
             where: { id: remesaId },
@@ -832,7 +1105,8 @@ export class ImportService {
             sample: preview,
             archivos: paths.length > 1 ? nombres : undefined,
             descartadas: descartadas || undefined,
-            filtro: descartadas ? describirFiltros(mapping.filtroFilas) : undefined,
+            filtro: descartadas ? describirFiltros(filtros) : undefined,
+            advertencias: advertencias.length ? advertencias : undefined,
         };
     }
 
@@ -875,8 +1149,9 @@ export class ImportService {
             },
             ({ valores: fila }) => {
                 // Mismo criterio que el import: lo que el filtro descarta no impacta a nadie, así
-                // que tampoco tiene que aparecer en el conteo que el operador confirma.
-                if (!pasaFiltro(fila, mapping.filtroFilas)) return;
+                // que tampoco tiene que aparecer en el conteo que el operador confirma. Incluye el
+                // corte propio de la remesa, si la carga se dividió.
+                if (!pasaFiltro(fila, this.filtrosDeRemesa(remesa, mapping))) return;
                 totalFilas++;
                 const v = String(fila?.[idx] ?? '').trim();
                 if (v) valores.add(v);
@@ -1180,6 +1455,9 @@ export class ImportService {
             consolidacion: this.consolidacion,
             promesas: this.promesas,
             auditoria: this.auditoria,
+            // Qué identifica a un caso dentro de la remesa (default seguro: DOCUMENTO, que es el
+            // comportamiento histórico). Ver `utils/identidad-deudor.ts`.
+            identidadDeudor: resolverIdentidad(mapping?.identidadDeudor),
             montoDeudorDesdeFacturas,
             modoActualizacion,
             comportamientoDeudaMayor,
@@ -1437,6 +1715,7 @@ export class ImportService {
                 this.logger.log(`Remesa ${remesaId}: ${paths.length} archivos — ${nombres.join(', ')}`);
             }
             let descartadas = 0;
+            const filtros = this.filtrosDeRemesa(remesa, mapping);
 
             await recorrerFilas(
                 {
@@ -1448,9 +1727,10 @@ export class ImportService {
                     hoja: remesa.hoja ?? undefined,
                 },
                 ({ valores, origen }) => {
-                    // Las filas que el filtro de la plantilla descarta no son errores: no se
-                    // procesan, no van a `importerror` y no cuentan en el total.
-                    if (!pasaFiltro(valores, mapping?.filtroFilas)) {
+                    // Las filas que el filtro descarta no son errores: no se procesan, no van a
+                    // `importerror` y no cuentan en el total. Son las de la plantilla más el corte
+                    // propio de la remesa cuando la carga se dividió por nómina/gestión.
+                    if (!pasaFiltro(valores, filtros)) {
                         descartadas++;
                         return;
                     }
@@ -1463,8 +1743,8 @@ export class ImportService {
 
             if (descartadas > 0) {
                 this.logger.log(
-                    `Remesa ${remesaId}: ${descartadas} fila(s) descartadas por el filtro de la ` +
-                    `plantilla (${describirFiltros(mapping.filtroFilas)}).`,
+                    `Remesa ${remesaId}: ${descartadas} fila(s) descartadas por el filtro ` +
+                    `(${describirFiltros(filtros)}).`,
                 );
             }
         }
@@ -1681,12 +1961,51 @@ export class ImportService {
      * no tiene deudores propios, así que filtrar por ella devuelve 0 casos y solo ensucia el combo
      * (además son las que arrastran los `numeroRemesa` con timestamp del wizard viejo).
      */
-    async listRemesas(empresaId: number, categoria?: string, soloConDeudores = false) {
+    /**
+     * Remesas de una empresa, para el combo de "vincular a remesa de deudores".
+     *
+     * @param soloConDeudores Solo las que efectivamente cargaron casos. El combo pedía la lista
+     *   pelada y mostraba también las remesas de facturas, de pagos y de acciones masivas, que no
+     *   sirven como origen de nada: elegir ahí es imposible cuando la empresa tiene 100 remesas.
+     * @param soloEnGestion Además, solo las que todavía tienen al menos un caso **vivo**: ni
+     *   cancelado (categoría CANCELADO, que es donde cae SIT-050) ni desasignado (GES-094). Es lo
+     *   que separa "las 10 que estoy gestionando" de "las 90 que ya cerré", que es la pregunta
+     *   real cuando hay que aplicar un archivo de pagos.
+     */
+    async listRemesas(
+        empresaId: number,
+        categoria?: string,
+        soloConDeudores = false,
+        soloEnGestion = false,
+    ) {
+        // El filtro de "vivo" se arma con los ids de los parámetros de cierre y no con sus claves
+        // porque `deudor` guarda ids. Si el catálogo no está seedeado, no se filtra nada: es
+        // preferible mostrar de más a esconder la remesa que el operador necesita.
+        let idsCerrados: number[] = [];
+        if (soloEnGestion) {
+            const cierres = await this.prisma.parametro.findMany({
+                where: { clave: { in: ['SIT-050', 'GES-094', 'GES-090'] } },
+                select: { id: true, clave: true },
+            });
+            idsCerrados = cierres.map((c) => c.id);
+        }
+
+        const cerradoSituacion = idsCerrados.length
+            ? { estadoSituacionId: { notIn: idsCerrados } }
+            : {};
+        const cerradoGestion = idsCerrados.length
+            ? { estadoGestionId: { notIn: idsCerrados } }
+            : {};
+
         return this.prisma.remesa.findMany({
             where: {
                 empresaId,
                 ...(categoria ? { categoria: categoria as any } : {}),
-                ...(soloConDeudores ? { deudor: { some: {} } } : {}),
+                ...(soloEnGestion && idsCerrados.length
+                    ? { deudor: { some: { ...cerradoSituacion, ...cerradoGestion } } }
+                    : soloConDeudores || soloEnGestion
+                        ? { deudor: { some: {} } }
+                        : {}),
             },
             orderBy: { createdAt: 'desc' },
             include: { plantilla: { select: { nombre: true } } },

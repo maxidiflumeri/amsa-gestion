@@ -4,6 +4,7 @@ import {
     Chip,
     Collapse,
     IconButton,
+    Link,
     Table,
     TableBody,
     TableCell,
@@ -15,6 +16,7 @@ import {
 } from '@mui/material';
 import KeyboardArrowDownIcon from '@mui/icons-material/KeyboardArrowDown';
 import KeyboardArrowUpIcon from '@mui/icons-material/KeyboardArrowUp';
+import OpenInNewIcon from '@mui/icons-material/OpenInNew';
 
 interface Props {
     facturas: any[];
@@ -45,7 +47,27 @@ const FilaFactura: React.FC<{ fac: any; mostrarContrato: boolean }> = ({ fac, mo
                         </Tooltip>
                     )}
                 </TableCell>
-                <TableCell sx={{ fontWeight: 500 }}>{fac.nroFactura}</TableCell>
+                <TableCell sx={{ fontWeight: 500 }}>
+                    {fac.urlComprobante ? (
+                        // El cedente publica el comprobante en su portal (Telecom/Personal lo manda
+                        // en el archivo de detalle). `noopener noreferrer` porque es una URL de un
+                        // tercero: la pestaña nueva no tiene que poder tocar la ficha.
+                        <Tooltip title="Ver el comprobante del cedente en una pestaña nueva">
+                            <Link
+                                href={fac.urlComprobante}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                underline="hover"
+                                sx={{ display: 'inline-flex', alignItems: 'center', gap: 0.5, fontWeight: 500 }}
+                            >
+                                {fac.nroFactura}
+                                <OpenInNewIcon sx={{ fontSize: 14 }} />
+                            </Link>
+                        </Tooltip>
+                    ) : (
+                        fac.nroFactura
+                    )}
+                </TableCell>
                 {mostrarContrato && (
                     <TableCell sx={{ color: 'text.secondary' }}>{fac.externalId || '-'}</TableCell>
                 )}

@@ -6,6 +6,107 @@
 
 ---
 
+## [2026-08-28] — Telecom y Personal: las cuentas que no entraban y los pagos que no se podían subir
+
+Barrida sobre lo que salió de las pruebas de las carteras de telefonía. Los archivos de referencia
+son el `CA_20260527_1008_POSBAJA` (19.538 filas) y los de cobros y notas de crédito de Prebaja Fan.
+
+### Lo que perdía casos en silencio
+
+- **Un DNI con varias cuentas cargaba una sola.** La identidad del caso era la clave única
+  `(empresaId, documento, remesaId)`, así que la segunda y la tercera fila de un mismo documento no
+  creaban nada: hacían `update` sobre la primera y ganaba la última del archivo. En Telecom y
+  Personal el titular tiene la cuenta madre (`…0001`) y las hijas (`…0002`, `…0003`), cada una con
+  su deuda. Sobre el CA del 27/05 se perdían **119 de 19.439 cuentas**, y después **todas** sus
+  facturas y sus pagos fallaban con "Deudor no encontrado" —el archivo de cobros viene justamente
+  por cuenta. Ya se ve en producción: la remesa 47 de Telecom tiene 1.672 filas en error.
+
+  Ahora lo decide la plantilla (`identidadDeudor`: `DOCUMENTO` por defecto, `NRO_CLIENTE` para
+  telefonía) y lo resuelve `utils/identidad-deudor.ts` con un SELECT explícito, igual que hacen
+  MULTIRREGISTRO y MULTIARCHIVO desde siempre. Se retiró la clave única del schema: la protección
+  pasó a estar en el código, que es donde puede depender de la cartera.
+
+- **La pérdida era invisible.** El archivo entraba "sin errores" y el problema aparecía días
+  después. La vista previa ahora cuenta las cuentas y las personas del archivo y avisa cuántos casos
+  van a colapsar antes de ejecutar nada.
+
+### Lo que no se podía subir
+
+- **`Internal server error` al cargar el archivo de pagos de Personal.** El archivo manda
+  `PAYMENT_METHOD_DES` en dos columnas, y con `headers: true` fast-csv corta con `Duplicate headers
+  found`; la excepción subía sin capturar hasta el controller. Las remesas 112 y 113 quedaron en
+  PENDIENTE con 0 filas el 26/08 por esto. El pipeline mapea **por índice** y nunca usa los nombres
+  de columna, así que ahora el encabezado se saltea con `skipRows` en vez de interpretarse. Cualquier
+  otro error de formato sale como 400 con el nombre del archivo y el motivo, no como un 500 opaco.
+
+### Lo que guardaba números y fechas equivocados
+
+- **El importe del pago llegaba como texto.** `removeDashes` hacía `String(...)`, así que el orden
+  `toNumber` → `removeDashes` —el de las plantillas 48 y 49— devolvía `"68062.52"` y Prisma mataba la
+  fila con `Expected Float, provided String` (3 de las 12 filas de la remesa 114). Ahora
+  `removeDashes` sobre un número devuelve su valor absoluto **como número**, y el processor coerce el
+  importe igual, sin confiar en el orden de los transforms. Una fila con un importe ilegible se
+  rechaza con un mensaje que se entiende.
+
+- **Las fechas en castellano caían en 2001.** `toDate:auto` cortaba en el primer espacio antes de
+  parsear, así que de `3 ago 2026` quedaba `3` — y `dayjs('3')` devuelve el 1 de marzo de 2001. Lo
+  que no parseaba quedaba en null y el pago se fechaba **el día de la carga**, que además rompía el
+  anti-duplicados. Ahora se reconocen `D MMM YYYY` y `D MMMM YYYY` con el locale `es`, se descarta
+  solo la hora final, y el parseo flexible pide que el valor **parezca** una fecha antes de aceptarlo.
+  Medido sobre el archivo real: de 5.438 cobros, 0 fechas nulas y 0 en 2001.
+
+- **Un pago negativo aumenta la deuda.** El saldo es `montoTotal − Σpagos`, así que las 2.767 notas
+  de crédito de Prebaja Fan —todas en negativo— la subían en vez de bajarla. No se corrige solo (un
+  negativo puede ser la contracara de un cobro dado de baja): la vista previa avisa y el worker lo
+  loguea. El arreglo es agregar `removeDashes` al mapeo, que ahora funciona en cualquier orden.
+
+### Archivos acumulativos
+
+- **`pago.idExterno`**, único por `(deudorId, idExterno)`. Es el `PAYMENT_ID` que mandan Telecom y
+  Personal: mientras esté mapeado, un archivo acumulativo se puede recargar cuantas veces haga falta
+  sin duplicar nada y sin depender de que la fecha y el importe coincidan. El criterio viejo —mismo
+  caso, mismo día, mismo importe— queda de fallback para los cedentes que no mandan identificador.
+
+### Un archivo con varias asignaciones adentro
+
+Telecom y Personal se bajan de Deimos filtrando **solo por día**: si ese día hubo cuatro
+asignaciones, el CA y el MA llegan con las cuatro. El del 27/05 trae 5 nóminas y 4 gestiones.
+
+- **`mappingJson.divisionRemesa`** declara las columnas de nómina y de gestión. Al cargar, el
+  operador ve una tabla con los casos de cada corte —la 3082 da 13.948, exactamente lo que informó el
+  cedente por mail—, confirma los números y se crean N remesas **sobre el mismo archivo**, que se
+  guarda una sola vez.
+- El número se propone solo: por nómina avanza el correlativo, y la gestión le antepone su primer
+  dígito (`3GH` sobre la `100` → `30100`). `3G` y `3GH` comparten dígito, así que ahí sale repetido y
+  hay que corregir a mano: la pantalla lo marca y el backend lo rechaza.
+- La implementación es deliberadamente chica: **dividir es crear N remesas con un filtro de filas
+  extra**. Campo `remesa.filtroFilas`, que el runner suma a los de la plantilla, y se reusa
+  `filtro-filas.ts` entero. Las remesas se importan una atrás de la otra.
+
+### El combo de remesas y el link de la factura
+
+- **El selector de "vincular a remesa de deudores" listaba todo**: las remesas de facturas, de pagos
+  y de acciones incluidas. El backend ya sabía filtrar (`conDeudores`) y el frontend no lo usaba. Se
+  agregó además `enGestion` —remesas con al menos un caso ni cancelado ni desasignado—, que viene
+  activado, y **Seleccionar todas** / **Limpiar**. Es la diferencia entre elegir de 10 y elegir de
+  100.
+- **`factura.urlComprobante`**: el link al comprobante en el portal del cedente. Mapeable desde la
+  plantilla, se muestra como número de factura clickeable en la ficha y abre una pestaña nueva. Solo
+  se guardan URLs `http`/`https` —un `NI` no se renderiza como link— y una bajada sin link no borra
+  el que ya estaba.
+
+### Migración
+
+`prisma db push` (la corre el CI/CD). Cambia el schema en cinco lugares: se **retira** el unique
+`Deudor_empresaId_documento_remesaId_key` y se agrega un índice equivalente no único; `pago.idExterno`
+con su unique; `factura.urlComprobante`; `remesa.filtroFilas` y `remesa.divisionValores`.
+
+Las plantillas de Telecom y Personal hay que editarlas a mano después del deploy: identidad por
+**Nº de cliente** en las de deudores, `PAYMENT_ID` → **ID del cobro** en las de pagos, `removeDashes`
+en el importe de la de ajustes, y las columnas de nómina y gestión en las que se dividen.
+
+---
+
 ## [2026-08-21] — La pantalla de la Toolbar mostraba una sola solapa
 
 **Reportado mirando la pantalla real:** dentro de la Toolbar de Neotel solo se veía el contenido de

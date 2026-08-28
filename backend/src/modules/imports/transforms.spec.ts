@@ -68,10 +68,13 @@ describe('transforms — pago negativo: el ORDEN importa', () => {
         expect(t('-1.234,56', 'removeDashes', 'toNumber:es-AR')).toBe(1234.56);
     });
 
-    it('al revés no sirve: toNumber ya devolvió el número negativo', () => {
-        // Documenta el comportamiento para que la plantilla se arme en el orden correcto:
-        // removeDashes sobre un number lo vuelve string y pierde el signo, pero deja de ser número.
-        expect(t('-1.234,56', 'toNumber:es-AR', 'removeDashes')).toBe('1234.56');
+    it('el orden inverso también da un NÚMERO, no un texto', () => {
+        // `removeDashes` sobre un number devuelve su valor absoluto como number. Antes lo pasaba
+        // por `String(...)` y salía `'1234.56'`: con ese texto, las plantillas de Telecom mataban
+        // la fila en Prisma con `Argument importe: Expected Float, provided String`.
+        const v = t('-1.234,56', 'toNumber:es-AR', 'removeDashes');
+        expect(v).toBe(1234.56);
+        expect(typeof v).toBe('number');
     });
 
     it('combina con las otras limpiezas típicas de un CSV entrecomillado', () => {
@@ -203,5 +206,69 @@ describe('transforms — toDecimal', () => {
     it('no lo pisa el transform de número ni el de fecha', () => {
         expect(t('1.30', 'toNumber:es-AR')).toBe(1.3);
         expect(t('1.30', 'toDecimal:es-AR')).toBe('1,30');
+    });
+});
+
+
+describe('toDate:auto — fechas con el mes en castellano', () => {
+    const f = (v: string) => t(v, 'trim', 'toDate:auto') as Date | null;
+    const iso = (v: string) => {
+        const d = f(v);
+        return d ? `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}` : null;
+    };
+
+    /**
+     * Las fechas de los archivos de Telecom/Personal vienen así. El parser cortaba en el PRIMER
+     * espacio antes de intentar nada, así que de `3 ago 2026` solo quedaba `3` — y `dayjs('3')`
+     * devuelve, con toda naturalidad, el 1 de marzo de 2001. Los pagos quedaban fechados en 2001
+     * o, cuando ni eso parseaba, en la fecha del día, que además rompía el anti-duplicados.
+     */
+    it('lee el mes abreviado', () => {
+        expect(iso('3 ago 2026')).toBe('2026-08-03');
+        expect(iso('16 jul 2026')).toBe('2026-07-16');
+        expect(iso('1 sep 2026')).toBe('2026-09-01');
+        expect(iso('5 dic 2026')).toBe('2026-12-05');
+    });
+
+    it('lee el mes completo', () => {
+        expect(iso('23 abril 2026')).toBe('2026-04-23');
+    });
+
+    it('descarta la hora que viene pegada con coma', () => {
+        expect(iso('23 abr 2026, 0:00:00')).toBe('2026-04-23');
+        expect(iso('16 abr 2026, 0:00:00')).toBe('2026-04-16');
+    });
+
+    it('un número suelto ya no se lee como una fecha de 2001', () => {
+        expect(f('3')).toBeNull();
+        expect(f('16')).toBeNull();
+    });
+
+    it('un texto que no es fecha sigue devolviendo null', () => {
+        expect(f('NO INFORMADO')).toBeNull();
+        expect(f('NI')).toBeNull();
+    });
+});
+
+describe('toDate:auto — lo que ya funcionaba sigue igual', () => {
+    const iso = (v: string) => {
+        const d = t(v, 'trim', 'toDate:auto') as Date | null;
+        return d ? `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}` : null;
+    };
+
+    it('ISO, SAP con puntos y compactas', () => {
+        expect(iso('2026-05-27')).toBe('2026-05-27');
+        expect(iso('21.06.2026')).toBe('2026-06-21');
+        expect(iso('10.05.2024')).toBe('2024-05-10');
+        expect(iso('20260527')).toBe('2026-05-27');
+    });
+
+    it('la hora al final se sigue descartando', () => {
+        expect(iso('7/13/23 0:00')).toBe('2023-07-13');
+        expect(iso('5/6/2026 11:30:00 PM')).toBe('2026-05-06');
+    });
+
+    it('lo que viene con basura después del espacio cae al primer token, como antes', () => {
+        expect(iso('12/05/2026 ALGO')).toBe('2026-05-12');
     });
 });

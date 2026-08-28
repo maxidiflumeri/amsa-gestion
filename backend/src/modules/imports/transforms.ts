@@ -1,5 +1,8 @@
 import dayjs from 'dayjs';
 import customParseFormat from 'dayjs/plugin/customParseFormat';
+// Los cedentes que exportan desde un sistema en castellano mandan el mes abreviado (`3 ago 2026`).
+// Sin los datos del locale, `MMM`/`MMMM` no matchean nada.
+import 'dayjs/locale/es';
 
 dayjs.extend(customParseFormat);
 
@@ -69,14 +72,35 @@ const toDateExcel = (input: any) => {
     return toDateAuto(input); // fallback to auto text parsing if it's not a number / already formatted
 };
 
+/**
+ * Hora al final del valor, que no aporta a la fecha: `7/13/23 0:00`, `23 abr 2026, 0:00:00`,
+ * `5/6/2026 11:30:00 PM`. Se recorta antes de parsear.
+ *
+ * Reemplaza al `s.split(' ')[0]` que había antes, que cortaba en el **primer** espacio y por lo
+ * tanto destrozaba cualquier fecha con el mes en letras: de `3 ago 2026` solo quedaba `3`.
+ */
+const RE_HORA_FINAL = /[\s,]+\d{1,2}:\d{2}(?::\d{2})?(?:\s*[ap]\.?\s?m\.?)?$/i;
+
+/**
+ * Formatos con el mes en castellano. Van aparte porque necesitan el locale `es` declarado
+ * explícitamente: si se dejara que dayjs use el global, el resultado dependería de qué otro módulo
+ * lo cambió último.
+ */
+const FORMATOS_ES = [
+    'D MMM YYYY',
+    'D MMMM YYYY',
+    'D [de] MMMM [de] YYYY',
+    'D-MMM-YYYY',
+    'D/MMM/YYYY',
+];
+
 const toDateAuto = (input: any) => {
     if (!input) return null;
-    let s = String(input).trim();
+    if (input instanceof Date) return isNaN(input.getTime()) ? null : input;
 
-    // Quitar la hora si viene (ej: "7/13/23 0:00")
-    if (s.includes(' ')) {
-        s = s.split(' ')[0];
-    }
+    const original = String(input).trim();
+    const s = original.replace(RE_HORA_FINAL, '').trim();
+    if (!s) return null;
 
     const formats = [
         'YYYY-MM-DD',
@@ -102,8 +126,29 @@ const toDateAuto = (input: any) => {
         if (d.isValid()) return d.toDate();
     }
 
-    // fallback: Date nativo o dayjs flexible
-    const d = dayjs(s);
+    // Mes en letras: `3 ago 2026` (Telecom/Personal), `23 abril 2026`.
+    for (const f of FORMATOS_ES) {
+        const d = dayjs(s, f, 'es', true);
+        if (d.isValid()) return d.toDate();
+    }
+
+    // Comportamiento histórico: si nada matcheó y el valor trae algo después de un espacio que no
+    // era una hora, se prueba con el primer token. Se conserva para no romper las plantillas que
+    // dependen de él, pero va **después** de los formatos: si no, `3 ago 2026` volvería a perderse.
+    const primerToken = s.split(/\s+/)[0];
+    if (primerToken !== s) {
+        for (const f of formats) {
+            const d = dayjs(primerToken, f, true);
+            if (d.isValid()) return d.toDate();
+        }
+    }
+
+    // Último recurso: el parseo flexible de dayjs, pero solo si el valor **parece** una fecha (dos
+    // grupos de dígitos separados por algo). Sin ese guard, `dayjs('3')` devuelve 2001-03-01 con
+    // toda naturalidad: es lo que hacía que los pagos de Personal quedaran fechados en 2001.
+    const candidato = /\d+\D+\d+/.test(s) ? s : (/\d+\D+\d+/.test(primerToken) ? primerToken : null);
+    if (!candidato) return null;
+    const d = dayjs(candidato);
     return d.isValid() ? d.toDate() : null;
 };
 
@@ -129,7 +174,15 @@ const removeDoubleQuotes = (s: any) => (s == null ? null : String(s).replace(/["
 // 1.234,56): el pago se carga por su valor absoluto. Contempla las variantes que mete Excel
 // además del guión ASCII: hyphen ‐, en dash –, em dash — y el signo menos real −.
 // Ojo: quita TODOS los guiones del valor, no solo el del principio.
-const removeDashes = (s: any) => (s == null ? null : String(s).replace(/[-‐–—−]/g, ''));
+// Un número ya convertido por `toNumber` se devuelve como número (su valor absoluto), NO como
+// texto: las plantillas de Telecom tienen los transforms en el orden `toNumber` → `removeDashes`,
+// y con el `String(...)` de siempre el importe llegaba a Prisma como `"68062.52"` y la fila moría
+// con `Expected Float, provided String`.
+const removeDashes = (s: any) => {
+    if (s == null) return null;
+    if (typeof s === 'number') return Math.abs(s);
+    return String(s).replace(/[-‐–—−]/g, '');
+};
 const removePrefix = (s: any, prefix: string) => {
     if (s == null) return null;
     const str = String(s);

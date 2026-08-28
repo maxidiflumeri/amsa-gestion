@@ -32,6 +32,7 @@ function makeCtx(facturas: Array<{ id: number; nroFactura: string; estado?: stri
                 if (where.confirmadoImport !== undefined && p.confirmadoImport !== where.confirmadoImport) return false;
                 // La clave del test: si el where trae observación, tiene que coincidir.
                 if (where.observacion !== undefined && p.observacion !== where.observacion) return false;
+                if (where.idExterno !== undefined && p.idExterno !== where.idExterno) return false;
                 return true;
             }) ?? null,
         ),
@@ -195,5 +196,105 @@ describe('PagosProcessor — marcar la factura cobrada', () => {
         for (const doc of partidas) await p.processRow(fila(195.04, '2026-07-17', doc), ctx);
 
         expect(facturas.every((f) => f.estado === 'PAGADA')).toBe(true);
+    });
+});
+
+
+describe('PagosProcessor — idExterno: el identificador del cobro del cedente', () => {
+    const conId = (importe: number, fecha: string, idExterno: string) => ({
+        nro_cliente: '000003462007',
+        importe,
+        fecha,
+        idExterno,
+    });
+
+    it('reimportar un archivo acumulativo no duplica: el mismo PAYMENT_ID entra una vez', async () => {
+        const { ctx, pagos } = makeCtx();
+        const p = new PagosProcessor();
+
+        // Día 1: llegan 2 cobros.
+        await p.processRow(conId(68000, '2026-08-03', '3248264860'), ctx);
+        await p.processRow(conId(20000, '2026-08-03', '3248268100'), ctx);
+        // Día 2: el cedente reenvía los 2 de ayer y suma uno nuevo.
+        await p.processRow(conId(68000, '2026-08-03', '3248264860'), ctx);
+        await p.processRow(conId(20000, '2026-08-03', '3248268100'), ctx);
+        await p.processRow(conId(55605, '2026-08-04', '3248271094'), ctx);
+
+        expect(pagos).toHaveLength(3);
+        expect(pagos.map((x) => x.idExterno)).toEqual(['3248264860', '3248268100', '3248271094']);
+    });
+
+    it('dos cobros del mismo importe y el mismo día se registran los dos', async () => {
+        const { ctx, pagos } = makeCtx();
+        const p = new PagosProcessor();
+
+        // Sin idExterno, el criterio por día + importe los colapsaría en uno solo.
+        await p.processRow(conId(195.04, '2026-08-03', 'A1'), ctx);
+        await p.processRow(conId(195.04, '2026-08-03', 'A2'), ctx);
+
+        expect(pagos).toHaveLength(2);
+    });
+
+    it('el mismo PAYMENT_ID con la fecha mal parseada tampoco duplica', async () => {
+        const { ctx, pagos } = makeCtx();
+        const p = new PagosProcessor();
+
+        // Sin fecha mapeable, el processor usa `new Date()`: en dos corridas de días distintos el
+        // criterio por día veía dos pagos. Con el identificador, no.
+        await p.processRow({ nro_cliente: '000003462007', importe: 68000, idExterno: 'X1' }, ctx);
+        await p.processRow({ nro_cliente: '000003462007', importe: 68000, idExterno: 'X1' }, ctx);
+
+        expect(pagos).toHaveLength(1);
+    });
+
+    it('las plantillas sin identificador siguen con el criterio de siempre', async () => {
+        const { ctx, pagos } = makeCtx();
+        const p = new PagosProcessor();
+
+        await p.processRow(fila(195.04, '2026-07-17'), ctx);
+        await p.processRow(fila(195.04, '2026-07-17'), ctx);
+
+        expect(pagos).toHaveLength(1);
+        expect(pagos[0].idExterno).toBeNull();
+    });
+});
+
+describe('PagosProcessor — el importe llega como texto', () => {
+    it('acepta el número escrito como texto y lo guarda como número', async () => {
+        const { ctx, pagos } = makeCtx();
+        const p = new PagosProcessor();
+
+        // Es lo que produce el orden `toNumber` → `removeDashes` de las plantillas de Telecom:
+        // antes la fila moría con `Argument importe: Expected Float, provided String`.
+        await p.processRow({ nro_cliente: '000003462007', importe: '68062.52' } as any, ctx);
+
+        expect(pagos).toHaveLength(1);
+        expect(pagos[0].importe).toBe(68062.52);
+        expect(typeof pagos[0].importe).toBe('number');
+    });
+
+    it('lee el formato argentino con coma decimal', async () => {
+        const { ctx, pagos } = makeCtx();
+        const p = new PagosProcessor();
+
+        await p.processRow({ nro_cliente: '000003462007', monto: '-68.062,52' } as any, ctx);
+
+        expect(pagos[0].importe).toBe(-68062.52);
+    });
+
+    it('rechaza la fila con un mensaje que se entiende, en vez de un error de tipo de Prisma', () => {
+        const p = new PagosProcessor();
+
+        const r = p.validateRow!({ nro_cliente: '1', importe: 'NO INFORMADO' } as any, {} as any);
+
+        expect(r.valid).toBe(false);
+        expect(r.error).toContain('no es un número');
+    });
+
+    it('sigue exigiendo que el importe venga', () => {
+        const p = new PagosProcessor();
+
+        expect(p.validateRow!({ nro_cliente: '1' } as any, {} as any).valid).toBe(false);
+        expect(p.validateRow!({ nro_cliente: '1', importe: 0 } as any, {} as any).valid).toBe(true);
     });
 });

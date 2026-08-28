@@ -4,6 +4,34 @@ import { Prisma } from '@prisma/client';
 import { Logger } from '@nestjs/common';
 import { procesarBloquesDeudor } from '../utils/procesar-bloques';
 
+/**
+ * Importe del pago como número.
+ *
+ * No alcanza con confiar en que la plantilla haya puesto `toNumber`: el orden de los transforms lo
+ * elige el operador, y `removeDashes` después de `toNumber` devolvía texto. Con eso el importe
+ * llegaba a Prisma como `"68062.52"` y la fila moría con un error de tipo ilegible
+ * (`Expected Float, provided String`) en vez de cargarse.
+ *
+ * Devuelve `null` si no hay forma de leerlo como número, y ahí la fila se rechaza con un mensaje
+ * que dice qué pasó.
+ */
+export function importeDePago(valor: any): number | null {
+    if (valor == null || valor === '') return null;
+    if (typeof valor === 'number') return Number.isFinite(valor) ? valor : null;
+
+    let s = String(valor).trim().replace(/[^\d.,-]/g, '');
+    if (!s) return null;
+
+    const ultimaComa = s.lastIndexOf(',');
+    const ultimoPunto = s.lastIndexOf('.');
+    if (ultimaComa > ultimoPunto) s = s.replace(/\./g, '').replace(/,/g, '.');
+    else if (ultimoPunto > ultimaComa) s = s.replace(/,/g, '');
+    else if (ultimaComa !== -1) s = s.replace(/,/g, '.');
+
+    const n = parseFloat(s);
+    return Number.isFinite(n) ? n : null;
+}
+
 export class PagosProcessor implements ICategoryProcessor {
     readonly category = 'PAGOS';
     private readonly logger = new Logger(PagosProcessor.name);
@@ -17,6 +45,12 @@ export class PagosProcessor implements ICategoryProcessor {
     /** Facturas que se marcaron PAGADA porque el archivo dijo qué comprobante se cobró. */
     private facturasMarcadas = 0;
 
+    /** Pagos salteados por ser un cobro que ya estaba cargado (archivo acumulativo). */
+    private yaCargados = 0;
+
+    /** Pagos con importe negativo: no bajan la deuda, la suben. Se avisa al terminar. */
+    private negativos = 0;
+
     validateRow(row: MappedRow, _ctx: ProcessContext): RowValidationResult {
         const nroCliente = String(row.nro_cliente ?? '').trim();
         if (!nroCliente) {
@@ -24,8 +58,12 @@ export class PagosProcessor implements ICategoryProcessor {
         }
         // La UI de mapeo de PAGOS expone el campo del importe como `monto` (label "Monto");
         // se acepta como alias de `importe` para no rechazar plantillas mapeadas con esa clave.
-        if (row.importe == null && row.monto == null) {
+        const bruto = row.importe ?? row.monto;
+        if (bruto == null || bruto === '') {
             return { valid: false, error: 'Campo requerido faltante: importe (o monto)' };
+        }
+        if (importeDePago(bruto) == null) {
+            return { valid: false, error: `El importe "${bruto}" no es un número` };
         }
         return { valid: true };
     }
@@ -64,7 +102,16 @@ export class PagosProcessor implements ICategoryProcessor {
         // Bloques repetitivos del archivo → al deudor encontrado.
         await procesarBloquesDeudor(deudor.id, row._blocks, ctx);
 
-        const importe = row.importe ?? row.monto ?? 0;
+        const importe = importeDePago(row.importe ?? row.monto) ?? 0;
+        if (importe < 0) this.negativos++;
+
+        // Identificador del cobro en el sistema del cedente (`PAYMENT_ID` en los archivos de
+        // Telecom/Personal). Es la clave de idempotencia real: mientras exista, un archivo
+        // acumulativo se puede recargar cuantas veces haga falta sin duplicar nada, sin depender
+        // de que la fecha y el importe coincidan.
+        const idExterno = row.idExterno != null && String(row.idExterno).trim() !== ''
+            ? String(row.idExterno).trim()
+            : null;
 
         // Identificador del comprobante que cobró, si la plantilla lo mapea. Se guarda en el pago y
         // participa del anti-duplicados de más abajo.
@@ -77,6 +124,19 @@ export class PagosProcessor implements ICategoryProcessor {
         const fechaRaw = row.fecha ?? row.fechaPago;
         const fechaParsed = fechaRaw != null && fechaRaw !== '' ? new Date(fechaRaw) : null;
         const fechaPago = fechaParsed && !isNaN(fechaParsed.getTime()) ? fechaParsed : new Date();
+
+        // Anti-dup por identificador del cedente: si este cobro ya se cargó, no se hace nada.
+        // Va antes que todo lo demás porque es el criterio exacto; el resto son heurísticas.
+        if (idExterno) {
+            const ya = await ctx.prisma.pago.findFirst({
+                where: { deudorId: deudor.id, idExterno },
+                select: { id: true },
+            });
+            if (ya) {
+                this.yaCargados++;
+                return;
+            }
+        }
 
         // Anti-dup (spec §3.1): si ya hay un pago MANUAL no confirmado del mismo deudor
         // con este importe exacto → confirmarlo en vez de duplicar. Un claim por fila.
@@ -98,6 +158,7 @@ export class PagosProcessor implements ICategoryProcessor {
                     confirmadoImport: true,
                     confirmadoEn: new Date(),
                     origenArchivo: `PAGOS_REMESA_${ctx.remesaId}`,
+                    idExterno,
                 },
             });
         } else {
@@ -111,7 +172,10 @@ export class PagosProcessor implements ICategoryProcessor {
             const finDia = new Date(fechaPago);
             finDia.setHours(23, 59, 59, 999);
 
-            const yaImportado = await ctx.prisma.pago.findFirst({
+            // Con `idExterno` la pregunta ya se respondió arriba de forma exacta; repetirla por
+            // día+importe solo puede dar un falso positivo (dos cobros distintos del mismo monto
+            // el mismo día) y perder plata.
+            const yaImportado = idExterno ? null : await ctx.prisma.pago.findFirst({
                 where: {
                     deudorId: deudor.id,
                     origen: 'IMPORT_PAGOS',
@@ -137,6 +201,7 @@ export class PagosProcessor implements ICategoryProcessor {
             if (yaImportado) {
                 // Pago ya cargado en una importación previa → skip idempotente.
                 // No se toca el deudor: no hubo movimiento, no hace falta consolidar.
+                this.yaCargados++;
                 return;
             }
 
@@ -148,6 +213,7 @@ export class PagosProcessor implements ICategoryProcessor {
                     origen: 'IMPORT_PAGOS',
                     origenArchivo: row.origenArchivo ?? null,
                     observacion,
+                    idExterno,
                 },
             });
         }
@@ -184,7 +250,24 @@ export class PagosProcessor implements ICategoryProcessor {
         if (this.facturasMarcadas > 0) {
             this.logger.log(`${this.facturasMarcadas} factura(s) marcadas PAGADA por el comprobante del pago.`);
         }
+        if (this.yaCargados > 0) {
+            this.logger.log(
+                `${this.yaCargados} pago(s) ya estaban cargados y se saltearon (archivo acumulativo).`,
+            );
+        }
+        if (this.negativos > 0) {
+            // No se corrige solo: un importe negativo puede ser una contracara legítima (un cobro
+            // que se dio de baja). Pero si son notas de crédito, el mapeo necesita `removeDashes`
+            // o la deuda SUBE en vez de bajar — el saldo es `montoTotal − Σpagos`.
+            this.logger.warn(
+                `${this.negativos} pago(s) con importe NEGATIVO en la remesa ${ctx.remesaId}: ` +
+                'aumentan la deuda en vez de reducirla. Si son notas de crédito, agregá ' +
+                '`removeDashes` al mapeo del importe.',
+            );
+        }
         this.facturasMarcadas = 0;
+        this.yaCargados = 0;
+        this.negativos = 0;
 
         if (this.processedDeudorIds.size > 0) {
             const deudorIds = [...this.processedDeudorIds];

@@ -20,6 +20,20 @@ import * as xlsx from 'xlsx';
 import { AnchoFijoConfig } from '../mapping-types';
 import { crearStreamAnchoFijo } from './ancho-fijo';
 
+/**
+ * El archivo no se pudo leer: está mal formado, no es el formato que declara la plantilla, o el
+ * separador no es el que tiene configurado.
+ *
+ * Existe como clase propia para que el servicio la distinga de una falla del sistema y la devuelva
+ * como 400 con el mensaje puesto, en vez del 500 opaco que veía el operador.
+ */
+export class ErrorDeParseo extends Error {
+    constructor(mensaje: string, readonly archivo: string) {
+        super(mensaje);
+        this.name = 'ErrorDeParseo';
+    }
+}
+
 export interface FilaLeida {
     /** Valores de la fila por índice, igual que `fast-csv` con `headers:false`. */
     valores: any[];
@@ -103,7 +117,20 @@ export async function recorrerFilas(opts: OpcionesRecorrido, onFila: OnFila): Pr
         await new Promise<void>((resolve, reject) => {
             const parser = opts.anchoFijo
                 ? crearStreamAnchoFijo(opts.anchoFijo, { tieneHeader: opts.tieneHeader })
-                : fastcsv.parse({ headers: opts.tieneHeader, delimiter: opts.separador, trim: false });
+                // El pipeline mapea **por índice** (`fromIndex`), nunca por nombre de columna: pedirle
+                // a fast-csv que interprete el encabezado no aporta nada y agrega un modo de falla
+                // propio. Con `headers: true` un archivo con dos columnas que se llaman igual tira
+                // `Duplicate headers found` y revienta la importación entera — es lo que pasaba con
+                // el archivo de pagos de Personal, que manda `PAYMENT_METHOD_DES` dos veces.
+                // `skipRows` descarta el encabezado como lo que es para nosotros: una fila que no
+                // se procesa. (`skipRows` y no `skipLines` porque cuenta filas ya parseadas, así
+                // que un encabezado con un salto de línea entrecomillado también sale bien.)
+                : fastcsv.parse({
+                    headers: false,
+                    skipRows: opts.tieneHeader ? 1 : 0,
+                    delimiter: opts.separador,
+                    trim: false,
+                });
 
             // Callback de la última fila, si todavía no terminó. `pause()` frena la lectura pero no
             // impide que `end` se emita cuando el archivo ya se agotó: sin esperar esto acá, el
@@ -111,10 +138,14 @@ export async function recorrerFilas(opts: OpcionesRecorrido, onFila: OnFila): Pr
             let enVuelo: Promise<void> | null = null;
 
             parser
-                .on('error', reject)
+                .on('error', (e: any) => reject(new ErrorDeParseo(
+                    `No se pudo leer "${nombre}": ${e?.message ?? 'error de formato'}. ` +
+                    'Revisá que el separador y el formato de la plantilla sean los del archivo.',
+                    nombre,
+                )))
                 .on('data', (row: any) => {
-                    // Con `headers:true`, fast-csv emite objetos; el resto del pipeline trabaja por
-                    // índice, así que se normaliza acá y no en cada llamador.
+                    // Siempre llega un array (`headers:false`); el `Object.values` es para el
+                    // stream de ancho fijo, que emite objetos con las columnas nombradas.
                     const r = emitir(Array.isArray(row) ? row : Object.values(row));
                     if (esPromesa(r)) {
                         parser.pause();

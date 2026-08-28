@@ -5,6 +5,7 @@ import {
 import { Prisma } from '@prisma/client';
 import { procesarBloquesDeudor } from '../utils/procesar-bloques';
 import { mergeCamposAdicionalesEnDeudores, recalcularMontoTotalDesdeFacturas } from '../utils/monto-facturas';
+import { urlComprobanteValida } from '../utils/url-comprobante';
 
 /** Filas por `INSERT ... ON DUPLICATE KEY UPDATE`. Acota el tamaño del statement contra MySQL. */
 const CHUNK_UPSERT = 500;
@@ -106,6 +107,8 @@ export class FacturasProcessor implements ICategoryProcessor {
                     importe: row.importe == null || row.importe === '' ? null : Number(row.importe) || 0,
                     fechaEmision: aFecha(row.fechaEmision),
                     vencimiento: aFecha(row.vencimiento),
+                    // Link al comprobante en el portal del cedente, si la plantilla lo mapea.
+                    urlComprobante: urlComprobanteValida(row.urlComprobante),
                 },
             });
 
@@ -188,6 +191,8 @@ interface FacturaDatos {
     importe: number | null;
     fechaEmision: Date | null;
     vencimiento: Date | null;
+    /** URL del comprobante, ya validada. `null` = la fila no la trae (o no era una URL). */
+    urlComprobante: string | null;
 }
 
 /** Trae los tres campos, así que se puede escribir en bloque sin perder nada de lo ya cargado. */
@@ -213,18 +218,21 @@ async function upsertFacturasEnBloque(ctx: ProcessContext, facturas: FacturaDato
     if (facturas.length === 0) return;
 
     const values = facturas.map(
-        (f) => Prisma.sql`(${f.deudorId}, ${f.nroFactura}, ${f.importe}, ${f.fechaEmision}, ${f.vencimiento}, 'PENDIENTE')`,
+        (f) => Prisma.sql`(${f.deudorId}, ${f.nroFactura}, ${f.importe}, ${f.fechaEmision}, ${f.vencimiento}, ${f.urlComprobante}, 'PENDIENTE')`,
     );
 
     // `estado` solo se escribe al CREAR: si la factura ya existe puede estar PAGADA o ANULADA por un
     // import de pagos o de bajas, y reimportar el archivo del cedente no debe resucitarla a pendiente.
     await ctx.prisma.$executeRaw(Prisma.sql`
-        INSERT INTO factura (deudorId, nroFactura, importe, fechaEmision, vencimiento, estado)
+        INSERT INTO factura (deudorId, nroFactura, importe, fechaEmision, vencimiento, urlComprobante, estado)
         VALUES ${Prisma.join(values)}
         ON DUPLICATE KEY UPDATE
             importe = VALUES(importe),
             fechaEmision = VALUES(fechaEmision),
-            vencimiento = VALUES(vencimiento)
+            vencimiento = VALUES(vencimiento),
+            -- Una bajada sin link no borra el que ya estaba: el cedente publica el comprobante
+            -- cuando quiere, y perderlo en la recarga del día siguiente sería un retroceso.
+            urlComprobante = COALESCE(VALUES(urlComprobante), urlComprobante)
     `);
 }
 
@@ -242,12 +250,14 @@ async function upsertFacturaParcial(ctx: ProcessContext, f: FacturaDatos): Promi
             importe: f.importe ?? 0,
             fechaEmision: f.fechaEmision ?? new Date(),
             vencimiento: f.vencimiento ?? new Date(),
+            urlComprobante: f.urlComprobante,
             estado: 'PENDIENTE',
         },
         update: {
             importe: f.importe ?? undefined,
             fechaEmision: f.fechaEmision ?? undefined,
             vencimiento: f.vencimiento ?? undefined,
+            urlComprobante: f.urlComprobante ?? undefined,
         },
     });
 }

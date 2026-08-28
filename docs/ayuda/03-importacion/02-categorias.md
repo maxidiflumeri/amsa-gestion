@@ -44,23 +44,52 @@ El detalle de la deuda para casos **ya cargados**. Una fila por factura.
 
 Pide **remesa origen**: contra qué cartera buscar los casos. Y busca **por número de cliente**.
 
+> **El link al comprobante.** Si el cedente manda la URL de la factura en su portal —Telecom y
+> Personal la traen en el archivo de detalle—, mapeala a **"Link al comprobante"**. En la solapa
+> Facturas de la ficha, el número de factura pasa a ser clickeable y abre el comprobante en una
+> pestaña nueva. Las carteras que no la mandan no cambian en nada.
+>
+> Solo se guardan direcciones `http` y `https`. Si el cedente manda `NI`, un guión o cualquier otro
+> relleno, el campo queda vacío y no se muestra ningún link.
+>
+> Una bajada que venga **sin** el link no borra el que ya estaba cargado.
+
 ## Pagos
 
 Cobranzas contra casos ya cargados. Pide remesa origen, y es la única categoría donde podés elegir
 **varias a la vez** — útil cuando el archivo del cedente cubre varias asignaciones.
 
-> **El anti-duplicados.** Para que reimportar un archivo acumulativo no duplique cobranzas, el sistema
-> saltea un pago si ya existe otro del **mismo caso, mismo día y mismo importe**. Con la mayoría de
-> los cedentes funciona bien.
->
-> Pero es destructivo cuando el deudor cancela **varias cuotas iguales el mismo día**. En un caso
-> real, una cuenta canceló 36 partidas de $195,04 en la misma fecha y quedaba registrada **una sola**;
-> sobre el archivo completo se perdía el **13,3% de la cobranza**.
->
-> La solución: que la plantilla mapee el **número de comprobante** a `observación`. Entra en el
-> criterio del anti-duplicados y dos cobros del mismo día e importe pero de comprobantes distintos
-> dejan de ser "el mismo pago". **De paso marca como pagada la factura** con ese número: sin eso el
-> saldo baja pero las facturas quedan todas pendientes.
+### El anti-duplicados: qué hace que un archivo acumulativo no duplique
+
+Muchos cedentes mandan **todos los cobros del período todos los días**: hoy 30, mañana los mismos 30
+más 15 nuevos. Hay que cargar los 15 y saltear los 30.
+
+El sistema tiene dos criterios, de mejor a peor:
+
+**1. El ID del cobro del cedente (recomendado).** Si la plantilla mapea **"ID del cobro en el sistema
+del cedente"** —el `PAYMENT_ID` de los archivos de Telecom y Personal—, ese es el criterio y no hay
+nada más que pensar: el mismo cobro no entra dos veces aunque cambie la fecha o el importe, y dos
+cobros distintos entran los dos aunque coincidan en todo lo demás.
+
+**2. Mismo caso, mismo día, mismo importe.** Es el criterio para los cedentes que no mandan
+identificador. Funciona, pero tiene dos agujeros:
+
+- Si la fecha del archivo **no se puede leer**, el sistema usa la del día, y el mismo pago cargado
+  hoy y mañana cae en dos días distintos: **se duplica**. Verificá en la vista previa que la fecha
+  del pago se esté leyendo.
+- Si el deudor cancela **varias cuotas iguales el mismo día**, quedan como una sola. En un caso real
+  una cuenta canceló 36 partidas de $195,04 en la misma fecha y se registraba **una**; sobre el
+  archivo completo se perdía el **13,3% de la cobranza**. El parche es mapear el **número de
+  comprobante** a `observación`, que entra en el criterio.
+
+> Mapear el comprobante a `observación` **además marca como pagada la factura** con ese número: sin
+> eso el saldo baja pero las facturas quedan todas pendientes. El `ID del cobro` no hace eso — son
+> dos campos con dos funciones, y se pueden mapear los dos.
+
+> **Ojo con los importes negativos.** El saldo del caso es la deuda **menos** los pagos, así que un
+> pago negativo la **aumenta**. Si el archivo son notas de crédito o ajustes a favor —vienen todos en
+> negativo—, agregá el transform `removeDashes` al importe. La vista previa te avisa si detecta
+> importes negativos.
 
 > **Antes del anti-duplicados hay otra regla:** si el caso tiene un pago cargado **a mano** y sin
 > confirmar por el mismo importe, el import no crea uno nuevo — **confirma ese**. Sin importar la

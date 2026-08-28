@@ -1,11 +1,11 @@
 // processors/deudores.processor.ts
 import { ICategoryProcessor, MappedRow, ProcessContext, RowValidationResult } from './processor.interface';
-import { Prisma } from '@prisma/client';
 import { Logger } from '@nestjs/common';
 import { nroClienteDeFila } from '../utils/nro-cliente';
 import { documentoDeFila } from '../utils/documento';
 import { procesarBloquesDeudor } from '../utils/procesar-bloques';
 import { enriquecerContactosHistoricos } from '../utils/enriquecimiento-historico';
+import { upsertDeudorPorIdentidad } from '../utils/identidad-deudor';
 
 export class DeudoresProcessor implements ICategoryProcessor {
     readonly category = 'DEUDORES';
@@ -48,61 +48,27 @@ export class DeudoresProcessor implements ICategoryProcessor {
     async processRow(row: MappedRow, ctx: ProcessContext): Promise<void> {
         const documentoStr = documentoDeFila(row);
         const nroCliente = nroClienteDeFila(row);
-        let isNewForThisRemesa = true;
 
-        const existingInRemesa = await ctx.prisma.deudor.findUnique({
-            where: {
-                empresaId_documento_remesaId: {
-                    empresaId: ctx.empresaId,
-                    documento: documentoStr,
-                    remesaId: ctx.remesaId,
-                }
-            },
-            select: { id: true }
-        });
-
-        if (existingInRemesa) {
-            isNewForThisRemesa = false;
-        }
-
-        const deudor = await ctx.prisma.deudor.upsert({
-            where: {
-                empresaId_documento_remesaId: {
-                    empresaId: ctx.empresaId,
-                    documento: documentoStr,
-                    remesaId: ctx.remesaId,
-                },
-            },
-            create: {
-                empresaId: ctx.empresaId,
-                remesaId: ctx.remesaId,
-                documento: documentoStr,
-                nroCliente: nroCliente || null,
-                nombre: row.nombre ?? '',
-                apellido: row.apellido ?? '',
-                montoTotal: this.parseFloatSafe(row.montoTotal) ?? null,
-                fechaVencimiento: this.parseDateSafe(row.fechaVencimiento) ?? null,
-                camposAdicionales: row.camposAdicionales ?? Prisma.JsonNull,
-                estadoSituacionId: ctx.defaults.estadoSituacionId,
-                estadoGestionId: ctx.defaults.estadoGestionId,
-            },
-            update: {
-                nroCliente: nroCliente || undefined,
-                nombre: row.nombre ?? undefined,
-                apellido: row.apellido ?? undefined,
-                montoTotal: this.parseFloatSafe(row.montoTotal) ?? undefined,
-                fechaVencimiento: this.parseDateSafe(row.fechaVencimiento) ?? undefined,
-                camposAdicionales: row.camposAdicionales ?? undefined,
-            },
+        // Qué identifica al caso dentro de la remesa lo decide la plantilla: para casi todas las
+        // carteras es el documento, para las de telefonía es el número de cuenta (un mismo DNI
+        // tiene la cuenta madre y las hijas, y cada una es un caso). Ver `identidad-deudor.ts`.
+        const { id: deudorId, creado } = await upsertDeudorPorIdentidad(ctx, {
+            documento: documentoStr,
+            nroCliente: nroCliente || null,
+            nombre: row.nombre ?? '',
+            apellido: row.apellido ?? '',
+            montoTotal: this.parseFloatSafe(row.montoTotal),
+            fechaVencimiento: this.parseDateSafe(row.fechaVencimiento),
+            camposAdicionales: row.camposAdicionales,
         });
 
         // Bloques repetitivos (facturas/contactos) → se procesan en cualquier categoría.
-        await procesarBloquesDeudor(deudor.id, row._blocks, ctx);
+        await procesarBloquesDeudor(deudorId, row._blocks, ctx);
 
         // Autoenriquecimiento de contactos desde la propia base (histórico por DNI).
         // Solo para deudores nuevos en esta remesa; el helper saltea placeholders (sin DNI).
-        if (isNewForThisRemesa) {
-            this.contactosEnriquecidos += await enriquecerContactosHistoricos(ctx, deudor.id, documentoStr);
+        if (creado) {
+            this.contactosEnriquecidos += await enriquecerContactosHistoricos(ctx, deudorId, documentoStr);
         }
     }
 

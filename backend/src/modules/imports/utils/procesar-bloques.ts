@@ -10,6 +10,8 @@ import { ContextoCaso, prepararContactoImport } from './contacto-import';
  * contactos, enriquecimiento, pagos, facturas, etc.).
  */
 
+import { urlComprobanteValida } from './url-comprobante';
+
 type Bloque = { entity: string; data: Record<string, any> };
 
 const ENTITIES_FACTURA = new Set(['FACTURA', 'MIXTO', 'DEUDORES_Y_FACTURAS']);
@@ -52,12 +54,14 @@ async function upsertFacturaBloque(deudorId: number, data: any, ctx: ProcessCont
             importe: parseFloatSafe(data.importe) ?? 0,
             fechaEmision: parseDateSafe(data.fechaEmision) ?? new Date(),
             vencimiento: parseDateSafe(data.vencimiento) ?? new Date(),
+            urlComprobante: urlComprobanteValida(data.urlComprobante),
             estado: data.estado ?? 'PENDIENTE',
         },
         update: {
             importe: parseFloatSafe(data.importe) ?? undefined,
             fechaEmision: parseDateSafe(data.fechaEmision) ?? undefined,
             vencimiento: parseDateSafe(data.vencimiento) ?? undefined,
+            urlComprobante: urlComprobanteValida(data.urlComprobante) ?? undefined,
             estado: data.estado ?? undefined,
         },
     });

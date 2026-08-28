@@ -34,12 +34,12 @@ model comentario {
 }
 
 model contacto {
-  id        Int     @id @default(autoincrement())
+  id        Int              @id @default(autoincrement())
   deudorId  Int
   tipo      String
   valor     String
   prioridad Int?
-  validado  Boolean @default(false)
+  validado  Boolean          @default(false)
   // Tipo de línea según los rangos de ENACOM ("MOBILE" | "FIXED_LINE" | ...). Lo usa la ficha para
   // no dejar marcar un fijo como WhatsApp. NO confundir con `relacion`.
   subtipo   String?
@@ -47,8 +47,8 @@ model contacto {
   // (Toyota TCFA manda los teléfonos del codeudor junto con los del titular). Se muestra en la ficha
   // para que el gestor sepa a quién está llamando antes de marcar.
   relacion  String?
-  whatsapp  Boolean @default(false)
-  deudor    deudor  @relation(fields: [deudorId], references: [id], map: "Contacto_deudorId_fkey")
+  whatsapp  Boolean          @default(false)
+  deudor    deudor           @relation(fields: [deudorId], references: [id], map: "Contacto_deudorId_fkey")
   llamadas  llamada_neotel[]
 
   @@unique([deudorId, tipo, valor], map: "Contacto_deudorId_tipo_valor_key")
@@ -56,16 +56,16 @@ model contacto {
 }
 
 model deudor {
-  id                Int           @id @default(autoincrement())
-  empresaId         Int
-  remesaId          Int
-  documento         String
-  nroCliente        String?
-  nombre            String
-  apellido          String
+  id                     Int              @id @default(autoincrement())
+  empresaId              Int
+  remesaId               Int
+  documento              String
+  nroCliente             String?
+  nombre                 String
+  apellido               String
   montoTotal             Float?
-  saldo                  Float?        // Persistido por ConsolidacionSituacionService. Ver consolidacion-situacion-spec.md §2.
-  situacionConsolidadaEn DateTime?     // Timestamp de la última consolidación.
+  saldo                  Float? // Persistido por ConsolidacionSituacionService. Ver consolidacion-situacion-spec.md §2.
+  situacionConsolidadaEn DateTime? // Timestamp de la última consolidación.
   // Recargo por mora acumulado (Int/Rec + Rec AJ/EJ + IVA), calculado por MoraService sobre las
   // facturas del caso. La deuda actualizada es `montoTotal + recargoMora`. Ver mora-aysa-spec.md §1.
   recargoMora            Float?
@@ -83,26 +83,37 @@ model deudor {
   estadoGestionPrevioAId Int?
   motivoNoPagoId         Int?
   camposAdicionales      Json?
-  createdAt         DateTime      @default(now())
-  updatedAt         DateTime      @updatedAt
-  campoExtras       campoextra[]
-  comentarios       comentario[]
-  contactos         contacto[]
-  empresa           empresa       @relation(fields: [empresaId], references: [id], map: "Deudor_empresaId_fkey")
-  remesa            remesa        @relation(fields: [remesaId], references: [id], map: "Deudor_remesaId_fkey")
-  estadoGestion     parametro?    @relation("DeudorEstadoGestion", fields: [estadoGestionId], references: [id])
-  estadoGestionPrevio parametro?  @relation("DeudorEstadoGestionPrevio", fields: [estadoGestionPrevioAId], references: [id])
-  estadoSituacion   parametro?    @relation("DeudorEstadoSituacion", fields: [estadoSituacionId], references: [id])
-  motivoNoPago      parametro?    @relation("DeudorMotivoNoPago", fields: [motivoNoPagoId], references: [id])
-  facturas          factura[]
-  pagos             pago[]
-  promesas          promesa_pago[]
-  transacciones     transaccion[]
-  convenios         convenio[]
-  enviosEmail       envio_email[]
-  llamadas          llamada_neotel[]
+  createdAt              DateTime         @default(now())
+  updatedAt              DateTime         @updatedAt
+  campoExtras            campoextra[]
+  comentarios            comentario[]
+  contactos              contacto[]
+  empresa                empresa          @relation(fields: [empresaId], references: [id], map: "Deudor_empresaId_fkey")
+  remesa                 remesa           @relation(fields: [remesaId], references: [id], map: "Deudor_remesaId_fkey")
+  estadoGestion          parametro?       @relation("DeudorEstadoGestion", fields: [estadoGestionId], references: [id])
+  estadoGestionPrevio    parametro?       @relation("DeudorEstadoGestionPrevio", fields: [estadoGestionPrevioAId], references: [id])
+  estadoSituacion        parametro?       @relation("DeudorEstadoSituacion", fields: [estadoSituacionId], references: [id])
+  motivoNoPago           parametro?       @relation("DeudorMotivoNoPago", fields: [motivoNoPagoId], references: [id])
+  facturas               factura[]
+  pagos                  pago[]
+  promesas               promesa_pago[]
+  transacciones          transaccion[]
+  convenios              convenio[]
+  enviosEmail            envio_email[]
+  llamadas               llamada_neotel[]
 
-  @@unique([empresaId, documento, remesaId], map: "Deudor_empresaId_documento_remesaId_key")
+  // NO hay unique por (empresaId, documento, remesaId).
+  //
+  // Un mismo DNI puede tener VARIAS cuentas en la misma cartera: en Telecom/Personal la cuenta
+  // madre termina en 001 y las hijas en 002, 003… Con la clave única puesta, la 2ª y la 3ª fila no
+  // creaban un caso: hacían `update` sobre el primero. En el CA del 27/05 eso perdía 119 de las
+  // 19.439 cuentas y dejaba todas sus facturas y pagos con "Deudor no encontrado".
+  //
+  // Qué identifica a un deudor lo decide ahora la plantilla (`mappingJson.identidadDeudor`) y lo
+  // resuelve `utils/identidad-deudor.ts` con un SELECT explícito antes de escribir. Es el mismo
+  // criterio con el que trabajan MULTIRREGISTRO y MULTIARCHIVO (Toyota) desde siempre, que nunca
+  // tuvieron esta restricción.
+  @@index([empresaId, remesaId, documento], map: "Deudor_empresaId_remesaId_documento_idx")
   @@index([documento], map: "Deudor_documento_idx")
   @@index([empresaId, remesaId], map: "Deudor_empresaId_remesaId_idx")
   @@index([empresaId, remesaId, nroCliente], map: "Deudor_empresaId_remesaId_nroCliente_idx")
@@ -132,27 +143,31 @@ model empresa {
   plantillas      plantilla_reporte[] @relation("PlantillaEmpresa")
   transaccion     transaccion[]
   enviosEmail     envio_email[]
-  campañasNeotel  campaña_neotel[]
+  campañasNeotel campaña_neotel[]
   tasasMora       tasa_mora[]
   indicesMora     indice_mora[]
 }
 
 model factura {
-  id           Int      @id @default(autoincrement())
-  deudorId     Int
-  nroFactura   String
-  importe      Float
-  fechaEmision DateTime
-  vencimiento  DateTime
-  estado       String?
+  id             Int      @id @default(autoincrement())
+  deudorId       Int
+  nroFactura     String
+  importe        Float
+  fechaEmision   DateTime
+  vencimiento    DateTime
+  estado         String?
   // Identificador de la factura en el sistema del cedente. En MULTIRREGISTRO (Toyota 87) guarda
   // el nro de CONTRATO al que pertenece el aviso.
-  externalId   String?
+  externalId     String?
   // Desglose de los conceptos que componen el importe, en texto. Lo usa MULTIRREGISTRO para volcar
   // los registros DET del aviso (multas, honorarios, IVA, días de mora). Ver
   // imports-actualizacion-diaria-y-multirregistro-spec.md §B.1.3 (B-D4).
-  detalle      String?  @db.Text
-  deudor       deudor   @relation(fields: [deudorId], references: [id], map: "Factura_deudorId_fkey")
+  detalle        String?  @db.Text
+  // URL del comprobante en el portal del cedente. Telecom/Personal la manda en el archivo de
+  // detalle (MA), una por factura. Se muestra como link en la solapa Facturas de la ficha; las
+  // carteras cuya plantilla no la mapea la dejan en null y no se ve nada.
+  urlComprobante String?  @db.Text
+  deudor         deudor   @relation(fields: [deudorId], references: [id], map: "Factura_deudorId_fkey")
 
   @@unique([deudorId, nroFactura], map: "Factura_deudorId_nroFactura_key")
 }
@@ -189,13 +204,23 @@ model pago {
   importe          Float
   origenArchivo    String?
   observacion      String?
-  origen           String?   // 'MANUAL' | 'IMPORT_PAGOS' | 'IMPORT_ACTUALIZACION' | 'CONVENIO'
+  origen           String? // 'MANUAL' | 'IMPORT_PAGOS' | 'IMPORT_ACTUALIZACION' | 'CONVENIO'
   usuarioId        Int?
   confirmadoImport Boolean   @default(false)
   confirmadoEn     DateTime?
+  // Identificador del cobro en el sistema del cedente (`PAYMENT_ID` en Telecom/Personal). Es la
+  // clave de idempotencia de los archivos ACUMULATIVOS: el cedente manda todos los pagos del mes
+  // cada día, y sin esto la única defensa era "mismo deudor, mismo día, mismo importe" — que
+  // duplica cuando la fecha del archivo no se puede parsear y colapsa dos cobros distintos del
+  // mismo monto en el mismo día.
+  idExterno        String?
   deudor           deudor    @relation(fields: [deudorId], references: [id], map: "Pago_deudorId_fkey")
   usuario          usuario?  @relation("PagoUsuario", fields: [usuarioId], references: [id])
 
+  // Único por deudor: el mismo `PAYMENT_ID` no se puede cargar dos veces. Nullable a propósito —
+  // MySQL admite tantos NULL como haga falta, así que las carteras cuyo cedente no manda un
+  // identificador siguen funcionando con el anti-duplicados por día + importe.
+  @@unique([deudorId, idExterno], map: "Pago_deudorId_idExterno_key")
   @@index([deudorId], map: "Pago_deudorId_fkey")
   @@index([fecha], map: "Pago_fecha_idx")
   @@index([deudorId, fecha], map: "Pago_deudorId_fecha_idx")
@@ -285,40 +310,48 @@ model plantillaimport {
 }
 
 model remesa {
-  id               Int                  @id @default(autoincrement())
-  empresaId        Int
-  nombre           String
-  archivo          String?
+  id                   Int                      @id @default(autoincrement())
+  empresaId            Int
+  nombre               String
+  archivo              String?
   // MULTIARCHIVO: paths del paquete por rol ({ deudores, detalle, bajas, codeudores }).
   // `archivo` sigue apuntando al principal (Deudores) para no romper el resto del código.
-  archivos         Json?
-  estadoCarga      String?
-  cantidadDeudores Int?
-  createdAt        DateTime             @default(now())
-  updatedAt        DateTime             @updatedAt
-  numeroRemesa     String
-  archivoHash      String?
-  categoria        remesa_categoria?
-  errFilas         Int                  @default(0)
-  estadoProceso    remesa_estadoProceso @default(PENDIENTE)
-  okFilas          Int                  @default(0)
-  plantillaId      Int?
-  totalFilas       Int                  @default(0)
-  hoja             String?
-  fechaVencimiento DateTime?
-  validarDomicilios Boolean             @default(false)
-  politicaId       Int?
-  usuarioCreadorId Int?                 @map("usuarioCreadorId")
-  accionRevertidaEn   DateTime?
+  archivos             Json?
+  estadoCarga          String?
+  cantidadDeudores     Int?
+  createdAt            DateTime                 @default(now())
+  updatedAt            DateTime                 @updatedAt
+  numeroRemesa         String
+  archivoHash          String?
+  categoria            remesa_categoria?
+  errFilas             Int                      @default(0)
+  estadoProceso        remesa_estadoProceso     @default(PENDIENTE)
+  okFilas              Int                      @default(0)
+  plantillaId          Int?
+  totalFilas           Int                      @default(0)
+  hoja                 String?
+  fechaVencimiento     DateTime?
+  validarDomicilios    Boolean                  @default(false)
+  politicaId           Int?
+  usuarioCreadorId     Int?                     @map("usuarioCreadorId")
+  accionRevertidaEn    DateTime?
   accionRevertidaPorId Int?
-  deudor           deudor[]
-  importerror      importerror[]
-  jobimport        jobimport[]
-  empresa          empresa              @relation(fields: [empresaId], references: [id], map: "Remesa_empresaId_fkey")
-  plantilla        plantillaimport?     @relation(fields: [plantillaId], references: [id], map: "Remesa_plantillaId_fkey")
-  politica         politica?            @relation(fields: [politicaId], references: [id])
-  usuarioCreador   usuario?             @relation("RemesaUsuarioCreador", fields: [usuarioCreadorId], references: [id], onDelete: SetNull)
-  snapshotsAcciones accion_masiva_snapshot[]
+  // Condiciones extra sobre las filas del archivo, propias de ESTA remesa, que se suman a las de
+  // la plantilla. Es lo que permite partir un archivo con varias nóminas/gestiones en una remesa
+  // por corte sin duplicar el archivo ni la plantilla: las N remesas apuntan al mismo archivo y
+  // cada una se queda con sus filas. Ver `utils/division-remesa.ts`.
+  filtroFilas          Json?
+  // Valores del corte que le tocó a esta remesa (`{ "Nómina": "3082", "Gestión": "3GH" }`), para
+  // poder mostrarlos en el historial sin volver a leer el archivo.
+  divisionValores      Json?
+  deudor               deudor[]
+  importerror          importerror[]
+  jobimport            jobimport[]
+  empresa              empresa                  @relation(fields: [empresaId], references: [id], map: "Remesa_empresaId_fkey")
+  plantilla            plantillaimport?         @relation(fields: [plantillaId], references: [id], map: "Remesa_plantillaId_fkey")
+  politica             politica?                @relation(fields: [politicaId], references: [id])
+  usuarioCreador       usuario?                 @relation("RemesaUsuarioCreador", fields: [usuarioCreadorId], references: [id], onDelete: SetNull)
+  snapshotsAcciones    accion_masiva_snapshot[]
 
   @@unique([empresaId, numeroRemesa], map: "Remesa_empresaId_numeroRemesa_key")
   @@index([empresaId, categoria], map: "Remesa_empresaId_categoria_idx")
@@ -375,33 +408,33 @@ model rol {
 }
 
 model usuario {
-  id             Int                 @id @default(autoincrement())
-  googleId       String?             @unique(map: "Usuario_googleId_key")
-  nombre         String
-  email          String              @unique(map: "Usuario_email_key")
-  avatarUrl      String?
-  rol            String              @default("usuario")
-  rolId          Int?
-  activo         Boolean             @default(true)
-  legajo         String?             @unique(map: "Usuario_legajo_key")
-  dni            String?             @unique(map: "Usuario_dni_key")
-  createdAt      DateTime            @default(now())
-  updatedAt      DateTime
-  rolObj            rol?                @relation(fields: [rolId], references: [id])
-  comentario        comentario[]
-  transaccion       transaccion[]
-  convenios         convenio[]
-  plantillas        plantilla_reporte[] @relation("PlantillaCreadoPor")
-  ejecuciones       ejecucion_reporte[] @relation("EjecucionUsuario")
-  notificaciones    Notificacion[]
-  remesasCreadas    remesa[]            @relation("RemesaUsuarioCreador")
-  enviosEmail       envio_email[]
-  mapeosEmail       email_template_variable_mapeo[]
-  agenteTelefonia   agente_telefonia?
+  id                 Int                             @id @default(autoincrement())
+  googleId           String?                         @unique(map: "Usuario_googleId_key")
+  nombre             String
+  email              String                          @unique(map: "Usuario_email_key")
+  avatarUrl          String?
+  rol                String                          @default("usuario")
+  rolId              Int?
+  activo             Boolean                         @default(true)
+  legajo             String?                         @unique(map: "Usuario_legajo_key")
+  dni                String?                         @unique(map: "Usuario_dni_key")
+  createdAt          DateTime                        @default(now())
+  updatedAt          DateTime
+  rolObj             rol?                            @relation(fields: [rolId], references: [id])
+  comentario         comentario[]
+  transaccion        transaccion[]
+  convenios          convenio[]
+  plantillas         plantilla_reporte[]             @relation("PlantillaCreadoPor")
+  ejecuciones        ejecucion_reporte[]             @relation("EjecucionUsuario")
+  notificaciones     Notificacion[]
+  remesasCreadas     remesa[]                        @relation("RemesaUsuarioCreador")
+  enviosEmail        envio_email[]
+  mapeosEmail        email_template_variable_mapeo[]
+  agenteTelefonia    agente_telefonia?
   callbacksAgendados callback_neotel[]
-  pagosManuales     pago[]              @relation("PagoUsuario")
-  promesas          promesa_pago[]      @relation("PromesaUsuario")
-  tasasMoraCargadas tasa_mora[]         @relation("TasaMoraUsuario")
+  pagosManuales      pago[]                          @relation("PagoUsuario")
+  promesas           promesa_pago[]                  @relation("PromesaUsuario")
+  tasasMoraCargadas  tasa_mora[]                     @relation("TasaMoraUsuario")
 
   @@index([rolId])
 }
@@ -428,15 +461,15 @@ enum remesa_estadoProceso {
 model accion_masiva_snapshot {
   id           BigInt   @id @default(autoincrement())
   remesaId     Int
-  entidad      String   // 'deudor' | 'contacto' | 'comentario'
+  entidad      String // 'deudor' | 'contacto' | 'comentario'
   entidadId    Int
-  accion       String   // 'UPDATE' | 'DELETE' | 'INSERT'
+  accion       String // 'UPDATE' | 'DELETE' | 'INSERT'
   datosPrevios Json?
   createdAt    DateTime @default(now())
 
   // Cascade y no SetNull: el snapshot solo sirve para revertir *esa* remesa. Sin la FK, borrar una
   // remesa de acciones dejaba las filas huérfanas para siempre.
-  remesa       remesa   @relation(fields: [remesaId], references: [id], onDelete: Cascade)
+  remesa remesa @relation(fields: [remesaId], references: [id], onDelete: Cascade)
 
   @@index([remesaId])
 }
@@ -662,37 +695,37 @@ model email_template_variable_mapeo {
 // ─────────────────────────────────────────────────────────────────────────────
 
 model agente_telefonia {
-  id             Int      @id @default(autoincrement())
-  usuarioId      Int      @unique
+  id             Int                    @id @default(autoincrement())
+  usuarioId      Int                    @unique
   usuarioNeotel  String
-  claveNeotelEnc String   @db.Text
+  claveNeotelEnc String                 @db.Text
   device         String
   sipAuthUser    String
-  sipPasswordEnc String   @db.Text
+  sipPasswordEnc String                 @db.Text
   sipDisplayName String?
-  habilitado     Boolean  @default(true)
-  createdAt      DateTime @default(now())
-  updatedAt      DateTime @updatedAt
-  usuario        usuario  @relation(fields: [usuarioId], references: [id])
+  habilitado     Boolean                @default(true)
+  createdAt      DateTime               @default(now())
+  updatedAt      DateTime               @updatedAt
+  usuario        usuario                @relation(fields: [usuarioId], references: [id])
   sesiones       sesion_agente_neotel[]
 
   @@map("AgenteTelefonia")
 }
 
 model sesion_agente_neotel {
-  id             Int       @id @default(autoincrement())
-  agenteId       Int
-  usuarioNeotel  String
-  device         String
-  loginAt        DateTime  @default(now())
-  logoutAt       DateTime?
-  ipCliente      String?
-  userAgent      String?   @db.Text
-  causaCierre    String?
-  agente         agente_telefonia     @relation(fields: [agenteId], references: [id])
+  id              Int                      @id @default(autoincrement())
+  agenteId        Int
+  usuarioNeotel   String
+  device          String
+  loginAt         DateTime                 @default(now())
+  logoutAt        DateTime?
+  ipCliente       String?
+  userAgent       String?                  @db.Text
+  causaCierre     String?
+  agente          agente_telefonia         @relation(fields: [agenteId], references: [id])
   campañasSesion campaña_sesion_neotel[]
-  estadosEventos estado_agente_evento[]
-  llamadas       llamada_neotel[]
+  estadosEventos  estado_agente_evento[]
+  llamadas        llamada_neotel[]
 
   @@index([agenteId, loginAt])
   @@index([loginAt])
@@ -700,16 +733,16 @@ model sesion_agente_neotel {
 }
 
 model campaña_neotel {
-  id          Int      @id @default(autoincrement())
-  idNeotel    Int      @unique
+  id          Int                      @id @default(autoincrement())
+  idNeotel    Int                      @unique
   nombre      String
   descripcion String?
   empresaId   Int?
-  activa      Boolean  @default(true)
-  predictiva  Boolean  @default(true)
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
-  empresa     empresa? @relation(fields: [empresaId], references: [id])
+  activa      Boolean                  @default(true)
+  predictiva  Boolean                  @default(true)
+  createdAt   DateTime                 @default(now())
+  updatedAt   DateTime                 @updatedAt
+  empresa     empresa?                 @relation(fields: [empresaId], references: [id])
   sesiones    campaña_sesion_neotel[]
   llamadas    llamada_neotel[]
 
@@ -718,13 +751,13 @@ model campaña_neotel {
 }
 
 model campaña_sesion_neotel {
-  id        Int       @id @default(autoincrement())
-  sesionId  Int
+  id         Int                  @id @default(autoincrement())
+  sesionId   Int
   campañaId Int
-  enteredAt DateTime  @default(now())
-  leftAt    DateTime?
-  sesion    sesion_agente_neotel @relation(fields: [sesionId], references: [id])
-  campaña   campaña_neotel       @relation(fields: [campañaId], references: [id])
+  enteredAt  DateTime             @default(now())
+  leftAt     DateTime?
+  sesion     sesion_agente_neotel @relation(fields: [sesionId], references: [id])
+  campaña   campaña_neotel      @relation(fields: [campañaId], references: [id])
 
   @@index([sesionId])
   @@index([campañaId, enteredAt])
@@ -732,31 +765,31 @@ model campaña_sesion_neotel {
 }
 
 model motivo_pausa_neotel {
-  id                    Int      @id @default(autoincrement())
-  subtipoNeotel         Int      @unique
+  id                    Int                    @id @default(autoincrement())
+  subtipoNeotel         Int                    @unique
   nombre                String
   descripcion           String?
-  contabilizaProductivo Boolean  @default(false)
-  orden                 Int      @default(0)
-  activo                Boolean  @default(true)
-  createdAt             DateTime @default(now())
-  updatedAt             DateTime @updatedAt
+  contabilizaProductivo Boolean                @default(false)
+  orden                 Int                    @default(0)
+  activo                Boolean                @default(true)
+  createdAt             DateTime               @default(now())
+  updatedAt             DateTime               @updatedAt
   eventos               estado_agente_evento[]
 
   @@map("MotivoPausaNeotel")
 }
 
 model estado_agente_evento {
-  id            Int       @id @default(autoincrement())
+  id            Int                  @id @default(autoincrement())
   sesionId      Int
   estado        String
   motivoPausaId Int?
-  startedAt     DateTime  @default(now())
+  startedAt     DateTime             @default(now())
   endedAt       DateTime?
   duracionSeg   Int?
   origen        String
-  sesion        sesion_agente_neotel  @relation(fields: [sesionId], references: [id])
-  motivoPausa   motivo_pausa_neotel?  @relation(fields: [motivoPausaId], references: [id])
+  sesion        sesion_agente_neotel @relation(fields: [sesionId], references: [id])
+  motivoPausa   motivo_pausa_neotel? @relation(fields: [motivoPausaId], references: [id])
 
   @@index([sesionId, startedAt])
   @@index([estado, startedAt])
@@ -764,9 +797,9 @@ model estado_agente_evento {
 }
 
 model llamada_neotel {
-  id                 Int       @id @default(autoincrement())
+  id                 Int                  @id @default(autoincrement())
   sesionId           Int
-  campañaId          Int?
+  campañaId         Int?
   deudorId           Int?
   contactoId         Int?
   baseNeotel         Int?
@@ -779,19 +812,19 @@ model llamada_neotel {
   endedAt            DateTime?
   duracionSeg        Int?
   causaFin           String?
-  grabacionRequerida Boolean   @default(false)
+  grabacionRequerida Boolean              @default(false)
   grabacionEstado    String?
   recordingUrl       String?
   subcategoriaId     Int?
-  notas              String?   @db.Text
+  notas              String?              @db.Text
   rawDataNeotel      Json?
-  createdAt          DateTime  @default(now())
-  updatedAt          DateTime  @updatedAt
-  sesion             sesion_agente_neotel  @relation(fields: [sesionId], references: [id])
-  campaña            campaña_neotel?       @relation(fields: [campañaId], references: [id])
-  deudor             deudor?               @relation(fields: [deudorId], references: [id])
-  contacto           contacto?             @relation(fields: [contactoId], references: [id])
-  subcategoria       parametro?            @relation("LlamadaSubcategoria", fields: [subcategoriaId], references: [id])
+  createdAt          DateTime             @default(now())
+  updatedAt          DateTime             @updatedAt
+  sesion             sesion_agente_neotel @relation(fields: [sesionId], references: [id])
+  campaña           campaña_neotel?     @relation(fields: [campañaId], references: [id])
+  deudor             deudor?              @relation(fields: [deudorId], references: [id])
+  contacto           contacto?            @relation(fields: [contactoId], references: [id])
+  subcategoria       parametro?           @relation("LlamadaSubcategoria", fields: [subcategoriaId], references: [id])
   callbackAgendado   callback_neotel?
 
   @@index([sesionId, createdAt])
@@ -802,8 +835,8 @@ model llamada_neotel {
 }
 
 model callback_neotel {
-  id              Int       @id @default(autoincrement())
-  llamadaId       Int       @unique
+  id              Int            @id @default(autoincrement())
+  llamadaId       Int            @unique
   fechaAgenda     DateTime
   telefono        String
   usuarioAgendaId Int?
@@ -815,14 +848,14 @@ model callback_neotel {
 }
 
 model neotel_evento_log {
-  id             BigInt    @id @default(autoincrement())
-  sesionId       Int?
-  usuarioNeotel  String?
-  raw            String    @db.Text
-  tipoParsed     String?
-  llamadaId      Int?
-  procesadoAt    DateTime  @default(now())
-  errorParseo    String?
+  id            BigInt   @id @default(autoincrement())
+  sesionId      Int?
+  usuarioNeotel String?
+  raw           String   @db.Text
+  tipoParsed    String?
+  llamadaId     Int?
+  procesadoAt   DateTime @default(now())
+  errorParseo   String?
 
   @@index([sesionId, procesadoAt])
   @@index([procesadoAt])

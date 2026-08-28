@@ -22,12 +22,17 @@ function makeCtx(deudores: Array<{ id: number; nroCliente: string }>) {
     const executeRaw = jest.fn().mockImplementation((sql: any) => {
         const texto: string = sql.strings?.join('?') ?? '';
         if (!texto.includes('INSERT INTO factura')) return Promise.resolve(0);
-        // Los valores van de a 5 (deudorId, nroFactura, importe, fechaEmision, vencimiento).
-        for (let i = 0; i + 4 < sql.values.length; i += 5) {
-            const [deudorId, nroFactura, importe, fechaEmision, vencimiento] = sql.values.slice(i, i + 5);
-            facturas.set(`${deudorId}|${nroFactura}`, { deudorId, nroFactura, importe, fechaEmision, vencimiento });
+        // Los valores van de a 6: deudorId, nroFactura, importe, fechaEmision, vencimiento y la
+        // URL del comprobante del cedente (null en las carteras que no la mandan).
+        const PORFILA = 6;
+        for (let i = 0; i + PORFILA - 1 < sql.values.length; i += PORFILA) {
+            const [deudorId, nroFactura, importe, fechaEmision, vencimiento, urlComprobante] =
+                sql.values.slice(i, i + PORFILA);
+            facturas.set(`${deudorId}|${nroFactura}`, {
+                deudorId, nroFactura, importe, fechaEmision, vencimiento, urlComprobante,
+            });
         }
-        return Promise.resolve(sql.values.length / 5);
+        return Promise.resolve(sql.values.length / PORFILA);
     });
     const upsert = jest.fn().mockImplementation(({ where, create, update }: any) => {
         const k = `${where.deudorId_nroFactura.deudorId}|${where.deudorId_nroFactura.nroFactura}`;
@@ -154,10 +159,17 @@ describe('FacturasProcessor — camino por lote', () => {
 
     it('reintenta fila por fila si el chunk entero falla, para no perder las buenas', async () => {
         const { ctx, executeRaw } = makeCtx([{ id: 1, nroCliente: '001' }]);
-        // Falla solo el statement con más de una fila.
-        executeRaw.mockImplementation((sql: any) =>
-            sql.values.length > 5 ? Promise.reject(new Error('deadlock')) : Promise.resolve(1),
-        );
+        // Falla el primer statement (el del chunk); los reintentos de a una pasan. Se expresa por
+        // orden de llamada y no contando parámetros, para que no se rompa cada vez que la factura
+        // suma una columna.
+        let primera = true;
+        executeRaw.mockImplementation(() => {
+            if (primera) {
+                primera = false;
+                return Promise.reject(new Error('deadlock'));
+            }
+            return Promise.resolve(1);
+        });
         const p = new FacturasProcessor();
 
         const errores = await p.processBatch([fila(0, '001', 'A'), fila(1, '001', 'B')], ctx);

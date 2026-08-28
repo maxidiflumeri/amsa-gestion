@@ -138,38 +138,35 @@ async function main() {
   }
 
   for (const d of deudores) {
-    const deudor = await p.deudor.upsert({
-      where: {
-        empresaId_documento_remesaId: {
-          empresaId: EMPRESA_ID,
-          documento: d.documento,
-          remesaId: remesa.id,
-        },
-      },
-      create: {
-        empresaId: EMPRESA_ID,
-        remesaId: remesa.id,
-        documento: d.documento,
-        nombre: d.nombre,
-        apellido: d.apellido,
-        montoTotal: d.montoTotal,
-        fechaVencimiento: d.fechaVencimiento,
-        estadoSituacionId: idPorClave.get(d.sitClave)!,
-        estadoGestionId: idPorClave.get(d.gesClave)!,
-        motivoNoPagoId: d.mnpClave ? idPorClave.get(d.mnpClave)! : null,
-        camposAdicionales: d.camposAdicionales,
-      },
-      update: {
-        nombre: d.nombre,
-        apellido: d.apellido,
-        montoTotal: d.montoTotal,
-        fechaVencimiento: d.fechaVencimiento,
-        estadoSituacionId: idPorClave.get(d.sitClave)!,
-        estadoGestionId: idPorClave.get(d.gesClave)!,
-        motivoNoPagoId: d.mnpClave ? idPorClave.get(d.mnpClave)! : null,
-        camposAdicionales: d.camposAdicionales,
-      },
+    // El upsert por `(empresaId, documento, remesaId)` ya no existe como clave única: un mismo DNI
+    // puede tener varias cuentas dentro de la misma remesa (ver `utils/identidad-deudor.ts`).
+    // El seed busca por documento —que acá sí es único, son casos inventados— y decide.
+    const datos = {
+      nombre: d.nombre,
+      apellido: d.apellido,
+      montoTotal: d.montoTotal,
+      fechaVencimiento: d.fechaVencimiento,
+      estadoSituacionId: idPorClave.get(d.sitClave)!,
+      estadoGestionId: idPorClave.get(d.gesClave)!,
+      motivoNoPagoId: d.mnpClave ? idPorClave.get(d.mnpClave)! : null,
+      camposAdicionales: d.camposAdicionales,
+    };
+
+    const yaEsta = await p.deudor.findFirst({
+      where: { empresaId: EMPRESA_ID, remesaId: remesa.id, documento: d.documento },
+      select: { id: true },
     });
+
+    const deudor = yaEsta
+      ? await p.deudor.update({ where: { id: yaEsta.id }, data: datos })
+      : await p.deudor.create({
+          data: {
+            empresaId: EMPRESA_ID,
+            remesaId: remesa.id,
+            documento: d.documento,
+            ...datos,
+          },
+        });
 
     for (const c of d.contactos) {
       await p.contacto.upsert({

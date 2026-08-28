@@ -182,24 +182,37 @@ te salen rotos, probá cambiando a **UTF-8** — es al revés de lo que uno supo
 
 ## Paso 3 — Cómo el sistema reconoce un caso
 
-Esto no se configura, pero hay que entenderlo porque define todo lo demás.
+**Es la decisión más importante de la plantilla**, y la que más caro sale equivocar.
 
-**Un caso es único por empresa + documento + remesa.** Dos filas con el mismo documento dentro de la
-misma remesa **son el mismo caso**: la segunda no crea un caso nuevo, actualiza al primero.
+En **Identidad del caso** elegís qué cuenta como un caso distinto dentro de una remesa:
 
-La pregunta entonces es qué mapeás a `documento`, y ahí está la decisión:
+| Opción | Qué significa | Cuándo |
+|---|---|---|
+| **El documento** (por defecto) | Un DNI es un caso. Dos filas con el mismo documento **son el mismo caso**: la segunda no crea nada, actualiza a la primera. | La persona debe una sola cosa: planes de ahorro, servicios con una cuenta por titular. |
+| **El Nº de cliente** | Cada número de cliente / cuenta / trámite es un caso, **aunque el DNI se repita**. | El cedente manda varias cuentas por titular. |
 
-- **Si mapeás el DNI**, todas las deudas de esa persona en esa cartera son **un solo caso**.
-- **Si no mapeás documento**, el sistema arma la identidad con el **número de cliente del cedente**.
-  Cada cuenta es **un caso separado**.
+> **Cuándo hace falta "Nº de cliente".** En Telecom y Personal un titular tiene la cuenta madre
+> —termina en `0001`— y las hijas (`0002`, `0003`), cada una con su deuda, sus facturas y sus cobros.
+> Con identidad por documento entra **una sola**: la última del archivo pisa a las anteriores. En el
+> CA del 27/05 eso dejaba afuera 119 de 19.439 cuentas, y después **todas** sus facturas y pagos
+> fallaban con "Deudor no encontrado", porque el archivo de cobros viene por cuenta.
+>
+> La vista previa te avisa: si el archivo trae más cuentas que personas y la plantilla identifica por
+> documento, sale un cartel amarillo con cuántas se van a perder.
+
+Elegida la identidad, sigue importando **qué mapeás a `documento`**:
+
+- **Si mapeás el DNI**, ese es el dato con el que se busca a la persona en el resto del sistema.
+- **Si no mapeás documento**, el sistema guarda un marcador derivado del número de cliente
+  (`SIN-DNI-…`), que una carga posterior de Actualizaciones puede completar con el DNI real.
 
 > **El caso que lo dejó claro.** En la cartera de AYSA el DNI que manda el cedente trae basura:
 > valores repetidos entre cuentas distintas, `NO INFORMADO`, `1`. Al mapearlo, 141 cuentas colapsaron
 > en 55 casos: **86 casos desaparecieron de la cartera sin un solo error en el import**. La solución
 > fue dejar el documento sin mapear y que la identidad fuera la cuenta contrato.
 >
-> La regla: si el identificador puede repetirse entre casos que son distintos, **no lo mapees a
-> documento**.
+> La regla: si el identificador puede repetirse entre casos que son distintos, **no lo uses como
+> identidad**.
 
 ### Mapear el Nº Cliente casi siempre conviene
 
@@ -316,8 +329,9 @@ Se escribe con pares separados por `|`:
 
 ### Las fechas
 
-**Fecha (auto text)** prueba una lista de formatos en orden, e incluye el que exporta SAP
-(`21.06.2026`).
+**Fecha (auto text)** prueba una lista de formatos en orden. Incluye el que exporta SAP
+(`21.06.2026`) y los que traen el **mes en castellano** (`3 ago 2026`, `23 abril 2026`,
+`23 abr 2026, 0:00:00`), que es como los manda Deimos. La hora que venga al final se descarta.
 
 > **Ojo con los años de dos dígitos.** El formato `M/D/YY` se prueba **antes** que `D/M/YY`, así que
 > `03/04/26` se interpreta como **4 de marzo**, no 3 de abril. Con año de cuatro dígitos no hay
@@ -341,6 +355,29 @@ plata. De 4.552 filas, solo 1.997 traen importe. Sin el filtro `Imp. cobrado > 0
 Las filas descartadas **no cuentan como error**: se informan aparte en la vista previa.
 
 > El filtro no está disponible en Multirregistro ni Multiarchivo.
+
+---
+
+## Paso 8 — Dividir la carga en varias remesas
+
+Para los cedentes que exportan filtrando **solo por día**: si ese día asignaron cuatro nóminas, el
+archivo llega con las cuatro adentro y en gestión cada una tiene que ser su propia remesa.
+
+Se declaran dos columnas, cada una opcional (`-1` = no se usa):
+
+- **Columna de la nómina** — se crea una remesa por cada valor distinto y la pantalla de carga pide
+  el número de cada una.
+- **Columna de la gestión** — también corta, pero el número se deriva solo: se le antepone el
+  **primer dígito** de la gestión al número de remesa. Sobre la remesa `100`, la gestión `1GH` es la
+  `10100`, la `2GH` la `20100` y la `3GH` la `30100`.
+
+Si declarás las dos, se arma una remesa por cada **combinación** de nómina y gestión.
+
+Al cargar, el operador ve la tabla de cortes con la cantidad de casos de cada uno antes de crear
+nada. Las N remesas comparten **el mismo archivo**: no se sube ni se guarda varias veces.
+
+> Solo hace falta en Telecom y Telecom Personal. Sin estas columnas declaradas, la carga se comporta
+> como siempre: un archivo, una remesa.
 
 ---
 
@@ -392,9 +429,27 @@ y queda el monto de la última fila. Es **Deudores y Facturas**.
 
 ### Se cargaron menos casos que filas tiene el archivo
 
-Dos filas comparten el valor del documento, así que el sistema las tomó como el mismo caso. Revisá el
-Paso 3. **Antes de dar por buena una carga, compará la cantidad de filas contra la cantidad de casos
-cargados.**
+Dos filas comparten el valor de la identidad, así que el sistema las tomó como el mismo caso. Revisá
+el Paso 3. **Antes de dar por buena una carga, compará la cantidad de filas contra la cantidad de
+casos cargados.**
+
+Si el cedente manda varias cuentas por titular, la identidad tiene que ser el **Nº de cliente**.
+
+### Las facturas o los pagos fallan todos con "Deudor no encontrado"
+
+Casi siempre es lo mismo del punto anterior visto un día después: los casos de esas cuentas nunca se
+crearon, así que no hay a qué colgarles la factura. Revisá cuántos casos cargó la remesa de deudores
+contra las filas del archivo.
+
+La otra causa posible: la cartera se cargó **sin mapear el Nº de cliente**, y las facturas y los
+pagos buscan el caso solo por ahí.
+
+### El archivo de pagos tira "Internal server error" al subirlo
+
+Ya no debería pasar: el sistema dejó de leer el encabezado del CSV, que era lo que se rompía cuando
+el cedente manda **dos columnas con el mismo nombre** (el archivo de cobros de Personal manda
+`PAYMENT_METHOD_DES` dos veces). Si aparece un error de formato, ahora se muestra con el nombre del
+archivo y el motivo.
 
 ### Los importes quedaron mil veces más chicos
 

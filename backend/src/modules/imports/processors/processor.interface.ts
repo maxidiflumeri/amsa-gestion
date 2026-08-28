@@ -3,7 +3,7 @@ import { PrismaService } from 'src/prisma/prisma.service';
 import { ConsolidacionSituacionService } from '../../consolidacion/consolidacion.service';
 import { PromesasService } from '../../promesas/promesas.service';
 import { AuditoriaHelper } from '../../transacciones/auditoria.helper';
-import { AccionAusenteActualizacion, AccionesConfig, ComportamientoDeudaMayor, ModoActualizacion, MontoDeudorMode, MultiarchivoConfig, MultirregistroConfig } from '../mapping-types';
+import { AccionAusenteActualizacion, AccionesConfig, ComportamientoDeudaMayor, IdentidadDeudor, ModoActualizacion, MontoDeudorMode, MultiarchivoConfig, MultirregistroConfig } from '../mapping-types';
 
 /**
  * Resultado de validar una fila.
@@ -53,6 +53,11 @@ export interface ProcessContext {
     auditoria: AuditoriaHelper;
     /** Config de la categoría ACCIONES (leída de `mappingJson.acciones`). */
     accionesConfig?: AccionesConfig;
+    /**
+     * Qué identifica a un caso dentro de la remesa: el documento (default) o el número de cliente.
+     * Leído de `mappingJson.identidadDeudor`. Ver {@link IdentidadDeudor}.
+     */
+    identidadDeudor: IdentidadDeudor;
     /**
      * Modo de cálculo de `deudor.montoTotal` desde la suma de facturas.
      * Leído de `mappingJson.montoDeudorDesdeFacturas` (default `SI_VACIO`).

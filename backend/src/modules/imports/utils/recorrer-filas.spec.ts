@@ -1,7 +1,7 @@
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
-import { conOrigen, FilaLeida, recorrerFilas } from './recorrer-filas';
+import { conOrigen, ErrorDeParseo, FilaLeida, recorrerFilas } from './recorrer-filas';
 import { AYSA_CUENTAS_ANCHO_FIJO } from '../plantillas/aysa';
 
 let dir: string;
@@ -240,5 +240,53 @@ const cuentasAysa = fs.existsSync(DIR_AYSA)
             const enNombre = /_(\d{3})_\d{8}_/.exec(f.origen ?? '')?.[1];
             expect({ origen: f.origen, suc: enNombre }).toEqual({ origen: f.origen, suc: f.valores[iDist] });
         }
+    });
+});
+
+
+describe('recorrerFilas — encabezados que el cedente manda repetidos', () => {
+    /**
+     * El archivo de pagos de Telecom Personal manda `PAYMENT_METHOD_DES` en la columna 7 y otra vez
+     * en la 9. Con `headers: true`, fast-csv corta con `Duplicate headers found` y la excepción
+     * subía sin capturar hasta el controller: la pantalla mostraba "Internal server error" y la
+     * remesa quedaba en PENDIENTE con 0 filas (pasó dos veces el 26/08 en producción).
+     *
+     * El pipeline mapea por índice y nunca usa los nombres de columna, así que la solución es no
+     * pedirle a fast-csv que interprete el encabezado.
+     */
+    it('lee el archivo igual, sin importar que dos columnas se llamen igual', async () => {
+        const p = escribir(
+            'dup.csv',
+            'gestor;cuenta;metodo;cust;metodo;cobrado\n1008;1001693491510001;Efectivo;1001693491510001;Efectivo;68000\n',
+        );
+        const { filas, total } = await juntar({ paths: [p], ...CSV });
+
+        expect(total).toBe(1);
+        expect(filas[0].valores).toEqual([
+            '1008', '1001693491510001', 'Efectivo', '1001693491510001', 'Efectivo', '68000',
+        ]);
+    });
+
+    it('el encabezado no se procesa como fila', async () => {
+        const p = escribir('dup2.csv', 'a;a;a\n1;2;3\n4;5;6\n');
+        const { total } = await juntar({ paths: [p], ...CSV });
+
+        expect(total).toBe(2);
+    });
+
+    it('sin encabezado declarado, la primera línea es un dato más', async () => {
+        const p = escribir('sinhdr.csv', '1;2;3\n4;5;6\n');
+        const { total } = await juntar({ paths: [p], tieneHeader: false, separador: ';' });
+
+        expect(total).toBe(2);
+    });
+
+    it('un error de formato dice de qué archivo salió, para que se pueda devolver como 400', async () => {
+        const p = escribir('roto.csv', 'a;b\n"sin cerrar;1\n');
+        // El nombre con el que el operador lo subió, no el del temporal.
+        const fallo = await juntar({ paths: [p], nombres: ['PAGOS.csv'], ...CSV }).catch((e) => e);
+
+        expect(fallo).toBeInstanceOf(ErrorDeParseo);
+        expect(fallo.message).toContain('PAGOS.csv');
     });
 });

@@ -48,6 +48,7 @@ const DEST_FIELDS_BY_CATEGORY: Record<string, { value: string; label: string }[]
         { value: "fechaEmision", label: "Fecha emisión" },
         { value: "vencimiento", label: "Vencimiento" },
         { value: "nro_cliente", label: "Nro. Cliente (match)" },
+        { value: "urlComprobante", label: "Link al comprobante (se muestra clickeable en la ficha)" },
     ],
     CONTACTOS: [
         { value: "nro_cliente", label: "Nro. Cliente (match)" },
@@ -68,7 +69,8 @@ const DEST_FIELDS_BY_CATEGORY: Record<string, { value: string; label: string }[]
         { value: "monto", label: "Monto" },
         { value: "fechaPago", label: "Fecha pago" },
         { value: "medioPago", label: "Medio de pago" },
-        { value: "observacion", label: "Observación" },
+        { value: "observacion", label: "Observación / Nº de comprobante cobrado" },
+        { value: "idExterno", label: "ID del cobro en el sistema del cedente (evita duplicados)" },
     ],
     ENRIQUECIMIENTO: [
         { value: "nro_cliente", label: "Nro. Cliente (match)" },
@@ -92,6 +94,7 @@ const DEST_FIELDS_BY_CATEGORY: Record<string, { value: string; label: string }[]
         { value: "importe", label: "Importe (Factura)" },
         { value: "fechaEmision", label: "Fecha emisión (Factura)" },
         { value: "vencimiento", label: "Vencimiento (Factura)" },
+        { value: "urlComprobante", label: "Link al comprobante (Factura)" },
     ],
     ACTUALIZACIONES: [
         { value: "documento", label: "Documento / DNI (match y/o completa DNI faltante)" },

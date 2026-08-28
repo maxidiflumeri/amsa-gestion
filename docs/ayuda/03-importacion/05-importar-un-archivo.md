@@ -51,13 +51,44 @@ para **validar domicilios contra Georef** (más lento).
 **La remesa origen**, solo si la categoría la necesita (Facturas, Pagos, Contactos, Enriquecimiento,
 Actualizaciones). Es contra qué cartera se van a buscar los casos.
 
-> Solo se listan remesas **finalizadas**. Una carga en curso no puede ser origen de otra.
+> Solo se listan remesas **finalizadas que cargaron casos**. Las de facturas, pagos o acciones no
+> aparecen: no sirven como origen de nada.
+
+> Viene activado el switch **"Solo remesas en gestión"**: se listan las que todavía tienen al menos
+> un caso vivo (ni cancelado ni desasignado). Apagalo si necesitás una cartera ya cerrada.
 
 > En **Pagos** podés marcar **varias** remesas a la vez: el archivo de cobranzas suele cubrir varias
-> asignaciones y así se cargan todas en una corrida.
+> asignaciones y así se cargan todas en una corrida. Con **Seleccionar todas** marcás de una todas
+> las que estén en gestión, que es lo habitual para el archivo de cobros del mes.
 
 > En **Acciones masivas** la remesa origen es **opcional**. Sin elegir ninguna, la acción se aplica
 > sobre **toda la empresa**.
+
+### Si el archivo trae varias asignaciones juntas
+
+Algunos cedentes exportan filtrando **solo por día**: si ese día asignaron cuatro nóminas, llega un
+archivo con las cuatro adentro. Es el caso de Telecom y Telecom Personal, que se bajan de Deimos.
+
+Cuando la plantilla tiene configurada la división, el botón dice **"Ver los cortes del archivo"** en
+vez de "Crear remesa y validar". Se abre una tabla con **una fila por nómina y gestión**, cuántos
+casos tiene cada una y qué número de remesa le va a tocar:
+
+| Nómina | Gestión | Casos | Nº de remesa |
+|---|---|---|---|
+| 3082 | 3GH | 13.948 | `30100` |
+| 3083 | 1G | 1.957 | `10101` |
+
+**Compará los casos con lo que informó el cedente por mail antes de seguir.** Podés editar cualquier
+número y destildar los cortes que no quieras cargar todavía.
+
+El número se propone solo: cuando la división es por gestión, se le antepone su primer dígito al
+número de remesa (la gestión `3GH` sobre la remesa `100` es la `30100`). Si dos gestiones empiezan
+con el mismo dígito —`3G` y `3GH`— sale el mismo número para las dos y hay que corregir una a mano;
+la pantalla te avisa y no deja seguir hasta que lo hagas.
+
+Al confirmar se crean todas las remesas de una, **sobre el mismo archivo** (no se sube ni se guarda
+varias veces), y se importan **una después de la otra**. Mientras corre vas a ver "Procesando la
+remesa 2 de 5".
 
 ## Paso 3 — Vista previa
 
@@ -72,6 +103,19 @@ con error se calculan **solo sobre las primeras 50**.
 > ⚠ **Si el Excel tiene varias hojas, la vista previa lee siempre la primera** — aunque hayas escrito
 > otra. La importación sí usa la que escribiste. O sea que lo que ves acá puede no ser lo que se va a
 > importar.
+
+### Los avisos en amarillo
+
+Arriba de la vista previa pueden aparecer avisos. No frenan la carga, pero son cosas que se notan
+tarde y salen caras:
+
+- **"X cuenta(s) van a quedar sin cargar"** — el archivo trae varias cuentas por persona y la
+  plantilla identifica los casos por documento, así que la última cuenta de cada DNI pisa a las
+  anteriores. Si en esa cartera cada cuenta es un caso (Telecom, Personal), hay que cambiar la
+  plantilla a identificar por **Nº de cliente**. Ver [Crear una plantilla](04-crear-plantilla.md).
+- **"X filas traen el importe en NEGATIVO"** — en un archivo de pagos, un importe negativo
+  **aumenta** la deuda en vez de bajarla, porque el saldo es la deuda menos los pagos. Si son notas
+  de crédito o ajustes a favor, hay que agregar el transform `removeDashes` al importe.
 
 ### Qué mirar, en orden
 

@@ -1,12 +1,13 @@
 import { ICategoryProcessor, MappedRow, ProcessContext, RowValidationResult } from './processor.interface';
-import { Prisma } from '@prisma/client';
 import { Logger } from '@nestjs/common';
 import { clearContactoImportCaches, prepararContactoImport } from '../utils/contacto-import';
 import { nroClienteDeFila } from '../utils/nro-cliente';
 import { documentoDeFila } from '../utils/documento';
 import { procesarBloquesDeudor } from '../utils/procesar-bloques';
 import { recalcularMontoTotalDesdeFacturas } from '../utils/monto-facturas';
+import { urlComprobanteValida } from '../utils/url-comprobante';
 import { enriquecerContactosHistoricos } from '../utils/enriquecimiento-historico';
+import { claveIdentidad, upsertDeudorPorIdentidad } from '../utils/identidad-deudor';
 
 export class DeudoresYFacturasProcessor implements ICategoryProcessor {
     readonly category = 'DEUDORES_Y_FACTURAS';
@@ -14,7 +15,9 @@ export class DeudoresYFacturasProcessor implements ICategoryProcessor {
 
     // Caché simple en memoria por llamada executeRemesa para evitar
     // constantes Upserts si el archivo trae muchas filas del mismo deudor seguido.
-    // Clave: documento
+    // La clave es la que identifica al caso según la plantilla (documento o nro de cliente): con
+    // identidad por nro de cliente, cachear por documento metía las tres cuentas de un mismo DNI
+    // en la misma entrada. Ver `identidad-deudor.ts`.
     private debtorCache: Map<string, number> = new Map();
     /** Deudores tocados en este batch → se recalcula su montoTotal en afterAll. */
     private touchedDeudorIds = new Set<number>();
@@ -75,69 +78,33 @@ export class DeudoresYFacturasProcessor implements ICategoryProcessor {
         const documentoStr = documentoDeFila(row);
         const nroCliente = nroClienteDeFila(row);
 
-        let deudorId: number;
-
-        // 1. Gestionar el Deudor (Aislado por Remesa, Enriquecido Históricamente)
-        let isNewForThisRemesa = !this.debtorCache.has(documentoStr);
-        
-        // Si no está en cache, verificamos en DB por las dudas (pudo ser guardado por otro proceso o en una corrida previa interrumpida)
-        if (isNewForThisRemesa) {
-            const existingInRemesa = await ctx.prisma.deudor.findUnique({
-                where: {
-                    empresaId_documento_remesaId: {
-                        empresaId: ctx.empresaId,
-                        documento: documentoStr,
-                        remesaId: ctx.remesaId,
-                    }
-                },
-                select: { id: true }
-            });
-            if (existingInRemesa) {
-                isNewForThisRemesa = false;
-            }
-        }
-        
         const montoTotalParsed = this.parseFloatSafe(row.montoTotal);
 
-        const deudor = await ctx.prisma.deudor.upsert({
-            where: {
-                empresaId_documento_remesaId: {
-                    empresaId: ctx.empresaId,
-                    documento: documentoStr,
-                    remesaId: ctx.remesaId,
-                },
-            },
-            create: {
-                empresaId: ctx.empresaId,
-                remesaId: ctx.remesaId,
-                documento: documentoStr,
-                nroCliente: nroCliente || null,
-                nombre: row.nombre ?? '',
-                apellido: row.apellido ?? '',
-                montoTotal: montoTotalParsed ?? null,
-                fechaVencimiento: this.parseDateSafe(row.fechaVencimiento) ?? null,
-                camposAdicionales: row.camposAdicionales ?? Prisma.JsonNull,
-                estadoSituacionId: ctx.defaults.estadoSituacionId,
-                estadoGestionId: ctx.defaults.estadoGestionId,
-            },
-            update: {
-                nroCliente: nroCliente || undefined,
-                nombre: row.nombre ?? undefined,
-                apellido: row.apellido ?? undefined,
-                // El importe se reconcilia en afterAll desde la suma real de facturas
-                // (idempotente). Solo se persiste acá si vino explícito en el archivo.
-                montoTotal: montoTotalParsed ?? undefined,
-                fechaVencimiento: this.parseDateSafe(row.fechaVencimiento) ?? undefined,
-                camposAdicionales: row.camposAdicionales ?? undefined,
-            },
+        // 1. Gestionar el Deudor (Aislado por Remesa, Enriquecido Históricamente).
+        // La clave del caché es la misma que identifica al caso en la base: con identidad por nro
+        // de cliente, las tres cuentas de un mismo DNI son tres entradas distintas.
+        const clave = claveIdentidad(ctx.identidadDeudor ?? 'DOCUMENTO', {
+            documento: documentoStr,
+            nroCliente: nroCliente || null,
+        }).valor;
+
+        const { id: deudorId, creado } = await upsertDeudorPorIdentidad(ctx, {
+            documento: documentoStr,
+            nroCliente: nroCliente || null,
+            nombre: row.nombre ?? '',
+            apellido: row.apellido ?? '',
+            // El importe se reconcilia en afterAll desde la suma real de facturas
+            // (idempotente). Solo se persiste acá si vino explícito en el archivo.
+            montoTotal: montoTotalParsed,
+            fechaVencimiento: this.parseDateSafe(row.fechaVencimiento),
+            camposAdicionales: row.camposAdicionales,
         });
 
-        deudorId = deudor.id;
         this.touchedDeudorIds.add(deudorId);
 
         // -- AUTOENRIQUECIMIENTO DE CONTACTOS DESDE LA PROPIA BASE (histórico por DNI) --
-        if (isNewForThisRemesa && !this.debtorCache.has(documentoStr)) {
-            this.debtorCache.set(documentoStr, deudorId);
+        if (creado && !this.debtorCache.has(clave)) {
+            this.debtorCache.set(clave, deudorId);
             this.contactosEnriquecidos += await enriquecerContactosHistoricos(ctx, deudorId, documentoStr);
         }
 
@@ -201,12 +168,14 @@ export class DeudoresYFacturasProcessor implements ICategoryProcessor {
                 importe: this.parseFloatSafe(data.importe) ?? 0,
                 fechaEmision: this.parseDateSafe(data.fechaEmision) ?? new Date(),
                 vencimiento: this.parseDateSafe(data.vencimiento) ?? new Date(),
+                urlComprobante: urlComprobanteValida(data.urlComprobante),
                 estado: data.estado ?? 'PENDIENTE'
             },
             update: {
                 importe: this.parseFloatSafe(data.importe) ?? undefined,
                 fechaEmision: this.parseDateSafe(data.fechaEmision) ?? undefined,
                 vencimiento: this.parseDateSafe(data.vencimiento) ?? undefined,
+                urlComprobante: urlComprobanteValida(data.urlComprobante) ?? undefined,
                 estado: data.estado ?? undefined
             },
         });

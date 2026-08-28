@@ -208,8 +208,43 @@ export class ImportController {
         @Param('empresaId', ParseIntPipe) empresaId: number,
         @Query('categoria') categoria?: string,
         @Query('conDeudores') conDeudores?: string,
+        @Query('enGestion') enGestion?: string,
     ) {
-        return this.service.listRemesas(empresaId, categoria, conDeudores === 'true');
+        return this.service.listRemesas(
+            empresaId,
+            categoria,
+            conDeudores === 'true',
+            enGestion === 'true',
+        );
+    }
+
+    /**
+     * Cortes (nómina / gestión) que trae un archivo, para decidir en cuántas remesas se parte.
+     *
+     * No guarda nada: lee el archivo en un temporal, cuenta y lo borra. Las remesas se crean
+     * después, con `POST remesas` y el campo `divisiones`.
+     */
+    @Post('remesas/division-preview')
+    @Permisos('importacion.ejecutar')
+    @UseInterceptors(FileFieldsInterceptor([
+        { name: 'file', maxCount: 1 },
+        { name: 'files', maxCount: 100 },
+    ]))
+    divisionPreview(
+        @UploadedFiles() archivos: { file?: any[]; files?: any[] },
+        @Body('plantillaId') plantillaId: string,
+        @Body('empresaId') empresaId: string,
+        @Body('numeroRemesa') numeroRemesa?: string,
+        @Body('hoja') hoja?: string,
+    ) {
+        const subidos = [...(archivos?.file ?? []), ...(archivos?.files ?? [])];
+        return this.service.previewDivision(
+            subidos,
+            Number(plantillaId),
+            Number(empresaId),
+            numeroRemesa,
+            hoja,
+        );
     }
 
     @Post('validar/:id')
