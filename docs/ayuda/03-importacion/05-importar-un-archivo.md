@@ -57,9 +57,11 @@ Actualizaciones). Es contra qué cartera se van a buscar los casos.
 > Viene activado el switch **"Solo remesas en gestión"**: se listan las que todavía tienen al menos
 > un caso vivo (ni cancelado ni desasignado). Apagalo si necesitás una cartera ya cerrada.
 
-> En **Pagos** podés marcar **varias** remesas a la vez: el archivo de cobranzas suele cubrir varias
-> asignaciones y así se cargan todas en una corrida. Con **Seleccionar todas** marcás de una todas
-> las que estén en gestión, que es lo habitual para el archivo de cobros del mes.
+> En **Pagos** y en **Facturas** podés marcar **varias** remesas a la vez: el archivo del cedente
+> suele cubrir varias asignaciones —y una carga dividida deja varias remesas sobre el mismo
+> archivo—, así que se cargan todas en una sola corrida en vez de subir el archivo una vez por
+> remesa. Con **Seleccionar todas** marcás de una todas las que estén en gestión, que es lo habitual
+> para el archivo del mes.
 
 > En **Acciones masivas** la remesa origen es **opcional**. Sin elegir ninguna, la acción se aplica
 > sobre **toda la empresa**.
@@ -81,9 +83,9 @@ uno y qué número de remesa le va a tocar:
 **Compará los casos con lo que informó el cedente por mail antes de seguir.** Podés editar cualquier
 número y **destildar los cortes que no quieras cargar**.
 
-El número se propone solo: el corte recibe un número base y la gestión le antepone su primer dígito
-(la gestión `3GH` sobre la remesa `100` es la `30100`). Una nómina con tres gestiones da `10100`,
-`20100` y `30100` — el mismo número con tres prefijos.
+El número se propone solo: el corte recibe un número base y la gestión le antepone su primer dígito.
+Sobre la remesa `00608`, la `2G` es la `20608` y la `3GH` la `30608` — **la primera gestión (`1G`)
+conserva el número tal cual**, sin prefijo.
 
 Dos gestiones con el mismo dígito —`3G` y `3GH`— son **la misma gestión**: van en un solo corte, que
 se muestra con las dos juntas (`3GH / 3G`). Si igual editás dos números y quedan iguales, la pantalla

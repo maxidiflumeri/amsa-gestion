@@ -369,19 +369,29 @@ Las columnas tienen **dos roles**, y de ahí sale el número de remesa:
 su propio número base**: `100`, `101`, `102`… Acá va la nómina.
 
 **Columna que prefija.** La gestión. **No crea un número nuevo**: le antepone su primer dígito al
-número del corte al que pertenece.
+número del corte al que pertenece. Con una excepción:
+
+| Gestión | Número sobre la remesa `00608` |
+|---|---|
+| `1G` | `00608` — **la primera gestión conserva el número**, sin prefijo |
+| `2G` | `20608` |
+| `3G` · `3GH` | `30608` |
+
+El prefijo **reemplaza el relleno** del correlativo en vez de estirar el número: sobre `00608` la
+gestión 2 es `20608`, no `200608`. Los ceros a la izquierda son el formato del número de remesa de la
+empresa, no parte del número.
 
 La diferencia entre los dos roles se ve cuando una nómina trae varias gestiones:
 
 | Configuración | Archivo | Números |
 |---|---|---|
 | Solo nómina | 3 nóminas | `100` · `101` · `102` |
-| **Solo gestión** | 3 gestiones, 4 nóminas | `10100` · `20100` · `30100` — **todas comparten el número** |
-| Nómina + gestión | 1 nómina con 3 gestiones | `10100` · `20100` · `30100` |
-| Nómina + gestión | 2 nóminas con 3 gestiones c/u | `10100` · `20100` · `30100` y `10101` · `20101` · `30101` |
+| **Solo gestión** | 4 nóminas con 3 gestiones | `0608` · `20608` · `30608` — **todas comparten el número** |
+| Nómina + gestión | 1 nómina con 3 gestiones | `100` · `20100` · `30100` |
+| Nómina + gestión | 2 nóminas con 3 gestiones c/u | `100` · `20100` · `30100` y `101` · `20101` · `30101` |
 
 O sea: **el número es de la nómina y la gestión solo lo prefija.** Dos nóminas son dos números; tres
-gestiones de una misma nómina son el mismo número con tres prefijos.
+gestiones de una misma nómina son el mismo número, pelado en la primera y con prefijo en las otras.
 
 > **Si querés un solo número para toda la carga** —todas las remesas con el número que tipeaste, y
 > la gestión como única diferencia— **no declares ninguna columna de corte**: dejá solo la de

@@ -6,6 +6,47 @@
 
 ---
 
+## [2026-08-31] — La gestión 1 conserva el número, y facturas acepta varias remesas
+
+La carga dividida de Telecom salió bien. Lo que quedó mal fue el número que se proponía, y una
+molestia operativa al cargar el detalle de deuda.
+
+### El número: `100608` donde iba `608`
+
+El automático proponía `100608`, `200608` y `300608`, y el operador corregía los tres a mano. Dos
+cosas distintas fallaban:
+
+- **El prefijo estiraba el número en vez de reemplazar el relleno.** El correlativo de la empresa
+  tiene cinco dígitos (`00608`), y el dígito de la gestión se le anteponía entero: `2` + `00608`. La
+  convención es que el prefijo **ocupa el lugar del relleno** — `20608` —, porque los ceros a la
+  izquierda son formato del número de remesa, no parte del número. Ahora el núcleo se normaliza a 4
+  dígitos antes de prefijar, y un número de 5 dígitos significativos (`12345`) sigue intacto.
+- **La primera gestión no prefija.** `1G` es la carga original y conserva el número tal cual; las
+  demás gestiones son pasadas posteriores y por eso lo prefijan. Sobre `00608`: `1G` → `00608`,
+  `2G` → `20608`, `3G`/`3GH` → `30608`. Es la corrección de la regla que quedó escrita el 28/08.
+
+Medido sobre el CA del 31/08 (11.424 filas, dividido solo por gestión):
+
+| Gestión | Casos | Nº de remesa |
+|---|---|---|
+| `1G` | 1.887 | `00608` |
+| `2G` | 3.624 | `20608` |
+| `3GH / 3G` | 5.913 | `30608` |
+
+### Facturas contra varias remesas
+
+Cargar el MA obligaba a **una corrida por remesa**: la carga se había dividido en tres y el archivo
+de detalle las cubre a las tres. **Facturas acepta ahora varias remesas origen**, igual que pagos: el
+caso se busca en cualquiera de las elegidas y una sola corrida completa la deuda de todas. Si una
+cuenta aparece en dos de las remesas elegidas —el cedente la reasignó—, la factura va a la **más
+reciente**.
+
+En la pantalla es el mismo selector múltiple que ya tenía Pagos, con **Seleccionar todas** y
+**Limpiar**. Contactos y Enriquecimiento siguen con una sola remesa: no se pidieron y comparten el
+patrón, así que es una línea en cada processor el día que haga falta.
+
+---
+
 ## [2026-08-31] — `3G` y `3GH` son la misma gestión
 
 Sale de la misma prueba de Ana Maya, y es una regla de la operación que el sistema no tenía: el

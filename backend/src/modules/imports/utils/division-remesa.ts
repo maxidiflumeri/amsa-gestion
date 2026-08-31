@@ -84,9 +84,17 @@ export function divide(cfg: DivisionRemesaConfig | undefined): boolean {
 }
 
 /**
- * Número de remesa derivado de la gestión: se le antepone su **primer dígito** al número base,
- * paddeado a 4. Es la convención de la operación: sobre la remesa `100`, la gestión `1GH` es la
- * `10100`, la `2GH` la `20100` y la `3GH` la `30100`.
+ * Número de remesa derivado de la gestión. La convención de la operación, sobre la remesa `0608`:
+ *
+ * | Gestión | Número | Por qué |
+ * |---|---|---|
+ * | `1G` | `0608` | La **primera** gestión es la carga original: conserva el número, sin prefijo |
+ * | `2G` | `20608` | La segunda antepone su dígito |
+ * | `3G` / `3GH` | `30608` | Ídem, y las dos son la misma gestión |
+ *
+ * El prefijo **reemplaza el relleno** del correlativo en vez de estirar el número: sobre `00608` la
+ * gestión 2 es `20608` y no `200608`. Los ceros a la izquierda son el formato del número de remesa
+ * de la empresa, no parte del número.
  *
  * Una gestión sin ningún dígito (o una base que no es numérica) devuelve el número base tal cual:
  * es preferible que el operador vea el número sin prefijo y lo corrija a mano, a inventar uno.
@@ -96,9 +104,10 @@ export function numeroConGestion(base: string, gestion: string | null | undefine
     if (!limpio || !/^\d+$/.test(limpio)) return limpio;
 
     const digito = digitoDeGestion(gestion);
-    if (!digito) return limpio;
+    if (!digito || digito === '1') return limpio;
 
-    return `${digito}${limpio.padStart(4, '0')}`;
+    const nucleo = limpio.replace(/^0+/, '') || '0';
+    return `${digito}${nucleo.padStart(4, '0')}`;
 }
 
 /**
@@ -129,8 +138,8 @@ export function correlativoDesde(base: string, offset: number): string {
  *  - El número base **avanza por cada combinación distinta de las columnas de corte** (la nómina, y
  *    lo que se haya agregado). Dos nóminas son dos números: `100` y `101`.
  *  - La columna de prefijo (la gestión) **no avanza nada**: solo le antepone su dígito al base de su
- *    corte. Una nómina con tres gestiones da `10100`, `20100` y `30100` — el mismo `100` tres veces,
- *    con tres prefijos.
+ *    corte. Una nómina con tres gestiones da `100`, `20100` y `30100` — el mismo `100` tres veces:
+ *    pelado en la primera gestión, con prefijo en las otras. Ver {@link numeroConGestion}.
  *  - Sin columnas de corte (se divide solo por gestión), todos comparten el base y lo único que los
  *    separa es el dígito.
  */

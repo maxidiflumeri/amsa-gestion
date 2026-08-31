@@ -58,7 +58,13 @@ export class FacturasProcessor implements ICategoryProcessor {
      */
     async processBatch(rows: BatchRow[], ctx: ProcessContext): Promise<BatchRowError[]> {
         const errores: BatchRowError[] = [];
-        const targetRemesaId = ctx.remesaOrigenId ?? ctx.remesaId;
+
+        // El archivo de detalle del cedente puede cubrir **varias asignaciones** —las N remesas en
+        // que se dividió una carga, típicamente—, así que el caso se busca en cualquiera de las
+        // remesas elegidas y una sola corrida las cubre a todas. Igual que en pagos.
+        const targetRemesaIds = ctx.remesaOrigenIds?.length
+            ? ctx.remesaOrigenIds
+            : [ctx.remesaOrigenId ?? ctx.remesaId];
 
         // ── 1. Resolver los deudores que faltan, todos juntos ────────────────────────
         const aBuscar = [...new Set(
@@ -70,8 +76,12 @@ export class FacturasProcessor implements ICategoryProcessor {
         for (let i = 0; i < aBuscar.length; i += CHUNK_UPSERT) {
             const chunk = aBuscar.slice(i, i + CHUNK_UPSERT);
             const encontrados = await ctx.prisma.deudor.findMany({
-                where: { empresaId: ctx.empresaId, remesaId: targetRemesaId, nroCliente: { in: chunk } },
+                where: { empresaId: ctx.empresaId, remesaId: { in: targetRemesaIds }, nroCliente: { in: chunk } },
                 select: { id: true, nroCliente: true },
+                // Si la misma cuenta está en dos de las remesas elegidas —el cedente la reasignó—,
+                // la factura va a la **más reciente**: el orden ascendente hace que gane la última
+                // en escribirse en el cache.
+                orderBy: { remesaId: 'asc' },
             });
             for (const d of encontrados) {
                 if (d.nroCliente) this.deudorPorNroCliente.set(d.nroCliente, d.id);

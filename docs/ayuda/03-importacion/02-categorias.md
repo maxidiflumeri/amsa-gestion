@@ -44,6 +44,11 @@ El detalle de la deuda para casos **ya cargados**. Una fila por factura.
 
 Pide **remesa origen**: contra qué cartera buscar los casos. Y busca **por número de cliente**.
 
+Se pueden elegir **varias** —igual que en Pagos—: el detalle de deuda del cedente cubre las mismas
+asignaciones que el archivo de casos, así que una carga que se dividió en tres remesas se completa
+con **una sola corrida** del MA en vez de tres. Si una cuenta aparece en dos de las remesas elegidas,
+la factura va a la **más reciente**.
+
 > **El link al comprobante.** Si el cedente manda la URL de la factura en su portal —Telecom y
 > Personal la traen en el archivo de detalle—, mapeala a **"Link al comprobante"**. En la solapa
 > Facturas de la ficha, el número de factura pasa a ser clickeable y abre el comprobante en una

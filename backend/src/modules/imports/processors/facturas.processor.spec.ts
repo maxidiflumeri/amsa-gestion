@@ -257,3 +257,31 @@ describe('FacturasProcessor — afterAll', () => {
         expect(findMany).toHaveBeenCalledTimes(2);
     });
 });
+
+describe('FacturasProcessor — varias remesas origen', () => {
+    /**
+     * Una carga dividida deja N remesas sobre el mismo archivo, y el detalle de deuda del cedente
+     * las cubre a todas: si el archivo se pudiera cargar contra una sola, habría que subirlo N
+     * veces. Es el mismo criterio que ya usaba pagos.
+     */
+    it('busca el caso en todas las remesas elegidas', async () => {
+        const { ctx, findMany } = makeCtx([{ id: 1, nroCliente: '001' }]);
+        (ctx as any).remesaOrigenIds = [9, 10, 11];
+        const p = new FacturasProcessor();
+
+        await p.processBatch([fila(0, '001', 'A')], ctx);
+
+        expect(findMany.mock.calls[0][0].where.remesaId).toEqual({ in: [9, 10, 11] });
+        // Si la cuenta está en dos de ellas, gana la más reciente.
+        expect(findMany.mock.calls[0][0].orderBy).toEqual({ remesaId: 'asc' });
+    });
+
+    it('con una sola remesa origen se comporta igual que siempre', async () => {
+        const { ctx, findMany } = makeCtx([{ id: 1, nroCliente: '001' }]);
+        const p = new FacturasProcessor();
+
+        await p.processBatch([fila(0, '001', 'A')], ctx);
+
+        expect(findMany.mock.calls[0][0].where.remesaId).toEqual({ in: [9] });
+    });
+});

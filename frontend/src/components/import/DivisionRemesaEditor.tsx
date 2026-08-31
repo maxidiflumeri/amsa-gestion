@@ -124,10 +124,11 @@ export default function DivisionRemesaEditor({ value, onChange }: Props) {
                 Columna que prefija el número
             </Typography>
             <Typography variant="body2" color="text.secondary" sx={{ mb: 1.5 }}>
-                La gestión. No crea un número nuevo: le antepone su primer dígito al de su corte. Con
-                la nómina en la remesa <strong>100</strong>, la gestión <strong>1GH</strong> es la{' '}
-                <strong>10100</strong>, la <strong>2GH</strong> la <strong>20100</strong> y la{' '}
-                <strong>3GH</strong> la <strong>30100</strong>.
+                La gestión. No crea un número nuevo: le antepone su primer dígito al de su corte, y
+                el prefijo reemplaza el relleno del correlativo. Sobre la remesa{' '}
+                <strong>00608</strong>: <strong>1G</strong> queda <strong>00608</strong> —la primera
+                gestión conserva el número—, <strong>2G</strong> es <strong>20608</strong> y{' '}
+                <strong>3G</strong> es <strong>30608</strong>.
                 <br />
                 Lo que agrupa es el <strong>dígito</strong>: <strong>3G</strong> y{' '}
                 <strong>3GH</strong> son la misma gestión, así que sus filas van a la misma remesa y

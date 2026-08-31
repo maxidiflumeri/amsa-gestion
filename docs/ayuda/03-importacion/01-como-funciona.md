@@ -66,10 +66,11 @@ ahí**.
 > al menos un caso vivo (ni cancelado ni desasignado). Si necesitás una cartera ya cerrada, apagá el
 > switch.
 
-> **En Pagos podés elegir varias remesas origen a la vez.** Sirve cuando el archivo de cobranzas
-> cubre varias asignaciones: una sola corrida las cubre todas, en vez de correr el mismo archivo una
-> vez por remesa. Con **Seleccionar todas** marcás de una las que están en gestión, y con **Limpiar**
-> las destildás todas.
+> **En Pagos y en Facturas podés elegir varias remesas origen a la vez.** Sirve cuando el archivo
+> del cedente cubre varias asignaciones, y cuando una carga se dividió en varias remesas sobre el
+> mismo archivo: una sola corrida las cubre todas, en vez de correr el mismo archivo una vez por
+> remesa. Con **Seleccionar todas** marcás de una las que están en gestión, y con **Limpiar** las
+> destildás todas.
 
 > **Acciones masivas sin remesa elegida actúa sobre toda la empresa.** Es deliberado y es potente:
 > tenelo presente antes de confirmar.

@@ -122,8 +122,8 @@ export default function ImportWizard() {
     // gestionan hoy, que es a las que se les aplica un archivo de cobros.
     const [soloEnGestion, setSoloEnGestion] = useState(true);
     const [remesaOrigenId, setRemesaOrigenId] = useState<number | null>(null);
-    // PAGOS: se pueden elegir VARIAS remesas origen (archivo de pagos para toda la empresa),
-    // así una sola corrida cubre las N remesas en vez de correr el archivo una vez por cada una.
+    // PAGOS y FACTURAS: se pueden elegir VARIAS remesas origen (el archivo del cedente cubre varias
+    // asignaciones), así una sola corrida cubre las N remesas en vez de correr el archivo por cada una.
     const [remesaOrigenIds, setRemesaOrigenIds] = useState<number[]>([]);
     // ACCIONES: la remesa origen es OPCIONAL (sin elegir = toda la base de la empresa).
     const esAcciones = categoria === "ACCIONES";
@@ -137,7 +137,9 @@ export default function ImportWizard() {
     // Patrones de nombre de archivo de la plantilla elegida, para reconocer qué archivo es cuál.
     const patronesArchivos = plantillas.find((p) => p.id === selectedPlantilla)
         ?.mappingJson?.multiarchivo?.archivos as Record<string, string> | undefined;
-    const multiOrigen = categoria === "PAGOS";
+    // PAGOS y FACTURAS: el archivo del cedente cubre varias asignaciones, así que se pueden elegir
+    // varias remesas origen y cargarlo una sola vez. Las demás categorías siguen con una sola.
+    const multiOrigen = categoria === "PAGOS" || categoria === "FACTURAS";
     const needsOrigen =
         categoria !== "" &&
         categoria !== "DEUDORES" &&
@@ -678,7 +680,7 @@ export default function ImportWizard() {
                             </Box>
                         )}
 
-                        {/* PAGOS: selector MÚLTIPLE de remesas origen (archivo para toda la empresa) */}
+                        {/* PAGOS y FACTURAS: selector MÚLTIPLE de remesas origen */}
                         {multiOrigen && (
                             <FormControl fullWidth>
                                 <InputLabel id="remesa-origen-multi-label">
@@ -754,9 +756,10 @@ export default function ImportWizard() {
 
                                 <FormHelperText>
                                     {soloEnGestion
-                                        ? "Se listan las remesas que todavía tienen casos activos (sin cancelar ni desasignar). \"Seleccionar todas\" alcanza para el archivo de cobros del mes."
+                                        ? "Se listan las remesas que todavía tienen casos activos (sin cancelar ni desasignar). \"Seleccionar todas\" alcanza para el archivo del mes."
                                         : "Se listan todas las remesas que cargaron casos, incluidas las ya cerradas."}
-                                    {" "}El archivo de pagos se aplica a todas las elegidas en una sola corrida.
+                                    {" "}El archivo se aplica a todas las elegidas en una sola corrida: si la carga
+                                    se dividió en varias remesas, se cubren todas de una.
                                 </FormHelperText>
                             </FormControl>
                         )}

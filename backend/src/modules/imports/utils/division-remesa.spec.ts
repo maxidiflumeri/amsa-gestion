@@ -43,18 +43,27 @@ function acumular(filas: Array<[string, string, number]>, cfg: any = CFG) {
 }
 
 describe('numeroConGestion', () => {
-    it('antepone el dígito de la gestión al número base, paddeado a 4', () => {
-        expect(numeroConGestion('100', '1GH')).toBe('10100');
+    it('la primera gestión conserva el número; las demás le anteponen su dígito', () => {
+        // `1G` es la carga original: sale con el número tal cual, sin prefijo.
+        expect(numeroConGestion('100', '1GH')).toBe('100');
         expect(numeroConGestion('100', '2GH')).toBe('20100');
         expect(numeroConGestion('100', '3GH')).toBe('30100');
+    });
+
+    it('el prefijo reemplaza el relleno del correlativo, no lo estira', () => {
+        // El caso real: la empresa numera con 5 dígitos y la carga es la `00608`.
+        expect(numeroConGestion('00608', '1G')).toBe('00608');
+        expect(numeroConGestion('00608', '2G')).toBe('20608');
+        expect(numeroConGestion('00608', '3GH')).toBe('30608');
     });
 
     it('3G y 3GH comparten prefijo: lo que las separa es la nómina, no la gestión', () => {
         expect(numeroConGestion('100', '3G')).toBe(numeroConGestion('100', '3GH'));
     });
 
-    it('respeta un base que ya tiene 4 o más dígitos', () => {
-        expect(numeroConGestion('0100', '1G')).toBe('10100');
+    it('respeta un base que ya tiene 4 o más dígitos significativos', () => {
+        expect(numeroConGestion('0100', '1G')).toBe('0100');
+        expect(numeroConGestion('0100', '2G')).toBe('20100');
         expect(numeroConGestion('12345', '2G')).toBe('212345');
     });
 
@@ -88,7 +97,7 @@ describe('numerosSugeridos — el correlativo avanza por NÓMINA, no por combina
 
         // El caso que define la regla: el 100 es de la nómina, y las tres gestiones lo prefijan.
         // Si el correlativo avanzara por combinación saldría 10100 / 20101 / 30102.
-        expect(numerosSugeridos(acc.cortes(), '100')).toEqual(['10100', '20100', '30100']);
+        expect(numerosSugeridos(acc.cortes(), '100')).toEqual(['100', '20100', '30100']);
     });
 
     it('dos nóminas de tres gestiones cada una avanzan de a un número', () => {
@@ -98,8 +107,8 @@ describe('numerosSugeridos — el correlativo avanza por NÓMINA, no por combina
         ]);
 
         expect(numerosSugeridos(acc.cortes(), '100')).toEqual([
-            '10100', '20100', '30100',
-            '10101', '20101', '30101',
+            '100', '20100', '30100',
+            '101', '20101', '30101',
         ]);
     });
 
@@ -109,7 +118,7 @@ describe('numerosSugeridos — el correlativo avanza por NÓMINA, no por combina
             { prefijo: GESTION },
         );
 
-        expect(numerosSugeridos(acc.cortes(), '100')).toEqual(['10100', '20100', '30100']);
+        expect(numerosSugeridos(acc.cortes(), '100')).toEqual(['100', '20100', '30100']);
     });
 
     it('sin columna de prefijo es el correlativo pelado', () => {
@@ -124,7 +133,7 @@ describe('numerosSugeridos — el correlativo avanza por NÓMINA, no por combina
     it('en el archivo real cada nómina tiene una sola gestión, así que salen todos distintos', () => {
         const numeros = numerosSugeridos(acumular(ARCHIVO).cortes(), '100');
 
-        expect(numeros).toEqual(['30100', '10101', '30102', '20103', '30104']);
+        expect(numeros).toEqual(['30100', '101', '30102', '20103', '30104']);
         expect(new Set(numeros).size).toBe(5);
     });
 
@@ -133,7 +142,7 @@ describe('numerosSugeridos — el correlativo avanza por NÓMINA, no por combina
         const numeros = numerosSugeridos(acc.cortes(), '100');
 
         // 4 valores de gestión en el archivo, 3 gestiones reales: `3G` y `3GH` son la misma.
-        expect(numeros).toEqual(['30100', '10100', '20100']);
+        expect(numeros).toEqual(['30100', '100', '20100']);
         expect(new Set(numeros).size).toBe(3);
     });
 });
@@ -267,7 +276,7 @@ describe('prebaja y posbaja en el mismo CA', () => {
     it('los números no chocan entre carteras aunque compartan gestión', () => {
         const numeros = numerosSugeridos(acumularMixto().cortes(), '100');
 
-        expect(numeros).toEqual(['30100', '10101', '10102', '20103']);
+        expect(numeros).toEqual(['30100', '101', '102', '20103']);
         expect(new Set(numeros).size).toBe(4);
     });
 });
