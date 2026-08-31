@@ -29,6 +29,11 @@ Vive en Importación de Datos → Plantillas. Ver [Crear una plantilla](/ayuda/i
 Es **una carga concreta**. Cada vez que importás un archivo se crea una remesa, que queda con su
 fecha, su plantilla, quién la hizo y cuántas filas entraron.
 
+> **Una carga puede crear varias remesas.** Si el cedente exporta filtrando solo por día, el archivo
+> llega con todas las asignaciones de ese día adentro y la plantilla lo puede **dividir**: se crea una
+> remesa por nómina, todas sobre el mismo archivo. Es el caso de Telecom y Personal. Ver
+> [Importar un archivo](/ayuda/importacion/importar-un-archivo).
+
 La remesa importa más de lo que parece, porque **forma parte de la identidad de un caso**: el mismo
 cliente cargado en dos remesas distintas son dos casos distintos. Es a propósito — cada asignación del
 cedente tiene su propia deuda y su propio resultado.
@@ -56,12 +61,15 @@ ahí**.
 > como casos nuevos en la cartera equivocada y cancela los que ya estaban ahí. Ver
 > [Actualizaciones](/ayuda/importacion/actualizaciones).
 
-> El combo lista **todas** las remesas finalizadas de la empresa, de cualquier categoría — no solo las
-> de deudores. Mirá bien cuál elegís.
+> El combo lista **solo las remesas que cargaron casos**: las de facturas, pagos o acciones no
+> aparecen. Y viene con **"Solo remesas en gestión"** activado, que las acota a las que todavía tienen
+> al menos un caso vivo (ni cancelado ni desasignado). Si necesitás una cartera ya cerrada, apagá el
+> switch.
 
 > **En Pagos podés elegir varias remesas origen a la vez.** Sirve cuando el archivo de cobranzas
 > cubre varias asignaciones: una sola corrida las cubre todas, en vez de correr el mismo archivo una
-> vez por remesa.
+> vez por remesa. Con **Seleccionar todas** marcás de una las que están en gestión, y con **Limpiar**
+> las destildás todas.
 
 > **Acciones masivas sin remesa elegida actúa sobre toda la empresa.** Es deliberado y es potente:
 > tenelo presente antes de confirmar.

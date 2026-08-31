@@ -51,6 +51,8 @@ frecuentes:
 | Debe ingresar al menos una factura | En Deudores y Facturas, toda fila necesita su factura |
 | Fila sin valor de contacto | El bloque de contacto vino vacío |
 | Sin campo de match | Acciones masivas sin la columna de match |
+| Deudor no encontrado (nro_cliente=…) | El caso no existe en la remesa elegida. Si fallan **todas** las filas, el problema está en la carga de la cartera, no en este archivo |
+| El importe "…" no es un número | El valor no se pudo convertir. Revisá los transforms del importe en la plantilla |
 
 > **Ojo con lo que NO aparece acá.** Las filas descartadas por un **filtro de fila** no son errores: no
 > figuran en este listado. Y un **teléfono que no se pudo normalizar** se descarta en silencio, sin
@@ -153,6 +155,16 @@ se llevaría ese trabajo puesto.
 Es el comportamiento esperado: los pagos cuelgan de casos de la remesa vinculada, no de la de pagos.
 Y **no se pueden eliminar desde la ficha**: hay que escalarlo a sistemas.
 
+### El archivo ni siquiera se pudo leer
+
+El error dice el nombre del archivo y el motivo: *"No se pudo leer «cobros.csv»: … Revisá que el
+separador y el formato de la plantilla sean los del archivo."* Casi siempre es el separador declarado
+en la plantilla, o un archivo que no es el que se creía.
+
+> **Dos columnas con el mismo nombre ya no rompen la carga.** El sistema no lee los nombres del
+> encabezado, mapea por **posición**. El archivo de cobros de Personal manda `PAYMENT_METHOD_DES` dos
+> veces y entra igual.
+
 ### La carga quedó "procesando" y no avanza
 
 Mientras esté en curso no se puede borrar. Entrá al detalle a ver el progreso. Si está realmente
@@ -172,13 +184,20 @@ verificados.
 Tres candidatos: filas descartadas por **filtro** (no cuentan como error), **casos colapsados** porque
 dos filas comparten el documento, o **contactos descartados** en silencio por no poder normalizarse.
 
+Si el cedente manda **varias cuentas por titular** —Telecom y Personal: la cuenta madre y las hijas—,
+el segundo caso es sistemático: con identidad por documento entra una sola cuenta por DNI y las demás
+se pisan. La plantilla tiene que identificar los casos por **Nº de cliente**, y la vista previa avisa
+cuántas cuentas se van a perder antes de cargar. Es también la causa de que después fallen **todas**
+las facturas y los pagos de esas cuentas con "Deudor no encontrado".
+
 ---
 
 ## Preguntas frecuentes
 
 **¿Puedo volver a importar el mismo archivo?**
 Sí. En Deudores actualiza en vez de duplicar (dentro de la misma remesa). En Pagos hay un
-anti-duplicados. En Actualizaciones, cuidado con las opciones de ausentes.
+anti-duplicados: con el **ID del cobro** mapeado en la plantilla, un archivo acumulativo se puede
+recargar todas las veces que haga falta. En Actualizaciones, cuidado con las opciones de ausentes.
 
 **¿El historial guarda quién hizo cada carga?**
 Sí, y también queda en la auditoría — igual que borrar una remesa y revertir una acción.

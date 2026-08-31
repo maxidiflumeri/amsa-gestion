@@ -221,9 +221,10 @@ de la categoría**, y no siempre se puede deshacer.
 
 **¿Puedo importar el mismo archivo dos veces?**
 Depende de la categoría. En Deudores, la segunda corrida actualiza los casos en vez de duplicarlos
-(dentro de la misma remesa). En Pagos hay un anti-duplicados que saltea un pago si ya existe otro del
-mismo caso, mismo día y mismo importe — salvo que la plantilla mapee el número de comprobante, que lo
-distingue.
+(dentro de la misma remesa). En Pagos hay un anti-duplicados: si la plantilla mapea el **ID del cobro
+en el sistema del cedente**, el mismo cobro no entra dos veces y un archivo acumulativo se puede
+recargar cuantas veces haga falta. Si el cedente no manda identificador, el criterio es mismo caso,
+mismo día y mismo importe. Ver [Las categorías](/ayuda/importacion/categorias).
 
 **¿Puedo cerrar el navegador mientras carga?**
 Sí. Corre en el servidor.

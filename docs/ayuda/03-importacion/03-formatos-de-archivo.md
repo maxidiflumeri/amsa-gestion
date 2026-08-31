@@ -134,6 +134,10 @@ subido dos veces y mezclar Excel con texto.
 **Si la plantilla no declara encabezado no hay chequeo**, y ahí sí un archivo con una columna de más
 sale corrido en silencio.
 
+> **Dos columnas con el mismo nombre no molestan.** El mapeo va por **posición**: la fila del
+> encabezado se saltea sin leer los nombres. El archivo de cobros de Personal manda
+> `PAYMENT_METHOD_DES` dos veces y se carga igual.
+
 ---
 
 ## Cómo mirar un archivo nuevo, en orden

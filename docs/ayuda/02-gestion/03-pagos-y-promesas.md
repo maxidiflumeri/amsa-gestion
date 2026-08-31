@@ -96,6 +96,11 @@ anterior sigue existiendo. Si algo de eso no se cumple, el caso se queda donde e
 | **Actualización** | Lo generó una reconciliación |
 | **Cuota de convenio** | Se registró sobre una cuota |
 
+> **La fecha es la del archivo, no la de la carga.** Se leen también las fechas con el mes en
+> castellano (`3 ago 2026`, `23 abril 2026`), que es como las manda Deimos. Si una fecha no se puede
+> leer, el pago queda con la fecha del día en que se importó — y eso además rompe el anti-duplicados
+> en la corrida siguiente. Se ve en la vista previa antes de confirmar la carga.
+
 > ### ⚠ Solo se borran los pagos cargados a mano
 >
 > Los que entraron por una importación **no se pueden eliminar**: el botón aparece deshabilitado. Y los
@@ -171,6 +176,12 @@ La cuenta está cancelada, o falta el permiso **Cargar pagos manuales**.
 
 Solo se borran los manuales. Si el botón está deshabilitado, vino de una importación o de un convenio.
 Si la columna no aparece, falta el permiso **Eliminar pagos manuales**.
+
+### Importé pagos y el saldo del caso subió en vez de bajar
+
+El archivo trae **importes negativos** —notas de crédito o ajustes a favor— y el saldo es la deuda
+menos los pagos, así que un pago negativo la aumenta. La vista previa avisa cuando detecta importes
+en negativo: la plantilla necesita el transform *Quitar guiones ( - )* en el importe.
 
 ### Cargué un pago y el caso quedó cancelado y bloqueado
 

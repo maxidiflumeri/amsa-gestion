@@ -97,6 +97,10 @@ de carga.
 | **Convenios** | Los planes de pago y sus cuotas |
 | **Otras Cuentas** | Los demás casos de esta persona |
 
+> **El número de factura puede ser un link.** Si el cedente manda la dirección del comprobante en su
+> portal y la plantilla la mapea, en la solapa Facturas el número se clickea y abre el comprobante en
+> una pestaña nueva. En las carteras que no la mandan se ve como texto, igual que siempre.
+
 > **Las promesas viven en la solapa Pagos**, con su estado y el botón de anular. El contador del título
 > cuenta solo los pagos, así que puede decir "Pagos (0)" y haber promesas adentro.
 
