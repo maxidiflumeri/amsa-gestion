@@ -6,6 +6,39 @@
 
 ---
 
+## [2026-08-31] — La división no se activaba: el wizard leía la forma vieja de la config
+
+Reportado desde las pruebas de Ana Maya: la **remesa 608 de Telecom** entró como una sola remesa con
+las cuatro nóminas del día adentro, aunque la plantilla tenía la división configurada.
+
+### El diagnóstico
+
+La plantilla 31 se guardó a las 17:58 con `cortes:[Nómina@45] + prefijo:Gestión@2`; la carga fue a
+las 18:04 y devolvió `remesaIds: [115]`, una sola. Backend y frontend estaban desplegados con
+`f4ae3a7`, así que no era un deploy pendiente ni un error del operador.
+
+`ImportWizard` decidía si mostrar el paso de cortes con
+`!!(divisionConfig?.porNomina || divisionConfig?.porGestion)` — la forma **anterior** de la config.
+El commit que introdujo `{ cortes[], prefijo }` enseñó al backend a leer las dos formas
+(`normalizarDivision`) y rehízo el editor de plantillas, pero no tocó ese gate. Con una plantilla
+guardada por el editor nuevo, `plantillaDivide` daba `false`: el botón seguía siendo "Crear remesa y
+validar" y el archivo entero entraba en una remesa. **Sin error y sin aviso**, que es el modo en que
+este módulo hace daño.
+
+### Frontend
+
+- `ImportWizard` reconoce las dos formas de `divisionRemesa`. Es el mismo criterio que ya aplican el
+  backend y el editor: la forma vieja sigue viva en las plantillas que nadie reeditó.
+
+### Lo que queda pendiente en producción
+
+- **Borrar y recargar la remesa 608** (id 115): 11.424 filas, 0 errores y sin gestión encima
+  (0 comentarios, 0 pagos, 0 convenios), así que se borra sin fricción. Los cortes reales del archivo
+  son `3277/2G` (3.624), `3279/3GH` (2.976), `3278/3G` (2.937) y `3276/1G` (1.887).
+- La plantilla **26** (Personal posbaja) tiene la misma config nueva y arrastraba el mismo problema.
+
+---
+
 ## [2026-08-28] — Telecom y Personal: las cuentas que no entraban y los pagos que no se podían subir
 
 Barrida sobre lo que salió de las pruebas de las carteras de telefonía. Los archivos de referencia

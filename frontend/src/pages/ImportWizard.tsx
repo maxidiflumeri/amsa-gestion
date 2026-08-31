@@ -216,12 +216,31 @@ export default function ImportWizard() {
         setActiveStep((prev) => prev - 1);
     };
 
-    /** Config de división de la plantilla elegida, si la declara. */
+    /**
+     * Config de división de la plantilla elegida, si la declara.
+     *
+     * Hay **dos formas** guardadas en la base y las dos tienen que activar el paso de cortes: la
+     * original (`porNomina` / `porGestion`) y la actual (`cortes[]` + `prefijo`), que existe desde
+     * que un mismo CA puede necesitar cortarse también por prebaja/posbaja. El backend ya las
+     * resuelve a una sola en `normalizarDivision()`; acá alcanza con reconocer las dos, porque una
+     * plantilla guardada con la forma nueva y no reconocida acá se carga como **una sola remesa**
+     * sin avisar nada.
+     */
     const divisionConfig = plantillas.find((p) => p.id === selectedPlantilla)
         ?.mappingJson?.divisionRemesa as
-        | { porNomina?: { etiqueta: string }; porGestion?: { etiqueta: string } }
+        | {
+              cortes?: { etiqueta: string }[];
+              prefijo?: { etiqueta: string };
+              porNomina?: { etiqueta: string };
+              porGestion?: { etiqueta: string };
+          }
         | undefined;
-    const plantillaDivide = !!(divisionConfig?.porNomina || divisionConfig?.porGestion);
+    const plantillaDivide = !!(
+        divisionConfig?.cortes?.length ||
+        divisionConfig?.prefijo ||
+        divisionConfig?.porNomina ||
+        divisionConfig?.porGestion
+    );
 
     /** Adjunta los archivos subidos al FormData con la clave que espera el backend. */
     const adjuntarArchivos = (formData: FormData) => {
