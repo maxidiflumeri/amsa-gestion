@@ -6,6 +6,58 @@
 
 ---
 
+## [2026-08-31] — `3G` y `3GH` son la misma gestión
+
+Sale de la misma prueba de Ana Maya, y es una regla de la operación que el sistema no tenía: el
+sufijo de la gestión (`3G` frente a `3GH`) es una **variante del cedente, no otra asignación**. Las
+dos filas van a la misma remesa.
+
+### Lo que se veía
+
+Con las cuatro nóminas del CA del 31/08, el operador editaba los cuatro números para que compartieran
+el `608` y la pantalla le marcaba `30608` repetido entre `3G` y `3GH`, sin salida más que inventar un
+número. El sistema cortaba por el **valor** de la gestión; la operación corta por su **dígito**.
+
+### Backend
+
+- **`digitoDeGestion()`**: el dígito es lo que prefija el número **y lo que identifica la gestión**.
+  `AcumuladorCortes` agrupa por él, así que `3G` y `3GH` caen en el mismo corte. Una gestión sin
+  ningún dígito no se agrupa con nadie —mejor dos cortes de más que juntar lo que no se sabe si va
+  junto—.
+- El corte agrupado guarda sus **variantes crudas** (`valoresPrefijo: ['3GH', '3G']`), se muestra
+  como `3GH / 3G` y se aísla con un **operador de filtro nuevo, `EN`**: un `IGUAL` no puede quedarse
+  con dos valores. Mientras la gestión tenga una sola variante, el filtro sigue siendo `IGUAL`.
+- El filtro del corte **viaja al cliente y vuelve** en `divisiones`, porque un corte agrupado no se
+  puede reconstruir desde `valores`. Se valida al crear: solo columnas declaradas en la división y
+  solo `IGUAL` / `EN`.
+
+### Frontend
+
+- El wizard reenvía el filtro que le dio el preview.
+- El editor de plantillas y la wiki explican las dos cosas que estaban implícitas: que el agrupado es
+  por dígito, y que **sin columnas de corte todas las remesas de la carga comparten el número** —que
+  es justo lo que hay que configurar cuando la asignación que importa es la gestión y la nómina es un
+  detalle del cedente—.
+
+### Medido sobre el CA del 31/08 (11.424 filas, dividido solo por gestión)
+
+| Gestión | Casos | Nº de remesa |
+|---|---|---|
+| `3GH / 3G` | 5.913 | `30608` |
+| `2G` | 3.624 | `20608` |
+| `1G` | 1.887 | `10608` |
+
+Sin números repetidos, y el filtro de cada corte deja pasar exactamente sus filas.
+
+### Pendiente en producción
+
+Las plantillas **31** (Telecom Posbaja) y **26** (Personal Posbaja) tienen declarada la nómina como
+columna de corte: mientras siga ahí, cada nómina es su propia remesa y el número avanza. Para que las
+remesas de una carga compartan el número hay que **quitar la columna de corte y dejar solo la de
+prefijo**.
+
+---
+
 ## [2026-08-31] — La división no se activaba: el wizard leía la forma vieja de la config
 
 Reportado desde las pruebas de Ana Maya: la **remesa 608 de Telecom** entró como una sola remesa con

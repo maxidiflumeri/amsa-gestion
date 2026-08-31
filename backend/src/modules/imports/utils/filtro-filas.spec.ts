@@ -27,6 +27,17 @@ describe('pasaFiltro — operadores', () => {
         expect(pasaFiltro(['x', 'Envio a Gestion'], con('CONTIENE', 'pago'))).toBe(false);
     });
 
+    it('EN deja pasar cualquiera de sus valores, y solo esos', () => {
+        // Es el filtro que aísla un corte que agrupó dos variantes de la misma gestión.
+        const enGestion3: FiltroFila[] = [{ fromIndex: 1, operador: 'EN', valores: ['3GH', '3G'] }];
+
+        expect(pasaFiltro(['x', '3GH'], enGestion3)).toBe(true);
+        expect(pasaFiltro(['x', ' 3g '], enGestion3)).toBe(true);
+        expect(pasaFiltro(['x', '2G'], enGestion3)).toBe(false);
+        expect(pasaFiltro(['x', '3'], enGestion3)).toBe(false);
+        expect(pasaFiltro(['x', '3GH'], [{ fromIndex: 1, operador: 'EN' }])).toBe(false);
+    });
+
     it('VACIO y NO_VACIO miran el valor ya trimeado', () => {
         expect(pasaFiltro(['x', '   '], con('VACIO'))).toBe(true);
         expect(pasaFiltro(['x', 'E'], con('VACIO'))).toBe(false);
@@ -98,6 +109,12 @@ describe('describirFiltros', () => {
             { fromIndex: 22, operador: 'MAYOR', valor: '0' },
             { fromIndex: 19, operador: 'NO_VACIO' },
         ])).toBe('col 22 MAYOR "0" y col 19 NO_VACIO');
+    });
+
+    it('EN se describe con la lista de valores', () => {
+        expect(describirFiltros([
+            { fromIndex: 2, operador: 'EN', valores: ['3GH', '3G'] },
+        ])).toBe('col 2 EN "3GH, 3G"');
     });
 
     it('devuelve vacío si no hay filtros', () => {

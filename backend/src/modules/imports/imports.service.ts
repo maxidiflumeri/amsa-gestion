@@ -588,6 +588,10 @@ export class ImportService {
                     valores: c.valores,
                     filas: c.filas,
                     numeroSugerido: sugeridos[i],
+                    // El filtro viaja al cliente y vuelve en `divisiones`: un corte que agrupó dos
+                    // variantes de la misma gestión (`3G` y `3GH`) no se puede reconstruir desde
+                    // `valores`, que ahí muestra las dos juntas.
+                    filtros: c.filtros,
                 })),
             };
         } finally {
@@ -738,18 +742,37 @@ export class ImportService {
                 );
             }
 
+            const columnasValidas = new Set(columnasDeDivision(cfg).map((c) => c.fromIndex));
+
             const creadas: number[] = [];
             for (const [i, division] of dto.divisiones.entries()) {
-                const filtros: FiltroFila[] = [];
-                for (const [etiqueta, valor] of Object.entries(division.valores ?? {})) {
-                    const columna = porEtiqueta.get(etiqueta);
-                    if (!columna) {
-                        throw new BadRequestException(
-                            `El corte "${etiqueta}" no es una columna de división de esta plantilla.`,
-                        );
-                    }
-                    filtros.push({ fromIndex: columna.fromIndex, operador: 'IGUAL', valor: String(valor) });
-                }
+                // El filtro lo calculó `division-preview` y vuelve tal cual: es el único que sabe
+                // qué variantes de la gestión agrupó el corte. Se valida antes de guardarlo —el
+                // cliente no puede filtrar por una columna que la plantilla no declara.
+                const filtros: FiltroFila[] = Array.isArray(division.filtros) && division.filtros.length
+                    ? division.filtros.map((f) => {
+                        if (!columnasValidas.has(f?.fromIndex)) {
+                            throw new BadRequestException(
+                                `El corte filtra por la columna ${f?.fromIndex}, que no es una columna ` +
+                                'de división de esta plantilla.',
+                            );
+                        }
+                        if (f.operador !== 'IGUAL' && f.operador !== 'EN') {
+                            throw new BadRequestException(
+                                `El corte usa el operador ${f.operador}, que no se admite en una división.`,
+                            );
+                        }
+                        return f;
+                    })
+                    : Object.entries(division.valores ?? {}).map(([etiqueta, valor]) => {
+                        const columna = porEtiqueta.get(etiqueta);
+                        if (!columna) {
+                            throw new BadRequestException(
+                                `El corte "${etiqueta}" no es una columna de división de esta plantilla.`,
+                            );
+                        }
+                        return { fromIndex: columna.fromIndex, operador: 'IGUAL' as const, valor: String(valor) };
+                    });
                 if (!filtros.length) {
                     throw new BadRequestException('Un corte de la división llegó sin valores.');
                 }

@@ -83,8 +83,11 @@ número y **destildar los cortes que no quieras cargar**.
 
 El número se propone solo: el corte recibe un número base y la gestión le antepone su primer dígito
 (la gestión `3GH` sobre la remesa `100` es la `30100`). Una nómina con tres gestiones da `10100`,
-`20100` y `30100` — el mismo número con tres prefijos. Si dos números salen iguales, la pantalla te
-avisa y no deja seguir hasta que corrijas uno.
+`20100` y `30100` — el mismo número con tres prefijos.
+
+Dos gestiones con el mismo dígito —`3G` y `3GH`— son **la misma gestión**: van en un solo corte, que
+se muestra con las dos juntas (`3GH / 3G`). Si igual editás dos números y quedan iguales, la pantalla
+te avisa y no deja seguir hasta que corrijas uno.
 
 Al confirmar se crean todas las remesas de una, **sobre el mismo archivo** (no se sube ni se guarda
 varias veces), y se importan **una después de la otra**. Mientras corre vas a ver "Procesando la

@@ -64,6 +64,12 @@ interface CorteEditable {
     numeroRemesa: string;
     /** El operador puede sacar un corte de la carga (una nómina que todavía no se gestiona). */
     incluir: boolean;
+    /**
+     * Las condiciones que aíslan las filas de este corte, tal como las calculó el preview. Viajan
+     * de vuelta al crear: un corte que agrupó dos variantes de la misma gestión (`3G` y `3GH`) no
+     * se puede reconstruir desde `valores`, que ahí muestra las dos juntas.
+     */
+    filtros?: unknown[];
 }
 
 export default function ImportWizard() {
@@ -281,6 +287,7 @@ export default function ImportWizard() {
                     filas: c.filas,
                     numeroRemesa: c.numeroSugerido ?? "",
                     incluir: true,
+                    filtros: c.filtros,
                 })),
             );
             setDialogoDivision(true);
@@ -337,6 +344,7 @@ export default function ImportWizard() {
                         divisiones.map((d) => ({
                             valores: d.valores,
                             numeroRemesa: d.numeroRemesa.trim(),
+                            filtros: d.filtros,
                         })),
                     ),
                 );

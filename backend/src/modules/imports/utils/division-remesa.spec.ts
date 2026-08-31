@@ -6,8 +6,8 @@
  * los del archivo real.
  */
 import {
-    AcumuladorCortes, columnasDeDivision, divide, normalizarDivision, numeroConGestion,
-    numerosSugeridos,
+    AcumuladorCortes, columnasDeDivision, digitoDeGestion, divide, normalizarDivision,
+    numeroConGestion, numerosSugeridos,
 } from './division-remesa';
 
 const NOMINA = { fromIndex: 45, etiqueta: 'Nómina' };
@@ -68,6 +68,20 @@ describe('numeroConGestion', () => {
     });
 });
 
+describe('digitoDeGestion — qué hace que dos gestiones sean la misma', () => {
+    it('3G y 3GH son la gestión 3', () => {
+        expect(digitoDeGestion('3G')).toBe('3');
+        expect(digitoDeGestion('3GH')).toBe('3');
+        expect(digitoDeGestion('1G')).toBe('1');
+    });
+
+    it('una gestión sin dígito no se agrupa con nadie', () => {
+        expect(digitoDeGestion('GH')).toBeNull();
+        expect(digitoDeGestion('')).toBeNull();
+        expect(digitoDeGestion(null)).toBeNull();
+    });
+});
+
 describe('numerosSugeridos — el correlativo avanza por NÓMINA, no por combinación', () => {
     it('una nómina con tres gestiones comparte el número base', () => {
         const acc = acumular([['1G', '3082', 10], ['2G', '3082', 10], ['3G', '3082', 10]]);
@@ -114,12 +128,12 @@ describe('numerosSugeridos — el correlativo avanza por NÓMINA, no por combina
         expect(new Set(numeros).size).toBe(5);
     });
 
-    it('dividiendo SOLO por gestión, 3G y 3GH chocan: el operador tiene que corregir uno', () => {
+    it('dividiendo SOLO por gestión salen tres números, uno por gestión, sin choques', () => {
         const acc = acumular(ARCHIVO, { prefijo: GESTION });
         const numeros = numerosSugeridos(acc.cortes(), '100');
 
-        // 4 gestiones, 3 números: es el choque que la pantalla marca y el backend rechaza.
-        expect(numeros).toHaveLength(4);
+        // 4 valores de gestión en el archivo, 3 gestiones reales: `3G` y `3GH` son la misma.
+        expect(numeros).toEqual(['30100', '10100', '20100']);
         expect(new Set(numeros).size).toBe(3);
     });
 });
@@ -158,11 +172,44 @@ describe('AcumuladorCortes', () => {
         expect(conGestion3GH.map((c) => c.valores['Nómina'])).toEqual(['3082', '3086']);
     });
 
-    it('dividiendo solo por gestión, las dos nóminas 3GH caen en el mismo corte', () => {
+    it('dividiendo solo por gestión, 3G y 3GH caen en el mismo corte', () => {
         const cortes = acumular(ARCHIVO, { prefijo: GESTION }).cortes();
 
-        expect(cortes).toHaveLength(4);
-        expect(cortes.find((c) => c.prefijo === '3GH')!.filas).toBe(14047 + 490);
+        // Las dos nóminas 3GH y la 3G son la gestión 3: un solo corte con las tres.
+        expect(cortes).toHaveLength(3);
+        const gestion3 = cortes.find((c) => c.prefijo === '3')!;
+        expect(gestion3.filas).toBe(14047 + 490 + 1524);
+        expect(gestion3.valoresPrefijo).toEqual(['3GH', '3G']);
+    });
+
+    it('el corte agrupado se muestra con las dos variantes y se aísla con un EN', () => {
+        const gestion3 = acumular(ARCHIVO, { prefijo: GESTION })
+            .cortes()
+            .find((c) => c.prefijo === '3')!;
+
+        expect(gestion3.valores['Gestión']).toBe('3GH / 3G');
+        expect(gestion3.filtros).toEqual([
+            { fromIndex: 2, operador: 'EN', valores: ['3GH', '3G'] },
+        ]);
+    });
+
+    it('una gestión con una sola variante sigue saliendo con IGUAL', () => {
+        const gestion1 = acumular(ARCHIVO, { prefijo: GESTION })
+            .cortes()
+            .find((c) => c.prefijo === '1')!;
+
+        expect(gestion1.valores['Gestión']).toBe('1G');
+        expect(gestion1.filtros).toEqual([
+            { fromIndex: 2, operador: 'IGUAL', valor: '1G' },
+        ]);
+    });
+
+    it('con la nómina declarada como corte, 3G y 3GH siguen separadas: las separa la nómina', () => {
+        // El agrupado es por gestión, no por encima del corte: dos nóminas son dos remesas.
+        const cortes = acumular(ARCHIVO).cortes();
+
+        expect(cortes.filter((c) => c.prefijo === '3').map((c) => c.valores['Nómina']))
+            .toEqual(['3082', '3085', '3086']);
     });
 
     it('sin columnas declaradas no acumula nada', () => {

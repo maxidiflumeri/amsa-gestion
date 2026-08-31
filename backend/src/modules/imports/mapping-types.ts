@@ -222,7 +222,7 @@ export interface MappingJson {
  * comparan como número y descartan la fila si el valor no lo es.
  */
 export type OperadorFiltro =
-    | 'IGUAL' | 'DISTINTO' | 'CONTIENE'
+    | 'IGUAL' | 'DISTINTO' | 'CONTIENE' | 'EN'
     | 'MAYOR' | 'MENOR'
     | 'VACIO' | 'NO_VACIO';
 
@@ -244,8 +244,15 @@ export interface FiltroFila {
     /** Índice de columna del archivo (0-based), igual que en {@link MappingColumn}. */
     fromIndex: number;
     operador: OperadorFiltro;
-    /** Valor de comparación. No se usa con `VACIO` ni `NO_VACIO`. */
+    /** Valor de comparación. No se usa con `VACIO`, `NO_VACIO` ni `EN`. */
     valor?: string;
+    /**
+     * Valores de comparación de `EN`: la fila pasa si la columna coincide con **alguno**.
+     *
+     * Lo usa la división cuando un corte agrupó varias variantes de la misma gestión (`3G` y
+     * `3GH`), que un `IGUAL` no puede aislar. No se expone en el editor de plantillas.
+     */
+    valores?: string[];
 }
 
 /**

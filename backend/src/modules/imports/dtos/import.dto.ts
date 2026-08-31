@@ -1,5 +1,5 @@
 // src/import/import.dto.ts
-import { ImportCategoria } from '../mapping-types';
+import { FiltroFila, ImportCategoria } from '../mapping-types';
 import { Transform, Type } from 'class-transformer';
 import { IsArray, IsBoolean, IsInt, IsNotEmpty, IsOptional, IsString } from 'class-validator';
 
@@ -62,8 +62,9 @@ export class CreateRemesaDto {
      * División del archivo en varias remesas, una por corte (nómina / gestión).
      *
      * Llega como JSON dentro del multipart, así que se parsea en el `@Transform`. Cada entrada
-     * trae los **valores** del corte —los mismos que devolvió `division-preview`— y el número de
-     * remesa que le corresponde. Ausente = una remesa por archivo, el comportamiento de siempre.
+     * trae los **valores** del corte —los mismos que devolvió `division-preview`—, su **filtro** y
+     * el número de remesa que le corresponde. Ausente = una remesa por archivo, el comportamiento
+     * de siempre.
      */
     @IsOptional()
     @Transform(({ value }) => {
@@ -77,7 +78,12 @@ export class CreateRemesaDto {
         }
     })
     @IsArray()
-    divisiones?: Array<{ valores: Record<string, string>; numeroRemesa: string }>;
+    divisiones?: Array<{
+        valores: Record<string, string>;
+        numeroRemesa: string;
+        /** Filtros calculados por `division-preview`. Ver la validación en `imports.service`. */
+        filtros?: FiltroFila[];
+    }>;
 }
 
 export class ClonarPlantillaDto {

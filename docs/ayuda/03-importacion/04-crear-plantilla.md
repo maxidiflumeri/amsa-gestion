@@ -376,16 +376,24 @@ La diferencia entre los dos roles se ve cuando una nómina trae varias gestiones
 | Configuración | Archivo | Números |
 |---|---|---|
 | Solo nómina | 3 nóminas | `100` · `101` · `102` |
-| Solo gestión | 3 gestiones | `10100` · `20100` · `30100` |
+| **Solo gestión** | 3 gestiones, 4 nóminas | `10100` · `20100` · `30100` — **todas comparten el número** |
 | Nómina + gestión | 1 nómina con 3 gestiones | `10100` · `20100` · `30100` |
 | Nómina + gestión | 2 nóminas con 3 gestiones c/u | `10100` · `20100` · `30100` y `10101` · `20101` · `30101` |
 
 O sea: **el número es de la nómina y la gestión solo lo prefija.** Dos nóminas son dos números; tres
 gestiones de una misma nómina son el mismo número con tres prefijos.
 
-> Si dos gestiones empiezan con el mismo dígito —`3G` y `3GH`— y no hay columna de corte que las
-> separe, sale el mismo número para las dos. La pantalla de carga lo marca y no deja seguir hasta
-> que corrijas una a mano.
+> **Si querés un solo número para toda la carga** —todas las remesas con el número que tipeaste, y
+> la gestión como única diferencia— **no declares ninguna columna de corte**: dejá solo la de
+> prefijo. Es la configuración de las carteras donde la asignación que importa es la gestión y la
+> nómina es un detalle del cedente.
+
+> **`3G` y `3GH` son la misma gestión.** Lo que agrupa es el **dígito**, no el valor completo: las
+> filas de las dos caen en el mismo corte y se cargan en **una sola remesa**, que en la tabla de
+> carga se ve como `3GH / 3G`. El sufijo es una variante del cedente, no otra asignación.
+>
+> Ojo con la consecuencia cuando la nómina **sí** es columna de corte: dos nóminas distintas son dos
+> remesas aunque compartan la gestión, porque lo que las separa es la nómina.
 
 ### Cuando el archivo mezcla dos empresas
 

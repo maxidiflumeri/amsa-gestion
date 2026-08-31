@@ -45,6 +45,10 @@ function cumple(fila: any[], f: FiltroFila): boolean {
             return v.toLowerCase() !== ref.toLowerCase();
         case 'CONTIENE':
             return v.toLowerCase().includes(ref.toLowerCase());
+        case 'EN':
+            // Una lista de valores exactos, no un "contiene": la usa la división para aislar un
+            // corte que agrupó varias variantes de la misma gestión.
+            return (f.valores ?? []).some((x) => String(x ?? '').trim().toLowerCase() === v.toLowerCase());
         case 'MAYOR': {
             const n = numero(v);
             return Number.isFinite(n) && n > numero(ref);
@@ -75,6 +79,11 @@ export function pasaFiltro(fila: any[], filtros: FiltroFila[] | undefined): bool
 export function describirFiltros(filtros: FiltroFila[] | undefined): string {
     if (!filtros?.length) return '';
     return filtros
-        .map((f) => `col ${f.fromIndex} ${f.operador}${f.valor != null && f.valor !== '' ? ` "${f.valor}"` : ''}`)
+        .map((f) => {
+            const ref = f.operador === 'EN'
+                ? ` "${(f.valores ?? []).join(', ')}"`
+                : f.valor != null && f.valor !== '' ? ` "${f.valor}"` : '';
+            return `col ${f.fromIndex} ${f.operador}${ref}`;
+        })
         .join(' y ');
 }

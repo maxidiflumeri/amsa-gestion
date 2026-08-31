@@ -98,6 +98,9 @@ export default function DivisionRemesaEditor({ value, onChange }: Props) {
                 La nómina va acá. Si el archivo mezcla carteras de empresas distintas (prebaja y
                 posbaja), agregá también esa columna: se ve en la tabla de carga y podés tildar solo
                 las nóminas de la empresa que estás cargando.
+                <br />
+                <strong>Si no declarás ninguna</strong>, todas las remesas de la carga comparten el
+                número que tipeaste y lo único que las distingue es el dígito de la gestión.
             </Typography>
 
             <Stack spacing={2} sx={{ mb: 2 }}>
@@ -125,6 +128,10 @@ export default function DivisionRemesaEditor({ value, onChange }: Props) {
                 la nómina en la remesa <strong>100</strong>, la gestión <strong>1GH</strong> es la{' '}
                 <strong>10100</strong>, la <strong>2GH</strong> la <strong>20100</strong> y la{' '}
                 <strong>3GH</strong> la <strong>30100</strong>.
+                <br />
+                Lo que agrupa es el <strong>dígito</strong>: <strong>3G</strong> y{' '}
+                <strong>3GH</strong> son la misma gestión, así que sus filas van a la misma remesa y
+                en la tabla de carga se ven juntas (<code>3GH / 3G</code>).
             </Typography>
 
             {value.prefijo ? (
