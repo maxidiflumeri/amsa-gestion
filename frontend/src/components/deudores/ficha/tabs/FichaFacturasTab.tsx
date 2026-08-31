@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { fechaDelCedente } from '../../../../utils/fechas';
 import {
     Box,
     Chip,
@@ -71,14 +72,14 @@ const FilaFactura: React.FC<{ fac: any; mostrarContrato: boolean }> = ({ fac, mo
                 {mostrarContrato && (
                     <TableCell sx={{ color: 'text.secondary' }}>{fac.externalId || '-'}</TableCell>
                 )}
-                <TableCell>{new Date(fac.fechaEmision).toLocaleDateString()}</TableCell>
+                <TableCell>{fechaDelCedente(fac.fechaEmision)}</TableCell>
                 <TableCell
                     sx={{
                         color: esVencida ? 'error.main' : 'inherit',
                         fontWeight: esVencida ? 'bold' : 'normal',
                     }}
                 >
-                    {vto.toLocaleDateString()}
+                    {fechaDelCedente(fac.vencimiento)}
                 </TableCell>
                 <TableCell
                     align="right"

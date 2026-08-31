@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
+import { fechaDelCedente } from '../utils/fechas';
 import { useParams, useNavigate } from 'react-router-dom';
 import {
     Box,
@@ -585,7 +586,7 @@ export default function ImportDetail() {
                                     value={
                                         <Typography variant="body2" fontWeight={600}>
                                             {remesa.fechaVencimiento
-                                                ? new Date(remesa.fechaVencimiento).toLocaleDateString('es-AR')
+                                                ? fechaDelCedente(remesa.fechaVencimiento)
                                                 : '—'}
                                         </Typography>
                                     }

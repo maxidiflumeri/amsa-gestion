@@ -6,6 +6,47 @@
 
 ---
 
+## [2026-08-31] — Las fechas del cedente se mostraban un día antes
+
+Reportado desde las pruebas: *"la fecha fin de gestión se carga un día menos"*. El dato guardado
+estaba bien; lo que estaba mal era mostrarlo.
+
+### Qué pasaba
+
+El CA trae `2026-10-26` y la plantilla lo mapea a `fechaVencimiento` **sin transform de fecha**, así
+que llega a Prisma como ISO date-only y se guarda a **medianoche UTC**. `toLocaleDateString()` lo
+pasa a la zona del navegador —Argentina, `-03`— y `2026-10-26T00:00:00.000Z` se muestra como el
+**25**.
+
+El mismo dato mapeado como **campo adicional** se guarda como texto y se muestra tal cual
+(`2026-10-26`). De ahí la sensación de que "se carga un día menos": los dos valores salen de la misma
+columna del archivo y se veían distintos.
+
+### Frontend
+
+- **`fechaDelCedente()`** (`utils/fechas.ts`) formatea la parte de fecha del ISO **sin pasar por la
+  zona local**. Funciona con las dos formas que hay guardadas: medianoche UTC (`00:00Z`, el archivo
+  cargado sin transform) y medianoche local (`03:00Z`, el que pasó por `toDate`), porque en las dos
+  el día del ISO es el que trae el archivo.
+- Aplicado en el **vencimiento de la ficha**, la **emisión y el vencimiento de cada factura**, y el
+  **vencimiento del lote** en el detalle de importación. Lo que sí es un instante —comentarios,
+  llamadas, creado— sigue con la hora local del que mira.
+
+### Lo que se miró y no era un bug
+
+El deudor `435381` tiene `montoTotal` 14.259,25 y una factura de 52.004,35. Son dos datos distintos
+del cedente: el monto sale del **CA** (la deuda asignada de la cuenta, columna 18) y la factura del
+**MA**, que en la columna 16 manda el **importe del comprobante** y en la 20 repite la deuda de la
+cuenta. La plantilla de facturas mapea el importe desde la 16, así que la factura muestra el
+comprobante completo. Si la operación quiere ver la deuda gestionable en la factura, es cambiar la
+columna del importe en la plantilla — no hay nada que arreglar en el código.
+
+De paso, del MA de Telecom **3.100 de 34.388 filas no tienen número de factura**: 2.273 son *"Ingreso
+pago sin identificar"*, 672 *"Comprobante sin identificar"* y 155 vienen vacías. Se rechazan, y
+explican la diferencia entre las filas del archivo y las facturas cargadas.
+
+---
+
 ## [2026-08-31] — La gestión 1 conserva el número, y facturas acepta varias remesas
 
 La carga dividida de Telecom salió bien. Lo que quedó mal fue el número que se proponía, y una

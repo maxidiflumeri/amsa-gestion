@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { fechaDelCedente } from '../../../utils/fechas';
 import {
     Box,
     Card,
@@ -188,7 +189,7 @@ const FichaHeader: React.FC<Props> = ({ deudor, cuentaCancelada }) => {
                         {(remesa?.fechaVencimiento || fechaVencimiento) && (
                             <Typography variant="caption" color="text.secondary" display="block">
                                 Vencimiento:{' '}
-                                {new Date(remesa?.fechaVencimiento || fechaVencimiento).toLocaleDateString()}
+                                {fechaDelCedente(remesa?.fechaVencimiento || fechaVencimiento)}
                             </Typography>
                         )}
                     </Grid>
