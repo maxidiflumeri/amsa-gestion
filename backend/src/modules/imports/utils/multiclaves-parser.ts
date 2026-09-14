@@ -55,7 +55,7 @@ export type MotivoRechazoLinea =
     | 'CONVENIO_REPETIDO_EN_ARCHIVO';
 
 /** Motivo de rechazo de un TRÁMITE (grupo de líneas). */
-export type MotivoRechazoTramite = 'TRAMITE_INCOMPLETO' | 'IMPORTES_IGUALES';
+export type MotivoRechazoTramite = 'TRAMITE_INCOMPLETO' | 'IMPORTES_IGUALES' | 'CLAVE_UNICA_NO_ES_TOTAL';
 
 export type MotivoRechazo = MotivoRechazoLinea | MotivoRechazoTramite;
 
@@ -68,7 +68,13 @@ export type CodigoAviso =
     | 'VTO_DISTINTO_ENTRE_CLAVES'
     | 'YA_VENCIDA_AL_CARGAR'
     | 'MARCA_DESCONOCIDA'
-    | 'TRAMITE_LARGO_INESPERADO';
+    | 'TRAMITE_LARGO_INESPERADO'
+    /**
+     * El trámite trajo una única línea válida (sin su par de quita). Se acepta igual, clasificada
+     * siempre como TOTAL (decisión de Ana Maya del 2026-09-14, fase 1.1): Telecom a veces manda un
+     * trámite sin la clave de quita. Ver `docs/multiclaves-spec.md` §20.
+     */
+    | 'SOLO_TOTAL';
 
 export interface AvisoMulticlaves {
     codigo: CodigoAviso;
@@ -104,15 +110,18 @@ export interface TramiteClaves {
      * reclamarle al cedente con la línea exacta, no solo el número.
      */
     lineasCrudas?: string[];
-    /** El de la fila TOTAL del par (spec §1.5). Ausente si el trámite se rechazó. */
+    /** El de la fila TOTAL del par, o el de la única línea si el trámite es SOLO_TOTAL (spec §1.5). Ausente si el trámite se rechazó. */
     saldoTramiteCentavos?: number;
-    /** Exactamente 2 si no hay rechazo. */
+    /**
+     * 2 (TOTAL + QUITA) si no hay rechazo, o 1 si el trámite trajo una única línea válida
+     * (aviso `SOLO_TOTAL`): en ese caso la única clave se clasifica siempre como TOTAL.
+     */
     claves?: ClaveParseada[];
 }
 
 export interface ResumenMulticlaves {
     lineas: number;
-    /** Claves de trámites ACEPTADOS únicamente (2 por trámite válido). No cuenta las de trámites rechazados. */
+    /** Claves de trámites ACEPTADOS únicamente (1 o 2 por trámite válido — 1 si es SOLO_TOTAL, fase 1.1). No cuenta las de trámites rechazados. */
     claves: number;
     /**
      * Líneas que pasaron la validación de línea (dígitos verificadores, formato) pero cuyo trámite
@@ -232,7 +241,14 @@ interface LineaError {
     linea: number;
     archivo: string;
     raw: string;
-    /** `null` cuando ni el trámite se pudo leer (la línea queda como grupo propio). */
+    /**
+     * `null` solo cuando la propia columna 0 no es un número legible — ahí sí la línea queda como
+     * grupo propio (`__linea_N`), porque no hay con qué trámite asociarla. Cualquier otro motivo de
+     * rechazo (columnas de más/menos, DV roto, lo que sea) SIGUE llevando el trámite si `campos[0]`
+     * se pudo leer, aunque el resto de la línea esté destruido — si no, esa línea "desaparece" de su
+     * trámite real y el par queda huérfano (hallazgo del auditor sobre la fase 1.1, §20: una TOTAL
+     * truncada dejaba a su QUITA entrar sola como si fuera SOLO_TOTAL).
+     */
     nroTramite: string | null;
     motivo: MotivoRechazoLinea;
     detalle: string;
@@ -249,15 +265,22 @@ function validarLinea(
     convenioVisto: Set<string>,
 ): ResultadoLinea {
     const campos = raw.split('|');
-    const err = (motivo: MotivoRechazoLinea, detalle: string, nroTramite: string | null = null): LineaError =>
+    // El trámite (columna 0) se intenta leer ANTES que cualquier otra validación, incluida la de
+    // cantidad de columnas: una línea rota más adelante (de menos, de más, DV corrupto) igual tiene
+    // que poder asociarse a su trámite real si esa primera columna es legible. Si no, el trámite
+    // queda con una línea de menos y la línea que le sobrevive (su par) puede colarse como si fuera
+    // un trámite SOLO_TOTAL legítimo — es el hallazgo bloqueante del auditor sobre la fase 1.1.
+    const nroTramiteCandidato = (campos[0] ?? '').trim();
+    const tramiteLegible = /^\d{1,20}$/.test(nroTramiteCandidato) ? nroTramiteCandidato : null;
+    const err = (motivo: MotivoRechazoLinea, detalle: string, nroTramite: string | null = tramiteLegible): LineaError =>
         ({ ok: false, linea, archivo, raw, nroTramite, motivo, detalle });
 
     if (campos.length < MULTICLAVES_MIN_COLUMNAS || campos.length > MULTICLAVES_MAX_COLUMNAS) {
         return err('COLUMNAS', `la línea trae ${campos.length} columna(s); se esperan 9 o 10`);
     }
 
-    const nroTramite = (campos[0] ?? '').trim();
-    if (!/^\d{1,20}$/.test(nroTramite)) {
+    const nroTramite = nroTramiteCandidato;
+    if (!tramiteLegible) {
         return err('TRAMITE_INVALIDO', `"${campos[0]}" no es un número de trámite válido`);
     }
 
@@ -458,10 +481,13 @@ export function parseMulticlaves(
         const lineas = lista.map((e) => e.linea);
         const validas = lista.filter((e): e is LineaOk => e.ok);
 
-        // §5.4: el trámite tiene que traer EXACTAMENTE 2 líneas, y las dos válidas. No alcanza con
-        // "2 válidas" si además vino una tercera: una línea de más (DV roto, gestor ajeno, lo que
-        // sea) no puede quedar descartada sin dejar rastro — el trámite entero se rechaza citándola.
-        if (lista.length !== 2 || validas.length !== 2) {
+        // §5.4 (decisión de Ana Maya del 2026-09-14, fase 1.1): el trámite acepta 1 línea válida
+        // (SOLO_TOTAL, sin su par de quita) o 2 (TOTAL + QUITA), y TODAS las líneas que trajo tienen
+        // que ser válidas. Nunca 3 o más, aunque las tres fueran válidas individualmente — no hay
+        // forma de saber cuál de las tres sobra. Una línea de más o inválida (DV roto, gestor ajeno,
+        // lo que sea) no puede quedar descartada sin dejar rastro: el trámite entero se rechaza
+        // citándola.
+        if (lista.length >= 3 || validas.length !== lista.length) {
             const citas = lista
                 .map((e) => e.ok
                     ? `línea ${citarLinea(e, variosArchivos)}: OK`
@@ -475,13 +501,73 @@ export function parseMulticlaves(
                 lineasCrudas: lista.map((e) => e.raw),
                 rechazo: {
                     motivo,
-                    detalle: `se esperaban exactamente 2 líneas válidas y hay ${lista.length} línea(s) ` +
-                        `(${validas.length} válida(s)): ${citas}`,
+                    detalle: `se esperaba 1 línea válida (sola, se toma como TOTAL) o 2 (TOTAL + QUITA) ` +
+                        `y hay ${lista.length} línea(s) (${validas.length} válida(s)): ${citas}`,
                 },
             });
             continue;
         }
 
+        // Trámite con una única línea válida: se acepta como SOLO_TOTAL (D4 no aplica — no hay
+        // segunda clave contra la cual comparar importes), pero SOLO si su importe es exactamente
+        // el saldo del trámite. Ajuste del auditor sobre la decisión original (fase 1.1, §20): el
+        // caso real confirmado (2577727090) tiene importe == saldo; si no coinciden, la línea única
+        // puede ser una QUITA cuyo TOTAL se perdió (archivo cortado, trámite del par ilegible,
+        // etc.) y cargarla sola inventaría una "TOTAL" que en realidad es una quita. Se rechaza con
+        // un motivo propio en vez de con el genérico TRAMITE_INCOMPLETO, para que el operador
+        // entienda que la línea en sí es válida — lo que no calza es aceptarla como total.
+        if (validas.length === 1) {
+            const unica = validas[0];
+            const saldoTramiteCentavos = unica.data.saldoTramiteCentavos;
+
+            if (unica.data.importeCentavos !== saldoTramiteCentavos) {
+                const motivo: MotivoRechazoTramite = 'CLAVE_UNICA_NO_ES_TOTAL';
+                porMotivo[motivo] = (porMotivo[motivo] ?? 0) + 1;
+                tramites.push({
+                    nroTramite: nroTramiteReal,
+                    lineas,
+                    lineasCrudas: lista.map((e) => e.raw),
+                    rechazo: {
+                        motivo,
+                        detalle: `trae una sola clave (línea ${citarLinea(unica, variosArchivos)}, ` +
+                            `importe ${unica.data.importeCentavos} centavos) y su importe no es el saldo ` +
+                            `del trámite (${saldoTramiteCentavos} centavos); puede ser una quita sin su total`,
+                    },
+                });
+                continue;
+            }
+
+            avisos.marcar('SOLO_TOTAL', nroTramiteReal);
+            if (unica.data.fechaVencimiento < diaArgentina(hoy)) {
+                avisos.marcar('YA_VENCIDA_AL_CARGAR', nroTramiteReal);
+            }
+            if (unica.data.marca !== 'C') {
+                avisos.marcar('MARCA_DESCONOCIDA', nroTramiteReal);
+            }
+            if (nroTramiteReal.length !== 10) {
+                avisos.marcar('TRAMITE_LARGO_INESPERADO', nroTramiteReal);
+            }
+
+            tramites.push({
+                nroTramite: nroTramiteReal,
+                lineas,
+                saldoTramiteCentavos,
+                claves: [{
+                    tipo: 'TOTAL',
+                    nroConvenio: unica.data.nroConvenio,
+                    importeCentavos: unica.data.importeCentavos,
+                    clavePago: unica.data.clavePago,
+                    codigoBarras: unica.data.codigoBarras,
+                    fechaVencimiento: unica.data.fechaVencimiento,
+                    codigoGestor: unica.data.codigoGestor,
+                    marca: unica.data.marca,
+                    linea: unica.linea,
+                }],
+            });
+            continue;
+        }
+
+        // A partir de acá, exactamente 2 líneas válidas: el camino TOTAL + QUITA de siempre.
         const [x, y] = validas;
         if (x.data.importeCentavos === y.data.importeCentavos) {
             const motivo: MotivoRechazoTramite = 'IMPORTES_IGUALES';

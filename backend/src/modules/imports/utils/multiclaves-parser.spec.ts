@@ -68,6 +68,12 @@ const L12294 = '2598157072|96315830|16414.17|16414.17|0096315830000016414179|202
 const L12295 = '2598157072|96319178|32828.35|32828.35|0096319178000032828351|20261027|49800032828352710202600000000000096319178000000004|1008|Ana Maya S.A.|C';
 const L12850 = '2598290522|96308508|13738.79|13738.79|0096308508000013738793|20261027|49800013738792710202600000000000096308508000000004|1008|Ana Maya S.A.|C';
 const L12851 = '2598290522|96327144|27477.59|27477.59|0096327144000027477593|20261027|49800027477592710202600000000000096327144000000002|1008|Ana Maya S.A.|C';
+// Líneas 14956-14957 (2598949142), el caso que midió el auditor: la QUITA (5074.99) y la TOTAL
+// (10149.99, saldo 10149.99).
+const L14956_QUITA = '2598949142|96335145|10149.99|5074.99|0096335145000005074992|20261027|49800005074992710202600000000000096335145000000003|1008|Ana Maya S.A.|C';
+const L14957_TOTAL = '2598949142|96310188|10149.99|10149.99|0096310188000010149991|20261027|49800010149992710202600000000000096310188000000008|1008|Ana Maya S.A.|C';
+// Línea real de MULTI_41647_RA_1008_2026-08-31_10.31.09.csv:2180, tomada con grep (trámite SOLO_TOTAL).
+const L_2577727090 = '2577727090|96259966|272350.9|272350.9|0096259966000272350908|20261027|49800272350902710202600000000000096259966000000007|1008|Ana Maya S.A.|C';
 
 describe('parseMulticlaves — casos reales del archivo de muestra', () => {
     it('líneas 2-3 (1841012140): QUITA 19880.01 (mitad truncada), TOTAL 39760.03', () => {
@@ -373,7 +379,7 @@ describe('parseMulticlaves — forma del archivo', () => {
 describe('parseMulticlaves — archivo completo de muestra (skip si no está)', () => {
     const RUTA = '/home/maxi/Documentos/Ana Maya SA/teco perso/multiclaves/MULTI_41645_RA_1008_2026-08-31_10.29.22.csv';
     const existe = fs.existsSync(RUTA);
-    (existe ? it : it.skip)('14.956 claves, 7.478 trámites, 0 rechazados, SALDO_DISTINTO_ENTRE_FILAS=2', () => {
+    (existe ? it : it.skip)('14.956 claves, 7.478 trámites, 0 rechazados, SALDO_DISTINTO_ENTRE_FILAS=2, 0 SOLO_TOTAL', () => {
         const buffer = fs.readFileSync(RUTA);
         const r = parseMulticlaves([{ nombre: path.basename(RUTA), buffer }], CFG, new Date('2026-09-01'));
         expect(r.resumen.lineas).toBe(14956);
@@ -382,5 +388,208 @@ describe('parseMulticlaves — archivo completo de muestra (skip si no está)', 
         expect(r.resumen.rechazados).toBe(0);
         expect(r.resumen.porAviso['SALDO_DISTINTO_ENTRE_FILAS']).toBe(2);
         expect(r.resumen.porAviso['QUITA_NO_ES_MITAD'] ?? 0).toBe(0);
+        expect(r.resumen.porAviso['SOLO_TOTAL'] ?? 0).toBe(0); // este archivo no trae ningún trámite incompleto
+    });
+});
+
+/* ────────────────────────────────────────────────────────────────────────────
+ * Fase 1.1 — trámite con una única clave (SOLO_TOTAL). Decisión de Ana Maya del 2026-09-14:
+ * MULTI_41647_RA_1008_2026-08-31_10.31.09.csv (9.810 trámites) trae el trámite 2577727090 con una
+ * sola línea (la TOTAL, importe = saldo 272350.9), sin su par de quita — el parser de la fase 1 lo
+ * rechazaba entero por TRAMITE_INCOMPLETO. Ver `docs/multiclaves-spec.md` §20.
+ * ──────────────────────────────────────────────────────────────────────────── */
+describe('parseMulticlaves — SOLO_TOTAL (fase 1.1)', () => {
+    it('el trámite real 2577727090 (una sola línea) se acepta como SOLO_TOTAL, clasificado TOTAL', () => {
+        const r = parseMulticlaves([archivoConHeader('a.csv', L2, L3, L_2577727090)], CFG, HOY);
+
+        expect(r.resumen.rechazados).toBe(0);
+        const t = r.tramites.find((x) => x.nroTramite === '2577727090')!;
+        expect(t.rechazo).toBeUndefined();
+        expect(t.claves).toHaveLength(1);
+        expect(t.claves![0]).toMatchObject({ tipo: 'TOTAL', nroConvenio: '96259966', importeCentavos: 27235090 });
+        expect(t.saldoTramiteCentavos).toBe(27235090);
+        expect(r.resumen.porAviso['SOLO_TOTAL']).toBe(1);
+        // La línea única cuenta como 1 clave aceptada (no 2): L2+L3 (2) + la única de 2577727090 (1).
+        expect(r.resumen.claves).toBe(3);
+    });
+
+    it('resumen.claves cuenta 1 para un trámite SOLO_TOTAL, no 2', () => {
+        const r = parseMulticlaves([archivoConHeader('a.csv', L_2577727090)], CFG, HOY);
+        expect(r.resumen.tramites).toBe(1);
+        expect(r.resumen.rechazados).toBe(0);
+        expect(r.resumen.claves).toBe(1);
+        expect(r.resumen.clavesRechazadas).toBe(0);
+    });
+
+    it('una única línea INVÁLIDA (no una válida) se sigue rechazando por TRAMITE_INCOMPLETO, no se inventa un SOLO_TOTAL', () => {
+        const lineaConDvRoto = (() => {
+            const campos = L_2577727090.split('|');
+            const dv = campos[4].slice(-1);
+            campos[4] = campos[4].slice(0, -1) + String((Number(dv) + 1) % 10);
+            return campos.join('|');
+        })();
+        const r = parseMulticlaves([archivoConHeader('a.csv', lineaConDvRoto)], CFG, HOY);
+        const t = r.tramites.find((x) => x.nroTramite === '2577727090')!;
+        expect(t.rechazo?.motivo).toBe('TRAMITE_INCOMPLETO');
+        expect(t.rechazo?.detalle).toContain('CLAVE_DV');
+        expect(r.resumen.porAviso['SOLO_TOTAL'] ?? 0).toBe(0);
+    });
+
+    it('3 líneas para el mismo trámite, las 3 individualmente válidas, se rechazan igual (nunca SOLO_TOTAL con 3)', () => {
+        const a = construirLinea({ tramite: '1841012140', convenio: '96311343', saldoCentavos: 3976003, importeCentavos: 3976003 });
+        const b = construirLinea({ tramite: '1841012140', convenio: '96332206', saldoCentavos: 3976003, importeCentavos: 1988001 });
+        const c = construirLinea({ tramite: '1841012140', convenio: '96399999', saldoCentavos: 3976003, importeCentavos: 500000 });
+        const r = parseMulticlaves([archivoConHeader('a.csv', a, b, c)], CFG, HOY);
+        const t = r.tramites.find((x) => x.nroTramite === '1841012140')!;
+        expect(t.rechazo?.motivo).toBe('TRAMITE_INCOMPLETO');
+        expect(t.claves).toBeUndefined();
+    });
+
+    it('2 líneas, una válida y otra inválida, se sigue rechazando (no se toma la válida como SOLO_TOTAL)', () => {
+        const otroGestor = construirLinea({ tramite: '1841012140', convenio: '96332206', saldoCentavos: 3976003, importeCentavos: 1988001, gestor: '9999' });
+        const r = parseMulticlaves([archivoConHeader('a.csv', L2, otroGestor)], CFG, HOY);
+        const t = r.tramites.find((x) => x.nroTramite === '1841012140')!;
+        expect(t.rechazo?.motivo).toBe('TRAMITE_INCOMPLETO');
+        expect(t.rechazo?.detalle).toContain('GESTOR_AJENO');
+        expect(t.claves).toBeUndefined();
+    });
+
+    it('2 líneas con el MISMO importe se siguen rechazando por IMPORTES_IGUALES (no colapsan a SOLO_TOTAL)', () => {
+        const a = construirLinea({ tramite: '1841012140', convenio: '96311343', saldoCentavos: 3976003, importeCentavos: 3976003 });
+        const b = construirLinea({ tramite: '1841012140', convenio: '96332206', saldoCentavos: 3976003, importeCentavos: 3976003 });
+        const r = parseMulticlaves([archivoConHeader('a.csv', a, b)], CFG, HOY);
+        const t = r.tramites.find((x) => x.nroTramite === '1841012140')!;
+        expect(t.rechazo?.motivo).toBe('IMPORTES_IGUALES');
+    });
+
+    it('SOLO_TOTAL no genera SALDO_DISTINTO_ENTRE_FILAS ni QUITA_NO_ES_MITAD ni VTO_DISTINTO_ENTRE_CLAVES (no hay segunda línea)', () => {
+        const r = parseMulticlaves([archivoConHeader('a.csv', L_2577727090)], CFG, HOY);
+        expect(r.resumen.porAviso['SALDO_DISTINTO_ENTRE_FILAS'] ?? 0).toBe(0);
+        expect(r.resumen.porAviso['QUITA_NO_ES_MITAD'] ?? 0).toBe(0);
+        expect(r.resumen.porAviso['VTO_DISTINTO_ENTRE_CLAVES'] ?? 0).toBe(0);
+    });
+});
+
+/* ────────────────────────────────────────────────────────────────────────────
+ * Ajuste de la auditoría sobre la fase 1.1 (2026-09-14, ver spec §20):
+ *
+ *  - CLAVE_UNICA_NO_ES_TOTAL: una línea única solo se acepta como SOLO_TOTAL si su importe es
+ *    exactamente el saldo del trámite. Si no, se rechaza (puede ser una quita sin su total).
+ *  - Hallazgo bloqueante: una línea con las columnas mal (cortada, con una de más) quedaba con
+ *    `nroTramite: null` y caía en su propio grupo, dejando a su par entrar solo como SOLO_TOTAL.
+ *    Medido con el archivo real: truncando a 30 caracteres la TOTAL de 2598949142
+ *    (`MULTI_41645.csv:14957`), su QUITA (5074.99, línea 14956) entraba como si fuera la TOTAL.
+ * ──────────────────────────────────────────────────────────────────────────── */
+describe('parseMulticlaves — CLAVE_UNICA_NO_ES_TOTAL y asociación de líneas rotas (ajuste de auditoría, fase 1.1)', () => {
+    it('una línea única con importe distinto del saldo se rechaza (CLAVE_UNICA_NO_ES_TOTAL), no se acepta como SOLO_TOTAL', () => {
+        const l = construirLinea({ tramite: '1841012140', convenio: '96311343', saldoCentavos: 100000, importeCentavos: 50000 });
+        const r = parseMulticlaves([archivoConHeader('a.csv', l)], CFG, HOY);
+        const t = r.tramites.find((x) => x.nroTramite === '1841012140')!;
+        expect(t.rechazo?.motivo).toBe('CLAVE_UNICA_NO_ES_TOTAL');
+        expect(t.claves).toBeUndefined();
+        expect(r.resumen.porAviso['SOLO_TOTAL'] ?? 0).toBe(0);
+        expect(r.resumen.rechazados).toBe(1);
+    });
+
+    it('el caso real 2577727090 (importe = saldo) sigue aceptándose como SOLO_TOTAL', () => {
+        const r = parseMulticlaves([archivoConHeader('a.csv', L_2577727090)], CFG, HOY);
+        const t = r.tramites.find((x) => x.nroTramite === '2577727090')!;
+        expect(t.rechazo).toBeUndefined();
+        expect(t.claves).toHaveLength(1);
+        expect(r.resumen.porAviso['SOLO_TOTAL']).toBe(1);
+    });
+
+    it('caso real medido por el auditor: TOTAL de 2598949142 truncada a 30 caracteres rechaza el trámite entero, no deja a la QUITA entrar sola', () => {
+        const totalTruncada = L14957_TOTAL.slice(0, 30);
+        const r = parseMulticlaves([archivoConHeader('a.csv', L14956_QUITA, totalTruncada)], CFG, HOY);
+
+        const t = r.tramites.find((x) => x.nroTramite === '2598949142')!;
+        expect(t).toBeDefined();
+        expect(t.rechazo?.motivo).toBe('TRAMITE_INCOMPLETO');
+        expect(t.rechazo?.detalle).toContain('COLUMNAS');
+        expect(t.claves).toBeUndefined();
+        // Antes del fix, la QUITA (5074.99) quedaba sola y se cargaba como si fuera un SOLO_TOTAL
+        // con saldo 10149.99 — no puede quedar ningún trámite aceptado con ese convenio.
+        expect(r.tramites.some((x) => x.claves?.some((c) => c.nroConvenio === '96335145'))).toBe(false);
+        expect(r.resumen.porAviso['SOLO_TOTAL'] ?? 0).toBe(0);
+    });
+
+    it('recargar el archivo YA CORREGIDO (TOTAL completa) arma el par normalmente', () => {
+        const r = parseMulticlaves([archivoConHeader('a.csv', L14956_QUITA, L14957_TOTAL)], CFG, HOY);
+        const t = r.tramites.find((x) => x.nroTramite === '2598949142')!;
+        expect(t.rechazo).toBeUndefined();
+        const total = t.claves!.find((c) => c.tipo === 'TOTAL')!;
+        const quita = t.claves!.find((c) => c.tipo === 'QUITA')!;
+        expect(total.importeCentavos).toBe(1014999);
+        expect(quita.importeCentavos).toBe(507499);
+    });
+
+    it('QUITA con 11 columnas (una de más) igual se asocia a su trámite real y lo rechaza entero', () => {
+        const quitaCon11Columnas = `${L14956_QUITA}|EXTRA`;
+        const r = parseMulticlaves([archivoConHeader('a.csv', quitaCon11Columnas, L14957_TOTAL)], CFG, HOY);
+
+        const t = r.tramites.find((x) => x.nroTramite === '2598949142')!;
+        expect(t.rechazo?.motivo).toBe('TRAMITE_INCOMPLETO');
+        expect(t.rechazo?.detalle).toContain('COLUMNAS');
+        expect(t.claves).toBeUndefined();
+        // La TOTAL (línea válida) tampoco se carga sola: el trámite entero cayó.
+        expect(r.resumen.porAviso['SOLO_TOTAL'] ?? 0).toBe(0);
+    });
+
+    it('trámite verdaderamente ilegible (columna 0 no numérica) queda aislado, sin contaminar otro trámite', () => {
+        const conTramiteIlegible = `XXXXXXXXXX${L14956_QUITA.slice(L14956_QUITA.indexOf('|'))}`;
+        // Se agrega además el trámite real de siempre, para confirmar que la línea ilegible no se
+        // mezcla con nada.
+        const r = parseMulticlaves([archivoConHeader('a.csv', conTramiteIlegible, L2, L3)], CFG, HOY);
+
+        const bueno = r.tramites.find((x) => x.nroTramite === '1841012140')!;
+        expect(bueno.rechazo).toBeUndefined(); // el trámite real, intacto
+
+        const aislado = r.tramites.find((x) => x.rechazo?.detalle.includes('TRAMITE_INVALIDO'));
+        expect(aislado).toBeDefined();
+        expect(aislado!.rechazo?.motivo).toBe('TRAMITE_INCOMPLETO');
+        expect(aislado!.claves).toBeUndefined();
+    });
+
+    it('caso residual del hallazgo #1: el trámite queda ilegible en la QUITA, la TOTAL sobrevive sola y se acepta como SOLO_TOTAL', () => {
+        // La QUITA queda con el trámite destruido (no se puede asociar a nada); la TOTAL real
+        // (2598949142, importe = saldo) queda sola y SÍ se puede aceptar como SOLO_TOTAL: es lo
+        // mejor que se puede hacer cuando el trámite de su par es irrecuperable.
+        const quitaConTramiteIlegible = `XXXXXXXXXX${L14956_QUITA.slice(L14956_QUITA.indexOf('|'))}`;
+        const r = parseMulticlaves([archivoConHeader('a.csv', quitaConTramiteIlegible, L14957_TOTAL)], CFG, HOY);
+
+        const total = r.tramites.find((x) => x.nroTramite === '2598949142')!;
+        expect(total.rechazo).toBeUndefined();
+        expect(total.claves).toHaveLength(1);
+        expect(total.claves![0].tipo).toBe('TOTAL');
+        expect(r.resumen.porAviso['SOLO_TOTAL']).toBe(1);
+    });
+
+    it('caso residual, al revés: si la sobreviviente es la QUITA, se rechaza por CLAVE_UNICA_NO_ES_TOTAL', () => {
+        const totalConTramiteIlegible = `XXXXXXXXXX${L14957_TOTAL.slice(L14957_TOTAL.indexOf('|'))}`;
+        const r = parseMulticlaves([archivoConHeader('a.csv', L14956_QUITA, totalConTramiteIlegible)], CFG, HOY);
+
+        const quita = r.tramites.find((x) => x.nroTramite === '2598949142')!;
+        expect(quita.rechazo?.motivo).toBe('CLAVE_UNICA_NO_ES_TOTAL');
+        expect(quita.claves).toBeUndefined();
+    });
+});
+
+describe('parseMulticlaves — archivo completo MULTI_41647 (skip si no está)', () => {
+    const RUTA = '/home/maxi/Documentos/Ana Maya SA/teco perso/multiclaves/MULTI_41647_RA_1008_2026-08-31_10.31.09.csv';
+    const existe = fs.existsSync(RUTA);
+    (existe ? it : it.skip)('9.810 trámites válidos, 19.619 claves, 0 rechazados, SOLO_TOTAL=1 (2577727090)', () => {
+        const buffer = fs.readFileSync(RUTA);
+        const r = parseMulticlaves([{ nombre: path.basename(RUTA), buffer }], CFG, new Date('2026-09-01'));
+        expect(r.resumen.lineas).toBe(19619);
+        expect(r.resumen.rechazados).toBe(0);
+        expect(r.resumen.tramites).toBe(9810);
+        expect(r.resumen.claves).toBe(19619);
+        expect(r.resumen.porAviso['SOLO_TOTAL']).toBe(1);
+        const t = r.tramites.find((x) => x.nroTramite === '2577727090')!;
+        expect(t.rechazo).toBeUndefined();
+        expect(t.claves).toHaveLength(1);
+        expect(t.claves![0].tipo).toBe('TOTAL');
+        expect(t.claves![0].importeCentavos).toBe(27235090);
     });
 });

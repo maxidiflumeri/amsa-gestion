@@ -1104,6 +1104,10 @@ export class ImportService {
             const { tramites, avisos, resumen } = parseado;
             const validos = tramites.filter((t) => !t.rechazo);
             const rechazadosTramites = tramites.filter((t) => t.rechazo);
+            // Fase 1.1: trámites que llegaron con una única clave (aviso SOLO_TOTAL, siempre
+            // clasificada TOTAL). Se cuentan aparte para que el operador los vea antes de confirmar
+            // — son válidos, no van en `rechazados`, pero no tienen quita para ofrecer.
+            const soloTotal = validos.filter((t) => t.claves!.length === 1).length;
 
             // Breakdown por motivo "principal" (cita la línea culpable cuando hay una sola).
             const porMotivo: Record<string, number> = {};
@@ -1169,7 +1173,9 @@ export class ImportService {
                 const ex = t.claves!.map((c) => existentesPorConvenio.get(c.nroConvenio)).filter((e): e is NonNullable<typeof e> => !!e);
                 const conflicto = ex.find((e) => e.empresaId !== remesa.empresaId || e.nroTramite !== t.nroTramite);
                 if (conflicto) { conflictos++; continue; }
-                if (ex.length === 2) { yaCargadas++; continue; }
+                // Fase 1.1: un trámite SOLO_TOTAL trae 1 sola clave, no 2 — comparar contra un `2`
+                // fijo lo dejaba afuera de "ya cargadas" en una recarga (hallazgo del auditor).
+                if (ex.length === t.claves!.length) { yaCargadas++; continue; }
                 if (ex.length === 0) candidatosReemision.push(t.nroTramite);
             }
             // Reemisión (la tanda nueva gana, vto ≥ vigente) vs. tanda anterior (R2: vto < vigente,
@@ -1252,7 +1258,15 @@ export class ImportService {
                     'trámite y se van a rechazar.',
                 );
             }
+            if (soloTotal > 0) {
+                advertencias.push(
+                    `${soloTotal.toLocaleString('es-AR')} trámite(s) llegaron con una sola clave (sin la de ` +
+                    'quita): se cargan igual, clasificada como TOTAL.',
+                );
+            }
             for (const a of avisos) {
+                // SOLO_TOTAL ya tiene su propio mensaje (más claro) arriba; no se repite acá.
+                if (a.codigo === 'SOLO_TOTAL') continue;
                 if (a.cantidad > 0) advertencias.push(`[${a.codigo}] ${a.cantidad} caso(s).`);
             }
 
@@ -1284,6 +1298,7 @@ export class ImportService {
                     tramites: resumen.tramites,
                     validos: validos.length,
                     rechazados: rechazadosTramites.length,
+                    soloTotal,
                     porMotivo,
                     conCaso,
                     sinCaso,

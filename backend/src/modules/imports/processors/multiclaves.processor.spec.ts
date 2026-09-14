@@ -123,6 +123,21 @@ function tramite(nroTramite: string, opts: {
     };
 }
 
+/** Un trámite SOLO_TOTAL (fase 1.1): una única clave, siempre clasificada TOTAL. */
+function tramiteSoloTotal(nroTramite: string, opts: { convenioTotal: string; totalCent: number; vto?: string }): TramiteClaves {
+    const vto = opts.vto ?? '2026-10-27';
+    return {
+        nroTramite,
+        lineas: [1],
+        saldoTramiteCentavos: opts.totalCent,
+        claves: [{
+            tipo: 'TOTAL', nroConvenio: opts.convenioTotal, importeCentavos: opts.totalCent,
+            clavePago: '0'.repeat(22), codigoBarras: '4'.repeat(50), fechaVencimiento: vto,
+            codigoGestor: '1008', marca: 'C', linea: 1,
+        }],
+    };
+}
+
 const fila = (idx: number, t: TramiteClaves): BatchRow => ({ idx, row: t as any });
 
 const filaExistente = (over: Partial<FilaDb> & { id: number; nroConvenio: string }): FilaDb => ({
@@ -249,6 +264,34 @@ describe('MulticlavesProcessor — camino por lote', () => {
         expect(db.rows).toHaveLength(1);
     });
 
+    it('TANDA_PARCIAL entre CARGAS DISTINTAS (hallazgo del auditor): un SOLO_TOTAL cargado antes, y una carga posterior que repite ese convenio junto con una QUITA nueva, no completa la tanda ni escribe nada', async () => {
+        const db = makeDb();
+        const p = new MulticlavesProcessor();
+
+        // Carga 1 (remesa 100): trámite SOLO_TOTAL con el convenio T.
+        const soloTotal = tramiteSoloTotal('1000000001', { convenioTotal: 'T1111111', totalCent: 100000 });
+        const okPrimera = await p.processBatch([fila(0, soloTotal)], makeCtx(db, { remesaId: 100 }));
+        expect(okPrimera).toEqual([]);
+        expect(db.rows).toHaveLength(1);
+        expect(db.rows[0]).toMatchObject({ nroConvenio: 'T1111111', tipo: 'TOTAL', estado: 'VIGENTE', remesaId: 100 });
+
+        // Carga 2 (remesa 200): repite el convenio T (misma clave, sin cambios) y suma una QUITA
+        // nueva — el par "completo" que faltaba. Antes de la corrección, el comentario del código
+        // decía que esto "solo podía pasar dentro de la misma tanda"; el auditor mostró que no.
+        const par = tramite('1000000001', { convenioTotal: 'T1111111', convenioQuita: 'Q2222222', totalCent: 100000, quitaCent: 50000 });
+        const errores = await p.processBatch([fila(0, par)], makeCtx(db, { remesaId: 200 }));
+
+        expect(errores).toHaveLength(1);
+        expect(errores[0].error).toContain('TANDA_PARCIAL');
+        // Sin escrituras: la QUITA nueva NO se inserta suelta, y el T original no se toca.
+        expect(db.rows).toHaveLength(1);
+        expect(db.rows[0]).toMatchObject({ nroConvenio: 'T1111111', tipo: 'TOTAL', estado: 'VIGENTE', remesaId: 100 });
+        // Invariante (§5.8, R2): sigue habiendo a lo sumo 1 TOTAL y ninguna QUITA vigente para este trámite.
+        const vigentes = db.rows.filter((r) => r.estado === 'VIGENTE');
+        expect(vigentes.filter((r) => r.tipo === 'TOTAL')).toHaveLength(1);
+        expect(vigentes.filter((r) => r.tipo === 'QUITA')).toHaveLength(0);
+    });
+
     it('si el lote falla, reintenta trámite por trámite y el error queda en el trámite culpable', async () => {
         const db = makeDb();
         db.failConvenios.add('99999999');
@@ -281,6 +324,67 @@ describe('MulticlavesProcessor — camino por lote', () => {
 
         expect(errores).toEqual([]);
         expect(db2.rows).toHaveLength(2);
+    });
+
+    it('trámite SOLO_TOTAL (fase 1.1) nuevo inserta 1 sola clave VIGENTE, clasificada TOTAL', async () => {
+        const db = makeDb();
+        const p = new MulticlavesProcessor();
+        const t = tramiteSoloTotal('1000000001', { convenioTotal: '11111111', totalCent: 27235090 });
+
+        const errores = await p.processBatch([fila(0, t)], makeCtx(db));
+
+        expect(errores).toEqual([]);
+        expect(db.rows).toHaveLength(1);
+        expect(db.rows[0]).toMatchObject({ tipo: 'TOTAL', estado: 'VIGENTE', nroConvenio: '11111111' });
+    });
+
+    it('recargar el mismo trámite SOLO_TOTAL es idempotente (R4): no lo trata como TANDA_PARCIAL', async () => {
+        const db = makeDb();
+        const p = new MulticlavesProcessor();
+        const t = tramiteSoloTotal('1000000001', { convenioTotal: '11111111', totalCent: 27235090 });
+
+        await p.processBatch([fila(0, t)], makeCtx(db));
+        db.createMany.mockClear();
+        const errores = await p.processBatch([fila(0, t)], makeCtx(db));
+
+        expect(errores).toEqual([]); // no TANDA_PARCIAL: 1 de 1 convenio ya existe, es el mismo trámite completo
+        expect(db.createMany).not.toHaveBeenCalled();
+        expect(db.rows).toHaveLength(1);
+    });
+
+    it('reemisión SOLO_TOTAL sobre un par vigente (2→1) reemplaza las 2, no deja una QUITA colgada', async () => {
+        const db = makeDb([
+            filaExistente({ id: 1, nroConvenio: '11111111', tipo: 'TOTAL', fechaVencimiento: new Date('2026-09-01') }),
+            filaExistente({ id: 2, nroConvenio: '22222222', tipo: 'QUITA', fechaVencimiento: new Date('2026-09-01') }),
+        ]);
+        const p = new MulticlavesProcessor();
+        const t = tramiteSoloTotal('1000000001', { convenioTotal: '33333333', totalCent: 100000, vto: '2026-10-27' });
+
+        const errores = await p.processBatch([fila(0, t)], makeCtx(db, { remesaId: 200 }));
+
+        expect(errores).toEqual([]);
+        const viejas = db.rows.filter((r) => ['11111111', '22222222'].includes(r.nroConvenio));
+        expect(viejas.every((r) => r.estado === 'REEMPLAZADA' && r.reemplazadaPorRemesaId === 200)).toBe(true);
+        const nuevas = db.rows.filter((r) => r.nroConvenio === '33333333');
+        expect(nuevas).toHaveLength(1);
+        expect(nuevas[0].estado).toBe('VIGENTE');
+    });
+
+    it('reemisión PAR sobre una tanda SOLO_TOTAL vigente (1→2) reemplaza la única vigente', async () => {
+        const db = makeDb([
+            filaExistente({ id: 1, nroConvenio: '11111111', tipo: 'TOTAL', fechaVencimiento: new Date('2026-09-01') }),
+        ]);
+        const p = new MulticlavesProcessor();
+        const t = tramite('1000000001', { convenioTotal: '22222222', convenioQuita: '33333333', totalCent: 100000, quitaCent: 50000, vto: '2026-10-27' });
+
+        const errores = await p.processBatch([fila(0, t)], makeCtx(db, { remesaId: 200 }));
+
+        expect(errores).toEqual([]);
+        const vieja = db.rows.find((r) => r.nroConvenio === '11111111')!;
+        expect(vieja.estado).toBe('REEMPLAZADA');
+        expect(vieja.reemplazadaPorRemesaId).toBe(200);
+        const nuevas = db.rows.filter((r) => ['22222222', '33333333'].includes(r.nroConvenio));
+        expect(nuevas.every((r) => r.estado === 'VIGENTE')).toBe(true);
     });
 
     it('un lote de 1.000 trámites en reemisión escribe en pocas queries, no una por trámite (hallazgo de escala)', async () => {

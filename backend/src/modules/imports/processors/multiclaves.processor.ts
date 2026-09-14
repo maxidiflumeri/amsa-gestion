@@ -28,7 +28,8 @@ function enBloques<T>(arr: T[], size: number): T[][] {
  * Procesador de la categoría MULTICLAVES (claves de pago de Telecom/Personal).
  *
  * El runner lo trata como preparsado, igual que MULTIRREGISTRO/MULTIARCHIVO: una "fila" acá es un
- * **trámite** entero (`TramiteClaves`, con sus 2 claves ya clasificadas TOTAL/QUITA), armado por
+ * **trámite** entero (`TramiteClaves`, con sus 1 o 2 claves ya clasificadas TOTAL/QUITA — 1 sola si
+ * el trámite es SOLO_TOTAL, spec §20 fase 1.1), armado por
  * `utils/multiclaves-parser.ts`. `validateRow` filtra los trámites que el parser ya rechazó;
  * `processBatch` resuelve idempotencia, reemisión y conflictos entre trámites contra la base.
  *
@@ -126,19 +127,35 @@ export class MulticlavesProcessor implements ICategoryProcessor {
                 continue;
             }
 
-            // a. Los dos convenios ya existen, en este mismo (empresa, trámite) → recarga idempotente (R4).
-            if (existentesDeEstas.length === 2) {
+            // a. TODOS los convenios de este trámite (1 si es SOLO_TOTAL, 2 si es TOTAL+QUITA) ya
+            //    existen en este mismo (empresa, trámite) → recarga idempotente (R4). Se compara
+            //    contra `claves.length`, no contra un 2 fijo: un trámite SOLO_TOTAL tiene un solo
+            //    convenio, y recargarlo tiene que ser tan idempotente como el par de siempre.
+            if (existentesDeEstas.length === claves.length) {
                 yaCargadas++;
                 continue;
             }
 
-            // c. Solo uno de los dos convenios existe (mismo trámite) → inconsistencia, no se toca.
-            if (existentesDeEstas.length === 1) {
+            // c. Algunos de los convenios de este trámite existen y otros no → inconsistencia, no se
+            //    toca. NO es exclusivo de la misma tanda (mismo archivo): también pasa ENTRE cargas
+            //    distintas — hallazgo del auditor sobre la fase 1.1. Ejemplo real: un trámite entra
+            //    primero como SOLO_TOTAL (convenio T); una carga posterior trae el par completo
+            //    repitiendo T (la misma clave TOTAL, sin cambios) más una QUITA nueva. T ya existe
+            //    para este (empresa, trámite) y la QUITA no → cae acá, sin escribir nada.
+            //
+            //    No hay fusión automática: completar la tanda mezclando remesas (mover la QUITA
+            //    nueva a la remesa vieja de T, o migrar T a la remesa nueva) rompe la trazabilidad
+            //    de `clave_pago.remesaId` ("qué carga trajo esta fila") y el invariante de que todas
+            //    las vigentes de un trámite son de la MISMA carga (§5.8, R2). El camino de salida es
+            //    manual: borrar la carga que dejó la tanda incompleta y volver a subir el archivo
+            //    completo (documentado en `docs/ayuda/03-importacion/08-historial-y-problemas.md`).
+            if (existentesDeEstas.length > 0) {
                 errores.push({
                     idx,
                     error:
                         `[TANDA_PARCIAL] El trámite ${t.nroTramite} ya tiene cargado el convenio ` +
-                        `${existentesDeEstas[0].nroConvenio} pero no el otro de su par; no se modifica nada. ` +
+                        `${existentesDeEstas.map((e) => e.nroConvenio).join(', ')} pero no el resto de su tanda ` +
+                        `(${existentesDeEstas.length} de ${claves.length}); no se modifica nada. ` +
                         'Revisar manualmente antes de recargar.',
                 });
                 continue;

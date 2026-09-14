@@ -6,6 +6,87 @@
 
 ---
 
+## [2026-09-14] — Claves de pago de Telecom/Personal (multiclaves) — fase 1.1: trámite SOLO_TOTAL
+
+Ana Maya confirmó el caso real: `MULTI_41647_RA_1008_2026-08-31_10.31.09.csv` (9.810 trámites,
+19.619 claves) trae el trámite `2577727090` con **una sola línea** (la TOTAL, sin su par de quita).
+El parser de la fase 1 lo rechazaba entero por `TRAMITE_INCOMPLETO`, porque exigía exactamente 2
+líneas válidas por trámite. Decisión: se acepta como **solo TOTAL** cuando su importe es exactamente
+el saldo del trámite, con el aviso `SOLO_TOTAL` (no bloquea). Pasó por una ronda de auditoría que
+encontró un hallazgo bloqueante (abajo); los números finales de esta sección ya lo incluyen.
+
+### Backend
+
+- `imports/utils/multiclaves-parser.ts`: nuevo aviso `SOLO_TOTAL` y nuevo motivo de rechazo
+  `CLAVE_UNICA_NO_ES_TOTAL`. La condición de rechazo del trámite pasa de "≠ 2 líneas válidas" a
+  "3+ líneas, o 1-2 líneas con alguna inválida" (1 línea válida ya no rechaza por sí sola). Para
+  aceptarla como SOLO_TOTAL además hace falta que `IMPORTE_TOTAL_CLAVE == SALDO_TRAMITE` exacto en
+  centavos — si no, se rechaza con `CLAVE_UNICA_NO_ES_TOTAL` ("puede ser una quita sin su total").
+  Sigue rechazándose si esa única línea es inválida, si hay 3+ líneas, si hay 2 y alguna es inválida,
+  o si hay 2 con el mismo importe (`IMPORTES_IGUALES`). No hay forma de fabricar una QUITA.
+- **Hallazgo bloqueante de la auditoría**: una línea con la cantidad de columnas mal (cortada, o con
+  una de más) quedaba con `nroTramite: null` — se agrupaba sola en vez de con el resto de su
+  trámite, y su par podía colarse como si fuera un SOLO_TOTAL legítimo. Medido con el archivo real:
+  truncando a 30 caracteres la TOTAL de `2598949142` (`MULTI_41645.csv:14957`), su QUITA de
+  $ 5.074,99 (línea 14956) entraba sola como TOTAL vigente con saldo $ 10.149,99; recargar el
+  archivo corregido después daba `TANDA_PARCIAL` en vez de arreglarlo. Arreglado en `validarLinea`:
+  la columna 0 (el trámite) se lee **antes** que cualquier otra validación, así que una línea rota
+  más adelante igual se asocia a su trámite real si esa primera columna es legible — el trámite
+  entero queda con la cantidad real de líneas que trajo y se rechaza como corresponde. Solo una
+  columna 0 verdaderamente ilegible sigue sin poder asociarse a nada, y ese caso residual queda
+  cubierto por `CLAVE_UNICA_NO_ES_TOTAL` cuando lo que sobrevive es una quita.
+- `imports/processors/multiclaves.processor.ts`: la idempotencia (R4) y `TANDA_PARCIAL` comparaban
+  contra un `2` fijo; ahora comparan contra `claves.length` del trámite entrante, así un trámite
+  SOLO_TOTAL es tan idempotente como un par. El reemplazo de vigentes ya era agnóstico a la cantidad
+  de filas (`vig.map(v => v.id)`): una reemisión que cambia de 2 a 1 clave (o al revés) ya
+  reemplazaba **todas** las vigentes del trámite sin código nuevo, nunca deja una QUITA vieja
+  conviviendo con una TOTAL nueva — se agregaron tests que lo prueban explícitamente. Corregido
+  además un comentario que afirmaba (falso) que `TANDA_PARCIAL` solo podía pasar dentro de la misma
+  carga: puede pasar entre cargas distintas (un SOLO_TOTAL cargado antes, y una carga posterior que
+  repite ese convenio junto con una clave nueva). No se implementó fusión automática de tandas entre
+  remesas — el camino de salida es manual (borrar la carga incompleta y recargar el archivo
+  completo), documentado en la wiki.
+- El invariante del borrado (`imports.service.ts`, `deleteRemesaMulticlaves`) pasa de "0 o 2
+  vigentes por trámite" a **"0 vigentes, o exactamente 1 TOTAL y a lo sumo 1 QUITA, todas de la
+  misma carga"**. El código ya recalculaba la ganadora por remesa sin asumir una cantidad fija de
+  filas, así que no necesitó cambios — se actualizó el invariante de los tests
+  (`multiclaves-borrado-reemision.spec.ts`) con secuencias que mezclan tandas de 1 y 2 claves,
+  incluido su borrado.
+- Vista previa (`imports.service.ts`) y `GET /multiclaves/lotes/:id/resumen`
+  (`ClavesService.resumenLote`): campo nuevo `soloTotal`, contado en memoria sobre datos que ya se
+  traían (sin queries nuevas), más su advertencia de texto propia en la vista previa. La vista previa
+  también comparaba `ex.length === 2` para "ya cargadas" (hallazgo de la auditoría): un trámite
+  SOLO_TOTAL recargado nunca contaba como "ya cargado" aunque el processor sí lo tratara bien al
+  ejecutar. Corregido a `ex.length === t.claves.length`.
+- Verificado contra los dos archivos reales: `MULTI_41645` sin cambios (7.478 trámites, 14.956
+  claves, 0 rechazados, 0 `SOLO_TOTAL`); `MULTI_41647` **9.810 trámites válidos, 19.619 claves, 0
+  rechazados, `SOLO_TOTAL: 1`**. Carga real de los dos contra una base local con el processor real:
+  **17.288 trámites, 34.575 claves, 17.288 TOTAL, 17.287 QUITA**, todas VIGENTE.
+
+### Frontend
+
+- `MulticlavesResumen` (vista previa del wizard) y `MulticlavesLoteResumen` (detalle de la carga):
+  chip "N solo TOTAL" cuando corresponde.
+
+### Wiki
+
+- `03-importacion/10-claves-de-pago.md`: reescrito el caso de un trámite con una sola clave (ahora
+  exige importe = saldo), el aviso `SOLO_TOTAL`, `CLAVE_UNICA_NO_ES_TOTAL`, que una reemisión puede
+  cambiar la cantidad de claves de un trámite, y que el chip "Solo TOTAL" del historial refleja lo
+  que **esa carga** escribió, no el estado vigente si fue una recarga idempotente.
+- `03-importacion/08-historial-y-problemas.md`: tabla reescrita con los casos reales de líneas
+  únicas/rotas (antes se contradecía), y el camino manual para un `TANDA_PARCIAL` entre cargas
+  distintas (borrar la incompleta y recargar).
+
+### Spec
+
+- `docs/multiclaves-spec.md` §20: entrada de esta fase. Cerradas Q1 (el archivo es Personal Móvil,
+  uno por nómina asignada; plantilla 26 confirmada en prod; fase 1b descartada) y Q3 (D12:
+  vencimiento impreso = hoy + 7 días con tope en el vencimiento real, reemplaza `mesesVtoImpreso`).
+  Q4 sigue abierta — la muestra de pagos de posbaja con multiclave ya está pedida; cuando llegue, la
+  fase 4 se rediseña con un código de situación nuevo propuesto ("Cancelado con quita", SIT-054) en
+  vez de reusar SIT-050. No se tocó la fase 4 en esta unidad de trabajo.
+
 ## [2026-09-14] — Claves de pago de Telecom/Personal (multiclaves) — fase 1: carga
 
 Primera fase de `docs/multiclaves-spec.md`: Telecom/Personal manda, junto con cada asignación, un

@@ -44,6 +44,14 @@ export class ClavesService {
         const vigentes = claves.filter((c) => c.estado === 'VIGENTE').length;
         const reemplazadasEnEsta = claves.filter((c) => c.estado === 'REEMPLAZADA').length;
 
+        // Fase 1.1: trámites que esta carga trajo con una única clave (SOLO_TOTAL, sin la de
+        // quita). Barato: se cuenta en memoria sobre las filas que ya se trajeron arriba — todas
+        // las claves de un mismo trámite cargadas por ESTA remesa comparten tanda, así que agrupar
+        // por `nroTramite` y contar los grupos de tamaño 1 alcanza, sin otra query.
+        const clavesPorTramite = new Map<string, number>();
+        for (const c of claves) clavesPorTramite.set(c.nroTramite, (clavesPorTramite.get(c.nroTramite) ?? 0) + 1);
+        const soloTotal = [...clavesPorTramite.values()].filter((n) => n === 1).length;
+
         let conCaso = 0;
         for (let i = 0; i < nroTramites.length; i += 1000) {
             const chunk = nroTramites.slice(i, i + 1000);
@@ -77,6 +85,7 @@ export class ClavesService {
             vigentes,
             reemplazadasEnEsta,
             reemplazadasPorEsta,
+            soloTotal,
             conCaso,
             sinCaso: nroTramites.length - conCaso,
             rechazados: remesa.errFilas,

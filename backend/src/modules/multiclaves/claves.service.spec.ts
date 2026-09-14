@@ -95,6 +95,20 @@ describe('ClavesService.resumenLote', () => {
         ]);
     });
 
+    it('cuenta los trámites SOLO_TOTAL (una única clave) aparte, sin otra query (fase 1.1)', async () => {
+        const { service } = makeService({
+            claves: [
+                clave({ id: 1, nroTramite: 'T1', tipo: 'TOTAL' }),
+                clave({ id: 2, nroTramite: 'T1', tipo: 'QUITA' }),
+                clave({ id: 3, nroTramite: 'T2', tipo: 'TOTAL' }), // T2: solo 1 clave en esta carga
+            ],
+        });
+
+        const r = await service.resumenLote(10);
+
+        expect(r).toMatchObject({ tramites: 2, claves: 3, soloTotal: 1 });
+    });
+
     it('suma un mismo código de aviso repartido en varias filas de importerror (un TANDA_ANTERIOR por lote)', async () => {
         const { service } = makeService({
             claves: [clave({ id: 1, nroTramite: 'T1' })],

@@ -3,7 +3,9 @@
 **Proyecto:** AMSA Gestión
 **Módulos involucrados:** nuevo `multiclaves`; modificados `imports` (categoría nueva `MULTICLAVES`, parser, processor, preview, borrado), `convenios` (convenio de clave), `consolidacion` (cancelación por pago de clave), `email-sender` (reuso), `auth` (permiso), `empresas` (config); frontend: ficha del deudor (solapa Convenios), wizard y editor de plantillas, historial, ajustes de empresa.
 **Fecha:** 2026-09-14
-**Estado:** Fase 1 implementada (2026-09-14, ver CHANGELOG.md). Fases 2 a 5 sin implementar. Hay 5 preguntas abiertas con Ana Maya (§19); ninguna bloquea la fase 1.
+**Estado:** Fases 1 y 1.1 implementadas (2026-09-14, ver CHANGELOG.md). Fases 2 a 5 sin implementar.
+Q1 y Q3 cerradas por Ana Maya el 2026-09-14 (§19); quedan Q2, Q4 (con la muestra ya pedida — la fase
+4 se rediseña cuando llegue), Q5, Q6 y Q7; ninguna bloquea lo implementado.
 
 Archivos analizados:
 
@@ -50,9 +52,10 @@ Cuatro piezas:
 | D6 | La vista previa del cupón sale con marca de agua y **sin código de barras**; el PDF cobrable solo se obtiene después de registrar el convenio | Si el preview fuera el cupón real, se podría descargar y mandar por fuera sin convenio, comentario ni registro |
 | D7 | Una sola clave de convenio ACTIVO por trámite a la vez. Pasar de TOTAL a QUITA (o al revés) **anula** el convenio anterior, con confirmación explícita y permiso `convenios.cancelar` | La regla de cancelación necesita un único importe objetivo; dos convenios activos por la misma deuda la vuelven ambigua |
 | D8 | Generar dos veces la misma clave **reusa** el convenio activo y solo reenvía | No duplica convenios ni cuotas |
-| D9 | Una clave vencida no genera cupón (400). "Vencida" = hoy > vencimiento de la clave + `mesesVtoImpreso` | Un código vencido no se cobra en la boca de pago. El corrimiento se hace con el mismo parámetro de la pregunta abierta Q3, para no bloquear a nadie un mes de más si la respuesta es "+1 mes" |
+| D9 | Una clave vencida no genera cupón (400). "Vencida" = hoy (AR) > `fechaVencimiento` de la clave, sin corrimiento — el vencimiento real nunca se extiende | Un código vencido no se cobra en la boca de pago. El vencimiento **impreso** en el talón es otra cosa (D12): nunca extiende el plazo real, como mucho lo acorta |
 | D10 | La regla (b) cuenta **Σ pagos con fecha ≥ día de creación del convenio − 1 día** contra el importe de la clave, con tolerancia absoluta en pesos (default 1,00) | Fechas de cedente sin hora y el corrimiento UTC/AR (§10.2). Tolerancia absoluta porque el importe de la clave es exacto y los archivos de cobros a veces truncan centavos |
 | D11 | El logo de Personal es un archivo del repo (`assets/`) con fallback a texto | El usuario lo reemplaza cuando lo consiga; si falta, el cupón sale igual |
+| D12 | Vencimiento **impreso** en el talón = `min(hoy + 7 días corridos, fechaVencimiento de la clave)`, día de Argentina. El **código de barras** siempre lleva el vencimiento real de la clave, nunca el impreso | Respuesta de Ana Maya del 2026-09-14 (cierra Q3): apura el pago sin mentir sobre cuándo vence de verdad, y la boca de pago sigue leyendo el vencimiento real del código — no hay riesgo de cobrar algo ya vencido. Reemplaza el parámetro `mesesVtoImpreso` de la versión anterior de este spec (fase 1.1, §20) |
 
 ---
 
@@ -163,7 +166,10 @@ Pie: `Usted podrá abonar este cupón en: PAGO FACIL / RAPIPAGO / BAPRO PAGOS / 
 
 Dos detalles:
 
-- El código dice vencimiento `15082026` y el talón imprime `Vto: 15/09/2026`: un mes más (Q3).
+- El código dice vencimiento `15082026` y el talón imprime `Vto: 15/09/2026`: un mes más. Esto era
+  la pregunta Q3, cerrada el 2026-09-14 (D12): el sistema nuevo no copia esta regla del sistema
+  viejo — imprime `hoy + 7 días`, con tope en el vencimiento real, nunca un corrimiento fijo sobre
+  la fecha del código.
 - El texto dice "cuarenta **tres** mil" — le falta la "y". El nuestro va en castellano correcto
   ("cuarenta y tres mil"); la boca de pago lee el código, no las letras.
 
@@ -174,7 +180,7 @@ Dos detalles:
 | # | Regla |
 |---|---|
 | R1 | Una clave pertenece a `(empresaId, nroTramite)`. Se usa desde cualquier caso de esa empresa cuyo `nroCliente` sea el trámite |
-| R2 | Por trámite hay a lo sumo **un par vigente** (TOTAL + QUITA). Una tanda nueva con vencimiento igual o posterior deja las anteriores `REEMPLAZADA`. Una tanda con vencimiento anterior al vigente entra ya como `REEMPLAZADA`, con aviso |
+| R2 | Por trámite hay a lo sumo **una tanda vigente**: 0, o exactamente 1 TOTAL y a lo sumo 1 QUITA, siempre de la misma carga (una tanda puede traer 1 clave —SOLO_TOTAL, fase 1.1— o 2). Una tanda nueva con vencimiento igual o posterior deja **todas** las vigentes anteriores `REEMPLAZADA` — nunca quedan mezcladas una QUITA vieja con una TOTAL nueva de otra tanda. Una tanda con vencimiento anterior al vigente entra ya como `REEMPLAZADA`, con aviso |
 | R3 | Una clave **nunca se borra** si tiene un convenio asociado (de cualquier estado) |
 | R4 | Recargar el mismo archivo no cambia nada (idempotente por `nroConvenio`) |
 | R5 | El cupón imprime el `SEC_COD_BARRA` del archivo. Si el importe, el vencimiento o el convenio del código no coinciden con las columnas, la clave se rechaza al cargar |
@@ -393,7 +399,7 @@ interface TramiteClaves {
   lineas: number[];                            // 1-based, con nombre de archivo si hay varios
   rechazo?: { motivo: MotivoRechazo; detalle: string };
   saldoTramiteCentavos?: number;               // el de la TOTAL
-  claves?: Array<{                              // exactamente 2 si no hay rechazo
+  claves?: Array<{                              // 1 (SOLO_TOTAL) o 2 si no hay rechazo
     tipo: 'TOTAL' | 'QUITA';
     nroConvenio: string; importeCentavos: number; clavePago: string; codigoBarras: string;
     fechaVencimiento: string /* YYYY-MM-DD */; codigoGestor: string; marca: string | null; linea: number;
@@ -447,17 +453,20 @@ export function normalizarReferenciaClave(v: string): string | null; // 8 → ta
 
    | Motivo / aviso | Condición | Efecto |
    |---|---|---|
-   | `TRAMITE_INCOMPLETO` | ≠ 2 líneas válidas (incluye "una de las dos se rechazó") | **Rechaza el trámite entero**, citando las líneas y el motivo de la línea caída. Cargar media tanda reemplazaría un par bueno por uno incompleto |
-   | `IMPORTES_IGUALES` | las 2 claves tienen el mismo importe | Rechaza: no se puede decidir cuál es la quita |
-   | aviso `SALDO_DISTINTO_ENTRE_FILAS` | `SALDO_TRAMITE` distinto entre las 2 filas | Se toma el de la TOTAL. **Esperado: 2** en el archivo de muestra |
-   | aviso `TOTAL_DISTINTO_DE_SALDO` | importe TOTAL ≠ saldo de la TOTAL | Carga igual. Esperado: 0 |
-   | aviso `QUITA_NO_ES_MITAD` | centavos QUITA ∉ {⌊total/2⌋, ⌈total/2⌉} | Carga igual (Telecom podría cambiar el %). Esperado: 0 |
-   | aviso `VTO_DISTINTO_ENTRE_CLAVES` | vencimientos distintos | Carga igual |
+   | `TRAMITE_INCOMPLETO` | 3+ líneas (aunque todas sean válidas), o 1-2 líneas con alguna inválida | **Rechaza el trámite entero**, citando las líneas y el motivo de la línea caída. Cargar media tanda reemplazaría un par bueno por uno incompleto |
+   | `IMPORTES_IGUALES` | las 2 claves (cuando hay 2) tienen el mismo importe | Rechaza: no se puede decidir cuál es la quita |
+   | aviso `SOLO_TOTAL` (fase 1.1) | exactamente 1 línea válida, sin su par, **con `IMPORTE_TOTAL_CLAVE == SALDO_TRAMITE` exacto en centavos** | **No rechaza**: se acepta clasificada como TOTAL. No hay forma de fabricar la quita. **Esperado: 1** en `MULTI_41647` (trámite `2577727090`) |
+   | `CLAVE_UNICA_NO_ES_TOTAL` (fase 1.1) | exactamente 1 línea válida y su importe ≠ `SALDO_TRAMITE` | **Rechaza el trámite**: puede ser una quita sin su total, y un cupón "por el saldo total" a mitad de precio no se puede deshacer |
+   | aviso `SALDO_DISTINTO_ENTRE_FILAS` | `SALDO_TRAMITE` distinto entre las 2 filas (no aplica a SOLO_TOTAL) | Se toma el de la TOTAL. **Esperado: 2** en el archivo de muestra |
+   | aviso `TOTAL_DISTINTO_DE_SALDO` | importe TOTAL ≠ saldo de la TOTAL, en un par (no aplica a una línea sola: ahí es `CLAVE_UNICA_NO_ES_TOTAL`) | Carga igual. Esperado: 0 |
+   | aviso `QUITA_NO_ES_MITAD` | centavos QUITA ∉ {⌊total/2⌋, ⌈total/2⌉} (no aplica a SOLO_TOTAL: no hay quita) | Carga igual (Telecom podría cambiar el %). Esperado: 0 |
+   | aviso `VTO_DISTINTO_ENTRE_CLAVES` | vencimientos distintos (no aplica a SOLO_TOTAL) | Carga igual |
    | aviso `YA_VENCIDA_AL_CARGAR` | vencimiento < hoy | Carga igual |
    | aviso `MARCA_DESCONOCIDA` | 10ª columna ausente o ≠ `C` | Carga igual, se guarda lo que venga |
    | aviso `TRAMITE_LARGO_INESPERADO` | trámite ≠ 10 dígitos | Carga igual |
 
-6. Clasificar: menor importe = QUITA (D4).
+6. Clasificar: menor importe = QUITA; con una única línea válida, siempre TOTAL (D4, y decisión de
+   Ana Maya del 2026-09-14 para el caso SOLO_TOTAL, §20).
 
 Los avisos se acumulan **por código** con el conteo y los primeros 20 trámites, no uno por fila.
 
@@ -484,22 +493,26 @@ processBatch(rows, ctx):                                    // rows válidas del
   2. vigentesPorTramite    = clave_pago WHERE empresaId = ctx.empresaId
                                AND nroTramite IN tramites AND estado = 'VIGENTE'
 
-  3. por trámite t (idx):
-     ya = existentes de sus 2 convenios
-     a. ya.length == 2 y ambos (empresaId, nroTramite) == (ctx.empresaId, t)
+  3. por trámite t (idx), con N = t.claves.length (1 si SOLO_TOTAL, 2 si TOTAL+QUITA — fase 1.1):
+     ya = existentes de sus N convenios
+     a. ya.length == N y todos (empresaId, nroTramite) == (ctx.empresaId, t)
           → YA_CARGADA: no escribe, cuenta OK                                    (R4)
      b. alguno de `ya` es de otra empresa o de otro trámite
           → error `[CONVENIO_YA_EXISTE] El convenio 96311343 ya está cargado para el trámite X
              en la empresa Y (remesa Z)`
-     c. ya.length == 1 (mismo trámite)
+     c. 0 < ya.length < N (mismo trámite, tanda incompleta)
           → error `[TANDA_PARCIAL] …` (inconsistencia; no se toca)
-     d. vig = vigentesPorTramite[t]
-        si vig vacío            → insertar 2 claves VIGENTE
+     d. vig = vigentesPorTramite[t]                          (0, 1 o 2 filas, de cualquier tanda previa)
+        si vig vacío            → insertar N claves VIGENTE
         si max(vto nuevo) ≥ max(vto vig)
                                 → vig → REEMPLAZADA (reemplazadaEn=now, reemplazadaPorRemesaId=ctx.remesaId)
-                                  insertar 2 claves VIGENTE                         (REEMISION)
-        si no                   → insertar 2 claves REEMPLAZADA
+                                  insertar N claves VIGENTE                        (REEMISION)
+        si no                   → insertar N claves REEMPLAZADA
                                   (reemplazadaPorRemesaId = remesaId de las vig) + aviso TANDA_ANTERIOR
+
+     El paso "d" reemplaza **todas** las filas de `vig`, sea cual sea su cantidad: una tanda vigente
+     de 2 (TOTAL+QUITA) puede ser reemplazada por una de 1 (SOLO_TOTAL), y viceversa, sin que nunca
+     convivan una QUITA de una tanda vieja con una TOTAL de una tanda nueva (R2).
 
   4. Escribir: un $transaction por lote con los updateMany de reemplazo + createMany de las nuevas.
      Si el lote falla, reintentar trámite por trámite (patrón de facturas.processor.ts:136-150) para que
@@ -538,7 +551,9 @@ Respuesta (se agrega al objeto que ya devuelve `validateRemesa`):
 ```ts
 multiclaves: {
   lineas: number; claves: number; tramites: number;
-  validos: number; rechazados: number; porMotivo: Record<string, number>;
+  validos: number; rechazados: number;
+  soloTotal: number;   // fase 1.1: de los válidos, cuántos trajeron una única clave (sin quita)
+  porMotivo: Record<string, number>;
   conCaso: number; sinCaso: number;
   enOtraEmpresa: Array<{ empresaId: number; empresa: string; tramites: number }>;
   yaCargadas: number; reemisiones: number; conflictos: number;
@@ -560,7 +575,9 @@ Advertencias en texto (con números exactos) que se agregan a `advertencias`:
   reemplazadas. 14 de ellas ya tienen un convenio, que sigue activo."*
 - `conflictos > 0`: *"25 convenios ya están cargados en otra empresa u otro trámite y se van a
   rechazar."*
-- avisos con `cantidad > 0`, uno por línea.
+- `soloTotal > 0` (fase 1.1): *"1 trámite(s) llegaron con una sola clave (sin la de quita): se cargan
+  igual, clasificada como TOTAL."*
+- avisos con `cantidad > 0`, uno por línea (salvo `SOLO_TOTAL`, que ya tiene el mensaje de arriba).
 
 ### 5.7 Resumen después de cargar
 
@@ -572,6 +589,9 @@ resultado:
   lo que se quiere);
 - rechazados = `remesa.errFilas`, con el detalle en `importerror` (pantalla de detalle existente);
 - reemplazadas por esta carga (`reemplazadaPorRemesaId = remesaId`);
+- **soloTotal** (fase 1.1): trámites que esta carga trajo con una única clave. Barato — se cuenta en
+  memoria agrupando por `nroTramite` las filas que ya se trajeron para los conteos de arriba, sin
+  otra query;
 - avisos (`importerror` con prefijo `[aviso]`).
 
 `GET /api/multiclaves/lotes/:remesaId/sin-caso?page&pageSize` lista los trámites sin caso para
@@ -641,7 +661,7 @@ interface DatosCupon {
   codigoBarras: string;                // el del archivo, 50 dígitos
   nombre: string;                      // [apellido, nombre] unidos, espacios colapsados
   nroTramite: string;
-  vtoImpreso: string;                  // DD/MM/AAAA = fechaVencimiento + mesesVtoImpreso
+  vtoImpreso: string;                  // DD/MM/AAAA = min(hoy + 7 días corridos AR, fechaVencimiento) (D12)
   referencia: string;                  // deudor.id
   leyendaTalonCedente: string;
   mediosDePago: string[];
@@ -726,7 +746,7 @@ t0; log intent: claveId, deudorId, accion, destinatarios=N (no las direcciones)
                                                       → 400 CLAVE_NO_CORRESPONDE
  4. bloqueo.assertNoBloqueado(deudorId, 'generar cupón de pago')   → 403 DEUDOR_CANCELADO (R7)
  5. cfg = configuracion.multiclaves de la empresa, con defaults (§9.5)
- 6. hoy(AR) ≤ fechaVencimiento + cfg.mesesVtoImpreso  → 400 CLAVE_VENCIDA       (D9, siempre)
+ 6. hoy(AR) ≤ fechaVencimiento                        → 400 CLAVE_VENCIDA       (D9, siempre)
     clave.estado == VIGENTE, o REEMPLAZADA con convenio ACTIVO de esa clave en este caso (R8, se
     resuelve como REUSO en 9c)                        → si no, 400 CLAVE_REEMPLAZADA
  7. si accion incluye ENVIAR:
@@ -829,7 +849,7 @@ Errores de negocio con cuerpo `{ code, message, ...detalle }`.
     importe: string;             // "19880.01"
     saldoTramite: string;
     fechaVencimiento: string;    // "2026-10-27"
-    vtoImpreso: string;          // "2026-10-27" (+ mesesVtoImpreso)
+    vtoImpreso: string;          // "2026-10-27" (D12: min(hoy + 7 días AR, fechaVencimiento))
     vencida: boolean;
     clavePago: string; codigoBarras: string;
     estado: 'VIGENTE' | 'REEMPLAZADA';
@@ -890,7 +910,7 @@ quedan en `envio_email`).
 
 | Método | Ruta | Permiso | Salida |
 |---|---|---|---|
-| GET | `/multiclaves/lotes/:remesaId/resumen` | `importacion.ver_historial` | `{ tramites, claves, vigentes, reemplazadasEnEsta, reemplazadasPorEsta, conCaso, sinCaso, rechazados, avisos:[{codigo,cantidad}] }` |
+| GET | `/multiclaves/lotes/:remesaId/resumen` | `importacion.ver_historial` | `{ tramites, claves, vigentes, reemplazadasEnEsta, reemplazadasPorEsta, soloTotal, conCaso, sinCaso, rechazados, avisos:[{codigo,cantidad}] }` |
 | GET | `/multiclaves/lotes/:remesaId/sin-caso` | `importacion.ver_historial` | `{ total, items:[{nroTramite, importeTotal, importeQuita, fechaVencimiento}] }` paginado |
 
 404 si la remesa no existe o no es `MULTICLAVES`.
@@ -910,15 +930,16 @@ defaults aplicados.
 ```json
 {
   "templateCuponId": null,
-  "mesesVtoImpreso": 0,
   "gestionAlGenerar": "GES-050",
   "leyendaTalonCedente": "TALON PARA Telecom Personal Argentina S.A. - FIRMA, SELLO Y FECHA AL DORSO",
   "mediosDePago": ["PAGO FACIL", "RAPIPAGO", "BAPRO PAGOS", "COBRO EXPRESS"]
 }
 ```
 
-Validación al leer (patrón de `promesas.service.ts:81-83`): `mesesVtoImpreso` entero en [0, 3];
-`gestionAlGenerar` una clave `GES-*`; lo inválido cae al default con `warn`.
+Sin `mesesVtoImpreso` (fase 1.1, D12): el vencimiento impreso ya no es un parámetro por empresa, es
+la regla fija `min(hoy + 7 días corridos AR, fechaVencimiento)`. Validación al leer (patrón de
+`promesas.service.ts:81-83`): `gestionAlGenerar` una clave `GES-*`; lo inválido cae al default con
+`warn`.
 
 ### 9.6 Permiso nuevo
 
@@ -939,6 +960,15 @@ Ninguno nuevo: la carga usa `import:iniciada/progreso/finalizada` como cualquier
 ---
 
 ## 10. Consolidación
+
+> **Pendiente de rediseño (fase 1.1, §19 Q4).** Ana Maya confirmó el 2026-09-14 que la muestra del
+> archivo de pagos de Personal posbaja con pagos hechos con multiclave trae **el número de convenio**
+> (ya pedida; falta el archivo real para confirmar columna y forma exactas). Cuando llegue, esta
+> sección se rediseña: la cancelación con quita va a quedar en un código de situación **nuevo**,
+> propuesto **"Cancelado con quita" (SIT-054)**, en vez de reusar SIT-050 con `saldo = 0` como describe
+> §10.1 hoy — para poder distinguir un caso que pagó todo de uno que pagó la mitad con quita. Esta
+> sección **no se rediseña todavía**: describe la fase 4 tal como estaba planificada antes de esta
+> pregunta, sin implementar.
 
 ### 10.1 Regla (b) — convenio de clave cumplido
 
@@ -1114,9 +1144,10 @@ Todo con `theme.palette`, sin colores fijos. Funciona en modo oscuro.
 ### 11.4 Ajustes de empresa
 
 `AjustesEmpresas.tsx`: sección colapsable "Claves de pago" (visible con `empresas.editar`): plantilla
-de Sender (combo con `GET /email-sender/empresa/:id/templates`), meses de corrimiento del vencimiento
-impreso (0–3, con la explicación de Q3), código de gestión al generar, medios de pago y leyenda.
-Guarda con `PATCH /multiclaves/empresas/:id/config` (§9.4), **no** con el update de empresa.
+de Sender (combo con `GET /email-sender/empresa/:id/templates`), código de gestión al generar, medios
+de pago y leyenda. Sin campo de corrimiento del vencimiento impreso: desde la fase 1.1 (D12) es una
+regla fija (`hoy + 7 días`, tope en el vencimiento real), no un parámetro por empresa. Guarda con
+`PATCH /multiclaves/empresas/:id/config` (§9.4), **no** con el update de empresa.
 
 ---
 
@@ -1149,7 +1180,9 @@ número de cuenta del cedente y se loguea solo en conteos o en `warn` puntuales.
 |---|---|
 | **Empresa equivocada** en la carga: todas las claves quedan "sin caso" | Vista previa: con caso / sin caso con el número exacto y "N están en OTRA_EMPRESA" en rojo (§5.6) |
 | **Correlativo de remesas consumido** por la carga | No puede pasar: número `MC-…` y 400 si se tipea uno numérico (§5.3) |
-| **Trámite con una sola clave válida** | Rechazo del trámite completo con las líneas y el motivo; conteo por motivo en la vista previa |
+| **Trámite con una sola clave válida** (SOLO_TOTAL, fase 1.1) | Se acepta solo si su importe es el saldo; aviso `SOLO_TOTAL` visible en la vista previa y en el resumen de la carga. Si el importe no es el saldo, `CLAVE_UNICA_NO_ES_TOTAL` |
+| **Quita perdida por una línea con el trámite ilegible** (residual de la fase 1.1) | Si la línea rota es la QUITA y ni su columna 0 se lee, no se puede asociar: la TOTAL entra como SOLO_TOTAL y la oferta con quita de ese trámite se pierde (el cupón total sigue siendo correcto). Se nota solo por la coincidencia de 1 rechazo aislado y 1 `SOLO_TOTAL` en la vista previa, sin relacionarlos. Mismo hueco, con dos anomalías juntas, en los trámites donde las dos líneas traen importe = saldo (p. ej. `2598157072`). Salida: borrar la carga y recargar el archivo corregido (recargar sin borrar da `TANDA_PARCIAL`) |
+| **Trámite con 0, o con 3+ líneas, o con alguna línea inválida entre 1-2** | Rechazo del trámite completo con las líneas y el motivo; conteo por motivo en la vista previa |
 | **Clasificación invertida** en los trámites raros | Test con las líneas 12294/12295 y 12850/12851; aviso `SALDO_DISTINTO_ENTRE_FILAS` con el conteo (2) |
 | **Importe mal convertido** (float, 0 o 1 decimal) | Parseo por texto a centavos + revalidación contra el importe embebido en clave y código: si no coinciden, rechazo `CLAVE_NO_COINCIDE` / `BARRA_NO_COINCIDE` |
 | **Código de barras que no corresponde al importe** | Rechazo al cargar y revalidación antes de dibujar el PDF (§7.1) |
@@ -1179,14 +1212,14 @@ número de cuenta del cedente y se loguea solo en conteos o en `warn` puntuales.
 | # | Riesgo | Mitigación |
 |---|---|---|
 | R1 | **Simbología del código de barras** equivocada (el cupón se imprime, no se lee en la caja) | Gate de la fase 2: imprimir y escanear con lector físico y app, comparar los 50 dígitos, y comparar con el PDF viejo. **No se habilita el permiso en prod hasta pasarlo** |
-| R2 | Vencimiento impreso distinto del real (Q3) | `mesesVtoImpreso` por empresa, default 0. El default imprime el vencimiento del código, que es el conservador |
+| R2 | Vencimiento impreso distinto del real | Cerrado (D12, fase 1.1): regla fija `min(hoy + 7 días, fechaVencimiento)`, nunca un parámetro que pueda extender el plazo real; el código de barras siempre lleva el vencimiento real |
 | R3 | La regla nueva en la consolidación cancela casos que no pagaron | Solo mira convenios `origen='CLAVE_PAGO'`, que no existen hasta la fase 2. Tests de la tabla de §10.3. Dry-run de consolidación de la empresa antes y después del deploy de la fase 4: `aSIT050PorClave` tiene que ser 0 si no hubo pagos de claves |
 | R4 | Los pagos de posbaja no caen en el caso (vienen por cuenta de 16 dígitos, el caso está por trámite) | Verificación operativa antes de la fase 4 con un archivo real de cobros de posbaja. Si no caen, la regla (b) es correcta pero nunca se dispara |
 | R5 | Trámite en varias remesas: el pago cae en otro caso | Aviso en la ficha; D7 impide dos convenios de clave activos por trámite. Arreglo de fondo (ordenar el `LIMIT 1` de `pagos.processor` por remesa más reciente, como facturas) queda propuesto como tarea aparte |
 | R6 | pdfmake no renderiza bien el SVG de bwip-js | PNG con `scale ≥ 4` como alternativa (§7.3) |
 | R7 | Telecom cambia el % de quita o manda 3 claves | Aviso `QUITA_NO_ES_MITAD`; rechazo `TRAMITE_INCOMPLETO` visible con el conteo |
 | R8 | `db push` a medio aplicar | Todo aditivo; verificación con `migrate diff` (§4.6) |
-| R9 | El archivo de claves mezcla Telecom y Personal y los casos están en dos empresas (Q1) | Cargar el mismo archivo en las dos empresas **no** funciona (unique global). Si Q1 confirma mezcla, fase 1b: permitir varias empresas destino por carga, resolviendo la empresa por el caso. La vista previa ya muestra el reparto por empresa para decidir con datos |
+| R9 | ~~El archivo de claves mezcla Telecom y Personal y los casos están en dos empresas~~ | Cerrado (Q1, fase 1.1): el archivo es de **Personal Móvil** únicamente, viene uno por nómina asignada (`MULTI_41645` = nómina 3280/1G, `MULTI_41647` = nómina 3282/2G), y en prod la plantilla 26 (empresa 10 TELECOM_PERSONAL) usa identidad `NRO_CLIENTE` con `nro_cliente@7` = trámite — una sola empresa destino. Fase 1b (§15) queda **descartada** |
 | R10 | La plantilla de Sender se borra o renombra | La vista previa detecta la plantilla inexistente y deshabilita Enviar con el motivo |
 
 ---
@@ -1195,13 +1228,14 @@ número de cuenta del cedente y se loguea solo en conteos o en `warn` puntuales.
 
 | Fase | Qué | Bloqueada por | Deploy |
 |---|---|---|---|
-| **0** | Verificaciones sin código: (1) en prod, `mappingJson.columns.nro_cliente.fromIndex` de las plantillas 26 y 31 es `7` (col 8 del CA); (2) conseguir un archivo de cobros de **posbaja** y ver por qué columna identifica al caso; (3) pedirle a Ana Maya el logo; (4) crear en Sender la plantilla de mail del cupón | — | — |
-| **1** | Schema completo de §4.1–4.4 + `clave-pago.ts` + parser + processor + categoría + número de remesa + vista previa + resumen + borrado + editor de plantilla + wizard + wiki de importación | Ninguna. Q1 afecta qué empresa se elige, no el código (ver R9). Q2: se guarda `marca` cruda | `db push` |
-| **2** | Cupón PDF (`importe-en-letras`, bwip-js, logo, layout) + endpoints de preview, POST con acción `DESCARGAR` y reimpresión + convenio de clave + gestión + comentario + `ClavesPagoCard` + `GenerarCuponDialog` (sin envío) + permiso + wiki de gestión | Ninguna para implementar. **Gate R1** (escaneo) antes de dar el permiso en prod. Q3 y Q5 son parámetros con default (`0`, `GES-050`) | Sin push |
+| **0** | Verificaciones sin código: (1) ✅ en prod, `mappingJson.columns.nro_cliente.fromIndex` de la plantilla 26 (empresa 10, TELECOM_PERSONAL) es `7` — confirmado 2026-09-14; (2) conseguir un archivo de cobros de **posbaja con pagos hechos con multiclave** (pedido a Ana Maya, pendiente — trae el número de convenio); (3) pedirle a Ana Maya el logo (pendiente); (4) crear en Sender la plantilla de mail del cupón | — | — |
+| **1** | Schema completo de §4.1–4.4 + `clave-pago.ts` + parser + processor + categoría + número de remesa + vista previa + resumen + borrado + editor de plantilla + wizard + wiki de importación | Ninguna. Q1 afecta qué empresa se elige, no el código (ver R9) — cerrada en la 1.1. Q2: se guarda `marca` cruda | `db push` |
+| **1.1** | Trámite con una única clave (SOLO_TOTAL): parser, processor (idempotencia y reemisión por cantidad de claves), invariante del borrado, vista previa, resumen del lote, wiki. Ver §20 | Ninguna | Sin push |
+| **2** | Cupón PDF (`importe-en-letras`, bwip-js, logo, layout) + endpoints de preview, POST con acción `DESCARGAR` y reimpresión + convenio de clave + gestión + comentario + `ClavesPagoCard` + `GenerarCuponDialog` (sin envío) + permiso + wiki de gestión | Ninguna para implementar. **Gate R1** (escaneo) antes de dar el permiso en prod. Q3 cerrada (D12, regla fija); Q5 sigue con default (`GES-050`) | Sin push |
 | **3** | Envío por mail: acciones `ENVIAR`/`DESCARGAR_Y_ENVIAR`, variables propias, chequeo de variables vacías, guardar contacto, config de empresa (endpoint + sección en ajustes) | Ninguna. Depende de la plantilla creada en Sender (fase 0.4) | Sin push |
-| **4** | Regla (b) en la consolidación + cuota PAGADA + `aSIT050PorClave` + tolerancia por env + chips `Cumplido` + wiki de pagos | Ninguna pregunta. **Bloqueo operativo**: fase 0.2 (que los pagos de posbaja caigan en el caso) | Sin push |
+| **4** | Regla (b) en la consolidación + cuota PAGADA + `aSIT050PorClave` + tolerancia por env + chips `Cumplido` + wiki de pagos | **Se rediseña** cuando llegue la muestra de pagos de posbaja con multiclave (§19): la cancelación con quita va a quedar en un código nuevo "Cancelado con quita" (propuesta `SIT-054`), no en SIT-050. No redecidido todavía — no tocar esta fase hasta tener la muestra | Sin push |
 | **5** | Regla (a): `pago.referenciaClave`, campo mapeable en plantillas de PAGOS, rama en la consolidación | **Q4** | `db push` |
-| **1b** (condicional) | Carga de claves con varias empresas destino | **Q1**, solo si confirma mezcla | Sin push |
+| ~~**1b**~~ | ~~Carga de claves con varias empresas destino~~ | **Descartada** (cierre de Q1, fase 1.1): el archivo es de una sola empresa (TELECOM_PERSONAL) | — |
 
 Pasos de despliegue de cada fase con UI nueva: asignar `convenios.generar_cupon` a los roles que
 corresponda desde la pantalla de Roles (fase 2), crear la plantilla `MULTICLAVES` en la empresa
@@ -1245,6 +1279,14 @@ string dentro del spec)
 - Encabezado con otro nombre de columna → error de archivo. Sin encabezado → aviso `SIN_ENCABEZADO`.
 - **Opcional, marcado `skip` si el archivo no está**: el archivo completo de muestra da 14.956 claves,
   7.478 trámites, 0 rechazados, `SALDO_DISTINTO_ENTRE_FILAS: 2`, `QUITA_NO_ES_MITAD: 0`.
+- **Fase 1.1 — SOLO_TOTAL**: trámite con 1 sola línea válida **e importe = saldo** → se acepta,
+  clasificado TOTAL, aviso `SOLO_TOTAL`; con importe ≠ saldo (incluida la mitad) →
+  `CLAVE_UNICA_NO_ES_TOTAL`. Línea con columnas de más o de menos pero trámite legible → se asocia a
+  su trámite y lo rechaza entero (`2598949142` con la TOTAL truncada). Sigue rechazado con: única línea inválida; 3+ líneas (aunque las 3 sean válidas); 2
+  líneas con una inválida; 2 líneas con el mismo importe (`IMPORTES_IGUALES`). El trámite real
+  `2577727090` de `MULTI_41647_RA_1008_2026-08-31_10.31.09.csv:2180` (TOTAL 272350.9, sin quita), y
+  el archivo completo (`skip` si no está): **9.810 trámites válidos, 19.619 claves, 0 rechazados,
+  `SOLO_TOTAL: 1`**.
 
 **`backend/src/modules/imports/processors/multiclaves.processor.spec.ts`** (Prisma mockeado, patrón de
 `facturas.processor.spec.ts`)
@@ -1256,6 +1298,9 @@ string dentro del spec)
 - Uno de dos convenios ya existente → `TANDA_PARCIAL`.
 - Falla del lote → reintento por trámite, el error queda en el trámite culpable.
 - Dos corridas seguidas con el mismo processor singleton → sin estado arrastrado.
+- **Fase 1.1**: trámite SOLO_TOTAL nuevo → 1 insert VIGENTE; recarga idempotente (no `TANDA_PARCIAL`
+  por comparar contra 2 en vez de contra `claves.length`); reemisión 2→1 y 1→2 reemplaza **todas**
+  las vigentes del trámite, nunca deja una QUITA vieja conviviendo con una TOTAL nueva.
 
 **`backend/src/modules/imports/imports.service` (specs de wiring existentes, `varios-archivos-wiring.spec.ts` como patrón)**
 - `createRemesa` MULTICLAVES sin número → `MC-…`; con `00609` → 400; con divisiones → 400.
@@ -1264,6 +1309,9 @@ string dentro del spec)
 - `deleteRemesa` MULTICLAVES: con convenios → 400; sin convenios → borra y restaura; cadena A→B→C
   borrando B → A queda REEMPLAZADA.
 - `processor-registry.spec.ts` con `MULTICLAVES`.
+- **Fase 1.1** (`multiclaves-borrado-reemision.spec.ts`): invariante actualizado a "0 vigentes, o
+  exactamente 1 TOTAL y a lo sumo 1 QUITA, todas de la misma carga" (antes "0 o 2"); secuencias que
+  mezclan tandas de 1 y 2 claves, con su borrado.
 
 **`backend/src/modules/multiclaves/utils/importe-en-letras.spec.ts`**
 - 0, 1, 15, 21, 30, 100, 101, 115, 500, 999, 1.000, 1.001, 21.000, 100.000, 1.000.000, 2.000.000,
@@ -1275,7 +1323,8 @@ string dentro del spec)
 - Con código que no revalida → lanza.
 - `vistaPrevia: true` → no llama a bwip-js.
 - Sin logo → genera igual y loguea `warn` una vez.
-- Vto impreso con `mesesVtoImpreso` 0 y 1 (fin de mes: 31/01 + 1 → 28/02).
+- Vto impreso (D12): `hoy + 7 días` cuando cae antes del vencimiento real; el vencimiento real como
+  tope cuando `hoy + 7 días` lo supera (clave por vencer en menos de 7 días).
 
 **`backend/src/modules/multiclaves/cupon.service.spec.ts`**
 - Flujo feliz DESCARGAR: crea convenio 1 cuota con `montoOriginal`, `importeQuita`, `clavePagoId`,
@@ -1433,23 +1482,138 @@ escaneo.
 19. Guardar la config de multiclaves de una empresa con `configuracion.mora` cargada conserva la de mora
     intacta.
 20. `npm run verificar-ayuda` sin errores; las páginas de §17.1 de la fase existen y declaran sus rutas.
+21. **(Fase 1.1)** Con `MULTI_41647_RA_1008_2026-08-31_10.31.09.csv` en una empresa sin casos: la vista
+    previa informa **9.810 trámites válidos, 19.619 claves, 0 rechazados, `soloTotal: 1`**; el trámite
+    `2577727090` carga con **1 sola** clave TOTAL de $ 272.350,90. Una reemisión que cambia la cantidad
+    de claves de un trámite (2→1 o 1→2) reemplaza **todas** las vigentes anteriores — nunca coexisten
+    una QUITA vieja con una TOTAL nueva de otra tanda — y borrar cualquier carga de la cadena mantiene
+    el invariante "0 vigentes, o 1 TOTAL y a lo sumo 1 QUITA de la misma carga".
 
 ---
 
 ## 19. Preguntas abiertas
 
+Cerradas por Ana Maya el 2026-09-14 (fase 1.1):
+
+| # | Pregunta | Respuesta |
+|---|---|---|
+| ~~Q1~~ | ¿A qué CA corresponde `MULTI_41645`? ¿Un archivo de claves mezcla Telecom y Personal? ¿En qué empresa se cargan esos casos? | El archivo es de **Personal Móvil** únicamente, viene **uno por nómina asignada**: `MULTI_41645` = nómina 3280 / gestión 1G, `MULTI_41647` = nómina 3282 / gestión 2G. Los 17.288 trámites de los dos archivos están al 100% en `CA_20260828_1008_POSBAJA_HW_260828_260828.txt`. En prod, la plantilla 26 "Personal posbaja(M-H) - Deudores (CA)" (empresa 10, TELECOM_PERSONAL) usa identidad `NRO_CLIENTE` con `nro_cliente@7` = trámite: la verificación 1 de la fase 0 (§15) queda cumplida. No mezcla empresas → **fase 1b descartada** (R9) |
+| ~~Q3~~ | El código del cupón viejo vence el 15/08 y el talón imprime 15/09. ¿Cuál es la fecha real hasta la que se puede pagar? | El vencimiento impreso en el cupón es **hoy + 7 días corridos** (día de Argentina), con tope en el vencimiento real de la clave. El código de barras lleva **siempre** el vencimiento real, nunca el impreso (D12). Reemplaza el parámetro `mesesVtoImpreso` de la versión anterior de este spec |
+
+Siguen abiertas:
+
 | # | Pregunta | Qué cambia según la respuesta | Bloquea |
 |---|---|---|---|
-| Q1 | ¿A qué CA corresponde `MULTI_41645`? ¿Un archivo de claves mezcla Telecom y Personal? (El CA del 27/05 sí mezcla `POS_MOV`, `POS_VOZ_CO` y `POS_NI`.) ¿En qué empresa del sistema se cargan esos casos? | Si mezcla y los casos están en dos empresas, hace falta la fase 1b (varias empresas destino por carga). Si todo va a una empresa, nada | Fase 1b (condicional). No bloquea la 1 |
 | Q2 | ¿Qué significa la 10ª columna sin nombre (`C` en todas las filas)? | Si es un estado (p.ej. "C = convenio" vs. "A = anulada"), una clave con otro valor podría no ser cobrable y habría que excluirla o marcarla | Nada: se guarda en `marca` y se avisa si viene distinta |
-| Q3 | El código del cupón viejo vence el 15/08 y el talón imprime 15/09. ¿Cuál es la fecha real hasta la que se puede pagar? | `mesesVtoImpreso` (0 o 1). También corre el umbral de "clave vencida" (D9) | Uso en producción de la fase 2 (el default 0 es conservador); no la implementación |
-| Q4 | ¿El archivo de cobros de posbaja informa con qué clave o convenio se pagó? ¿En qué columna y con qué forma (8, 22 o 50 dígitos)? | Habilita la regla (a), exacta, que no depende de que el operador haya generado el cupón desde el sistema | **Fase 5** |
+| Q4 | ¿El archivo de cobros de posbaja informa con qué clave o convenio se pagó? ¿En qué columna y con qué forma (8, 22 o 50 dígitos)? Ya pedida a Ana Maya el 2026-09-14 — dice que **la muestra trae el número de convenio**, falta el archivo en sí para confirmar columna y forma exactas | Habilita la regla (a), exacta, que no depende de que el operador haya generado el cupón desde el sistema. **La fase 4 (regla b, cancelación por convenio de clave) se rediseña cuando llegue esta muestra**: la cancelación con quita va a quedar en un código de situación nuevo, propuesto **"Cancelado con quita" (SIT-054)**, en vez de reusar SIT-050 como preveía la versión anterior de este spec (§10.1). No se rediseña la fase 4 todavía — queda pendiente hasta tener la muestra | **Fase 4 y 5** |
 | Q5 | ¿Hace falta un código de gestión "Convenio con quita" distinto de GES-050 "Convenio acordado"? | Se agrega al catálogo y se configura `gestionAlGenerar` por tipo (hoy uno solo para las dos claves) | Nada: GES-050 por default |
 | Q6 | ¿Telecom acepta pagar el importe de la clave en más de un pago, o solo con el cupón en un pago? | Si solo un pago, la regla (b) pasa de Σ a "un pago individual que alcanza" (una línea en la query) | Nada: Σ por default (D10) |
+| Q7 (fase 1.1) | El logo de Personal (D11) — sigue sin llegar | Hasta que llegue, el cupón sale con el texto "Personal" en vez de la imagen (comportamiento ya previsto, D11) | Nada: hay fallback |
 
 ---
 
 ## 20. Changelog del spec
+
+### 2026-09-14 (fase 1.1 implementada — trámite SOLO_TOTAL, y respuestas de Ana Maya)
+
+- Caso real encontrado en `MULTI_41647_RA_1008_2026-08-31_10.31.09.csv:2180` (9.810 trámites válidos,
+  19.619 claves): el trámite `2577727090` trae **una sola línea** (la TOTAL, importe = saldo
+  272.350,90), sin su clave de quita. El parser de la fase 1 lo rechazaba entero por
+  `TRAMITE_INCOMPLETO` porque exigía exactamente 2 líneas.
+- Decisión de Ana Maya (2026-09-14): un trámite con **una sola línea válida** se acepta como **solo
+  TOTAL**, con el aviso `SOLO_TOTAL` (no bloquea; se cuenta en la vista previa y en el resumen del
+  lote como el resto de los avisos). Sigue rechazándose si esa única línea es inválida, si hay 3 o
+  más líneas, si hay 2 líneas y alguna es inválida, o si hay 2 con el mismo importe
+  (`IMPORTES_IGUALES`). No hay forma de fabricar una QUITA que Telecom no mandó.
+- **Ajuste tras la auditoría de esta misma fase (2026-09-14):** para aceptar una línea única como
+  SOLO_TOTAL, además hace falta que `IMPORTE_TOTAL_CLAVE == SALDO_TRAMITE`, exacto en centavos (el
+  caso real `2577727090` cumple esto). Si no coincide, se rechaza con un motivo propio,
+  `CLAVE_UNICA_NO_ES_TOTAL` ("trae una sola clave y su importe no es el saldo; puede ser una quita
+  sin su total"). La decisión original no distinguía esto y aceptaba cualquier línea única —
+  incluida una QUITA huérfana— como si fuera la TOTAL.
+- **Hallazgo bloqueante del auditor**, en el mismo repaso: una línea con la cantidad de columnas mal
+  (cortada o con una de más) quedaba con `nroTramite: null` (`validarLinea`, antes de leer siquiera
+  la columna 0) y caía en su propio grupo `__linea_N`, en vez de agruparse con el resto de su
+  trámite. Medido con el archivo real: cortando a 30 caracteres la línea TOTAL de `2598949142`
+  (`MULTI_41645.csv:14957`), su QUITA de $ 5.074,99 (línea 14956) quedaba **sola**, sin su TOTAL
+  contra la cual agruparse, y entraba como si fuera un trámite SOLO_TOTAL con saldo $ 10.149,99 —
+  exactamente lo que el ajuste de arriba (`CLAVE_UNICA_NO_ES_TOTAL`) ya bloquea por sí solo en este
+  caso puntual (el importe de la QUITA no es el saldo), pero el bug de fondo seguía: la línea rota NO
+  se contaba como parte del trámite `2598949142`, así que recargar el archivo corregido después daba
+  `TANDA_PARCIAL` en vez de volver a armar el par. Arreglado en `validarLinea`: la columna 0 se lee
+  **antes** de cualquier otra validación (cantidad de columnas incluida) y, si es un trámite legible,
+  la línea se asocia a él aunque el resto esté roto — el trámite entero queda con la cantidad real de
+  líneas que trajo (2, una de ellas inválida) y se rechaza como corresponde (`TRAMITE_INCOMPLETO`),
+  en vez de perder una línea en el camino. Solo una columna 0 verdaderamente ilegible (no numérica)
+  sigue sin poder asociarse a nada — ahí no hay trámite al cual pegarla — y ese caso queda cubierto
+  por el ajuste de `CLAVE_UNICA_NO_ES_TOTAL` de arriba cuando el sobreviviente del par es una quita.
+- `multiclaves-parser.ts`: nuevo aviso `SOLO_TOTAL` y nuevo motivo de rechazo
+  `CLAVE_UNICA_NO_ES_TOTAL`; la condición de rechazo del trámite pasa de "≠ 2 líneas válidas" a
+  "3+ líneas, o 1-2 líneas con alguna inválida" — 1 línea válida ya no rechaza por sí sola (pero sí
+  si esa línea no es el total).
+- `multiclaves.processor.ts`: la idempotencia (R4) y la detección de `TANDA_PARCIAL` comparaban
+  contra un `2` fijo (cantidad de convenios del par); ahora comparan contra `claves.length` del
+  trámite entrante, para que un trámite SOLO_TOTAL sea tan idempotente como un par. El reemplazo de
+  vigentes (paso "d") ya era agnóstico a la cantidad de filas (`vig.map(v => v.id)`), así que una
+  reemisión que cambia de 2 a 1 clave (o de 1 a 2) ya reemplazaba **todas** las vigentes del trámite
+  sin código nuevo — se agregaron tests que lo prueban explícitamente (mezcla de tandas de 1 y 2 en
+  `multiclaves.processor.spec.ts` y en `multiclaves-borrado-reemision.spec.ts`).
+- **`TANDA_PARCIAL` entre cargas DISTINTAS** (hallazgo del auditor sobre el comentario del código):
+  el comentario decía que solo podía pasar "dentro de la misma tanda" — es falso. Puede pasar entre
+  cargas: un trámite entra primero como SOLO_TOTAL (convenio T), y una carga posterior trae el par
+  completo repitiendo T (la misma clave TOTAL, sin cambios) más una QUITA nueva; como T ya existe
+  para este mismo (empresa, trámite) y la QUITA no, cae en `TANDA_PARCIAL` sin escribir nada. No se
+  implementó una fusión automática (completar la tanda mezclando remesas rompe la trazabilidad de
+  `clave_pago.remesaId` y el invariante "todas las vigentes son de la misma carga" que depende de
+  eso) — se corrigió el comentario para no afirmar algo falso, y el camino de salida documentado
+  (wiki `08-historial-y-problemas.md`) es manual: borrar la carga que quedó con la tanda incompleta y
+  volver a subir el archivo completo. Test que confirma que el invariante se sostiene en este
+  escenario exacto (SOLO_TOTAL primero, después T+Q) sin escrituras parciales.
+- El invariante del borrado (§5.8, R2) pasa de **"0 o 2 vigentes por trámite"** a **"0 vigentes, o
+  exactamente 1 TOTAL y a lo sumo 1 QUITA, todas de la misma carga"**. El código de
+  `deleteRemesaMulticlaves` (`imports.service.ts`) ya recalculaba la ganadora **por remesa**, sin
+  asumir una cantidad fija de filas por tanda, así que tampoco necesitó cambios — se actualizó el
+  invariante que verifican los tests (`multiclaves-borrado-reemision.spec.ts`) y se agregaron
+  secuencias que mezclan tandas de 1 y 2 claves, incluido su borrado.
+- Vista previa (`imports.service.ts`) y resumen del lote (`ClavesService.resumenLote`): campo nuevo
+  `soloTotal` (contado en memoria sobre datos que ya se traían, sin queries nuevas) + advertencia de
+  texto propia. Frontend: chip "N solo TOTAL" en `MulticlavesResumen` (vista previa) y
+  `MulticlavesLoteResumen` (detalle de la carga).
+- **Otro hallazgo del auditor**, en la misma vista previa: el chequeo de "ya cargadas" comparaba
+  `ex.length === 2` (cantidad fija), así que recargar el mismo archivo con un trámite SOLO_TOTAL
+  nunca lo contaba como "ya cargado" — quedaba afuera del conteo, aunque el processor sí lo tratara
+  bien como idempotente al ejecutar. Corregido a `ex.length === t.claves!.length`. `soloTotal` en
+  `resumenLote` refleja lo que **esta carga en particular** escribió (`clave_pago.remesaId`): en una
+  recarga idempotente del mismo archivo, la carga nueva no escribe nada, así que su propio
+  `soloTotal` da 0 aunque el trámite siga siendo solo-TOTAL en la base — aclarado en la wiki para que
+  no se lea como una regresión.
+- Verificado contra los dos archivos reales: `MULTI_41645` sin cambios (7.478 trámites, 14.956 claves,
+  0 rechazados, 0 `SOLO_TOTAL`); `MULTI_41647` **9.810 trámites válidos, 19.619 claves, 0 rechazados,
+  `SOLO_TOTAL: 1`**. Carga real de los dos contra una base local con el processor real:
+  **17.288 trámites, 34.575 claves, 17.288 TOTAL, 17.287 QUITA**, todas VIGENTE — exactamente lo
+  esperado (17.288 − 17.287 = 1, el trámite SOLO_TOTAL).
+- **Respuestas de Ana Maya del 2026-09-14 (§19):**
+  - **Q1 cerrada.** El archivo es de **Personal Móvil**, uno por nómina asignada: `MULTI_41645` =
+    nómina 3280 / gestión 1G, `MULTI_41647` = nómina 3282 / gestión 2G. Los 17.288 trámites de los dos
+    archivos están al 100% en `CA_20260828_1008_POSBAJA_HW_260828_260828.txt`. En prod, la plantilla 26
+    "Personal posbaja(M-H) - Deudores (CA)" (empresa 10, TELECOM_PERSONAL) usa identidad `NRO_CLIENTE`
+    con `nro_cliente@7` = trámite: la verificación 1 de la fase 0 (§15) queda cumplida. No hay mezcla
+    de empresas → **fase 1b descartada** (R9).
+  - La columna `C` (10ª, sin nombre) no es importante: se guarda cruda y no se usa. Q2 sigue abierta
+    solo por si en algún momento aparece un valor distinto de `C`.
+  - **Q3 cerrada → D12.** El vencimiento impreso en el cupón es **hoy + 7 días corridos** (día de
+    Argentina), con tope en el vencimiento real de la clave; el código de barras lleva **siempre** el
+    vencimiento real. Reemplaza el parámetro `mesesVtoImpreso` de la versión anterior de este spec —
+    **sale solo ese campo** de `configuracion.multiclaves` (§9.5); el resto de la config por empresa
+    (`templateCuponId`, `gestionAlGenerar`, `leyendaTalonCedente`, `mediosDePago`) sigue igual, fase 3.
+    Actualizado en §0 (D9, D12), §7.1, §8.1, §9.1, §9.5, §11.4, §14 (R2), §16.1 y §18.
+  - **Q4 sigue abierta**, ya pedida a Ana Maya: la muestra del archivo de pagos de Personal posbaja con
+    pagos hechos con multiclave — dice que trae el número de convenio, falta el archivo real para
+    confirmar columna y forma exactas. Cuando llegue, la fase 4 (regla b de la consolidación, §10) se
+    rediseña: la cancelación con quita va a quedar en un código de situación nuevo, propuesto
+    **"Cancelado con quita" (SIT-054)**, en vez de reusar SIT-050. **No se rediseña ahora** — §10 sigue
+    describiendo el diseño anterior a esta pregunta, sin implementar.
+  - El logo de Personal (D11) sigue sin llegar (Q7, nueva, sin bloquear nada — hay fallback a texto).
 
 ### 2026-09-14 (fase 1 implementada)
 
@@ -1488,7 +1652,8 @@ Paso 2: `multiclaves/utils/clave-pago.ts` + su spec. Es la base del parser y del
 Paso 3: `imports/plantillas/telecom-multiclaves.ts` + `imports/utils/multiclaves-parser.ts` + spec con las líneas reales (incluidas 12294–12295 y 12850–12851).
 Paso 4: `multiclaves.processor.ts` + registro + exención de estados por defecto + rama del runner + número `MC-` + rama de vista previa + borrado + specs.
 Paso 5: Módulo `multiclaves` con `GET lotes/:id/resumen` y `sin-caso`. Frontend de importación (CategorySelector, PlantillaEditor, ImportWizard + MulticlavesResumen, ImportDetail). Wiki de importación. CHANGELOG fase 1.
-Paso 6 (fase 2): `importe-en-letras.ts` + spec; `bwip-js`; `cupon-pdf.service.ts` + assets + `nest-cli.json`; gate de escaneo.
+Paso 5.1 (fase 1.1, **hecho** 2026-09-14): trámite SOLO_TOTAL — parser, idempotencia/reemisión por cantidad de claves en el processor, invariante del borrado, `soloTotal` en vista previa y resumen del lote, wiki, CHANGELOG. Sin push. Ver §20.
+Paso 6 (fase 2): `importe-en-letras.ts` + spec; `bwip-js`; `cupon-pdf.service.ts` (vto impreso con D12, no `mesesVtoImpreso`) + assets + `nest-cli.json`; gate de escaneo.
 Paso 7: Columnas de convenio en uso: `cupon.service.ts` (acción DESCARGAR), endpoints de preview/POST/reimpresión, permiso en las dos copias, `ClavesPagoCard` + `GenerarCuponDialog` + chips en `FichaConveniosTab`. Wiki de gestión y permisos. CHANGELOG fase 2.
 Paso 8 (fase 3): envío por mail, variables propias, chequeo de variables vacías, guardar contacto, endpoint de config con merge + sección en AjustesEmpresas. Wiki. CHANGELOG.
 Paso 9 (fase 4): regla (b) en `consolidacion.service.ts`, cuota PAGADA, `aSIT050PorClave`, env de tolerancia, chip Cumplido, specs de §10.3, actualización de `consolidacion-situacion-spec.md`. Wiki de pagos. CHANGELOG.
@@ -1543,11 +1708,11 @@ Paso 10 (fase 5, solo con respuesta a Q4): `pago.referenciaClave` (db push), map
 
 **Tests a escribir:**
 - `clave-pago.spec.ts`: DV de claves y códigos reales (archivo, PDF viejo, grilla vieja), dígito alterado, `centavosDeTexto` con 0/1/2 decimales y formatos inválidos, descomposición, normalización de referencia.
-- `multiclaves-parser.spec.ts`: líneas reales 2–3, 14–15, 16–17, 20–21, **12294–12295 y 12850–12851**; orden invertido; trámite partido; DV corrupto → trámite entero; 3 claves; importes iguales; barra con otro vto; gestor ajeno; convenio repetido; 10ª columna ausente/distinta; CRLF; encabezado ajeno; sin encabezado; archivo completo (skip si no está).
+- `multiclaves-parser.spec.ts`: líneas reales 2–3, 14–15, 16–17, 20–21, **12294–12295 y 12850–12851**; orden invertido; trámite partido; DV corrupto → trámite entero; 3 claves; importes iguales; barra con otro vto; gestor ajeno; convenio repetido; 10ª columna ausente/distinta; CRLF; encabezado ajeno; sin encabezado; archivo completo (skip si no está). **Fase 1.1**: trámite de 1 línea válida con importe = saldo → SOLO_TOTAL (caso real `2577727090`); 1 línea con importe ≠ saldo → `CLAVE_UNICA_NO_ES_TOTAL`; línea con columnas de más o de menos que igual se asocia a su trámite real (caso real `2598949142`, TOTAL truncada); columna 0 ilegible → aislada, no contamina otro trámite.
 - `multiclaves.processor.spec.ts`: nuevo, idempotente, reemisión posterior y anterior, conflicto de empresa, tanda parcial, reintento por trámite, sin estado entre corridas.
 - Wiring de `imports.service`: número `MC-`, 400 numérico y divisiones, correlativo intacto, sin estados por defecto, `deleteRemesa` con convenios / restauración / cadena A→B→C; `processor-registry.spec.ts`.
 - `importe-en-letras.spec.ts`: casos de §16.1 incluido 43.782,69 y 2.706.359,21.
-- `cupon-pdf.service.spec.ts`: `%PDF`, código que no revalida, preview sin barras, sin logo, vto impreso +0/+1 con fin de mes.
+- `cupon-pdf.service.spec.ts`: `%PDF`, código que no revalida, preview sin barras, sin logo, vto impreso (D12): `hoy + 7 días` cuando cae antes del vencimiento real, tope en el vencimiento real cuando lo supera.
 - `cupon.service.spec.ts`: feliz, reuso, otra clave (409/403/anula), otro caso (409), cancelado, vencida, no corresponde, mail fallido, variables vacías, sin `email.enviar`, PDF que falla sin escrituras.
 - `consolidacion.service.spec.ts`: tabla de §10.3, idempotencia, regresión sin convenios de clave, borde de tolerancia, env fuera de rango, dryRun.
 - `permisos-catalogo.spec.ts` en verde; build con el logo en `dist`.
@@ -1590,3 +1755,4 @@ Paso 10 (fase 5, solo con respuesta a Q4): `pago.referenciaClave` (db push), map
 18. Logo en `dist` tras build; sin logo, cupón con texto "Personal".
 19. Guardar config de multiclaves conserva `configuracion.mora`.
 20. `npm run verificar-ayuda` sin errores y páginas de la fase presentes.
+21. (Fase 1.1, **hecho**) `MULTI_41647`: vista previa 9.810 trámites válidos / 19.619 claves / 0 rechazados / `soloTotal: 1`; el trámite `2577727090` carga con 1 sola clave TOTAL. Reemisión que cambia la cantidad de claves (2→1 o 1→2) reemplaza todas las vigentes; borrado mantiene el invariante "0, o 1 TOTAL + a lo sumo 1 QUITA de la misma carga" (ver §18.21 para el detalle).

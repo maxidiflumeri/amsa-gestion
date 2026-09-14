@@ -23,11 +23,19 @@ resuelven contra el caso cuando hace falta (cuando llega el CA, o al generar el 
   trámite, importe de la clave, la clave de pago (22 dígitos), el vencimiento, el código de barras
   (50 dígitos), el código de gestor, el nombre (se ignora — no es el cliente) y una décima columna
   sin nombre que Telecom manda en `C`.
-- Cada trámite trae **exactamente dos** filas: la de menor importe es la clave **con quita**, la
-  otra es la de **saldo total**. No importa el orden en que vengan.
+- Cada trámite trae normalmente **dos** filas: la de menor importe es la clave **con quita**, la
+  otra es la de **saldo total**. No importa el orden en que vengan. A veces Telecom manda un trámite
+  con **una sola** fila — sin la clave de quita —; si el importe de esa fila **es igual al saldo del
+  trámite**, se carga igual, clasificada como **TOTAL**, con el aviso **Solo TOTAL** (ver más abajo).
+  Si el importe de esa única fila **no** es el saldo, se rechaza: probablemente sea una quita que
+  perdió a su total en el camino, y cargarla sola inventaría un "saldo total" que en realidad es la
+  mitad. Un trámite con 3 o más filas, o con 2 filas del mismo importe (no se puede decidir cuál es
+  la quita), también se rechaza completo.
 - El sistema valida los dígitos verificadores de la clave y del código de barras, y que los tres
-  (columnas, clave, código de barras) coincidan entre sí. Una fila que no calza se rechaza, y como
-  una clave sola no sirve, **se rechaza el trámite completo** (las dos filas).
+  (columnas, clave, código de barras) coincidan entre sí. Una fila que no calza se rechaza — y sigue
+  contando para su trámite (aunque el resto de sus datos esté roto), así que ese trámite queda con
+  una fila inválida y se rechaza entero, como corresponde. Solo si ni el número de trámite de esa
+  fila se puede leer queda sin poder asociarse a nada.
 
 ## Crear la plantilla
 
@@ -55,10 +63,11 @@ unas 15 mil líneas — así que se lee entero, no una muestra):
 | Dato | Qué significa |
 |---|---|
 | **Válidos / rechazados** | Trámites que pasaron todas las validaciones vs. los que no. Los rechazados no se cargan; el motivo de cada uno (dígito verificador, columnas incompletas, mismo importe en las dos claves…) queda en el historial |
+| **Solo TOTAL** | De los válidos, cuántos trajeron una única clave cuyo importe es el saldo del trámite (sin la de quita). Se cargan igual, clasificada como TOTAL; no hay forma de fabricar la quita que Telecom no mandó. Una única clave cuyo importe **no** es el saldo no entra acá — se rechaza (ver arriba) |
 | **Con caso / sin caso** | Cuántos trámites ya tienen un caso cargado en la empresa elegida, ahora mismo. Los "sin caso" se cargan igual — quedan guardados y listos para usarse desde la ficha cuando se habilite el cupón (fase 2); los "con caso" tampoco se ven todavía en la ficha, esta fase solo carga y guarda |
 | **En otra empresa** | Si ninguno tiene caso en la empresa elegida pero sí los tiene otra, aparece en rojo — es la señal de "elegiste mal la empresa" |
-| **Ya cargadas** | Trámites cuyas dos claves ya están en la base exactamente igual (recargaste el mismo archivo) |
-| **Reemisiones** | Trámites que ya tenían una tanda de claves vigente, y la nueva tiene vencimiento **igual o posterior**: la anterior queda reemplazada por esta, que pasa a ser la vigente |
+| **Ya cargadas** | Trámites cuyas claves ya están **todas** en la base exactamente igual (recargaste el mismo archivo) — una, si el trámite es Solo TOTAL; dos, si es el par de siempre |
+| **Reemisiones** | Trámites que ya tenían una tanda de claves vigente, y la nueva tiene vencimiento **igual o posterior**: la anterior queda reemplazada por esta, que pasa a ser la vigente. Esto vale aunque la tanda vieja y la nueva no tengan la misma cantidad de claves — una tanda de 2 (TOTAL + QUITA) puede ser reemplazada por una de 1 (solo TOTAL), o al revés: siempre se reemplazan **todas** las claves vigentes del trámite, para no dejar una quita vieja conviviendo con una TOTAL nueva |
 | **Tandas anteriores** | Lo opuesto: la tanda que se está por cargar tiene vencimiento **anterior** a la que ya está vigente. Se carga igual (para no perder el dato ni el reclamo), pero queda reemplazada — la vigente sigue siendo la que ya estaba |
 | **Conflictos** | Convenios que ya están cargados en otra empresa o en otro trámite — se rechazan; probablemente el mismo archivo se subió por error en la empresa que no era |
 | **Avisos** | Cosas que no bloquean la carga pero conviene revisar: saldo distinto entre las dos filas de un trámite, marca (10ª columna) con un valor raro, quita que no es la mitad exacta, clave ya vencida al momento de cargar, etc. |
@@ -92,11 +101,17 @@ tercera tanda más nueva, en cuyo caso la del medio se borra y la de más atrás
 ## En el historial
 
 El detalle de una carga de claves usa el mismo lenguaje que el resto (filas OK / con error), pero
-acá "fila" es un **trámite** — dos claves cada uno. Hay una sección aparte, **Claves de pago**, con
-el estado real de la base al momento de mirarla (vigentes, reemplazadas, con caso / sin caso): a
-diferencia del resto del resumen, esto se recalcula cada vez que se abre la pantalla, porque "con
-caso" cambia solo cuando llega el CA. Desde ahí se puede ver el listado de trámites que todavía no
-tienen caso.
+acá "fila" es un **trámite** — normalmente dos claves, a veces una sola (Solo TOTAL). Hay una sección
+aparte, **Claves de pago**, con el estado real de la base al momento de mirarla (vigentes,
+reemplazadas, con caso / sin caso): a diferencia del resto del resumen, esto se recalcula cada vez
+que se abre la pantalla, porque "con caso" cambia solo cuando llega el CA. Desde ahí se puede ver el
+listado de trámites que todavía no tienen caso.
+
+> **El chip "Solo TOTAL" de esta pantalla cuenta lo que ESTA carga en particular trajo**, no el
+> estado actual de la base. Si recargás el mismo archivo (carga idempotente, "ya cargadas"), la carga
+> nueva no escribe nada — así que su propio chip "Solo TOTAL" da 0, aunque esos trámites sigan siendo
+> Solo TOTAL en la base. Para ver el estado vigente de un trámite puntual, andá a la ficha del caso
+> (cuando esté disponible) o a la vista previa de una carga nueva del mismo archivo.
 
 ## Lo que todavía no hace esta fase
 

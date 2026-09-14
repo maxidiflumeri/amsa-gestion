@@ -12,6 +12,8 @@ export interface ResumenLoteMulticlaves {
     vigentes: number;
     reemplazadasEnEsta: number;
     reemplazadasPorEsta: number;
+    /** Trámites que esta carga trajo con una única clave (sin la de quita), fase 1.1. */
+    soloTotal: number;
     conCaso: number;
     sinCaso: number;
     rechazados: number;
@@ -41,6 +43,8 @@ export interface MulticlavesPreview {
     tramites: number;
     validos: number;
     rechazados: number;
+    /** De los válidos, cuántos trajeron una única clave (sin la de quita, fase 1.1). */
+    soloTotal: number;
     porMotivo: Record<string, number>;
     conCaso: number;
     sinCaso: number;

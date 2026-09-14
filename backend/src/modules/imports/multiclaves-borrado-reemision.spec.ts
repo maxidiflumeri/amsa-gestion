@@ -123,6 +123,21 @@ function tramite(nroTramite: string, opts: {
     };
 }
 
+/** Un trámite SOLO_TOTAL (fase 1.1): una única clave, siempre clasificada TOTAL. */
+function tramiteSoloTotal(nroTramite: string, opts: {
+    convenioTotal: string; vto: string; totalCent?: number;
+}): TramiteClaves {
+    const totalCent = opts.totalCent ?? 3976003;
+    return {
+        nroTramite,
+        lineas: [1],
+        saldoTramiteCentavos: totalCent,
+        claves: [
+            { tipo: 'TOTAL', nroConvenio: opts.convenioTotal, importeCentavos: totalCent, clavePago: '0'.repeat(22), codigoBarras: '4'.repeat(50), fechaVencimiento: opts.vto, codigoGestor: '1008', marca: 'C', linea: 1 },
+        ],
+    };
+}
+
 /** Sube una tanda a una remesa nueva y la registra como viva. */
 async function cargar(
     db: ReturnType<typeof makeFakeDb>,
@@ -142,7 +157,13 @@ function makeService(prisma: any): ImportService {
 
 const USER = { sub: 1, permisos: ['importacion.eliminar', 'importacion.ver_progreso_otros'] };
 
-/** El invariante que tiene que sobrevivir a cualquier secuencia de cargas y borrados (§5.8, R2). */
+/**
+ * El invariante que tiene que sobrevivir a cualquier secuencia de cargas y borrados (§5.8, R2).
+ *
+ * Fase 1.1: una tanda puede traer 1 clave (SOLO_TOTAL) o 2 (TOTAL + QUITA), así que el invariante
+ * deja de ser "0 o 2 vigentes" y pasa a ser **"0 vigentes, o exactamente 1 TOTAL y a lo sumo 1
+ * QUITA, todas de la misma carga"** — nunca 2 TOTAL, nunca una QUITA sin su TOTAL, nunca 3 o más.
+ */
 function verificarInvariante(claves: FilaDb[], remesasVivas: Set<number>) {
     const porTramite = new Map<string, FilaDb[]>();
     for (const c of claves) {
@@ -151,14 +172,19 @@ function verificarInvariante(claves: FilaDb[], remesasVivas: Set<number>) {
     }
     for (const [tramiteKey, filas] of porTramite) {
         const vigentes = filas.filter((f) => f.estado === 'VIGENTE');
-        expect([0, 2]).toContain(vigentes.length); // nunca 4, nunca 1, nunca 3
+        const totalesVig = vigentes.filter((f) => f.tipo === 'TOTAL');
+        const quitasVig = vigentes.filter((f) => f.tipo === 'QUITA');
+        expect(totalesVig.length).toBeLessThanOrEqual(1); // nunca 2 TOTAL vigentes
+        expect(quitasVig.length).toBeLessThanOrEqual(1); // nunca 2 QUITA vigentes
+        expect(quitasVig.length === 0 || totalesVig.length === 1).toBe(true); // nunca QUITA sin su TOTAL
+        expect(vigentes.length).toBeLessThanOrEqual(2); // nunca 3+
         for (const f of filas) {
             if (f.reemplazadaPorRemesaId != null) {
                 expect(remesasVivas.has(f.reemplazadaPorRemesaId)).toBe(true); // nunca apunta a una remesa borrada
             }
         }
-        if (vigentes.length === 2) {
-            // Las dos vigentes son de la MISMA remesa (el par TOTAL+QUITA de la tanda ganadora).
+        if (vigentes.length > 0) {
+            // Todas las vigentes son de la MISMA remesa (la tanda ganadora, sea de 1 o 2 claves).
             expect(new Set(vigentes.map((v) => v.remesaId)).size).toBe(1);
         }
         void tramiteKey;
@@ -256,6 +282,102 @@ describe('MULTICLAVES — borrado con historial de reemisión (bloqueante del au
         const vigentesFinales = db.claves.filter((c) => c.estado === 'VIGENTE');
         expect(vigentesFinales).toHaveLength(2);
         expect(vigentesFinales.every((c) => c.remesaId === 6)).toBe(true);
+    });
+});
+
+describe('MULTICLAVES — reemisión con cantidad distinta de claves (fase 1.1)', () => {
+    it('vigente con PAR (2) y llega una tanda SOLO_TOTAL (1): reemplaza las 2, no quedan mezcladas', async () => {
+        const db = makeFakeDb();
+        const processor = new MulticlavesProcessor();
+
+        await cargar(db, processor, 1, 5, tramite('1841012140', { convenioTotal: '00000001', convenioQuita: '00000002', vto: '2026-10-27' })); // A: par
+        verificarInvariante(db.claves, db.remesasVivas);
+
+        const errB = await cargar(db, processor, 2, 5, tramiteSoloTotal('1841012140', { convenioTotal: '00000003', vto: '2026-11-27' })); // B: solo total, más nueva
+        expect(errB).toEqual([]);
+        verificarInvariante(db.claves, db.remesasVivas);
+
+        const vigentes = db.claves.filter((c) => c.estado === 'VIGENTE');
+        expect(vigentes).toHaveLength(1); // NO quedan 3 (la QUITA vieja de A + la TOTAL nueva de B)
+        expect(vigentes[0].tipo).toBe('TOTAL');
+        expect(vigentes[0].remesaId).toBe(2);
+        const deA = db.claves.filter((c) => c.remesaId === 1);
+        expect(deA.every((c) => c.estado === 'REEMPLAZADA' && c.reemplazadaPorRemesaId === 2)).toBe(true);
+    });
+
+    it('vigente SOLO_TOTAL (1) y llega una tanda PAR (2): reemplaza la única vigente', async () => {
+        const db = makeFakeDb();
+        const processor = new MulticlavesProcessor();
+
+        await cargar(db, processor, 1, 5, tramiteSoloTotal('1841012140', { convenioTotal: '00000001', vto: '2026-10-27' })); // A: solo total
+        verificarInvariante(db.claves, db.remesasVivas);
+
+        const errB = await cargar(db, processor, 2, 5, tramite('1841012140', { convenioTotal: '00000002', convenioQuita: '00000003', vto: '2026-11-27' })); // B: par, más nueva
+        expect(errB).toEqual([]);
+        verificarInvariante(db.claves, db.remesasVivas);
+
+        const vigentes = db.claves.filter((c) => c.estado === 'VIGENTE');
+        expect(vigentes).toHaveLength(2);
+        expect(vigentes.every((c) => c.remesaId === 2)).toBe(true);
+        const deA = db.claves.filter((c) => c.remesaId === 1);
+        expect(deA.every((c) => c.estado === 'REEMPLAZADA' && c.reemplazadaPorRemesaId === 2)).toBe(true);
+    });
+
+    it('recargar el mismo archivo SOLO_TOTAL es idempotente (R4), aunque tenga 1 sola clave', async () => {
+        const db = makeFakeDb();
+        const processor = new MulticlavesProcessor();
+        const t = tramiteSoloTotal('1841012140', { convenioTotal: '00000001', vto: '2026-10-27' });
+
+        await cargar(db, processor, 1, 5, t);
+        const errores = await cargar(db, processor, 1, 5, t); // misma remesa, mismo convenio
+
+        expect(errores).toEqual([]);
+        expect(db.claves.filter((c) => c.nroConvenio === '00000001')).toHaveLength(1); // no duplica
+    });
+
+    it('borrado: cadena PAR(A) → SOLO_TOTAL(B) → PAR(C); borrar B repunta A a C sin dejar una QUITA colgada', async () => {
+        const db = makeFakeDb();
+        const processor = new MulticlavesProcessor();
+
+        await cargar(db, processor, 1, 5, tramite('1841012140', { convenioTotal: '00000001', convenioQuita: '00000002', vto: '2026-10-27' })); // A: par
+        await cargar(db, processor, 2, 5, tramiteSoloTotal('1841012140', { convenioTotal: '00000003', vto: '2026-11-27' })); // B: solo total, reemplaza A
+        await cargar(db, processor, 3, 5, tramite('1841012140', { convenioTotal: '00000004', convenioQuita: '00000005', vto: '2026-12-27' })); // C: par, reemplaza B
+        verificarInvariante(db.claves, db.remesasVivas);
+        expect(db.claves.filter((c) => c.estado === 'VIGENTE')).toHaveLength(2); // C, el par
+
+        const service = makeService(db.prisma);
+        await service.deleteRemesa(2, USER); // borra B (la solo-total del medio)
+        verificarInvariante(db.claves, db.remesasVivas);
+
+        // A (el par viejo) no puede quedar apuntando a B (borrada): repunta a C, que sigue vigente.
+        const deA = db.claves.filter((c) => c.remesaId === 1);
+        expect(deA.every((f) => f.reemplazadaPorRemesaId === 3)).toBe(true);
+        const vigentesFinales = db.claves.filter((c) => c.estado === 'VIGENTE');
+        expect(vigentesFinales.every((c) => c.remesaId === 3)).toBe(true);
+        expect(vigentesFinales).toHaveLength(2);
+
+        // Borrar también C tiene que dejar vigente el PAR de A (no una QUITA suelta ni una mezcla).
+        await service.deleteRemesa(3, USER);
+        verificarInvariante(db.claves, db.remesasVivas);
+        const vigentesTrasBorrarC = db.claves.filter((c) => c.estado === 'VIGENTE');
+        expect(vigentesTrasBorrarC).toHaveLength(2);
+        expect(vigentesTrasBorrarC.every((c) => c.remesaId === 1)).toBe(true);
+        expect(vigentesTrasBorrarC.map((c) => c.tipo).sort()).toEqual(['QUITA', 'TOTAL']);
+    });
+
+    it('borrado: al borrar la tanda SOLO_TOTAL vigente (sin nada más detrás) no deja nada colgado', async () => {
+        const db = makeFakeDb();
+        const processor = new MulticlavesProcessor();
+
+        await cargar(db, processor, 1, 5, tramiteSoloTotal('1841012140', { convenioTotal: '00000001', vto: '2026-10-27' }));
+        verificarInvariante(db.claves, db.remesasVivas);
+
+        const service = makeService(db.prisma);
+        const r = await service.deleteRemesa(1, USER);
+
+        expect(r).toMatchObject({ deleted: true, clavesEliminadas: 1 });
+        expect(db.claves).toHaveLength(0);
+        verificarInvariante(db.claves, db.remesasVivas);
     });
 });
 

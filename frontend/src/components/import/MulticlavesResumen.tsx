@@ -31,7 +31,7 @@ const nf = (n: number) => n.toLocaleString('es-AR')
 
 export default function MulticlavesResumen({ resumen }: Props) {
     const {
-        lineas, claves, clavesRechazadas, tramites, validos, rechazados, porMotivo,
+        lineas, claves, clavesRechazadas, tramites, validos, rechazados, soloTotal, porMotivo,
         conCaso, sinCaso, enOtraEmpresa, yaCargadas, reemisiones, tandasAnteriores, conflictos,
         vencimientos, avisos,
     } = resumen
@@ -57,6 +57,14 @@ export default function MulticlavesResumen({ resumen }: Props) {
                     />
                     <Chip label={`${nf(conCaso)} con caso`} color="info" size="small" variant="outlined" />
                     <Chip label={`${nf(sinCaso)} sin caso`} size="small" variant="outlined" />
+                    {soloTotal > 0 && (
+                        <Chip
+                            label={`${nf(soloTotal)} solo TOTAL`}
+                            size="small"
+                            variant="outlined"
+                            title="Trajeron una única clave, sin la de quita: se cargan igual, clasificada TOTAL"
+                        />
+                    )}
                     {yaCargadas > 0 && <Chip label={`${nf(yaCargadas)} ya cargadas`} size="small" variant="outlined" />}
                     {reemisiones > 0 && (
                         <Chip label={`${nf(reemisiones)} reemisiones`} color="warning" size="small" variant="outlined" />

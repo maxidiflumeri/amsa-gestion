@@ -61,6 +61,14 @@ export default function MulticlavesLoteResumen({ remesaId }: { remesaId: number 
                 {resumen.reemplazadasPorEsta > 0 && (
                     <Chip label={`reemplazó ${resumen.reemplazadasPorEsta.toLocaleString('es-AR')} anteriores`} color="warning" size="small" variant="outlined" />
                 )}
+                {resumen.soloTotal > 0 && (
+                    <Chip
+                        label={`${resumen.soloTotal.toLocaleString('es-AR')} solo TOTAL`}
+                        size="small"
+                        variant="outlined"
+                        title="Trajeron una única clave, sin la de quita"
+                    />
+                )}
                 <Chip label={`${resumen.conCaso.toLocaleString('es-AR')} con caso`} color="info" size="small" variant="outlined" />
                 {resumen.sinCaso > 0 && (
                     <Chip

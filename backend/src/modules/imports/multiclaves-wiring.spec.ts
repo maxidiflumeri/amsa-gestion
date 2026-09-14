@@ -141,6 +141,165 @@ describe('MULTICLAVES — número de remesa (D5)', () => {
 });
 
 /* ────────────────────────────────────────────────────────────────────────────
+ * validateRemesa — vista previa: soloTotal distingue los trámites de una sola clave (fase 1.1)
+ * ──────────────────────────────────────────────────────────────────────────── */
+
+describe('MULTICLAVES — vista previa (validateRemesa), soloTotal', () => {
+    it('cuenta los trámites SOLO_TOTAL aparte de los válidos con par, y no los mezcla con los rechazados', async () => {
+        const archivoPath = path.join(dir, 'multi-preview.csv');
+        // 1841012140: par TOTAL+QUITA de siempre. 2577727090: una sola línea (línea real del
+        // archivo MULTI_41647, tomada con grep) → SOLO_TOTAL, no rechazado.
+        const contenido = [
+            'NRO_TRAMITE|NRO_CONVENIO|SALDO_TRAMITE|IMPORTE_TOTAL_CLAVE|CLAVE_PAGO|FECHA_VENCIMIENTO|SEC_COD_BARRA|CODIGO_GESTOR|APELLIDO_NOMBRE_RAZON_SOCIAL',
+            '1841012140|96311343|39760.03|39760.03|0096311343000039760032|20261027|49800039760032710202600000000000096311343000000009|1008|Ana Maya S.A.|C',
+            '1841012140|96332206|39760.03|19880.01|0096332206000019880014|20261027|49800019880012710202600000000000096332206000000007|1008|Ana Maya S.A.|C',
+            '2577727090|96259966|272350.9|272350.9|0096259966000272350908|20261027|49800272350902710202600000000000096259966000000007|1008|Ana Maya S.A.|C',
+        ].join('\n');
+        fs.writeFileSync(archivoPath, Buffer.from(contenido, 'latin1'));
+
+        const prisma: any = {
+            remesa: {
+                findUnique: jest.fn().mockResolvedValue({
+                    id: 42,
+                    empresaId: 1,
+                    categoria: 'MULTICLAVES',
+                    archivo: archivoPath,
+                    archivos: null,
+                    plantilla: { mappingJson: MAPPING, separador: '|', tieneHeader: true },
+                }),
+                update: jest.fn().mockResolvedValue({}),
+            },
+            deudor: { findMany: jest.fn().mockResolvedValue([]) },
+            clave_pago: { findMany: jest.fn().mockResolvedValue([]) },
+            empresa: { findMany: jest.fn().mockResolvedValue([]) },
+        };
+        const service = new ImportService(
+            prisma, {} as any, {} as any, {} as any, {} as any, {} as any, {} as any, {} as any, {} as any,
+        );
+
+        const r = await service.validateRemesa(42);
+
+        expect(r.multiclaves).toMatchObject({
+            tramites: 2,
+            validos: 2,
+            rechazados: 0,
+            soloTotal: 1,
+            claves: 3, // 2 del par + 1 de la solo-total
+        });
+        expect(r.advertencias).toEqual(
+            expect.arrayContaining([expect.stringContaining('1 trámite(s) llegaron con una sola clave')]),
+        );
+    });
+
+    it('ajuste de auditoría: "ya cargadas" cuenta también un trámite SOLO_TOTAL recargado, no solo pares (antes comparaba contra un 2 fijo)', async () => {
+        const archivoPath = path.join(dir, 'multi-preview-yacargadas.csv');
+        const contenido = [
+            'NRO_TRAMITE|NRO_CONVENIO|SALDO_TRAMITE|IMPORTE_TOTAL_CLAVE|CLAVE_PAGO|FECHA_VENCIMIENTO|SEC_COD_BARRA|CODIGO_GESTOR|APELLIDO_NOMBRE_RAZON_SOCIAL',
+            '1841012140|96311343|39760.03|39760.03|0096311343000039760032|20261027|49800039760032710202600000000000096311343000000009|1008|Ana Maya S.A.|C',
+            '1841012140|96332206|39760.03|19880.01|0096332206000019880014|20261027|49800019880012710202600000000000096332206000000007|1008|Ana Maya S.A.|C',
+            '2577727090|96259966|272350.9|272350.9|0096259966000272350908|20261027|49800272350902710202600000000000096259966000000007|1008|Ana Maya S.A.|C',
+        ].join('\n');
+        fs.writeFileSync(archivoPath, Buffer.from(contenido, 'latin1'));
+
+        // Simula que las 3 claves (el par de 1841012140 y la única de 2577727090) ya están cargadas
+        // en esta misma empresa/trámite — como si se estuviera recargando el mismo archivo.
+        const YA_CARGADAS: Record<string, string> = {
+            '96311343': '1841012140', '96332206': '1841012140', '96259966': '2577727090',
+        };
+        const prisma: any = {
+            remesa: {
+                findUnique: jest.fn().mockResolvedValue({
+                    id: 42, empresaId: 1, categoria: 'MULTICLAVES', archivo: archivoPath, archivos: null,
+                    plantilla: { mappingJson: MAPPING, separador: '|', tieneHeader: true },
+                }),
+                update: jest.fn().mockResolvedValue({}),
+            },
+            deudor: { findMany: jest.fn().mockResolvedValue([]) },
+            clave_pago: {
+                findMany: jest.fn().mockImplementation(({ where }: any) => {
+                    const convenios: string[] = where?.nroConvenio?.in ?? [];
+                    return Promise.resolve(
+                        convenios
+                            .filter((c) => YA_CARGADAS[c])
+                            .map((c) => ({ nroConvenio: c, empresaId: 1, nroTramite: YA_CARGADAS[c] })),
+                    );
+                }),
+            },
+            empresa: { findMany: jest.fn().mockResolvedValue([]) },
+        };
+        const service = new ImportService(
+            prisma, {} as any, {} as any, {} as any, {} as any, {} as any, {} as any, {} as any, {} as any,
+        );
+
+        const r = await service.validateRemesa(42);
+
+        // Los dos trámites (el par Y el SOLO_TOTAL) tienen que contar como "ya cargados": antes del
+        // fix, `ex.length === 2` dejaba afuera al SOLO_TOTAL (que solo tiene 1 convenio existente).
+        expect(r.multiclaves).toMatchObject({ tramites: 2, yaCargadas: 2, reemisiones: 0, conflictos: 0 });
+    });
+});
+
+/* ────────────────────────────────────────────────────────────────────────────
+ * Fase 1.1, verificación con el archivo real completo: recargar MULTI_41647 (skip si no está)
+ * ──────────────────────────────────────────────────────────────────────────── */
+describe('MULTICLAVES — vista previa con el archivo real completo (skip si no está)', () => {
+    const RUTA = '/home/maxi/Documentos/Ana Maya SA/teco perso/multiclaves/MULTI_41647_RA_1008_2026-08-31_10.31.09.csv';
+    const existe = fs.existsSync(RUTA);
+
+    (existe ? it : it.skip)('recargar MULTI_41647 completo (los 9.810 trámites válidos ya cargados) da yaCargadas 9.810, incluido el SOLO_TOTAL', async () => {
+        // eslint-disable-next-line @typescript-eslint/no-var-requires
+        const { parseMulticlaves } = require('./utils/multiclaves-parser');
+        const buffer = fs.readFileSync(RUTA);
+        const nombre = path.basename(RUTA);
+        const parseado = parseMulticlaves([{ nombre, buffer }], { codigosGestor: ['1008'] }, new Date('2026-09-01'));
+        const EMPRESA_ID = 10;
+
+        // Mapa convenio → nroTramite de TODOS los trámites válidos, como si ya estuvieran cargados
+        // en esta misma empresa (recarga idempotente completa).
+        const existentePorConvenio = new Map<string, string>();
+        for (const t of parseado.tramites) {
+            if (t.rechazo) continue;
+            for (const c of t.claves!) existentePorConvenio.set(c.nroConvenio, t.nroTramite);
+        }
+
+        const archivoPath = path.join(dir, nombre);
+        fs.copyFileSync(RUTA, archivoPath);
+
+        const prisma: any = {
+            remesa: {
+                findUnique: jest.fn().mockResolvedValue({
+                    id: 42, empresaId: EMPRESA_ID, categoria: 'MULTICLAVES', archivo: archivoPath, archivos: null,
+                    plantilla: { mappingJson: MAPPING, separador: '|', tieneHeader: true },
+                }),
+                update: jest.fn().mockResolvedValue({}),
+            },
+            deudor: { findMany: jest.fn().mockResolvedValue([]) },
+            clave_pago: {
+                findMany: jest.fn().mockImplementation(({ where }: any) => {
+                    const convenios: string[] = where?.nroConvenio?.in ?? [];
+                    return Promise.resolve(
+                        convenios
+                            .filter((c) => existentePorConvenio.has(c))
+                            .map((c) => ({ nroConvenio: c, empresaId: EMPRESA_ID, nroTramite: existentePorConvenio.get(c) })),
+                    );
+                }),
+            },
+            empresa: { findMany: jest.fn().mockResolvedValue([]) },
+        };
+        const service = new ImportService(
+            prisma, {} as any, {} as any, {} as any, {} as any, {} as any, {} as any, {} as any, {} as any,
+        );
+
+        const r = await service.validateRemesa(42);
+
+        expect(r.multiclaves).toMatchObject({
+            tramites: 9810, validos: 9810, rechazados: 0, soloTotal: 1,
+            yaCargadas: 9810, reemisiones: 0, conflictos: 0,
+        });
+    }, 30_000);
+});
+
+/* ────────────────────────────────────────────────────────────────────────────
  * processImportJob — sin estados por defecto no lanza, y carga las claves
  * ──────────────────────────────────────────────────────────────────────────── */
 

@@ -54,23 +54,51 @@ frecuentes:
 | Deudor no encontrado (nro_cliente=…) | El caso no existe en la remesa elegida. Si fallan **todas** las filas, el problema está en la carga de la cartera, no en este archivo |
 | El importe "…" no es un número | El valor no se pudo convertir. Revisá los transforms del importe en la plantilla |
 
-**Claves de pago (multiclaves):** acá "fila" es un trámite (dos claves). Hay dos momentos distintos
-en los que un trámite se puede caer, y no son lo mismo:
+**Claves de pago (multiclaves):** acá "fila" es un trámite (normalmente dos claves; a veces una
+sola, ver más abajo). Hay dos momentos distintos en los que un trámite se puede caer, y no son lo
+mismo:
 
-**Al leer el archivo** (vista previa y carga), el motivo casi siempre es `TRAMITE_INCOMPLETO`:
-el trámite no trajo exactamente 2 líneas válidas, y el detalle cita entre corchetes la razón real de
-la línea que lo tiró abajo — `CLAVE_DV` (dígito verificador de la clave no calza), `BARRA_NO_COINCIDE`
-(el código de barras no coincide con las columnas), `GESTOR_AJENO` (código de gestor que no es el
-configurado en la plantilla), `CONVENIO_REPETIDO_EN_ARCHIVO` (el mismo número de convenio aparece dos
-veces en el archivo), entre otros. Si las dos líneas son válidas pero traen el mismo importe, el
-motivo es `IMPORTES_IGUALES`: no se puede decidir cuál es la quita.
+**Al leer el archivo** (vista previa y carga), un trámite se rechaza por completo, citando entre
+corchetes la razón real de la línea que lo tiró abajo — `CLAVE_DV` (dígito verificador de la clave no
+calza), `BARRA_NO_COINCIDE` (el código de barras no coincide con las columnas), `GESTOR_AJENO`
+(código de gestor que no es el configurado en la plantilla), `CONVENIO_REPETIDO_EN_ARCHIVO` (el mismo
+número de convenio aparece dos veces en el archivo), entre otros. Los casos concretos:
+
+| Cuántas líneas trajo | Qué pasa |
+|---|---|
+| **1, con importe = saldo del trámite** | Se acepta, clasificada **TOTAL**, con el aviso `SOLO_TOTAL` (no es un error — Telecom a veces manda un trámite sin su clave de quita) |
+| **1, con importe ≠ saldo del trámite** | Se rechaza: `CLAVE_UNICA_NO_ES_TOTAL`. Una única clave cuyo importe no es el saldo probablemente es una quita sin su total (el total puede haberse perdido en el camino, o venir con el trámite ilegible) |
+| **1, y esa línea es inválida** (DV roto, gestor ajeno, columnas de más o de menos, etc.) | `TRAMITE_INCOMPLETO`, citando el motivo real de esa línea |
+| **2, las dos válidas, con importes distintos** | Se carga: la de menor importe es la quita, la otra el saldo total (el orden en el archivo no importa) |
+| **2, las dos válidas, con el mismo importe** | `IMPORTES_IGUALES`: no se puede decidir cuál es la quita |
+| **2, y alguna es inválida** | `TRAMITE_INCOMPLETO`, citando el motivo de la línea que falló — la línea válida no se carga sola |
+| **3 o más** | `TRAMITE_INCOMPLETO`, aunque todas sean individualmente válidas: no hay forma de saber cuál sobra |
+
+Una línea con las columnas mal (cortada, o con una de más) **sigue contando para su trámite** aunque
+el resto de sus datos esté roto, siempre que el número de trámite (la primera columna) se pueda leer
+— así el sistema sabe que ese trámite trajo 2 líneas (una inválida) y lo rechaza como corresponde, en
+vez de dejar a su par entrar solo como si fuera un caso de una sola línea. Solo cuando ni el número de
+trámite se puede leer, esa línea queda sin poder asociarse a nada y se rechaza por sí sola.
+
+> **Ojo con ese último caso.** Si la línea con el trámite ilegible era la **quita**, la del saldo
+> total de ese trámite entra sola como `SOLO_TOTAL`, y la oferta con quita de ese caso se pierde. El
+> cupón por el total sigue siendo correcto. En la vista previa se ve como **1 rechazado** más **1 solo
+> TOTAL**, pero el sistema no los relaciona. Si ves esa combinación, revisá la línea rechazada: si era
+> la quita de un trámite que entró solo, borrá la carga y volvé a subir el archivo corregido
+> (recargarlo sin borrar da `TANDA_PARCIAL`).
 
 **Al cargar contra la base** (ya pasado el parseo), un trámite puede rechazarse por lo que ya hay
 guardado:
-- `CONVENIO_YA_EXISTE`: alguna de las dos claves ya está cargada, pero para **otra empresa** o **otro
-  trámite** — típicamente, el mismo archivo subido por error en la empresa que no era.
-- `TANDA_PARCIAL`: una de las dos claves del par ya existe para este mismo trámite y la otra no. Es
-  una inconsistencia (no debería pasar con una carga normal) y no se toca nada hasta revisarlo a mano.
+- `CONVENIO_YA_EXISTE`: alguna de las claves del trámite ya está cargada, pero para **otra empresa**
+  o **otro trámite** — típicamente, el mismo archivo subido por error en la empresa que no era.
+- `TANDA_PARCIAL`: alguna de las claves de este trámite ya existe y el resto de su tanda no (por
+  ejemplo, la TOTAL sí y la QUITA no). No se modifica nada hasta revisarlo a mano. Puede pasar dentro
+  de la misma carga, pero también **entre cargas distintas**: un trámite que entró primero con una
+  sola clave (`SOLO_TOTAL`) y después recibe una carga con el par completo, repitiendo esa misma
+  clave y sumando la que faltaba, también cae acá — el sistema no fusiona tandas de cargas distintas
+  automáticamente. **Cómo salir:** borrar la carga que dejó la tanda incompleta y volver a subir el archivo completo. El borrado se
+  bloquea si **cualquier** clave de esa carga ya tiene un convenio (ver "Cuándo no se puede borrar"
+  en [Claves de pago](10-claves-de-pago.md)).
 
 Ninguno de estos motivos indica un problema del sistema: siempre es un dato del archivo, o de lo que
 ya había cargado antes, que no calza.
