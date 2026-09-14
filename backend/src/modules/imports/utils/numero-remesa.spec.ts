@@ -5,7 +5,7 @@
  * caía a `Date.now()` — de ahí los "números de remesa random" tipo `1784657478166` que reportaron
  * los usuarios. Los flujos que crean una remesa por día (Toyota 87) necesitan un correlativo.
  */
-import { siguienteNumeroRemesa } from './numero-remesa';
+import { numeroRemesaMulticlaves, siguienteNumeroRemesa } from './numero-remesa';
 
 describe('siguienteNumeroRemesa', () => {
     it('respeta el número que escribió el operador', () => {
@@ -48,5 +48,27 @@ describe('siguienteNumeroRemesa', () => {
 
     it('tolera espacios alrededor del número guardado', () => {
         expect(siguienteNumeroRemesa([' 00042 '])).toBe('00043');
+    });
+
+    it('un número MC- de multiclaves no mueve el correlativo de la empresa (D5)', () => {
+        expect(siguienteNumeroRemesa(['00608', 'MC-20260914-1030'])).toBe('00609');
+    });
+});
+
+describe('numeroRemesaMulticlaves', () => {
+    it('arma MC-AAAAMMDD-HHmmss en hora Argentina (UTC-3)', () => {
+        // 14/09/2026 02:05:07 UTC → 13/09/2026 23:05:07 en Argentina.
+        expect(numeroRemesaMulticlaves(new Date('2026-09-14T02:05:07.000Z'))).toBe('MC-20260913-230507');
+    });
+
+    it('dos cargas en el mismo minuto pero distinto segundo dan números distintos', () => {
+        const a = numeroRemesaMulticlaves(new Date('2026-09-14T12:00:00.100Z'));
+        const b = numeroRemesaMulticlaves(new Date('2026-09-14T12:00:01.900Z'));
+        expect(a).not.toBe(b);
+    });
+
+    it('no matchea el formato numérico del correlativo', () => {
+        const numero = numeroRemesaMulticlaves(new Date('2026-09-14T12:00:00.000Z'));
+        expect(/^\d{1,6}$/.test(numero)).toBe(false);
     });
 });

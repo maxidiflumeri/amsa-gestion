@@ -33,6 +33,7 @@ import MultiarchivoEditor, { PRESET_TOYOTA_TCFA } from '../components/import/Mul
 import AnchoFijoEditor, { layoutATexto, parsearLayout } from '../components/import/AnchoFijoEditor'
 import FiltroFilasEditor, { FiltroFila } from '../components/import/FiltroFilasEditor'
 import DivisionRemesaEditor, { DivisionRemesa } from '../components/import/DivisionRemesaEditor'
+import MulticlavesLayoutInfo from '../components/import/MulticlavesLayoutInfo'
 
 // ─── Constantes ──────────────────────────────────────────────────────────────
 
@@ -47,6 +48,7 @@ const CATEGORIAS = [
     'ACCIONES',
     'MULTIRREGISTRO',
     'MULTIARCHIVO',
+    'MULTICLAVES',
 ]
 
 const ENTITY_MAP: Record<string, string> = {
@@ -60,6 +62,15 @@ const ENTITY_MAP: Record<string, string> = {
     ACCIONES: 'ACCIONES',
     MULTIRREGISTRO: 'MIXTO',
     MULTIARCHIVO: 'MIXTO',
+    MULTICLAVES: 'MIXTO',
+}
+
+/** Default de una plantilla MULTICLAVES nueva (spec §5.1): Ana Maya recibe todo con gestor 1008. */
+const MULTICLAVES_DEFAULT = JSON.stringify({ codigosGestor: ['1008'] })
+
+/** Rótulo del combo de categoría, para las que no se explican solas por su nombre en mayúsculas. */
+const CATEGORIA_LABEL: Partial<Record<string, string>> = {
+    MULTICLAVES: 'Claves de pago (multiclaves)',
 }
 
 // ─── Helpers de mapeo ────────────────────────────────────────────────────────
@@ -224,6 +235,7 @@ const PlantillaEditor: React.FC = () => {
     const [multirregistroConfig, setMultirregistroConfig] = useState(
         JSON.stringify(PRESET_TOYOTA_87, null, 2),
     )
+    const [multiclavesConfig, setMulticlavesConfig] = useState(MULTICLAVES_DEFAULT)
     // Archivos de ancho fijo (exports de SAP): los campos van por posición, no hay separador.
     // El layout se edita como texto `nombre;inicio;largo` (ver AnchoFijoEditor).
     const [anchoFijoLayout, setAnchoFijoLayout] = useState('')
@@ -268,7 +280,10 @@ const PlantillaEditor: React.FC = () => {
     // MULTIARCHIVO: igual que multirregistro, pero el layout se declara por nombre de columna
     // porque los archivos del paquete traen encabezado.
     const esMultiarchivo = categoria === 'MULTIARCHIVO'
-    const sinMapeoDeColumnas = esAcciones || esMultirregistro || esMultiarchivo
+    // MULTICLAVES: el layout es fijo en código (D2 del spec), no se mapea ni se elige estado
+    // inicial — la clave no se ata a un deudor al cargarla.
+    const esMulticlaves = categoria === 'MULTICLAVES'
+    const sinMapeoDeColumnas = esAcciones || esMultirregistro || esMultiarchivo || esMulticlaves
     // Ancho fijo es una opción del combo de formato, no una categoría: cualquier categoría de "una
     // fila = un registro" puede venir en un archivo sin separador.
     const esAnchoFijo = separador === 'ANCHO_FIJO'
@@ -344,6 +359,9 @@ const PlantillaEditor: React.FC = () => {
             if (p.mappingJson?.multirregistro) {
                 setMultirregistroConfig(JSON.stringify(p.mappingJson.multirregistro, null, 2))
             }
+            if (p.mappingJson?.multiclaves) {
+                setMulticlavesConfig(JSON.stringify(p.mappingJson.multiclaves))
+            }
             if (p.mappingJson?.formato === 'ANCHO_FIJO') {
                 // El formato viaja en el mappingJson, pero en la UI es una opción del combo de
                 // separador: es donde el operador espera elegir cómo viene el archivo.
@@ -390,6 +408,14 @@ const PlantillaEditor: React.FC = () => {
         if (!isEdit && (categoria === 'MULTIRREGISTRO' || categoria === 'MULTIARCHIVO') && separador === '|') {
             setSeparador(';')
             setSepMode('STD')
+        }
+    }, [categoria, isEdit])
+
+    // MULTICLAVES: el archivo de Telecom siempre trae encabezado (spec §5.1). El separador por
+    // defecto ya es "|", que es el que usa el archivo, así que no hace falta tocarlo.
+    useEffect(() => {
+        if (!isEdit && categoria === 'MULTICLAVES') {
+            setTieneHeader(true)
         }
     }, [categoria, isEdit])
 
@@ -450,15 +476,26 @@ const PlantillaEditor: React.FC = () => {
                 notify.error('El layout del paquete no es un JSON válido')
                 return
             }
+        } else if (esMulticlaves) {
+            try {
+                const cfg = JSON.parse(multiclavesConfig)
+                if (!Array.isArray(cfg?.codigosGestor) || cfg.codigosGestor.length === 0) {
+                    notify.error('Agregá al menos un código de gestor aceptado')
+                    return
+                }
+            } catch {
+                notify.error('La config de multiclaves no es un JSON válido')
+                return
+            }
         } else if (fields.filter((f) => f.destField).length === 0) {
             notify.error('Agregá al menos un campo de mapeo')
             return
         }
-        if (!esAcciones && !defaultEstadoSituacionId) {
+        if (!esAcciones && !esMulticlaves && !defaultEstadoSituacionId) {
             notify.error('Seleccioná el estado de situación inicial')
             return
         }
-        if (!esAcciones && !defaultEstadoGestionId) {
+        if (!esAcciones && !esMulticlaves && !defaultEstadoGestionId) {
             notify.error('Seleccioná el estado de gestión inicial')
             return
         }
@@ -492,6 +529,9 @@ const PlantillaEditor: React.FC = () => {
         }
         if (esMultiarchivo) {
             ;(mappingJson as Record<string, unknown>).multiarchivo = JSON.parse(multiarchivoConfig)
+        }
+        if (esMulticlaves) {
+            ;(mappingJson as Record<string, unknown>).multiclaves = JSON.parse(multiclavesConfig)
         }
         if (esAnchoFijo) {
             const { columnas, error } = parsearLayout(anchoFijoLayout)
@@ -622,7 +662,7 @@ const PlantillaEditor: React.FC = () => {
                         >
                             {CATEGORIAS.map((c) => (
                                 <MenuItem key={c} value={c}>
-                                    {c}
+                                    {CATEGORIA_LABEL[c] ?? c}
                                 </MenuItem>
                             ))}
                         </Select>
@@ -687,7 +727,7 @@ const PlantillaEditor: React.FC = () => {
                     />
                 </Stack>
 
-                {!esAcciones && (
+                {!esAcciones && !esMulticlaves && (
                 <>
                 <Divider sx={{ my: 3 }} />
 
@@ -783,7 +823,7 @@ const PlantillaEditor: React.FC = () => {
                 )}
 
                 {/* División de la carga en varias remesas (un archivo con varias asignaciones) */}
-                {!esMultirregistro && !esMultiarchivo && (
+                {!esMultirregistro && !esMultiarchivo && !esMulticlaves && (
                     <>
                         <Divider sx={{ my: 3 }} />
                         <Typography variant="h6" sx={{ fontWeight: 600, mb: 1 }}>
@@ -971,7 +1011,7 @@ const PlantillaEditor: React.FC = () => {
                     </>
                 )}
 
-                {!esMultiarchivo && !esMultirregistro && (
+                {!esMultiarchivo && !esMultirregistro && !esMulticlaves && (
                     <>
                         <Divider sx={{ my: 3 }} />
                         <FiltroFilasEditor
@@ -1013,6 +1053,13 @@ const PlantillaEditor: React.FC = () => {
                                 setSepMode('STD')
                             }}
                         />
+                    </>
+                ) : esMulticlaves ? (
+                    <>
+                        <Typography variant="h6" sx={{ fontWeight: 600, mb: 2 }}>
+                            Layout de claves de pago
+                        </Typography>
+                        <MulticlavesLayoutInfo value={multiclavesConfig} onChange={setMulticlavesConfig} />
                     </>
                 ) : esAcciones ? (
                     <>

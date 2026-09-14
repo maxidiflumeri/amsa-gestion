@@ -117,6 +117,11 @@ model deudor {
   @@index([documento], map: "Deudor_documento_idx")
   @@index([empresaId, remesaId], map: "Deudor_empresaId_remesaId_idx")
   @@index([empresaId, remesaId, nroCliente], map: "Deudor_empresaId_remesaId_nroCliente_idx")
+  // Buscar un trámite SIN remesa (multiclaves-spec.md §4.4): las claves de pago llegan por
+  // (empresaId, nroTramite) antes de que exista el CA, y `[empresaId, remesaId, nroCliente]` no
+  // sirve para eso. El segundo índice es para el aviso de "el trámite está en otra empresa".
+  @@index([empresaId, nroCliente], map: "Deudor_empresaId_nroCliente_idx")
+  @@index([nroCliente], map: "Deudor_nroCliente_idx")
   @@index([fechaVencimiento], map: "Deudor_fechaVencimiento_idx")
   @@index([estadoGestionId], map: "Deudor_estadoGestionId_fkey")
   @@index([estadoGestionPrevioAId], map: "Deudor_estadoGestionPrevioAId_idx")
@@ -146,6 +151,7 @@ model empresa {
   campañasNeotel campaña_neotel[]
   tasasMora       tasa_mora[]
   indicesMora     indice_mora[]
+  clavesPago      clave_pago[]
 }
 
 model factura {
@@ -352,6 +358,7 @@ model remesa {
   politica             politica?                @relation(fields: [politicaId], references: [id])
   usuarioCreador       usuario?                 @relation("RemesaUsuarioCreador", fields: [usuarioCreadorId], references: [id], onDelete: SetNull)
   snapshotsAcciones    accion_masiva_snapshot[]
+  clavesPago           clave_pago[]
 
   @@unique([empresaId, numeroRemesa], map: "Remesa_empresaId_numeroRemesa_key")
   @@index([empresaId, categoria], map: "Remesa_empresaId_categoria_idx")
@@ -485,6 +492,7 @@ enum plantillaimport_categoria {
   ACCIONES
   MULTIRREGISTRO
   MULTIARCHIVO
+  MULTICLAVES
 }
 
 enum remesa_categoria {
@@ -498,6 +506,7 @@ enum remesa_categoria {
   ACCIONES
   MULTIRREGISTRO
   MULTIARCHIVO
+  MULTICLAVES
 }
 
 model politica {
@@ -530,12 +539,24 @@ model convenio {
   observaciones String?          @db.Text
   createdAt     DateTime         @default(now())
   updatedAt     DateTime         @updatedAt
+  /// 'CLAVE_PAGO' cuando el convenio se generó desde una clave de pago del cedente; null en los
+  /// convenios LIBRE/AUTOMATICO de siempre. Ver docs/multiclaves-spec.md §4.2. No se usa hasta la
+  /// fase 2 (Generar cupón); se crea en la fase 1 para que todo el schema salga en un solo push.
+  origen        String?          @db.VarChar(20)
+  clavePagoId   Int?
+  /// Saldo del trámite sobre el que Telecom calculó la clave (clave_pago.saldoTramite).
+  montoOriginal Float?
+  /// montoOriginal − montoTotal. 0 en una clave TOTAL.
+  importeQuita  Float?
   deudor        deudor           @relation(fields: [deudorId], references: [id])
   usuario       usuario?         @relation(fields: [usuarioId], references: [id])
+  clavePago     clave_pago?      @relation(fields: [clavePagoId], references: [id], map: "Convenio_clavePagoId_fkey")
   cuotas        cuota_convenio[]
 
   @@index([deudorId])
   @@index([usuarioId])
+  @@index([clavePagoId], map: "Convenio_clavePagoId_fkey")
+  @@index([deudorId, origen, estado], map: "Convenio_deudor_origen_estado_idx")
 }
 
 model cuota_convenio {
@@ -549,6 +570,52 @@ model cuota_convenio {
   convenio         convenio  @relation(fields: [convenioId], references: [id], onDelete: Cascade)
 
   @@index([convenioId])
+}
+
+/// Clave de pago precargada por el cedente (Telecom/Personal manda 2 por trámite: saldo total y
+/// quita del 50%). Fase 1 del spec: se carga y se guarda; el cupón, el convenio y la cancelación
+/// por pago se implementan en las fases 2-4 (docs/multiclaves-spec.md).
+///
+/// Se guarda por (empresaId, nroTramite) y NO por deudor: las claves llegan antes que el CA, un
+/// trámite puede estar en varias remesas y un CA borrado y recargado cambia los ids. El caso se
+/// resuelve al usarla (deudor.nroCliente = nroTramite, misma empresa). Ver
+/// docs/multiclaves-spec.md §6.
+model clave_pago {
+  id                     Int        @id @default(autoincrement())
+  empresaId              Int
+  /// Remesa de categoría MULTICLAVES que la trajo.
+  remesaId               Int
+  nroTramite             String     @db.VarChar(20)
+  /// NRO_CONVENIO de Telecom. Único en toda la base.
+  nroConvenio            String     @db.VarChar(8)
+  /// TOTAL | QUITA
+  tipo                   String     @db.VarChar(10)
+  importe                Decimal    @db.Decimal(14, 2)
+  /// SALDO_TRAMITE de la clave TOTAL del par (el mismo valor en las dos claves).
+  saldoTramite           Decimal    @db.Decimal(14, 2)
+  fechaVencimiento       DateTime   @db.Date
+  clavePago              String     @db.VarChar(22)
+  codigoBarras           String     @db.VarChar(50)
+  codigoGestor           String     @db.VarChar(10)
+  /// 10ª columna sin nombre del archivo ('C'). Se guarda cruda hasta saber qué significa (Q2).
+  marca                  String?    @db.VarChar(10)
+  /// VIGENTE | REEMPLAZADA. "Vencida" no se guarda: se deriva de fechaVencimiento.
+  estado                 String     @default("VIGENTE") @db.VarChar(12)
+  reemplazadaEn          DateTime?
+  /// Remesa MULTICLAVES cuya tanda reemplazó a esta. Sin FK a propósito: al borrar esa remesa se
+  /// usa para devolver esta clave a VIGENTE (§5.8).
+  reemplazadaPorRemesaId Int?
+  /// Línea del archivo (1-based), para poder reclamar al cedente.
+  lineaArchivo           Int
+  createdAt              DateTime   @default(now())
+  empresa                empresa    @relation(fields: [empresaId], references: [id], map: "ClavePago_empresaId_fkey")
+  remesa                 remesa     @relation(fields: [remesaId], references: [id], map: "ClavePago_remesaId_fkey")
+  convenios              convenio[]
+
+  @@unique([nroConvenio], map: "ClavePago_nroConvenio_key")
+  @@index([empresaId, nroTramite, estado], map: "ClavePago_empresa_tramite_estado_idx")
+  @@index([remesaId], map: "ClavePago_remesaId_fkey")
+  @@index([reemplazadaPorRemesaId], map: "ClavePago_reemplazadaPorRemesaId_idx")
 }
 
 model formato_telefono {

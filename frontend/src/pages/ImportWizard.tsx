@@ -48,6 +48,8 @@ import MultiarchivoDropZone, { paqueteCompleto } from "../components/import/Mult
 import PreviewTable from "../components/import/PreviewTable";
 import ImportProgress from "../components/import/ImportProgress";
 import ImportSummary from "../components/import/ImportSummary";
+import MulticlavesResumen from "../components/import/MulticlavesResumen";
+import type { MulticlavesPreview } from "../api/multiclaves";
 
 const steps = [
     "Categoría",
@@ -110,6 +112,8 @@ export default function ImportWizard() {
     const [multiResumen, setMultiResumen] = useState<any | null>(null);
     // MULTIARCHIVO: resumen del cruce de los archivos del paquete para el preview.
     const [paqueteResumen, setPaqueteResumen] = useState<any | null>(null);
+    // MULTICLAVES: resumen del cruce contra la cartera (con caso / sin caso / conflictos) para el preview.
+    const [multiclavesResumen, setMulticlavesResumen] = useState<MulticlavesPreview | null>(null);
     // Qué archivos entraron en la remesa y cuántas filas descartó el filtro de la plantilla. Es lo
     // que el operador confirma antes de ejecutar cuando sube una tanda de archivos.
     const [resumenArchivos, setResumenArchivos] = useState<
@@ -134,6 +138,9 @@ export default function ImportWizard() {
     // nuevos entran en la remesa de esta importación y los que ya existen se buscan por Nº Cliente
     // en toda la empresa.
     const esMultiarchivo = categoria === "MULTIARCHIVO";
+    // MULTICLAVES: la clave se guarda por (empresaId, nroTramite), no atada a una remesa de
+    // deudores (spec §5.1) — no hay "remesa origen" que elegir.
+    const esMulticlaves = categoria === "MULTICLAVES";
     // Patrones de nombre de archivo de la plantilla elegida, para reconocer qué archivo es cuál.
     const patronesArchivos = plantillas.find((p) => p.id === selectedPlantilla)
         ?.mappingJson?.multiarchivo?.archivos as Record<string, string> | undefined;
@@ -146,7 +153,8 @@ export default function ImportWizard() {
         categoria !== "DEUDORES_Y_FACTURAS" &&
         !esAcciones &&
         !esMultirregistro &&
-        !esMultiarchivo;
+        !esMultiarchivo &&
+        !esMulticlaves;
 
     // Paso 2 – preview
     const [remesaId, setRemesaId] = useState<number | null>(null);
@@ -317,6 +325,14 @@ export default function ImportWizard() {
             notify.warning("Seleccioná el archivo a importar.");
             return;
         }
+        // MULTICLAVES: el número no es el correlativo de la empresa (D5). Se valida en el cliente
+        // para no hacerle perder el archivo ya elegido al operador con un 400 del servidor.
+        if (esMulticlaves && numeroRemesa.trim() && /^\d+$/.test(numeroRemesa.trim())) {
+            notify.warning(
+                "Las cargas de claves de pago no usan el número correlativo de remesas. Dejá el número vacío o usá uno con letras.",
+            );
+            return;
+        }
 
         setLoading(true);
 
@@ -383,6 +399,7 @@ export default function ImportWizard() {
             setAdvertencias(resValidar.data.advertencias ?? []);
             setMultiResumen(resValidar.data.multirregistro ?? null);
             setPaqueteResumen(resValidar.data.multiarchivo ?? null);
+            setMulticlavesResumen(resValidar.data.multiclaves ?? null);
             setResumenArchivos(
                 resValidar.data.archivos || resValidar.data.descartadas
                     ? {
@@ -481,6 +498,7 @@ export default function ImportWizard() {
         setPaqueteResumen(null);
         setResumenArchivos(null);
         setMultiResumen(null);
+        setMulticlavesResumen(null);
         setRemesaId(null);
         setRemesaOrigenId(null);
         setRemesaOrigenIds([]);
@@ -611,10 +629,14 @@ export default function ImportWizard() {
                                         label="Número de remesa"
                                         variant="outlined"
                                         fullWidth
-                                        placeholder="Ej: 00007"
+                                        placeholder={esMulticlaves ? "Se genera solo (MC-…)" : "Ej: 00007"}
                                         value={numeroRemesa}
                                         onChange={(e) => setNumeroRemesa(e.target.value)}
-                                        helperText="Opcional: si se deja vacío sigue el correlativo de la empresa (00001, 00002, …)"
+                                        helperText={
+                                            esMulticlaves
+                                                ? "Dejalo vacío: se genera MC-AAAAMMDD-HHmmss. Esta carga no usa el correlativo de remesas de la empresa."
+                                                : "Opcional: si se deja vacío sigue el correlativo de la empresa (00001, 00002, …)"
+                                        }
                                     />
                                 </Stack>
 
@@ -657,8 +679,8 @@ export default function ImportWizard() {
                             </Select>
                         </FormControl>
 
-                        {/* Validación de domicilios contra Georef (no aplica a Acciones masivas) */}
-                        {!esAcciones && (
+                        {/* Validación de domicilios contra Georef (no aplica a Acciones masivas ni Multiclaves) */}
+                        {!esAcciones && !esMulticlaves && (
                             <Box>
                                 <FormControlLabel
                                     control={
@@ -954,12 +976,18 @@ export default function ImportWizard() {
                                 )}
                             </Alert>
                         )}
-                        <PreviewTable
-                            preview={preview}
-                            total={previewStats.total}
-                            ok={previewStats.ok}
-                            err={previewStats.err}
-                        />
+                        {esMulticlaves && multiclavesResumen ? (
+                            // Acá "una fila" es un trámite: la tabla de muestra del CSV no dice nada
+                            // útil. Lo que importa es el cruce contra la cartera (spec §5.6).
+                            <MulticlavesResumen resumen={multiclavesResumen} />
+                        ) : (
+                            <PreviewTable
+                                preview={preview}
+                                total={previewStats.total}
+                                ok={previewStats.ok}
+                                err={previewStats.err}
+                            />
+                        )}
                     </>
                 )}
 

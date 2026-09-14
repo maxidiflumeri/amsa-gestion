@@ -3,7 +3,7 @@
 **Proyecto:** AMSA Gestión
 **Módulos involucrados:** nuevo `multiclaves`; modificados `imports` (categoría nueva `MULTICLAVES`, parser, processor, preview, borrado), `convenios` (convenio de clave), `consolidacion` (cancelación por pago de clave), `email-sender` (reuso), `auth` (permiso), `empresas` (config); frontend: ficha del deudor (solapa Convenios), wizard y editor de plantillas, historial, ajustes de empresa.
 **Fecha:** 2026-09-14
-**Estado:** Propuesto — sin implementar. Hay 5 preguntas abiertas con Ana Maya (§19); las fases 1 a 4 no dependen de ellas.
+**Estado:** Fase 1 implementada (2026-09-14, ver CHANGELOG.md). Fases 2 a 5 sin implementar. Hay 5 preguntas abiertas con Ana Maya (§19); ninguna bloquea la fase 1.
 
 Archivos analizados:
 
@@ -1451,7 +1451,20 @@ escaneo.
 
 ## 20. Changelog del spec
 
-### 2026-09-14
+### 2026-09-14 (fase 1 implementada)
+
+- Schema (§4.1-4.4), `clave-pago.ts`, `multiclaves-parser.ts`, `multiclaves.processor.ts`, el
+  wiring en `imports.service.ts` (número `MC-`, vista previa, borrado) y el módulo `multiclaves`
+  (resumen + sin-caso) quedaron implementados y verificados contra el archivo real de muestra
+  (14.956 claves, 7.478 trámites, 0 rechazados, `SALDO_DISTINTO_ENTRE_FILAS: 2`, exactamente lo que
+  predecía este spec). Detalle completo en `CHANGELOG.md` [2026-09-14].
+- Único desvío encontrado al implementar: el desglose "8 por CLAVE_DV, 4 por TRAMITE_INCOMPLETO"
+  de la advertencia de rechazados (§5.6) no es un campo separado del parser — se arma en
+  `imports.service.ts` citando el motivo de la línea culpable cuando el trámite cae por una sola
+  línea, y usando el motivo genérico del trámite en el resto de los casos. El campo tipado
+  `TramiteClaves.rechazo.motivo` sigue siendo siempre `TRAMITE_INCOMPLETO` o `IMPORTES_IGUALES`.
+
+### 2026-09-14 (spec inicial)
 
 - Spec inicial a partir del archivo de muestra, el cupón y las pantallas del sistema viejo, y lo
   confirmado con el usuario (claves por trámite, reemisión, cancelación con quita, logo de Personal).

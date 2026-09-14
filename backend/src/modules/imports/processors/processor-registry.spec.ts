@@ -10,7 +10,7 @@ describe('processor-registry', () => {
     const CATEGORIAS = [
         'DEUDORES', 'FACTURAS', 'PAGOS', 'CONTACTOS', 'ENRIQUECIMIENTO',
         'DEUDORES_Y_FACTURAS', 'ACTUALIZACIONES', 'ACCIONES',
-        'MULTIRREGISTRO', 'MULTIARCHIVO',
+        'MULTIRREGISTRO', 'MULTIARCHIVO', 'MULTICLAVES',
     ];
 
     it.each(CATEGORIAS)('resuelve el processor de %s', (categoria) => {

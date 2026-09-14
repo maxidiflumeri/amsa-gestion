@@ -1,7 +1,7 @@
 <!--
 seccion: Importación de datos
 resumen: Ver qué pasó con una carga, revisar los errores fila por fila, y qué se puede deshacer y qué no.
-revisado: 2026-08-20
+revisado: 2026-09-14
 rutas: /historial-importaciones
 rutaPrincipal: /historial-importaciones
 -->
@@ -54,6 +54,32 @@ frecuentes:
 | Deudor no encontrado (nro_cliente=…) | El caso no existe en la remesa elegida. Si fallan **todas** las filas, el problema está en la carga de la cartera, no en este archivo |
 | El importe "…" no es un número | El valor no se pudo convertir. Revisá los transforms del importe en la plantilla |
 
+**Claves de pago (multiclaves):** acá "fila" es un trámite (dos claves). Hay dos momentos distintos
+en los que un trámite se puede caer, y no son lo mismo:
+
+**Al leer el archivo** (vista previa y carga), el motivo casi siempre es `TRAMITE_INCOMPLETO`:
+el trámite no trajo exactamente 2 líneas válidas, y el detalle cita entre corchetes la razón real de
+la línea que lo tiró abajo — `CLAVE_DV` (dígito verificador de la clave no calza), `BARRA_NO_COINCIDE`
+(el código de barras no coincide con las columnas), `GESTOR_AJENO` (código de gestor que no es el
+configurado en la plantilla), `CONVENIO_REPETIDO_EN_ARCHIVO` (el mismo número de convenio aparece dos
+veces en el archivo), entre otros. Si las dos líneas son válidas pero traen el mismo importe, el
+motivo es `IMPORTES_IGUALES`: no se puede decidir cuál es la quita.
+
+**Al cargar contra la base** (ya pasado el parseo), un trámite puede rechazarse por lo que ya hay
+guardado:
+- `CONVENIO_YA_EXISTE`: alguna de las dos claves ya está cargada, pero para **otra empresa** o **otro
+  trámite** — típicamente, el mismo archivo subido por error en la empresa que no era.
+- `TANDA_PARCIAL`: una de las dos claves del par ya existe para este mismo trámite y la otra no. Es
+  una inconsistencia (no debería pasar con una carga normal) y no se toca nada hasta revisarlo a mano.
+
+Ninguno de estos motivos indica un problema del sistema: siempre es un dato del archivo, o de lo que
+ya había cargado antes, que no calza.
+
+> **`TANDA_ANTERIOR` no es un rechazo.** Si la tanda que se está cargando tiene un vencimiento
+> **anterior** al de la que ya está vigente, la clave se carga igual (para no perder el dato), pero
+> queda `REEMPLAZADA` desde el vamos — la vigente sigue siendo la que ya estaba. Aparece como aviso,
+> no como error, y no resta de las filas OK.
+
 > **Ojo con lo que NO aparece acá.** Las filas descartadas por un **filtro de fila** no son errores: no
 > figuran en este listado. Y un **teléfono que no se pudo normalizar** se descarta en silencio, sin
 > quedar registrado. Si las cuentas no cierran y el listado de errores está vacío, mirá por ahí.
@@ -93,6 +119,7 @@ se borra la fila del historial y **los pagos quedan en la base**.
 | Deudores · Deudores y Facturas · Multirregistro · Multiarchivo | Borra los casos que creó ✅ |
 | Facturas · Pagos · Contactos · Enriquecimiento · Actualizaciones | **No deshace nada.** Los registros quedan |
 | Acciones masivas | ⚠ **Nunca borres**: ver abajo |
+| Claves de pago (multiclaves) | Borra las claves de esa carga (no toca ningún deudor: esta categoría no crea casos). **Bloqueada** si alguna clave ya tiene convenio o cupón emitido — el sistema dice cuántas. Si había otras tandas del mismo trámite, se recalcula cuál queda vigente entre las que sobreviven (por vencimiento) — no simplemente "la anterior", para no dejar dos tandas vigentes ni ninguna si hay una cadena de varias reemisiones |
 
 > ### ⚠ Borrar una remesa de acciones masivas destruye el deshacer
 >

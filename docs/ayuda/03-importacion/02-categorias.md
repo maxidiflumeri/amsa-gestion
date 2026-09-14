@@ -1,7 +1,7 @@
 <!--
 seccion: Importación de datos
-resumen: Las diez categorías, qué hace cada una y cómo elegir la correcta.
-revisado: 2026-08-20
+resumen: Las once categorías, qué hace cada una y cómo elegir la correcta.
+revisado: 2026-09-14
 rutas: /carga, /plantillas
 -->
 # Las categorías
@@ -22,6 +22,7 @@ Elegir mal la categoría no da un error prolijo: da una carga que "funciona" per
 | **Crea casos** | Deudores · Deudores y Facturas · Multirregistro · Multiarchivo |
 | **Le agrega datos a casos existentes** | Facturas · Pagos · Contactos · Enriquecimiento |
 | **Le cambia el estado a casos existentes** | Actualizaciones · Acciones masivas |
+| **No toca casos — se guarda sola y se resuelve después** | Claves de pago (multiclaves) |
 
 > **Actualizaciones también crea casos.** Los registros que no encuentra los da de alta, salvo que la
 > plantilla lo desactive. Está en las dos filas.
@@ -172,6 +173,17 @@ otra para el detalle, otra para las bajas.
 Las dos últimas **no se arman con el editor de mapeo**: se configuran pegando un JSON, partiendo de un
 preset. Las arma un técnico. Ver
 [Multirregistro y Multiarchivo](/ayuda/importacion/multirregistro-y-multiarchivo).
+
+## Claves de pago (multiclaves)
+
+Las claves de pago que manda Telecom/Personal junto con cada asignación (saldo total y quita del
+50% por trámite). **No crea casos ni les cambia nada**: se guarda por trámite y queda esperando a
+que la ficha la use más adelante (fase 2, generar el cupón). Por ahora la carga solo deja las
+claves guardadas — todavía no se ven desde la ficha del deudor.
+
+El layout del archivo es **fijo en el sistema**, no se edita desde la plantilla — lo único
+configurable es qué código de gestor se acepta. Tiene su propia página:
+[Claves de pago](/ayuda/importacion/claves-de-pago).
 
 ---
 

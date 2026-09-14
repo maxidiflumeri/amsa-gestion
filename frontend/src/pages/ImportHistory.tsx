@@ -218,18 +218,20 @@ export default function ImportHistory() {
             hideInCard: true,
             render: (row) =>
                 row.estadoProceso === 'FINALIZADA' ? (
-                    <Typography variant="body2">
-                        {String(row.totalFilas)}{' '}
-                        /{' '}
-                        <Typography component="span" color="success.main" variant="body2">
-                            {String(row.okFilas)}
+                    <Tooltip title={String(row.categoria) === 'MULTICLAVES' ? 'Trámites: total / válidos / rechazados' : 'Filas: total / OK / con error'}>
+                        <Typography variant="body2">
+                            {String(row.totalFilas)}{' '}
+                            /{' '}
+                            <Typography component="span" color="success.main" variant="body2">
+                                {String(row.okFilas)}
+                            </Typography>
+                            {' '}
+                            /{' '}
+                            <Typography component="span" color="error.main" variant="body2">
+                                {String(row.errFilas)}
+                            </Typography>
                         </Typography>
-                        {' '}
-                        /{' '}
-                        <Typography component="span" color="error.main" variant="body2">
-                            {String(row.errFilas)}
-                        </Typography>
-                    </Typography>
+                    </Tooltip>
                 ) : (
                     <Typography variant="body2" color="text.secondary">-</Typography>
                 ),

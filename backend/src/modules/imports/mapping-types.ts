@@ -198,6 +198,8 @@ export interface MappingJson {
     multirregistro?: MultirregistroConfig;
     /** Config de la categoría MULTIARCHIVO (paquete de varios archivos que se cargan juntos). */
     multiarchivo?: MultiarchivoConfig;
+    /** Config de la categoría MULTICLAVES (claves de pago de Telecom/Personal). */
+    multiclaves?: MulticlavesConfig;
     /**
      * Cómo están separados los campos del archivo. Ausente o `DELIMITADO` = comportamiento clásico
      * (el separador de la plantilla, o las celdas si es un Excel). Aditivo: ninguna plantilla ya
@@ -377,6 +379,26 @@ export interface MultirregistroConfig {
          */
         motivosPago?: string[];
     };
+}
+
+/* ────────────────────────────────────────────────────────────────────────────
+ * MULTICLAVES — claves de pago precargadas de Telecom/Personal (layout fijo en código)
+ * ──────────────────────────────────────────────────────────────────────────── */
+
+/**
+ * Config de la categoría MULTICLAVES (claves de pago de Telecom/Personal).
+ *
+ * A diferencia de MULTIRREGISTRO y MULTIARCHIVO, acá el layout del archivo NO se declara en la
+ * plantilla: las 9 columnas, sus posiciones y el formato de la clave y el código de barras son
+ * estructurales (dígitos verificadores incluidos) y viven en código
+ * (`imports/plantillas/telecom-multiclaves.ts`). Un cambio de formato del cedente requiere código
+ * de todos modos. Lo único que la plantilla puede ajustar es qué códigos de gestor se aceptan.
+ *
+ * Ver `docs/multiclaves-spec.md` §5.1.
+ */
+export interface MulticlavesConfig {
+    /** `CODIGO_GESTOR` que se aceptan como propios (columna 8). Filas con otro → `GESTOR_AJENO`. */
+    codigosGestor: string[];
 }
 
 /* ────────────────────────────────────────────────────────────────────────────

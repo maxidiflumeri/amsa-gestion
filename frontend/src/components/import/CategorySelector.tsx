@@ -16,6 +16,7 @@ import SyncAltIcon from "@mui/icons-material/SyncAlt";
 import PlaylistAddCheckIcon from "@mui/icons-material/PlaylistAddCheck";
 import AccountTreeIcon from "@mui/icons-material/AccountTree";
 import FolderZipIcon from "@mui/icons-material/FolderZip";
+import QrCode2Icon from "@mui/icons-material/QrCode2";
 
 interface CategoryOption {
     value: string;
@@ -99,6 +100,14 @@ const CATEGORIES: CategoryOption[] = [
             "Varios archivos que se cargan juntos (deudores, detalle de deuda, bajas y codeudores) y se cruzan entre sí",
         icon: <FolderZipIcon sx={{ fontSize: 40 }} />,
         color: "#ad1457",
+    },
+    {
+        value: "MULTICLAVES",
+        label: "Claves de pago (multiclaves)",
+        description:
+            "Claves de pago precargadas de Telecom/Personal para emitir cupones",
+        icon: <QrCode2Icon sx={{ fontSize: 40 }} />,
+        color: "#00838f",
     },
 ];
 

@@ -31,6 +31,7 @@ import { ConsolidacionModule } from './modules/consolidacion/consolidacion.modul
 import { MoraModule } from './modules/mora/mora.module';
 import { PagosModule } from './modules/pagos/pagos.module';
 import { PromesasModule } from './modules/promesas/promesas.module';
+import { MulticlavesModule } from './modules/multiclaves/multiclaves.module';
 
 @Module({
   imports: [
@@ -68,6 +69,7 @@ import { PromesasModule } from './modules/promesas/promesas.module';
     MoraModule,
     PromesasModule,
     PagosModule,
+    MulticlavesModule,
   ],
   controllers: [AppController],
   providers: [AppService],

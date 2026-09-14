@@ -6,6 +6,109 @@
 
 ---
 
+## [2026-09-14] — Claves de pago de Telecom/Personal (multiclaves) — fase 1: carga
+
+Primera fase de `docs/multiclaves-spec.md`: Telecom/Personal manda, junto con cada asignación, un
+archivo con **dos claves de pago por trámite** (saldo total y quita del 50%). Esta fase carga y
+guarda esas claves; el cupón PDF, el convenio y la cancelación con quita quedan para las fases 2-4.
+
+Pasó por tres rondas de auditoría. Lo que se encontró en el camino está al final, porque son las
+trampas de esta carga.
+
+### Backend
+
+- **Schema** (`clave_pago` + columnas de `convenio` + `MULTICLAVES` en los dos enums + índices de
+  `deudor`), todo en un solo `db push` aditivo, sin backfill. Las columnas nuevas de `convenio`
+  (`origen`, `clavePagoId`, `montoOriginal`, `importeQuita`) se crean pero no se usan hasta la fase 2.
+- Las claves se guardan por **`(empresaId, nroTramite)`**, no por deudor: llegan antes que el CA, un
+  trámite puede estar en varias remesas, y el caso se resuelve recién cuando se usan.
+- `backend/src/modules/multiclaves/utils/clave-pago.ts`: dígito verificador módulo 10 (pesos
+  `3,1,3,1…`), importe de texto a **centavos enteros sin float**, decodificación de la `CLAVE_PAGO`
+  (22 dígitos) y del `SEC_COD_BARRA` (50 dígitos).
+- `imports/utils/multiclaves-parser.ts`: parser puro. Valida cada línea, agrupa por trámite y
+  clasifica **TOTAL/QUITA por menor importe**, no por orden ni contra el saldo: dos trámites reales
+  rompen esa regla. Un trámite que no tiene exactamente 2 líneas, todas válidas, se rechaza entero
+  citando la línea culpable. Avisos que no bloquean: saldo distinto entre las dos filas, quita que no
+  es la mitad exacta, marca desconocida, vencida al cargar (contra el día de Argentina, no UTC). Saca
+  el BOM y, si la primera línea coincide con 3 o más nombres de columna pero no es el encabezado
+  esperado, da error de archivo. Contra el archivo real
+  (`MULTI_41645_RA_1008_2026-08-31_10.29.22.csv`): **14.956 claves, 7.478 trámites, 0 rechazados**,
+  aviso `SALDO_DISTINTO_ENTRE_FILAS: 2` (líneas 12294-12295 y 12850-12851).
+- `imports/processors/multiclaves.processor.ts`: cada trámite es una "fila" preparsada. Idempotente
+  por `nroConvenio`. En una reemisión gana la tanda de vencimiento más nuevo y la otra queda
+  `REEMPLAZADA`, nunca se borra. Una tanda con vencimiento **anterior** a la vigente entra
+  REEMPLAZADA y deja el aviso `TANDA_ANTERIOR`. Da conflicto si el convenio ya existe en otra empresa
+  u otro trámite. Escribe cada lote en bloques de 1.000 dentro de una transacción con
+  `{ timeout: 30_000, maxWait: 10_000 }`. Si el bloque falla, reintenta trámite por trámite para
+  aislar cuál rompe. Al operador le llega el motivo (`[CONVENIO_YA_EXISTE]`), no el mensaje crudo de
+  Prisma. Sin estado de instancia: los processors del registry son singletons.
+- `imports.service.ts`:
+  - Sin estados por defecto: la clave no se ata a un deudor al cargarla.
+  - Número de remesa **`MC-AAAAMMDD-HHmmss`** en vez del correlativo, para no correr la numeración
+    de las asignaciones de Telecom. Uno numérico da 400. Si el generado choca con la unique, lleva
+    sufijo `-2`…`-5`; si lo tipeó el operador, da 400.
+  - Vista previa que parsea el archivo entero y cruza contra `deudor`: con caso, sin caso, en otra
+    empresa, ya cargadas, reemisiones, tandas anteriores, conflictos.
+  - Borrado propio, bloqueado si alguna clave ya tiene convenio. **Recalcula** por trámite cuál es la
+    tanda ganadora entre las cargas que quedan y corrige los punteros de las demás, en lote: tandas
+    de 1.000 trámites y `updateMany` agrupados.
+- Módulo `multiclaves` nuevo con `GET /multiclaves/lotes/:remesaId/resumen` y
+  `GET /multiclaves/lotes/:remesaId/sin-caso` (paginado, pageSize 1-200, importes como string),
+  permiso `importacion.ver_historial`.
+
+### Frontend
+
+- Categoría nueva "Claves de pago (multiclaves)" en el selector y en el editor de plantillas, sin
+  mapeo ni estados iniciales: panel de solo lectura (`MulticlavesLayoutInfo`) con las columnas del
+  archivo y un único campo editable, `codigosGestor`.
+- `ImportWizard`: sin remesa origen, placeholder `MC-…`, y la vista previa usa `MulticlavesResumen`.
+- `ImportDetail`: sección "Claves de pago" (`MulticlavesLoteResumen`) con el estado real de la base
+  (vigentes, reemplazadas, con caso/sin caso recalculado) y diálogo paginado de trámites sin caso.
+- Wiki: página nueva `03-importacion/10-claves-de-pago.md`; actualizadas `02-categorias.md` y
+  `08-historial-y-problemas.md`, con los motivos reales y el borrado propio.
+
+### Lo que encontró la auditoría (y por qué el código es como es)
+
+- **Borrar "restaurando" lo que reemplazó la carga borrada no funciona.** La primera versión dejaba
+  un trámite con 4 claves vigentes (si colgaba una tanda anterior de la carga borrada) o con 0 (en
+  una cadena A→B→C, al borrar B y después C). Por eso el borrado recalcula desde cero en vez de
+  restaurar. Hay un test con las dos secuencias y un invariante (0 o 2 vigentes, nunca un puntero a
+  una remesa borrada) sobre 9 pasos intercalados.
+- **Trámite por trámite no escala.** El recálculo, hecho con 1 `findMany` y 2 `updateMany` por
+  trámite, se cortaba contra el timeout default de Prisma (5 s) en el trámite 7.136 de 7.478, medido
+  contra MySQL local sin red. En lote son 9 `findMany` y 15 `updateMany` para 7.500 trámites. Medido
+  en la base local con dos cargas del archivo completo: **borrado de la reemisión en 566-701 ms**, 2
+  vigentes por trámite en los 7.478. Hay un test que falla si la cantidad de queries vuelve a crecer
+  con los trámites.
+- **El número con resolución de minuto chocaba** con la unique `(empresaId, numeroRemesa)` y daba
+  500. Pasa en la práctica: el wizard crea la remesa antes de validar, y alcanza con reintentar
+  dentro del mismo minuto.
+
+### Nota operativa — FK `ClavePago_remesaId_fkey` es RESTRICT
+
+Cualquier vaciado de cartera o de empresa que borre `remesa` a mano tiene que borrar `clave_pago`
+**antes** (y poner `convenio.clavePagoId` en NULL cuando haya convenios de clave, desde la fase 2).
+Si se trunca `remesa` con `FOREIGN_KEY_CHECKS=0` sin vaciar `clave_pago`, las claves quedan huérfanas
+con su unique global de `nroConvenio` y la recarga del archivo falla.
+
+### Verificación
+
+1.005 tests backend en verde (3 skipped preexistentes). `npm run build` limpio en backend y frontend,
+`tsc --noEmit` en la línea base de 5 errores preexistentes, `verificar-ayuda` OK. Tercera auditoría:
+PASA.
+
+### Pendiente / pasos manuales de despliegue
+
+- `npx prisma db push && npx prisma generate` en el deploy (CI/CD), antes de este código.
+- Crear la plantilla **Claves de pago (multiclaves)** en cada empresa que vaya a recibirlas
+  (separador `|`, con encabezado, `codigosGestor` `1008` para Ana Maya). No lleva estados iniciales.
+- Sin verificar: latencia contra RDS (medido solo contra MySQL local; con 39 queries en el borrado
+  hay margen de sobra contra los 30 s).
+- Fase 0 del spec: confirmar con Ana Maya a qué CA corresponde el archivo y si mezcla Telecom y
+  Personal, y conseguir el archivo de cobros de posbaja para la fase 4.
+
+---
+
 ## [2026-09-08] — Buscar un DNI traía también los CUIL que lo contienen
 
 Reportado desde producción: buscando el DNI `27336733` aparecían **dos** casos, `27336733` y

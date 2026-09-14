@@ -37,6 +37,7 @@ import {
 } from '../components/ui';
 import type { StatusValue } from '../components/ui';
 import type { DataTableColumn } from '../components/ui';
+import MulticlavesLoteResumen from '../components/import/MulticlavesLoteResumen';
 
 // ─── Tipos ───────────────────────────────────────────────────────────────────
 
@@ -242,10 +243,12 @@ export default function ImportDetail() {
         };
     }, [socket, id, fetchAll]);
 
+    const esMulticlaves = remesa?.categoria === 'MULTICLAVES';
+
     const errorColumns: DataTableColumn<ErrorRow>[] = [
         {
             key: 'rowNumber',
-            label: 'Fila #',
+            label: esMulticlaves ? 'Trámite #' : 'Fila #',
             render: (row) => String(row.rowNumber),
         },
         {
@@ -393,18 +396,21 @@ export default function ImportDetail() {
                         )}
                     </SectionCard>
 
+                    {/* Claves de pago (solo MULTICLAVES) */}
+                    {remesa.categoria === 'MULTICLAVES' && <MulticlavesLoteResumen remesaId={remesa.id} />}
+
                     {/* C) Stat cards */}
                     <Grid container spacing={2} sx={{ mb: 3 }}>
                         <Grid item xs={12} sm={6} md={3}>
                             <StatCard
-                                label="Total filas"
+                                label={esMulticlaves ? 'Total trámites' : 'Total filas'}
                                 value={remesa.totalFilas}
                                 icon={<TableRowsIcon sx={{ fontSize: 36 }} />}
                             />
                         </Grid>
                         <Grid item xs={12} sm={6} md={3}>
                             <StatCard
-                                label="Filas OK"
+                                label={esMulticlaves ? 'Trámites OK' : 'Filas OK'}
                                 value={remesa.okFilas}
                                 icon={<CheckCircleOutlineIcon sx={{ fontSize: 36 }} />}
                                 valueColor={successColor}
@@ -412,7 +418,7 @@ export default function ImportDetail() {
                         </Grid>
                         <Grid item xs={12} sm={6} md={3}>
                             <StatCard
-                                label="Filas con error"
+                                label={esMulticlaves ? 'Trámites con error' : 'Filas con error'}
                                 value={remesa.errFilas}
                                 icon={<ErrorOutlineIcon sx={{ fontSize: 36 }} />}
                                 valueColor={remesa.errFilas > 0 ? errorColor : 'text.primary'}
@@ -432,7 +438,7 @@ export default function ImportDetail() {
                     <Grid container spacing={2} sx={{ mb: 3 }}>
                         {/* D) Donut chart */}
                         <Grid item xs={12} md={5}>
-                            <SectionCard title="Distribución de filas" sx={{ height: '100%' }}>
+                            <SectionCard title={esMulticlaves ? 'Distribución de trámites' : 'Distribución de filas'} sx={{ height: '100%' }}>
                                 {pieData ? (
                                     <Box>
                                         <ResponsiveContainer width="100%" height={280}>
@@ -472,7 +478,7 @@ export default function ImportDetail() {
                                                                         fill={theme.palette.text.secondary}
                                                                         style={{ fontSize: 12 }}
                                                                     >
-                                                                        filas
+                                                                        {esMulticlaves ? 'trámites' : 'filas'}
                                                                     </text>
                                                                 </g>
                                                             );
@@ -598,7 +604,7 @@ export default function ImportDetail() {
 
                     {/* F) Tabla de errores */}
                     {remesa.errFilas > 0 && (
-                        <SectionCard title="Errores de fila" noPadding>
+                        <SectionCard title={esMulticlaves ? 'Trámites rechazados' : 'Errores de fila'} noPadding>
                             <DataTableResponsive<ErrorRow>
                                 columns={errorColumns}
                                 rows={errors as ErrorRow[]}

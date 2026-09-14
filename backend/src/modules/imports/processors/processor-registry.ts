@@ -10,6 +10,7 @@ import { ActualizacionesProcessor } from './actualizaciones.processor';
 import { AccionesProcessor } from './acciones.processor';
 import { MultirregistroProcessor } from './multirregistro.processor';
 import { MultiarchivoProcessor } from './multiarchivo.processor';
+import { MulticlavesProcessor } from './multiclaves.processor';
 
 /**
  * Registro de procesadores por categoría.
@@ -27,6 +28,7 @@ const processors: ICategoryProcessor[] = [
     new AccionesProcessor(),
     new MultirregistroProcessor(),
     new MultiarchivoProcessor(),
+    new MulticlavesProcessor(),
 ];
 
 const registry = new Map<string, ICategoryProcessor>();

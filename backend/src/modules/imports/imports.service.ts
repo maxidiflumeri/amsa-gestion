@@ -24,13 +24,14 @@ import { ProgressEmitter } from './utils/progress-emitter';
 import { parseMultirregistro } from './utils/multirregistro-parser';
 import { ArchivosMultiarchivo, parseMultiarchivo } from './utils/multiarchivo-parser';
 import { resolverRolesArchivos } from './utils/roles-multiarchivo';
+import { MulticlavesArchivoInvalidoError, motivoPrincipalRechazo, parseMulticlaves } from './utils/multiclaves-parser';
 import { conOrigen, ErrorDeParseo, recorrerFilas } from './utils/recorrer-filas';
 import {
     anchoTotal, inferirColumnasAnchoFijo, parseLineaAnchoFijo, validarColumnasAnchoFijo,
 } from './utils/ancho-fijo';
 import { validarArchivosHomogeneos } from './utils/archivos-homogeneos';
 import { describirFiltros, pasaFiltro } from './utils/filtro-filas';
-import { siguienteNumeroRemesa } from './utils/numero-remesa';
+import { numeroRemesaMulticlaves, siguienteNumeroRemesa } from './utils/numero-remesa';
 import { AcumuladorCortes, columnasDeDivision, divide, numerosSugeridos } from './utils/division-remesa';
 import { ContadorColisiones, resolverIdentidad } from './utils/identidad-deudor';
 import { RequestContextService } from 'src/common/logger/request-context';
@@ -617,7 +618,33 @@ export class ImportService {
         const lista: any[] = Array.isArray(archivos) ? archivos : archivos ? [archivos] : [];
         if (lista.length === 0) throw new BadRequestException('No se subió ningún archivo.');
 
-        const numeroRemesa = await this.resolverNumeroRemesa(dto.empresaId, dto.numeroRemesa);
+        // MULTICLAVES: el número de remesa NO es el correlativo de la empresa (D5 del spec). Si lo
+        // fuera, la carga de claves consumiría el próximo número y correría la numeración de las
+        // asignaciones de Telecom que el operador ya viene corrigiendo a mano.
+        if (dto.categoria === 'MULTICLAVES' && dto.divisiones?.length) {
+            throw new BadRequestException('No se puede dividir una carga de claves de pago.');
+        }
+        let numeroRemesa: string;
+        // Si el número lo generamos nosotros (MC-…), un choque con la unique (empresaId,numeroRemesa)
+        // se resuelve solo, agregando un sufijo — el operador no tipeó nada que "cuidar". Si lo
+        // escribió a mano, un choque tiene que ser un 400 claro, no cambiarle el número en silencio.
+        let numeroAutoGenerado = false;
+        if (dto.categoria === 'MULTICLAVES') {
+            const propuesto = (dto.numeroRemesa ?? '').trim();
+            if (!propuesto) {
+                numeroRemesa = numeroRemesaMulticlaves(new Date());
+                numeroAutoGenerado = true;
+            } else if (/^\d+$/.test(propuesto)) {
+                throw new BadRequestException(
+                    'Las cargas de claves de pago no usan el número correlativo de remesas. ' +
+                    'Dejá el número vacío o usá uno con letras.',
+                );
+            } else {
+                numeroRemesa = propuesto;
+            }
+        } else {
+            numeroRemesa = await this.resolverNumeroRemesa(dto.empresaId, dto.numeroRemesa);
+        }
 
         let archivoPrincipal: string;
         let archivoHash: string;
@@ -803,10 +830,55 @@ export class ImportService {
             return { remesaId: creadas[0], remesaIds: creadas };
         }
 
+        if (dto.categoria === 'MULTICLAVES') {
+            const remesa = await this.crearRemesaConNumeroSeguro(
+                { ...comun, nombre: dto.nombre }, numeroRemesa, numeroAutoGenerado,
+            );
+            return { remesaId: remesa.id, remesaIds: [remesa.id] };
+        }
+
         const remesa = await this.prisma.remesa.create({
             data: { ...comun, numeroRemesa, nombre: dto.nombre },
         });
         return { remesaId: remesa.id, remesaIds: [remesa.id] };
+    }
+
+    /**
+     * Crea la remesa protegiendo la unique `(empresaId, numeroRemesa)` de un 500. Pensado para
+     * MULTICLAVES: el número `MC-AAAAMMDD-HHmmss` puede chocar si dos cargas arrancan en el mismo
+     * segundo (típico: el wizard crea la remesa antes de validar, y un 400 posterior + reintento, o
+     * "Atrás" y volver a confirmar, disparan el alta de nuevo).
+     *
+     * - Número **generado por el sistema**: un choque se resuelve solo, agregando `-2`, `-3`… hasta
+     *   5 intentos.
+     * - Número **tipeado por el operador**: un choque es un 400 claro — no se le cambia el nombre
+     *   que eligió a propósito.
+     */
+    private async crearRemesaConNumeroSeguro(
+        data: Omit<Prisma.remesaUncheckedCreateInput, 'numeroRemesa'>,
+        numeroBase: string,
+        autoGenerado: boolean,
+    ) {
+        const MAX_INTENTOS = 5;
+        let numero = numeroBase;
+        for (let intento = 1; intento <= MAX_INTENTOS; intento++) {
+            try {
+                return await this.prisma.remesa.create({ data: { ...data, numeroRemesa: numero } });
+            } catch (e: any) {
+                const esDuplicado = e instanceof Prisma.PrismaClientKnownRequestError && e.code === 'P2002';
+                if (!esDuplicado) throw e;
+                if (!autoGenerado) {
+                    throw new BadRequestException(
+                        `Ya existe una remesa con el número "${numero}" en esta empresa. Probá con otro.`,
+                    );
+                }
+                this.logger.warn(`Multiclaves: número de remesa "${numero}" ya existe, reintentando con sufijo (intento ${intento})`);
+                numero = `${numeroBase}-${intento + 1}`;
+            }
+        }
+        throw new ConflictException(
+            'No se pudo generar un número de remesa único para esta carga después de varios intentos. Reintentá.',
+        );
     }
 
     // --- PARSEAR FILAS (shared entre validate y execute) ---
@@ -1005,6 +1077,225 @@ export class ImportService {
                 err: 0,
                 sample: preview,
                 multiarchivo: { ...resumen, advertencias: advertencias.slice(0, 20) },
+            };
+        }
+
+        // MULTICLAVES: el archivo es chico (2 MB, 15 mil líneas) — se parsea entero, no una
+        // muestra. El operador tiene que ver, antes de confirmar, con qué empresa está cruzando
+        // (con caso / sin caso / en otra empresa) y qué se va a rechazar.
+        if (remesa.categoria === 'MULTICLAVES') {
+            const cfgMulti = mapping?.multiclaves;
+            if (!cfgMulti) {
+                throw new BadRequestException(
+                    'La plantilla es de categoría MULTICLAVES pero no tiene `mappingJson.multiclaves` configurado.',
+                );
+            }
+            const { paths: pathsMc, nombres: nombresMc } = this.archivosDeRemesa(remesa);
+            const archivosLeidos = pathsMc.map((p, i) => ({ buffer: fs.readFileSync(p), nombre: nombresMc[i] || path.basename(p) }));
+
+            const t0 = Date.now();
+            let parseado: ReturnType<typeof parseMulticlaves>;
+            try {
+                parseado = parseMulticlaves(archivosLeidos, cfgMulti, new Date());
+            } catch (e: any) {
+                if (e instanceof MulticlavesArchivoInvalidoError) throw new BadRequestException(e.message);
+                throw e;
+            }
+            const { tramites, avisos, resumen } = parseado;
+            const validos = tramites.filter((t) => !t.rechazo);
+            const rechazadosTramites = tramites.filter((t) => t.rechazo);
+
+            // Breakdown por motivo "principal" (cita la línea culpable cuando hay una sola).
+            const porMotivo: Record<string, number> = {};
+            for (const t of rechazadosTramites) {
+                const m = motivoPrincipalRechazo(t);
+                porMotivo[m] = (porMotivo[m] ?? 0) + 1;
+            }
+
+            // ── Cruces contra deudor, en chunks de 1000 ──────────────────────────────
+            const nroTramitesValidos = validos.map((t) => t.nroTramite);
+            const conCasoSet = new Set<string>();
+            const enOtraEmpresaMap = new Map<number, { empresaId: number; empresa: string; tramites: number }>();
+
+            for (let i = 0; i < nroTramitesValidos.length; i += 1000) {
+                const chunk = nroTramitesValidos.slice(i, i + 1000);
+                const conCaso = await this.prisma.deudor.findMany({
+                    where: { empresaId: remesa.empresaId, nroCliente: { in: chunk } },
+                    select: { nroCliente: true },
+                    distinct: ['nroCliente'],
+                });
+                for (const c of conCaso) if (c.nroCliente) conCasoSet.add(c.nroCliente);
+
+                const sinCasoChunk = chunk.filter((n) => !conCasoSet.has(n));
+                if (sinCasoChunk.length === 0) continue;
+                const otras = await this.prisma.deudor.findMany({
+                    where: { nroCliente: { in: sinCasoChunk }, empresaId: { not: remesa.empresaId } },
+                    select: { empresaId: true, nroCliente: true },
+                    distinct: ['empresaId', 'nroCliente'],
+                });
+                for (const o of otras) {
+                    const entry = enOtraEmpresaMap.get(o.empresaId) ?? { empresaId: o.empresaId, empresa: '', tramites: 0 };
+                    entry.tramites++;
+                    enOtraEmpresaMap.set(o.empresaId, entry);
+                }
+            }
+            if (enOtraEmpresaMap.size > 0) {
+                const empresasInfo = await this.prisma.empresa.findMany({
+                    where: { id: { in: [...enOtraEmpresaMap.keys()] } },
+                    select: { id: true, nombre: true },
+                });
+                for (const e of empresasInfo) {
+                    const entry = enOtraEmpresaMap.get(e.id);
+                    if (entry) entry.empresa = e.nombre;
+                }
+            }
+
+            // ── yaCargadas / conflictos / reemisiones, en chunks de 1000 convenios ───
+            const conveniosValidos = [...new Set(validos.flatMap((t) => t.claves!.map((c) => c.nroConvenio)))];
+            const existentesPorConvenio = new Map<string, { empresaId: number; nroTramite: string }>();
+            for (let i = 0; i < conveniosValidos.length; i += 1000) {
+                const chunk = conveniosValidos.slice(i, i + 1000);
+                const existentes = await this.prisma.clave_pago.findMany({
+                    where: { nroConvenio: { in: chunk } },
+                    select: { nroConvenio: true, empresaId: true, nroTramite: true },
+                });
+                for (const e of existentes) existentesPorConvenio.set(e.nroConvenio, e);
+            }
+
+            let yaCargadas = 0;
+            let conflictos = 0;
+            const candidatosReemision: string[] = [];
+            for (const t of validos) {
+                const ex = t.claves!.map((c) => existentesPorConvenio.get(c.nroConvenio)).filter((e): e is NonNullable<typeof e> => !!e);
+                const conflicto = ex.find((e) => e.empresaId !== remesa.empresaId || e.nroTramite !== t.nroTramite);
+                if (conflicto) { conflictos++; continue; }
+                if (ex.length === 2) { yaCargadas++; continue; }
+                if (ex.length === 0) candidatosReemision.push(t.nroTramite);
+            }
+            // Reemisión (la tanda nueva gana, vto ≥ vigente) vs. tanda anterior (R2: vto < vigente,
+            // entra igual pero REEMPLAZADA) son cosas distintas para el operador — antes se contaban
+            // las dos como "reemisión" y el texto decía "las anteriores quedan reemplazadas", que es
+            // al revés para una tanda anterior (la que queda reemplazada es la que se está por cargar).
+            let reemisiones = 0;
+            let tandasAnteriores = 0;
+            if (candidatosReemision.length > 0) {
+                const vigentesExistentes = await this.prisma.clave_pago.findMany({
+                    where: { empresaId: remesa.empresaId, nroTramite: { in: candidatosReemision }, estado: 'VIGENTE' },
+                    select: { nroTramite: true, fechaVencimiento: true },
+                });
+                const vigMaxPorTramite = new Map<string, string>();
+                for (const v of vigentesExistentes) {
+                    const iso = v.fechaVencimiento.toISOString().slice(0, 10);
+                    const actual = vigMaxPorTramite.get(v.nroTramite);
+                    if (!actual || iso > actual) vigMaxPorTramite.set(v.nroTramite, iso);
+                }
+                const porNroTramite = new Map(validos.map((t) => [t.nroTramite, t]));
+                for (const [nroTramite, vigMax] of vigMaxPorTramite) {
+                    const t = porNroTramite.get(nroTramite);
+                    if (!t) continue;
+                    const nuevoMax = t.claves!.reduce((m, c) => (c.fechaVencimiento > m ? c.fechaVencimiento : m), t.claves![0].fechaVencimiento);
+                    if (nuevoMax >= vigMax) reemisiones++; else tandasAnteriores++;
+                }
+            }
+
+            // ── Vencimientos, para que el operador coteje contra lo que informó el cedente ──
+            const vencimientosMap = new Map<string, number>();
+            for (const t of validos) for (const c of t.claves!) {
+                vencimientosMap.set(c.fechaVencimiento, (vencimientosMap.get(c.fechaVencimiento) ?? 0) + 1);
+            }
+            const vencimientos = [...vencimientosMap.entries()]
+                .sort(([a], [b]) => a.localeCompare(b))
+                .map(([fecha, claves]) => ({ fecha, claves }));
+
+            const conCaso = conCasoSet.size;
+            const sinCaso = nroTramitesValidos.length - conCaso;
+            const enOtraEmpresa = [...enOtraEmpresaMap.values()];
+
+            const advertencias: string[] = [];
+            if (sinCaso > 0) {
+                advertencias.push(
+                    `${sinCaso.toLocaleString('es-AR')} de los ${nroTramitesValidos.length.toLocaleString('es-AR')} ` +
+                    'trámites no tienen caso en esta empresa. Las claves se cargan igual: van a quedar ' +
+                    'guardadas y listas para usarse desde la ficha cuando se habilite el cupón.',
+                );
+            }
+            if (conCaso === 0 && enOtraEmpresa.length > 0) {
+                const detalle = enOtraEmpresa.map((e) => `${e.tramites.toLocaleString('es-AR')} en ${e.empresa}`).join(', ');
+                advertencias.push(
+                    `Ninguno de los ${nroTramitesValidos.length.toLocaleString('es-AR')} trámites tiene caso en ` +
+                    `esta empresa, pero ${detalle}. ¿Elegiste la empresa correcta?`,
+                );
+            }
+            if (rechazadosTramites.length > 0) {
+                const detalle = Object.entries(porMotivo).map(([m, c]) => `${c} por ${m}`).join(', ');
+                advertencias.push(
+                    `${rechazadosTramites.length.toLocaleString('es-AR')} trámite(s) se van a rechazar: ${detalle}. ` +
+                    'Sus claves no se cargan.',
+                );
+            }
+            if (reemisiones > 0) {
+                advertencias.push(
+                    `${reemisiones.toLocaleString('es-AR')} trámite(s) ya tenían claves vigentes: las anteriores ` +
+                    'van a quedar reemplazadas.',
+                );
+            }
+            if (tandasAnteriores > 0) {
+                advertencias.push(
+                    `${tandasAnteriores.toLocaleString('es-AR')} trámite(s) traen una tanda con vencimiento ` +
+                    'ANTERIOR a la que ya está vigente: se cargan igual, pero quedan reemplazadas — la que ' +
+                    'sigue vigente es la que ya estaba.',
+                );
+            }
+            if (conflictos > 0) {
+                advertencias.push(
+                    `${conflictos.toLocaleString('es-AR')} convenio(s) ya están cargados en otra empresa u otro ` +
+                    'trámite y se van a rechazar.',
+                );
+            }
+            for (const a of avisos) {
+                if (a.cantidad > 0) advertencias.push(`[${a.codigo}] ${a.cantidad} caso(s).`);
+            }
+
+            this.logger.log(
+                `Preview multiclaves remesa=${remesaId} empresa=${remesa.empresaId}: ` +
+                `tramites=${resumen.tramites} conCaso=${conCaso} enOtraEmpresa=${enOtraEmpresa.length} ` +
+                `en ${Date.now() - t0}ms`,
+            );
+
+            await this.prisma.remesa.update({
+                where: { id: remesaId },
+                data: {
+                    estadoProceso: 'VALIDANDO',
+                    totalFilas: resumen.tramites,
+                    okFilas: resumen.tramites - resumen.rechazados,
+                    errFilas: resumen.rechazados,
+                },
+            });
+
+            return {
+                total: resumen.tramites,
+                ok: resumen.tramites - resumen.rechazados,
+                err: resumen.rechazados,
+                sample: [],
+                multiclaves: {
+                    lineas: resumen.lineas,
+                    claves: resumen.claves,
+                    clavesRechazadas: resumen.clavesRechazadas,
+                    tramites: resumen.tramites,
+                    validos: validos.length,
+                    rechazados: rechazadosTramites.length,
+                    porMotivo,
+                    conCaso,
+                    sinCaso,
+                    enOtraEmpresa,
+                    yaCargadas,
+                    reemisiones,
+                    tandasAnteriores,
+                    conflictos,
+                    vencimientos,
+                    avisos,
+                },
+                advertencias: advertencias.length ? advertencias : undefined,
             };
         }
 
@@ -1414,9 +1705,11 @@ export class ImportService {
 
         // Usar los defaults configurados en la plantilla.
         // ACCIONES no crea deudores → no necesita estado inicial de situación/gestión.
+        // MULTICLAVES tampoco: la clave no se ata a un deudor al cargarla (docs/multiclaves-spec.md §5.1).
         const { defaultEstadoSituacionId, defaultEstadoGestionId } = remesa.plantilla;
         const esAcciones = remesa.categoria === 'ACCIONES';
-        if (!esAcciones && (!defaultEstadoSituacionId || !defaultEstadoGestionId)) {
+        const esMulticlaves = remesa.categoria === 'MULTICLAVES';
+        if (!esAcciones && !esMulticlaves && (!defaultEstadoSituacionId || !defaultEstadoGestionId)) {
             throw new BadRequestException(
                 'La plantilla no tiene configurado el estado inicial de situación/gestión. ' +
                 'Edita la plantilla y completá los campos.',
@@ -1476,6 +1769,7 @@ export class ImportService {
             accionesConfig: mapping?.acciones,
             multirregistroConfig: mapping?.multirregistro,
             multiarchivoConfig: mapping?.multiarchivo,
+            multiclavesConfig: mapping?.multiclaves,
         };
 
         const sep = resolveDelimiter(remesa.plantilla.separador ?? '|');
@@ -1486,12 +1780,13 @@ export class ImportService {
         // antepone al mensaje de error para poder ubicar la fila entre los 31 TXT de una bajada.
         const batch: Array<{ row: any; idx: number; origen?: string | null }> = [];
 
-        // MULTIRREGISTRO y MULTIARCHIVO no son "una fila = un registro": hay que agrupar o cruzar
-        // los archivos antes de procesar. El parser devuelve filas ya normalizadas, así que estas
-        // NO pasan por `mapRow` (que asume un array de columnas).
+        // MULTIRREGISTRO, MULTIARCHIVO y MULTICLAVES no son "una fila = un registro": hay que
+        // agrupar o cruzar los archivos antes de procesar. El parser devuelve filas (o, en
+        // MULTICLAVES, trámites) ya normalizados, así que estos NO pasan por `mapRow` (que asume un
+        // array de columnas).
         const esMultirregistro = remesa.categoria === 'MULTIRREGISTRO';
         const esMultiarchivo = remesa.categoria === 'MULTIARCHIVO';
-        const esPreparsado = esMultirregistro || esMultiarchivo;
+        const esPreparsado = esMultirregistro || esMultiarchivo || esMulticlaves;
 
         this.logger.log(
             `Procesando remesa=${remesaId} categoria=${remesa.categoria} ` +
@@ -1713,6 +2008,51 @@ export class ImportService {
 
             for (const fila of filas) {
                 batch.push({ row: fila, idx: total++ });
+                if (batch.length >= BATCH_SIZE) await processBatch();
+            }
+            if (batch.length > 0) await processBatch();
+
+        } else if (esMulticlaves) {
+            // ── Claves de pago de Telecom/Personal (layout fijo en código, D2) ──────────
+            const cfgMulti = mapping?.multiclaves;
+            if (!cfgMulti) {
+                throw new Error(
+                    'La plantilla es de categoría MULTICLAVES pero no tiene `mappingJson.multiclaves` configurado.',
+                );
+            }
+
+            const { paths, nombres } = this.archivosDeRemesa(remesa);
+            const archivosLeidos = paths.map((p, i) => ({ buffer: fs.readFileSync(p), nombre: nombres[i] || path.basename(p) }));
+
+            const t0 = Date.now();
+            let parseado: ReturnType<typeof parseMulticlaves>;
+            try {
+                parseado = parseMulticlaves(archivosLeidos, cfgMulti, new Date());
+            } catch (e: any) {
+                throw e instanceof MulticlavesArchivoInvalidoError ? e : new Error(e.message ?? 'Error al leer el archivo de claves');
+            }
+            const { tramites: tramitesMulticlaves, avisos, resumen } = parseado;
+            this.logger.log(
+                `Multiclaves remesa=${remesaId}: ${resumen.lineas} líneas → ${resumen.tramites} trámites ` +
+                `(${resumen.tramites - resumen.rechazados} válidos, ${resumen.rechazados} rechazados, ` +
+                `avisos=${JSON.stringify(resumen.porAviso)}) en ${Date.now() - t0}ms`,
+            );
+
+            // Los avisos del parseo (no bloquean la carga) quedan visibles en el detalle de la
+            // importación, con prefijo [aviso] y rowNumber 0 para no contarlos como error.
+            if (avisos.length > 0) {
+                await this.prisma.importerror.createMany({
+                    data: avisos.map((a) => ({
+                        remesaId,
+                        rowNumber: 0,
+                        rawRow: a.ejemplos as any,
+                        errorMsg: `[aviso] ${a.codigo}: ${a.cantidad} caso(s) (ej: ${a.ejemplos.slice(0, 5).join(', ')})`,
+                    })),
+                });
+            }
+
+            for (const t of tramitesMulticlaves) {
+                batch.push({ row: t as unknown as MappedRow, idx: total++ });
                 if (batch.length >= BATCH_SIZE) await processBatch();
             }
             if (batch.length > 0) await processBatch();
@@ -2075,6 +2415,12 @@ export class ImportService {
             throw new ForbiddenException('No tenés permiso para eliminar esta importación');
         }
 
+        // MULTICLAVES no crea deudores: tiene su propia rama, sin el chequeo de gestión de abajo
+        // (que mira comentarios/convenios/pagos/llamadas/emails de LOS DEUDORES de la remesa).
+        if (remesa.categoria === 'MULTICLAVES') {
+            return this.deleteRemesaMulticlaves(remesaId, user);
+        }
+
         // Casos ("deudores") de la remesa.
         const deudores = await this.prisma.deudor.findMany({
             where: { remesaId },
@@ -2124,5 +2470,172 @@ export class ImportService {
 
         this.logger.log(`Remesa ${remesaId} eliminada por usuario ${user.sub} (casos=${deudorIds.length})`);
         return { deleted: true, casosEliminados: deudorIds.length };
+    }
+
+    /**
+     * Borrado de una remesa MULTICLAVES (spec §5.8). Una clave nunca se borra si tiene un convenio
+     * asociado (R3, de cualquier estado — incluido ANULADO).
+     *
+     * Para las tandas relacionadas con esta remesa, **no se restaura mecánicamente** la que esta
+     * remesa había reemplazado: se recalcula desde cero, entre TODAS las tandas que le quedan al
+     * trámite, cuál es la que gana (mayor vencimiento; en empate, la cargada más tarde) y se
+     * corrigen los punteros de todas las demás para que apunten a esa. Es necesario para no
+     * confundir dos casos bien distintos que antes se trataban igual:
+     *
+     *  - Una tanda "reemisión" (esta remesa venció a otra, que quedó `reemplazadaPorRemesaId` =
+     *    esta) — si se borra, la reemplazada puede volver a ganar.
+     *  - Una tanda "anterior" que ENTRÓ ya `REEMPLAZADA` apuntando a la vigente de ese momento (R2:
+     *    vencimiento anterior al vigente) — si se borra, no cambia nada para nadie más.
+     *
+     * **Todo en lote, nunca una query por trámite.** La primera versión hacía 1 `findMany` + hasta 2
+     * `updateMany` POR trámite afectado, dentro de una única transacción interactiva: con miles de
+     * trámites (una reemisión de archivo completo), esa transacción se corta contra el timeout de
+     * Prisma antes de terminar — medido contra MySQL local, "Transaction not found" en el trámite
+     * 7.136 de 7.478, a los 5 segundos. Acá se trae en pocas queries (tandas de 1.000 vía `IN`) todo
+     * lo que hace falta, se calcula la ganadora de cada trámite en memoria, y se aplica con
+     * `updateMany` agrupados — el total de queries crece con la cantidad de TANDAS de 1.000, no con
+     * la cantidad de trámites.
+     */
+    private async deleteRemesaMulticlaves(remesaId: number, user: { sub: number; permisos: string[] }) {
+        const t0 = Date.now();
+        const CHUNK = 1000;
+        this.logger.log(`Multiclaves remesa=${remesaId}: intent de borrado por usuario ${user.sub}`);
+
+        const conConvenio = await this.prisma.convenio.count({ where: { clavePago: { remesaId } } });
+        if (conConvenio > 0) {
+            this.logger.warn(`Multiclaves remesa=${remesaId}: borrado rechazado, ${conConvenio} clave(s) con convenio (R3)`);
+            throw new BadRequestException(
+                `No se puede eliminar: ${conConvenio} clave(s) de esta carga ya tienen convenio o cupón emitido.`,
+            );
+        }
+
+        let borradas = 0;
+        let restauradas = 0;
+        let repuntadas = 0;
+
+        await this.prisma.$transaction(async (tx) => {
+            // Trámites que dependían de esta remesa: alguna clave (de otra remesa) quedó apuntando
+            // acá como su reemplazo. Si no hay ninguno, borrar esta remesa no cambia nada para el
+            // resto — es el camino común (una carga sin historial de reemisión) y son 2 queries en
+            // total, sin importar cuántas claves tenga la carga.
+            const afectados = await tx.clave_pago.findMany({
+                where: { reemplazadaPorRemesaId: remesaId },
+                select: { empresaId: true, nroTramite: true },
+                distinct: ['empresaId', 'nroTramite'],
+            });
+
+            const del = await tx.clave_pago.deleteMany({ where: { remesaId } });
+            borradas = del.count;
+
+            if (afectados.length > 0) {
+                // Se pide todo lo que le queda a esos trámites en tandas de 1.000 por `IN`, agrupado
+                // por empresa (en la práctica una sola: todos los trámites de una remesa son de la
+                // misma empresa). Nada de esto depende de cuántos trámites haya: son ceil(N/1.000)
+                // queries, no N.
+                const porEmpresa = new Map<number, string[]>();
+                for (const a of afectados) {
+                    const lista = porEmpresa.get(a.empresaId) ?? [];
+                    lista.push(a.nroTramite);
+                    porEmpresa.set(a.empresaId, lista);
+                }
+
+                type FilaRestante = {
+                    id: number; remesaId: number; estado: string; reemplazadaPorRemesaId: number | null;
+                    fechaVencimiento: Date; createdAt: Date;
+                };
+                const restantesPorTramite = new Map<string, FilaRestante[]>();
+                for (const [empresaId, tramitesDeEmpresa] of porEmpresa) {
+                    for (let i = 0; i < tramitesDeEmpresa.length; i += CHUNK) {
+                        const chunk = tramitesDeEmpresa.slice(i, i + CHUNK);
+                        const filas = await tx.clave_pago.findMany({
+                            where: { empresaId, nroTramite: { in: chunk } },
+                            select: {
+                                id: true, remesaId: true, nroTramite: true, estado: true,
+                                reemplazadaPorRemesaId: true, fechaVencimiento: true, createdAt: true,
+                            },
+                        });
+                        for (const f of filas) {
+                            const key = `${empresaId}|${f.nroTramite}`;
+                            const lista = restantesPorTramite.get(key) ?? [];
+                            lista.push(f);
+                            restantesPorTramite.set(key, lista);
+                        }
+                    }
+                }
+
+                // Ganadora por trámite, toda en memoria (mismo criterio que el processor al cargar:
+                // mayor vencimiento y, en empate, la cargada más tarde).
+                const idsAVigente: number[] = [];
+                const idsPerdedorasPorGanadora = new Map<number, number[]>();
+
+                for (const filas of restantesPorTramite.values()) {
+                    if (filas.length === 0) continue;
+                    const porRemesa = new Map<number, FilaRestante[]>();
+                    for (const f of filas) {
+                        const lista = porRemesa.get(f.remesaId) ?? [];
+                        lista.push(f);
+                        porRemesa.set(f.remesaId, lista);
+                    }
+                    let ganadoraId = -1;
+                    let mejorVto = '';
+                    let mejorCreatedAt = -1;
+                    for (const [rid, fs] of porRemesa) {
+                        const vtoMax = fs.reduce((m, f) => (f.fechaVencimiento > m ? f.fechaVencimiento : m), fs[0].fechaVencimiento).toISOString();
+                        const createdMax = Math.max(...fs.map((f) => f.createdAt?.getTime() ?? 0));
+                        if (vtoMax > mejorVto || (vtoMax === mejorVto && createdMax > mejorCreatedAt)) {
+                            ganadoraId = rid;
+                            mejorVto = vtoMax;
+                            mejorCreatedAt = createdMax;
+                        }
+                    }
+
+                    for (const f of porRemesa.get(ganadoraId) ?? []) {
+                        if (f.estado !== 'VIGENTE' || f.reemplazadaPorRemesaId !== null) idsAVigente.push(f.id);
+                    }
+                    for (const f of filas) {
+                        if (f.remesaId !== ganadoraId && (f.estado !== 'REEMPLAZADA' || f.reemplazadaPorRemesaId !== ganadoraId)) {
+                            const lista = idsPerdedorasPorGanadora.get(ganadoraId) ?? [];
+                            lista.push(f.id);
+                            idsPerdedorasPorGanadora.set(ganadoraId, lista);
+                        }
+                    }
+                }
+
+                // Aplicar: el `data` de "pasar a VIGENTE" es igual para todos, así que se manda en
+                // tandas de 1.000 ids sin importar a cuántos trámites/remesas pertenecen. Los
+                // "perdedores" sí llevan un `reemplazadaPorRemesaId` propio, pero como una remesa
+                // suele ganar para MUCHOS trámites a la vez, la cantidad de grupos distintos es
+                // chica en la práctica (no crece con la cantidad de trámites).
+                for (let i = 0; i < idsAVigente.length; i += CHUNK) {
+                    const chunk = idsAVigente.slice(i, i + CHUNK);
+                    await tx.clave_pago.updateMany({
+                        where: { id: { in: chunk } },
+                        data: { estado: 'VIGENTE', reemplazadaEn: null, reemplazadaPorRemesaId: null },
+                    });
+                    restauradas += chunk.length;
+                }
+                for (const [ganadoraId, ids] of idsPerdedorasPorGanadora) {
+                    for (let i = 0; i < ids.length; i += CHUNK) {
+                        const chunk = ids.slice(i, i + CHUNK);
+                        await tx.clave_pago.updateMany({
+                            where: { id: { in: chunk } },
+                            data: { estado: 'REEMPLAZADA', reemplazadaEn: new Date(), reemplazadaPorRemesaId: ganadoraId },
+                        });
+                        repuntadas += chunk.length;
+                    }
+                }
+            }
+
+            await tx.jobimport.deleteMany({ where: { remesaId } });
+            await tx.importerror.deleteMany({ where: { remesaId } });
+            await tx.remesa.delete({ where: { id: remesaId } });
+        }, { timeout: 30_000, maxWait: 10_000 });
+
+        this.logger.log(
+            `Multiclaves remesa=${remesaId} eliminada por usuario ${user.sub}: ${borradas} clave(s) borradas, ` +
+            `${restauradas} restaurada(s) a VIGENTE, ${repuntadas} repuntada(s) a la tanda ganadora ` +
+            `en ${Date.now() - t0}ms`,
+        );
+        return { deleted: true, clavesEliminadas: borradas, clavesRestauradas: restauradas };
     }
 }

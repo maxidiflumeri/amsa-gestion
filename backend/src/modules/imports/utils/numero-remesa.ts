@@ -42,3 +42,27 @@ export function siguienteNumeroRemesa(
 
     return String(maxNumero + 1).padStart(ancho, '0');
 }
+
+/**
+ * Número de remesa de una carga de MULTICLAVES: `MC-AAAAMMDD-HHmmss`, hora Argentina.
+ *
+ * No es numérico a propósito (D5 del spec): con el correlativo automático, la carga de claves
+ * consumiría el número siguiente de la empresa y correría la numeración de las asignaciones de
+ * Telecom. `MC-…` no matchea `/^\d{1,6}$/`, así que `siguienteNumeroRemesa` lo ignora para siempre.
+ *
+ * Con resolución de minuto, dos cargas en el mismo minuto (reintento tras un 400, "Atrás" y volver
+ * a validar) chocaban contra la unique `(empresaId, numeroRemesa)` y el alta terminaba en un 500.
+ * Con segundos el choque es mucho más improbable, pero `crearRemesaConNumeroSeguro` igual reintenta
+ * con un sufijo si pasa: ningún camino puede terminar en 500 por esto.
+ *
+ * Argentina no tiene horario de verano desde 2009 (UTC-3 todo el año), así que alcanza con
+ * `Intl.DateTimeFormat` sin necesitar una librería de zonas horarias.
+ */
+export function numeroRemesaMulticlaves(fecha: Date): string {
+    const partes = new Intl.DateTimeFormat('en-CA', {
+        timeZone: 'America/Argentina/Buenos_Aires',
+        year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false,
+    }).formatToParts(fecha);
+    const get = (tipo: string) => partes.find((p) => p.type === tipo)?.value ?? '00';
+    return `MC-${get('year')}${get('month')}${get('day')}-${get('hour')}${get('minute')}${get('second')}`;
+}
