@@ -22,17 +22,24 @@ export class DeudoresService {
     async findAll(page?: number, limit?: number, search?: string) {
         let where: Prisma.deudorWhereInput = {};
 
-        if (search) {
+        const termino = search?.trim();
+
+        if (termino) {
             where = {
                 OR: [
-                    { nombre: { contains: search } },
-                    { apellido: { contains: search } },
-                    { documento: { contains: search } },
+                    { nombre: { contains: termino } },
+                    { apellido: { contains: termino } },
+                    // El documento va por igualdad, NO por `contains`. Con `contains`, buscar el DNI
+                    // 27336733 devolvía también el CUIL 27336733405 de otra persona, que lo contiene
+                    // por casualidad. Un documento es un identificador: se busca entero o no se busca.
+                    { documento: termino },
                 ],
             };
 
-            const searchAsId = Number(search);
-            if (!isNaN(searchAsId) && searchAsId > 0) {
+            const searchAsId = Number(termino);
+            // El tope es el rango del INT de `deudor.id`: un documento largo (un CUIL, por ejemplo)
+            // es un número válido pero jamás un id, y colarlo acá haría fallar la query.
+            if (Number.isInteger(searchAsId) && searchAsId > 0 && searchAsId <= 2147483647) {
                 // Si el término de búsqueda puede ser un ID válido numérico, lo agregamos al OR.
                 (where.OR as any[]).push({ id: searchAsId });
             }
@@ -90,8 +97,11 @@ export class DeudoresService {
         if (dto.apellido) {
             andConditions.push({ apellido: { contains: dto.apellido } });
         }
-        if (dto.documento) {
-            andConditions.push({ documento: { contains: dto.documento } });
+        const documento = dto.documento?.trim();
+        if (documento) {
+            // Match EXACTO, igual que en `findAll`: `contains` mezclaba un DNI con los CUIL que
+            // lo contienen como subcadena y mostraba dos personas distintas como si fueran la misma.
+            andConditions.push({ documento });
         }
         if (dto.empresa) {
             // Match EXACTO: el valor viene de un combo de empresas, no de texto libre. Con `contains`,

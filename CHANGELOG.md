@@ -6,6 +6,55 @@
 
 ---
 
+## [2026-09-08] — Buscar un DNI traía también los CUIL que lo contienen
+
+Reportado desde producción: buscando el DNI `27336733` aparecían **dos** casos, `27336733` y
+`27336733405`. El segundo es el CUIL de **otra persona**, que arranca con esos ocho dígitos por
+casualidad — el DNI que hay adentro de ese CUIL es `33673340`, otro número.
+
+### Qué pasaba
+
+Los dos buscadores de deudores filtraban el documento con `contains`, o sea `LIKE '%valor%'`. Eso
+matchea por subcadena en cualquier posición, así que un DNI traía todo documento más largo que lo
+contuviera. Dos titulares distintos se mostraban como si fueran el mismo caso.
+
+### Backend
+
+- **`DeudoresService.findAll`** (buscador de la tabla) y **`searchAdvanced`** (Buscador Avanzado)
+  pasan el `documento` a **igualdad**. `nombre` y `apellido` siguen siendo parciales: ahí la
+  búsqueda por fragmento es lo que se quiere. El término se recorta antes de comparar, así que
+  pegar el DNI con espacios sigue encontrándolo.
+- De paso, en `findAll` el término numérico solo se prueba como `id` si entra en el **INT** de la
+  columna. Un CUIL es un número válido pero jamás un id, y colarlo en el `OR` podía hacer fallar
+  la query.
+- `deudores-busqueda.spec.ts`: 9 tests que fijan el comportamiento de los dos buscadores.
+
+### Lo que se revisó y estaba bien
+
+La duda de fondo era si el match por DNI de las importaciones tenía el mismo defecto — si un
+enriquecimiento podía cargarle un teléfono al titular equivocado. **No puede**: todos los caminos
+de importación matchean por igualdad, ninguno usa `contains`/`LIKE`.
+
+- `enriquecimiento.processor` y `contactos.processor`: `WHERE ... AND documento = ?` (SQL
+  parametrizado), y además scopeado por `empresaId` **y** `remesaId`.
+- `deudores.processor` / `identidad-deudor`: upsert sobre el unique `(empresaId, documento, remesaId)`.
+- `acciones.processor` y `casos-cedente.processor`: igualdad.
+- `enriquecerContactosHistoricos` es el único match **sin scope** (cruza empresa y remesa), pero
+  también es por igualdad, y la guarda que excluye los placeholders cubre los dos prefijos que
+  existen hoy (`SIN-DNI-` y `SIN_DOC`). No hay un tercero.
+- Ninguna plantilla convierte CUIL → DNI recortando dígitos, que es lo que podría haber fabricado
+  colisiones reales.
+
+### Deuda que deja el caso
+
+Hay carteras que guardan el **CUIL completo** en `documento` y otras el **DNI pelado**. No rompe
+nada, pero el auto-enriquecimiento histórico es igualdad de string: un mismo titular cargado como
+CUIL en una cartera y como DNI en otra **no se enriquece entre sí**. Es una oportunidad perdida, no
+un dato mal puesto. Ya estaba anotado como limitación conocida en `enriquecimiento-historico.ts`.
+Queda pendiente medir en producción cuántos casos así hay.
+
+---
+
 ## [2026-08-31] — Las fechas del cedente se mostraban un día antes
 
 Reportado desde las pruebas: *"la fecha fin de gestión se carga un día menos"*. El dato guardado
