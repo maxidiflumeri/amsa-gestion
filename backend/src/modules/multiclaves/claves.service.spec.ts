@@ -38,7 +38,8 @@ function makeService(over: {
             }),
         },
     };
-    return { service: new ClavesService(prisma), prisma };
+    const bloqueo: any = { estaBloqueado: jest.fn().mockReturnValue(false), assertNoBloqueado: jest.fn() };
+    return { service: new ClavesService(prisma, bloqueo), prisma, bloqueo };
 }
 
 const clave = (over: Partial<any> & { id: number; nroTramite: string }) => ({
@@ -177,5 +178,170 @@ describe('ClavesService.sinCaso', () => {
         const pageNegativa = await service.sinCaso(10, -3, 1);
         expect(pageNegativa.items).toHaveLength(1); // se trata como página 1, no rompe el slice
         expect(pageNegativa.items[0].nroTramite).toBe('T1');
+    });
+});
+
+describe('ClavesService.clavesDelCaso', () => {
+    const CLAVE_QUITA = {
+        id: 100, tipo: 'QUITA', nroConvenio: '96332206', importe: '19880.01', saldoTramite: '39760.03',
+        fechaVencimiento: new Date('2026-10-27T00:00:00.000Z'),
+        clavePago: '0096332206000019880014', codigoBarras: '49800019880012710202600000000000096332206000000007',
+        estado: 'VIGENTE',
+        remesa: { id: 5, numeroRemesa: 'MC-20260901-1000', createdAt: new Date('2026-09-01T10:00:00.000Z') },
+    };
+    const CLAVE_TOTAL = {
+        ...CLAVE_QUITA, id: 101, tipo: 'TOTAL', nroConvenio: '96311343', importe: '39760.03',
+        clavePago: '0096311343000039760032', codigoBarras: '49800039760032710202600000000000096311343000000009',
+    };
+
+    function armar(opts: {
+        deudor?: any;
+        claves?: any[];
+        convenios?: any[];
+        otrosCasos?: any[];
+        estaBloqueado?: boolean;
+    } = {}) {
+        const deudor = 'deudor' in opts ? opts.deudor : {
+            id: 500, empresaId: 10, nroCliente: '1841012140', saldo: 39760.03, montoTotal: 39760.03, estadoSituacionId: 1,
+        };
+        const claves = opts.claves ?? [CLAVE_QUITA, CLAVE_TOTAL];
+        const convenios = opts.convenios ?? [];
+        const otrosCasos = opts.otrosCasos ?? [];
+
+        const prisma: any = {
+            deudor: {
+                findUnique: jest.fn().mockResolvedValue(deudor),
+                findMany: jest.fn().mockResolvedValue(otrosCasos),
+            },
+            clave_pago: { findMany: jest.fn().mockResolvedValue(claves) },
+            convenio: { findMany: jest.fn().mockResolvedValue(convenios) },
+            // La resolución de "otros casos" hace TRIM en SQL (ver comentario en claves.service.ts):
+            // el mock simplemente devuelve los ids de la fixture, como si el TRIM ya los hubiese
+            // encontrado — el `deudor.findMany` de arriba resuelve los datos a mostrar.
+            $queryRaw: jest.fn().mockResolvedValue(otrosCasos.map((o) => ({ id: o.id }))),
+        };
+        const bloqueo: any = { estaBloqueado: jest.fn().mockReturnValue(opts.estaBloqueado ?? false) };
+        return { service: new ClavesService(prisma, bloqueo), prisma, bloqueo };
+    }
+
+    it('404 si el deudor no existe', async () => {
+        const { service } = armar({ deudor: null });
+        await expect(service.clavesDelCaso(999)).rejects.toBeInstanceOf(NotFoundException);
+    });
+
+    it('sin nroCliente, devuelve claves vacías sin consultar clave_pago', async () => {
+        const { service, prisma } = armar({ deudor: { id: 1, empresaId: 10, nroCliente: null, saldo: null, montoTotal: null, estadoSituacionId: null } });
+        const res = await service.clavesDelCaso(1);
+        expect(res).toEqual({
+            nroTramite: null,
+            claves: [],
+            avisos: { cuentaCancelada: false, saldoDistinto: null, otrosCasosDelTramite: [], plantillaCuponConfigurada: false },
+        });
+        expect(prisma.clave_pago.findMany).not.toHaveBeenCalled();
+    });
+
+    it('trae las claves QUITA y TOTAL del trámite, con vtoImpreso y vencida calculados', async () => {
+        const { service } = armar();
+        const res = await service.clavesDelCaso(500);
+        expect(res.nroTramite).toBe('1841012140');
+        expect(res.claves).toHaveLength(2);
+        const quita = res.claves.find((c: any) => c.tipo === 'QUITA')!;
+        expect(quita.importe).toBe('19880.01');
+        expect(quita.nroConvenio).toBe('96332206');
+        expect(quita.vencida).toBe(false);
+        expect(typeof quita.vtoImpreso).toBe('string');
+        expect(quita.convenioActivo).toBeNull();
+    });
+
+    it('NUNCA devuelve la clave de 22 dígitos ni el código de barras completos (D6, hallazgo de la auditoría)', async () => {
+        const { service } = armar();
+        const res = await service.clavesDelCaso(500);
+        for (const c of res.claves) {
+            expect(c).not.toHaveProperty('clavePago');
+            expect(c).not.toHaveProperty('codigoBarras');
+            expect(c.clavePagoUltimos4).toMatch(/^\d{4}$/);
+        }
+        const quita = res.claves.find((c: any) => c.tipo === 'QUITA')!;
+        expect(quita.clavePagoUltimos4).toBe(CLAVE_QUITA.clavePago.slice(-4));
+    });
+
+    it('marca el convenio activo y si es de este caso', async () => {
+        const { service } = armar({
+            convenios: [{ id: 777, deudorId: 500, clavePagoId: CLAVE_QUITA.id, createdAt: new Date('2026-09-10T00:00:00.000Z') }],
+        });
+        const res = await service.clavesDelCaso(500);
+        const quita = res.claves.find((c: any) => c.tipo === 'QUITA')!;
+        expect(quita.convenioActivo).toEqual({ id: 777, deudorId: 500, esEsteCaso: true, createdAt: '2026-09-10T00:00:00.000Z' });
+    });
+
+    it('convenio activo de OTRO caso: esEsteCaso false', async () => {
+        const { service } = armar({
+            convenios: [{ id: 777, deudorId: 999, clavePagoId: CLAVE_QUITA.id, createdAt: new Date('2026-09-10T00:00:00.000Z') }],
+        });
+        const res = await service.clavesDelCaso(500);
+        const quita = res.claves.find((c: any) => c.tipo === 'QUITA')!;
+        expect(quita.convenioActivo?.esEsteCaso).toBe(false);
+    });
+
+    it('avisa cuando el saldo del caso difiere del saldoTramite en más de $1', async () => {
+        const { service } = armar({
+            deudor: { id: 500, empresaId: 10, nroCliente: '1841012140', saldo: 50000, montoTotal: 50000, estadoSituacionId: 1 },
+        });
+        const res = await service.clavesDelCaso(500);
+        expect(res.avisos.saldoDistinto).toEqual({ saldoCaso: 50000, saldoTramite: '39760.03' });
+    });
+
+    it('no avisa si la diferencia de saldo está dentro de la tolerancia de $1', async () => {
+        const { service } = armar({
+            deudor: { id: 500, empresaId: 10, nroCliente: '1841012140', saldo: 39760.53, montoTotal: 39760.53, estadoSituacionId: 1 },
+        });
+        const res = await service.clavesDelCaso(500);
+        expect(res.avisos.saldoDistinto).toBeNull();
+    });
+
+    it('lista otros casos del mismo trámite (no cancelados)', async () => {
+        const { service } = armar({
+            otrosCasos: [{ id: 42, remesa: { numeroRemesa: '00609' }, estadoSituacion: { clave: 'SIT-010' }, estadoGestion: { clave: 'GES-020' } }],
+        });
+        const res = await service.clavesDelCaso(500);
+        expect(res.avisos.otrosCasosDelTramite).toEqual([
+            { deudorId: 42, numeroRemesa: '00609', situacion: 'SIT-010', enGestion: true },
+        ]);
+    });
+
+    it('resuelve "otros casos" con TRIM en SQL, no con igualdad exacta (hallazgo de la auditoría: un hermano con espacios en nroCliente no matcheaba)', async () => {
+        const { service, prisma } = armar({
+            deudor: { id: 500, empresaId: 10, nroCliente: ' 1841012140 ', saldo: 39760.03, montoTotal: 39760.03, estadoSituacionId: 1 },
+            otrosCasos: [{ id: 77, remesa: { numeroRemesa: '00610' }, estadoSituacion: { clave: 'SIT-010' }, estadoGestion: { clave: 'GES-020' } }],
+        });
+        const res = await service.clavesDelCaso(500);
+        expect(prisma.$queryRaw).toHaveBeenCalled();
+        // El propio trámite ya se resuelve trimeado; la query de "otros casos" tiene que buscar
+        // por ese mismo valor trimeado, no por el nroCliente crudo (con espacios) del deudor actual.
+        expect(res.nroTramite).toBe('1841012140');
+        expect(res.avisos.otrosCasosDelTramite).toEqual([
+            { deudorId: 77, numeroRemesa: '00610', situacion: 'SIT-010', enGestion: true },
+        ]);
+    });
+
+    it('usa DeudorBloqueoService.estaBloqueado para el aviso de cuenta cancelada', async () => {
+        const { service, bloqueo } = armar({ estaBloqueado: true });
+        const res = await service.clavesDelCaso(500);
+        expect(res.avisos.cuentaCancelada).toBe(true);
+        expect(bloqueo.estaBloqueado).toHaveBeenCalledWith(1);
+    });
+
+    it('incluirReemplazadas=false solo trae VIGENTE (se filtra en la query, no acá)', async () => {
+        const { service, prisma } = armar();
+        await service.clavesDelCaso(500, false);
+        const where = prisma.clave_pago.findMany.mock.calls[0][0].where;
+        expect(where.estado).toBe('VIGENTE');
+    });
+
+    it('incluirReemplazadas=true no filtra por estado', async () => {
+        const { service, prisma } = armar();
+        await service.clavesDelCaso(500, true);
+        const where = prisma.clave_pago.findMany.mock.calls[0][0].where;
+        expect(where.estado).toBeUndefined();
     });
 });

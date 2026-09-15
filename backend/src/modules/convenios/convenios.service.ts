@@ -27,6 +27,10 @@ export class ConveniosService {
         cuotas: {
           orderBy: { nroCuota: 'asc' },
         },
+        // Para los convenios `origen: 'CLAVE_PAGO'` (multiclaves-spec.md §11.1): la ficha necesita
+        // saber si la clave era la de saldo total o la de quita para armar el chip "Clave · …". En
+        // LIBRE/AUTOMATICO `clavePagoId` es null y esto viene `null` sin costo extra de query.
+        clavePago: { select: { tipo: true, nroConvenio: true, nroTramite: true } },
       },
       orderBy: { createdAt: 'desc' },
     });

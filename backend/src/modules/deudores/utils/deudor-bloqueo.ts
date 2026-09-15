@@ -77,4 +77,13 @@ export class DeudorBloqueoService implements OnModuleInit {
             });
         }
     }
+
+    /**
+     * Variante que NO lanza: para armar avisos de solo lectura (p. ej. "esta clave no se puede usar
+     * porque el caso está cancelado" en la ficha) sin bloquear la request. Misma fuente de verdad
+     * (`idsCancelado`, categoría CANCELADO) que `assertNoBloqueado`.
+     */
+    estaBloqueado(estadoSituacionId: number | null | undefined): boolean {
+        return estadoSituacionId != null && this.idsCancelado.includes(estadoSituacionId);
+    }
 }

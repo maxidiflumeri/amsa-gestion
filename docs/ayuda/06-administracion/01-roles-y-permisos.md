@@ -78,6 +78,14 @@ Tres que no son obvios:
 - **Ver auditoría** vs **Ver auditoría de todos** — sin el segundo, solo ve sus propias acciones.
 - **Ver tableros de todas las empresas** — sin este, el tablero queda acotado a su empresa.
 
+Uno nuevo, de la sección **Convenios**:
+
+- **Generar cupones de pago** — es el que deja emitir el cupón con la clave de pago del cedente
+  (Telecom/Personal) desde la ficha. Es aparte de *Crear convenios*: alguien puede armar convenios a
+  mano y no tener este, o al revés. Si además pasa de la clave de saldo total a la de quita (o al
+  revés) con un cupón ya emitido, el sistema pide **también** *Cancelar convenios* — anula el convenio
+  anterior. Ver [Cupones de pago](/ayuda/gestion/cupones-de-pago).
+
 ---
 
 ## Los permisos de telefonía

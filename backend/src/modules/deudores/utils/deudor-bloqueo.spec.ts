@@ -165,4 +165,28 @@ describe('DeudorBloqueoService', () => {
             expect(spy).not.toHaveBeenCalled();
         });
     });
+
+    describe('estaBloqueado — variante que no lanza (multiclaves la usa para avisos de solo lectura)', () => {
+        it('true para cualquiera de los 4 códigos de categoría CANCELADO', async () => {
+            const svc = makeService(true, null);
+            await svc.onModuleInit();
+            for (const id of [42, 51, 52, 53]) {
+                expect(svc.estaBloqueado(id)).toBe(true);
+            }
+        });
+
+        it('false para otro estadoSituacionId, null o undefined', async () => {
+            const svc = makeService(true, null);
+            await svc.onModuleInit();
+            expect(svc.estaBloqueado(10)).toBe(false);
+            expect(svc.estaBloqueado(null)).toBe(false);
+            expect(svc.estaBloqueado(undefined)).toBe(false);
+        });
+
+        it('en modo degradado (sin códigos seedeados) nunca da true', async () => {
+            const svc = makeService(false, null);
+            await svc.onModuleInit();
+            expect(svc.estaBloqueado(42)).toBe(false);
+        });
+    });
 });

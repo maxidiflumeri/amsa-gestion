@@ -38,6 +38,7 @@
     "@types/pdfmake": "^0.3.2",
     "axios": "^1.13.1",
     "bullmq": "^5.70.4",
+    "bwip-js": "^4.11.4",
     "class-transformer": "^0.5.1",
     "class-validator": "^0.14.2",
     "dayjs": "^1.11.19",

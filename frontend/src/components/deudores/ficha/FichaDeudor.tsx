@@ -31,7 +31,9 @@ import AgregarContactoModal from './modals/AgregarContactoModal';
 import NuevoConvenioModal from './modals/NuevoConvenioModal';
 import PagoCuotaModal from './modals/PagoCuotaModal';
 import NuevoPagoModal from './modals/NuevoPagoModal';
+import GenerarCuponDialog from './modals/GenerarCuponDialog';
 import EnviarEmailDialog from '../../email/EnviarEmailDialog';
+import { multiclavesApi, ClaveDelCaso } from '../../../api/multiclaves';
 
 interface Props {
     deudorId: number;
@@ -48,6 +50,9 @@ const FichaDeudor: React.FC<Props> = ({ deudorId }) => {
     const puedeCrearPromesa = tienePermiso('promesas.crear');
     const puedeVerPromesas = tienePermiso('promesas.ver');
     const puedeCancelarPromesa = tienePermiso('promesas.cancelar');
+    const puedeVerConvenios = tienePermiso('convenios.ver');
+    const puedeGenerarCupon = tienePermiso('convenios.generar_cupon');
+    const puedeCancelarConvenios = tienePermiso('convenios.cancelar');
 
     const [deudor, setDeudor] = useState<any>(null);
     const [loading, setLoading] = useState(true);
@@ -66,6 +71,15 @@ const FichaDeudor: React.FC<Props> = ({ deudorId }) => {
     const [convenios, setConvenios] = useState<any[]>([]);
     const [loadingConvenios, setLoadingConvenios] = useState(false);
     const [openModalConvenio, setOpenModalConvenio] = useState(false);
+
+    // Claves de pago / cupón (multiclaves)
+    const [clavesVigentes, setClavesVigentes] = useState<ClaveDelCaso[]>([]);
+    const [reloadTokenClaves, setReloadTokenClaves] = useState(0);
+    const [cuponDialog, setCuponDialog] = useState<{ claveId: number } | null>(null);
+    // Categoría CANCELADO completa (`avisos.cuentaCancelada` del backend), reportada por
+    // `ClavesPagoCard` — a diferencia de `cuentaCancelada` de acá abajo, que solo mira SIT-050.
+    // `undefined` hasta que se cargue por primera vez (o si el usuario no tiene `convenios.ver`).
+    const [cuentaCanceladaClaves, setCuentaCanceladaClaves] = useState<boolean | undefined>(undefined);
 
     // Modal pago de cuota
     const [cuotaAPagar, setCuotaAPagar] = useState<any>(null);
@@ -315,6 +329,37 @@ const FichaDeudor: React.FC<Props> = ({ deudorId }) => {
         setOpenModalConvenio(true);
     }, []);
 
+    const handleGenerarCupon = useCallback((clave: ClaveDelCaso) => {
+        setCuponDialog({ claveId: clave.id });
+    }, []);
+
+    const handleCuponGenerado = useCallback(() => {
+        // El cupón cambió la gestión y dejó un comentario nuevo, además del convenio: se recarga
+        // todo lo que se ve en la ficha, no solo la lista de convenios.
+        cargarInicial();
+        cargarConvenios();
+        setReloadTokenClaves((t) => t + 1);
+    }, [cargarInicial, cargarConvenios]);
+
+    const handleReimprimirCupon = useCallback(
+        async (convenioId: number) => {
+            try {
+                const res = await multiclavesApi.descargarCupon(convenioId);
+                const url = window.URL.createObjectURL(new Blob([res.data], { type: 'application/pdf' }));
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = `cupon-convenio-${convenioId}.pdf`;
+                document.body.appendChild(a);
+                a.click();
+                a.remove();
+                window.URL.revokeObjectURL(url);
+            } catch (err) {
+                notify.error(err as Error);
+            }
+        },
+        [notify],
+    );
+
     const handleNuevoPago = useCallback(() => {
         setOpenModalPago(true);
     }, []);
@@ -435,7 +480,10 @@ const FichaDeudor: React.FC<Props> = ({ deudorId }) => {
                                 <Tab
                                     icon={<HandshakeIcon fontSize="small" />}
                                     iconPosition="start"
-                                    label={`Convenios (${convenios.length})`}
+                                    label={
+                                        `Convenios (${convenios.length})` +
+                                        (clavesVigentes.length > 0 ? ` · ${clavesVigentes.length} clave(s)` : '')
+                                    }
                                 />
                                 <Tab
                                     icon={<PeopleAltIcon fontSize="small" />}
@@ -474,12 +522,21 @@ const FichaDeudor: React.FC<Props> = ({ deudorId }) => {
 
                         <TabPanel value={tabVal} index={3}>
                             <FichaConveniosTab
+                                deudorId={deudorId}
                                 convenios={convenios}
                                 loading={loadingConvenios}
                                 onNuevoConvenio={handleNuevoConvenio}
                                 onAnular={handleAnularConvenio}
                                 onPagarCuota={handleAbrirPagarCuota}
+                                onReimprimirCupon={handleReimprimirCupon}
                                 disabled={cuentaCancelada}
+                                puedeVerClaves={puedeVerConvenios}
+                                puedeGenerarCupon={puedeGenerarCupon}
+                                reloadTokenClaves={reloadTokenClaves}
+                                onGenerarCupon={handleGenerarCupon}
+                                onClavesCargadas={setClavesVigentes}
+                                cuentaCanceladaReal={cuentaCanceladaClaves}
+                                onCuentaCanceladaReal={setCuentaCanceladaClaves}
                             />
                         </TabPanel>
 
@@ -560,6 +617,18 @@ const FichaDeudor: React.FC<Props> = ({ deudorId }) => {
                     empresaId={deudor.empresaId}
                     destinatarioInicial={destinatarioInicial}
                     onClose={() => setOpenEmailDialog(false)}
+                />
+            )}
+
+            {cuponDialog && (
+                <GenerarCuponDialog
+                    open={!!cuponDialog}
+                    deudorId={deudorId}
+                    claves={clavesVigentes}
+                    claveInicialId={cuponDialog.claveId}
+                    puedeCancelarConvenios={puedeCancelarConvenios}
+                    onClose={() => setCuponDialog(null)}
+                    onGenerado={handleCuponGenerado}
                 />
             )}
         </Box>

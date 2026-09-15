@@ -57,6 +57,68 @@ export interface MulticlavesPreview {
     avisos: Array<{ codigo: string; cantidad: number; ejemplos: string[] }>;
 }
 
+// ─── Fase 2: claves del caso y cupón (docs/multiclaves-spec.md §9.1, §9.2) ──────────────────────
+
+export interface ClaveDelCaso {
+    id: number;
+    tipo: 'TOTAL' | 'QUITA';
+    nroConvenio: string;
+    /** String: son `Decimal` en el backend (§4.1), nunca se convierten a `number` en el camino. */
+    importe: string;
+    saldoTramite: string;
+    fechaVencimiento: string; // YYYY-MM-DD
+    /** DD/MM/AAAA — D12: min(hoy + 7 días corridos AR, fechaVencimiento). */
+    vtoImpreso: string;
+    vencida: boolean;
+    /** Solo los últimos 4 dígitos — el backend nunca manda la clave de 22 ni el código de barras
+     * completos por este endpoint (D6): con esos dígitos se arma un cupón cobrable sin convenio. */
+    clavePagoUltimos4: string;
+    estado: 'VIGENTE' | 'REEMPLAZADA';
+    lote: { remesaId: number; numeroRemesa: string; cargadaEn: string };
+    convenioActivo: null | { id: number; deudorId: number; esEsteCaso: boolean; createdAt: string };
+}
+
+export interface ClavesDelCasoRespuesta {
+    nroTramite: string | null;
+    claves: ClaveDelCaso[];
+    avisos: {
+        cuentaCancelada: boolean;
+        saldoDistinto: null | { saldoCaso: number; saldoTramite: string };
+        otrosCasosDelTramite: Array<{ deudorId: number; numeroRemesa: string; situacion: string | null; enGestion: boolean }>;
+        plantillaCuponConfigurada: boolean;
+    };
+}
+
+export interface PreviewCuponRespuesta {
+    clave: {
+        id: number;
+        tipo: 'TOTAL' | 'QUITA';
+        importe: string;
+        saldoTramite: string;
+        nroConvenio: string;
+        fechaVencimiento: string;
+        /** Solo los últimos 4 dígitos — mismo criterio que `ClaveDelCaso` (D6). */
+        clavePagoUltimos4: string;
+        estado: 'VIGENTE' | 'REEMPLAZADA';
+    };
+    deudor: { nombre: string; nroTramite: string };
+    vtoImpreso: string;
+    puedeGenerar: boolean;
+    avisos: string[];
+    convenioActivo: null | { id: number; deudorId: number; esEsteCaso: boolean; createdAt: string };
+    otroConvenioActivo: null | { id: number; deudorId: number; tipo: 'TOTAL' | 'QUITA' | null; importe: number };
+}
+
+export interface GenerarCuponRespuesta {
+    convenioId: number;
+    convenioReusado: boolean;
+    convenioAnuladoId: number | null;
+    gestionCambiada: boolean;
+    comentarioId: number;
+    envio: null;
+    descargaUrl: string;
+}
+
 export const multiclavesApi = {
     resumenLote(remesaId: number): Promise<ResumenLoteMulticlaves> {
         return api.get(`/multiclaves/lotes/${remesaId}/resumen`).then((r) => r.data);
@@ -66,5 +128,33 @@ export const multiclavesApi = {
         return api
             .get(`/multiclaves/lotes/${remesaId}/sin-caso`, { params: { page, pageSize } })
             .then((r) => r.data);
+    },
+
+    clavesDelCaso(deudorId: number, incluirReemplazadas = false): Promise<ClavesDelCasoRespuesta> {
+        return api
+            .get(`/multiclaves/deudores/${deudorId}/claves`, { params: { incluirReemplazadas } })
+            .then((r) => r.data);
+    },
+
+    previewCupon(claveId: number, deudorId: number): Promise<PreviewCuponRespuesta> {
+        return api.get(`/multiclaves/claves/${claveId}/cupon/preview`, { params: { deudorId } }).then((r) => r.data);
+    },
+
+    previewCuponPdf(claveId: number, deudorId: number) {
+        return api.get(`/multiclaves/claves/${claveId}/cupon/preview.pdf`, {
+            params: { deudorId },
+            responseType: 'blob',
+        });
+    },
+
+    generarCupon(
+        claveId: number,
+        body: { deudorId: number; accion: 'DESCARGAR'; reemplazarConvenioActivo?: boolean; observacion?: string },
+    ): Promise<GenerarCuponRespuesta> {
+        return api.post(`/multiclaves/claves/${claveId}/cupon`, body).then((r) => r.data);
+    },
+
+    descargarCupon(convenioId: number) {
+        return api.get(`/multiclaves/convenios/${convenioId}/cupon.pdf`, { responseType: 'blob' });
     },
 };

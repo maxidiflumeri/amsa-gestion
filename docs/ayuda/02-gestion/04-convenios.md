@@ -54,6 +54,19 @@ puede quedar guardado con un total que no cierra con sus propias cuotas.
 
 ---
 
+## Un tercer tipo que no se arma a mano: "Clave"
+
+En carteras de Telecom/Personal (multiclaves) aparece un chip **Clave · Saldo total** o **Clave · Con
+quita** en algunos convenios. No salen del botón "Nuevo Convenio": los genera el sistema al emitir un
+**cupón de pago** desde la sección "Claves de pago" de esta misma solapa, con el importe exacto de la
+clave que mandó el cedente.
+
+Se ven y se anulan igual que cualquier otro convenio, pero **no se arman ni se editan a mano** — el
+importe tiene que coincidir siempre con el de la clave, porque es contra ese importe que se decide más
+adelante si el pago cancela la cuenta. Ver [Cupones de pago](/ayuda/gestion/cupones-de-pago).
+
+---
+
 ## Registrar el pago de una cuota
 
 Desde la solapa **Convenios**, sobre la cuota. El importe viene precargado con el de la cuota.

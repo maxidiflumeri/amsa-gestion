@@ -3,7 +3,9 @@
 **Proyecto:** AMSA Gestión
 **Módulos involucrados:** nuevo `multiclaves`; modificados `imports` (categoría nueva `MULTICLAVES`, parser, processor, preview, borrado), `convenios` (convenio de clave), `consolidacion` (cancelación por pago de clave), `email-sender` (reuso), `auth` (permiso), `empresas` (config); frontend: ficha del deudor (solapa Convenios), wizard y editor de plantillas, historial, ajustes de empresa.
 **Fecha:** 2026-09-14
-**Estado:** Fases 1 y 1.1 implementadas (2026-09-14, ver CHANGELOG.md). Fases 2 a 5 sin implementar.
+**Estado:** Fases 1, 1.1 y 2 implementadas (2026-09-14, ver CHANGELOG.md). Fases 3 a 5 sin implementar.
+Fase 2: **gate R1 (escaneo físico) pendiente** — no asignar `convenios.generar_cupon` en prod hasta
+imprimir un cupón real y leerlo con un lector físico y con una app (§14, R1; §16.2 paso 10).
 Q1 y Q3 cerradas por Ana Maya el 2026-09-14 (§19); quedan Q2, Q4 (con la muestra ya pedida — la fase
 4 se rediseña cuando llegue), Q5, Q6 y Q7; ninguna bloquea lo implementado.
 
@@ -100,7 +102,8 @@ Cuatro piezas:
 → 498 · 0001988001 · 27102026 · 000000000000 · 96332206 · 00000000 · 7
 ```
 
-50 dígitos es par, que es lo que exige Interleaved 2 of 5 (§7.3).
+50 dígitos es par, que es lo que necesita Code 128 **set C** para codificar todo el número de a pares
+de dígitos por símbolo, sin tener que alternar de set a mitad de camino (§7.3).
 
 ### 1.4 Dígito verificador
 
@@ -694,18 +697,35 @@ Todo color en negro/gris: el cupón se imprime en impresoras de oficina y en bla
 
 ### 7.3 Código de barras
 
-- Dependencia nueva: **`bwip-js`** (JS puro, sin binarios nativos; entra en la imagen `node:20-bookworm-slim`
-  sin tocar el Dockerfile). Símbolo `interleaved2of5`, `includecheck: false` (el DV ya está en los 50
-  dígitos), `includetext: false` (los dígitos se imprimen aparte como texto).
-- Salida: SVG (`toSVG`) insertado como nodo `svg` de pdfmake, que queda vectorial. Si el SVG de
-  pdfmake da problemas, PNG con `scale ≥ 4`. La elección final la decide la prueba de escaneo.
-- Dimensiones objetivo: módulo angosto **0,19–0,20 mm**, relación ancho/angosto 2,5:1 (≈ 409 módulos
-  → ≈ 80 mm), alto ≥ 12 mm, zona muda ≥ 2,5 mm a cada lado. Entra en el talón 1 (~90 mm útiles). El
-  cupón del sistema viejo mide ~77 mm, así que está en el mismo orden.
-- **Riesgo R1 (§14)**: la simbología la eligió este spec por el largo par y el uso habitual en cupones
-  de cobranza; **no está confirmada**. Gate obligatorio antes de producción (fase 2): imprimir un
-  cupón y leerlo con un lector físico y con una app, comparando los 50 dígitos; y comparar contra el
-  PDF del sistema viejo leído con el mismo lector.
+**Simbología: Code 128 set C** (`Start C` + 25 símbolos de datos + checksum mod 103 + `Stop`), no
+Interleaved 2 of 5. La versión original de este spec eligió ITF sin evidencia — una suposición del
+spike, nunca confirmada. La auditoría de la fase 2 decodificó el cupón viejo (`46992372.pdf`) desde
+los contornos de su propia fuente de código de barras (`TT17E6t00`, embebida en el PDF) y es Code
+128-C: `Start C` (valor 105), 25 símbolos de datos (los 50 dígitos, de a pares), checksum mod 103
+verificado, `Stop` (valor 106). Es la simbología que ya leen Pago Fácil/Rapipago hoy — la que había
+que replicar, no una a elección.
+
+- Dependencia: **`bwip-js`**, pero **solo para calcular el patrón de anchos de barra/espacio**
+  (`raw()`, símbolo `code128`, `parsefnc: false`) — sin `includecheck` (el checksum es parte del
+  símbolo, no se agrega aparte) ni `includetext` (los dígitos se imprimen aparte como texto). Con una
+  cadena de 50 dígitos, `code128` de bwip-js elige el set C solo (no hace falta forzarlo): confirmado
+  decodificando el patrón resultante (Start = 105 en el 100% de las claves probadas).
+- **La geometría (módulo, alto, zona muda) NO sale del SVG que arma `bwip-js toSVG()`**:
+  `utils/codigo-barras-pdf.ts` arma su propio `<svg>` con rectángulos en puntos exactos a partir de
+  los anchos de módulo de `raw()`. Motivo: pdfmake ajusta un SVG a un `width`/`height` dados
+  **conservando la relación de aspecto del SVG** — pasarle un `height` propio no alcanza para forzar
+  el alto real si el aspecto ya viene fijado por el viewBox de `toSVG()` (bug encontrado por la
+  auditoría: con `toSVG()` + `height: 34` el alto real terminaba en 5,74 mm, no los 12 mm pedidos).
+- Dimensiones logradas (medidas leyendo el PDF generado, no calculadas): módulo **0,254 mm** (6/600 de pulgada; los PDFs de la auditoría midieron 0,2498 mm con el valor anterior de 0,25)
+  (mínimo aceptado 0,20 mm), alto **14 mm** (piso pedido: 12 mm), zona muda **≥ 2,5 mm** (10 módulos)
+  a cada lado, sin bordes ni texto adentro. Con 50 dígitos, Code 128-C ocupa 310 módulos (Start 11 +
+  25 símbolos × 11 + checksum 11 + Stop 13 = 297 + 13 = 310) ≈ 78,7 mm a 0,254 mm/módulo — entra en el
+  talón 1 (~93 mm útiles) sin ajustar el layout.
+- **Riesgo R1 (§14) — CERRADO por evidencia, pendiente el gate físico**: la simbología está
+  confirmada contra el cupón viejo (Code 128-C, checksum verificado, dígitos exactos). Sigue
+  pendiente el gate físico de producción: imprimir un cupón y leerlo con un lector físico y con una
+  app, comparando los 50 dígitos contra `SEC_COD_BARRA`. **No asignar el permiso
+  `convenios.generar_cupon` en ningún rol de producción hasta hacerlo.**
 
 ### 7.4 Importe en letras — `backend/src/modules/multiclaves/utils/importe-en-letras.ts`
 
@@ -769,7 +789,7 @@ t0; log intent: claveId, deudorId, accion, destinatarios=N (no las direcciones)
            y dto.reemplazarConvenioActivo:
                sin permiso 'convenios.cancelar' → 403
                otro.deudorId != deudorId          → 409 CONVENIO_CLAVE_EN_OTRO_CASO
-               otro → ANULADO; observaciones += "Anulado al generar cupón de la clave <tipo> <nroConvenio>"
+               otro → ANULADO; observaciones += "Anulado: se generó el cupón de la clave <tipo nueva> <nro nueva> (este convenio era de la clave <tipo> <nro>)"
       e. si no es REUSO: crear convenio
            tipo 'CLAVE_PAGO', origen 'CLAVE_PAGO', clavePagoId, deudorId, usuarioId = JWT (no del body)
            montoTotal = importe, cantCuotas 1, montoCuota = importe, fechaInicio = now
@@ -851,7 +871,10 @@ Errores de negocio con cuerpo `{ code, message, ...detalle }`.
     fechaVencimiento: string;    // "2026-10-27"
     vtoImpreso: string;          // "2026-10-27" (D12: min(hoy + 7 días AR, fechaVencimiento))
     vencida: boolean;
-    clavePago: string; codigoBarras: string;
+    // NUNCA la clave de 22 dígitos ni el código de barras de 50 completos (D6): con esos dígitos
+    // se arma un cupón cobrable sin pasar por el convenio, a cualquiera con `convenios.ver`.
+    // Corregido tras la auditoría de la fase 2 — antes este endpoint sí los devolvía enteros.
+    clavePagoUltimos4: string; // "0014" — solo para identificar la clave en la UI
     estado: 'VIGENTE' | 'REEMPLAZADA';
     lote: { remesaId: number; numeroRemesa: string; cargadaEn: string };
     convenioActivo: null | { id: number; deudorId: number; esEsteCaso: boolean; createdAt: string };
@@ -875,6 +898,10 @@ Errores de negocio con cuerpo `{ code, message, ...detalle }`.
 | GET | `/multiclaves/claves/:claveId/cupon/preview.pdf` | `convenios.generar_cupon` | query `deudorId` | `application/pdf` (vista previa) |
 | POST | `/multiclaves/claves/:claveId/cupon` | `convenios.generar_cupon` (+ `email.enviar` si envía, + `convenios.cancelar` si reemplaza) | `GenerarCuponDto` | `GenerarCuponRespuesta` |
 | GET | `/multiclaves/convenios/:convenioId/cupon.pdf` | `convenios.generar_cupon` | — | `application/pdf`, `Content-Disposition: attachment; filename="cupon-<tramite>-<tipo>.pdf"` |
+
+El `clave` del preview **no incluye la clave de 22 dígitos ni el código de barras** — mismo criterio
+que §9.1: solo `clavePagoUltimos4`. Los 50/22 dígitos completos solo existen adentro del PDF que se
+genera después de registrar el convenio (D6).
 
 ```ts
 export class GenerarCuponDto {
@@ -1211,7 +1238,7 @@ número de cuenta del cedente y se loguea solo en conteos o en `warn` puntuales.
 
 | # | Riesgo | Mitigación |
 |---|---|---|
-| R1 | **Simbología del código de barras** equivocada (el cupón se imprime, no se lee en la caja) | Gate de la fase 2: imprimir y escanear con lector físico y app, comparar los 50 dígitos, y comparar con el PDF viejo. **No se habilita el permiso en prod hasta pasarlo** |
+| R1 | **Simbología del código de barras** equivocada (el cupón se imprime, no se lee en la caja) | **Parcialmente cerrado.** La versión original de este spec eligió Interleaved 2 of 5 sin evidencia; la auditoría de la fase 2 decodificó el cupón viejo desde su propia fuente y es **Code 128 set C** (Start C, 25 símbolos, checksum mod 103, Stop) — implementado y verificado por decodificación independiente del PDF generado (sin bwip-js en la verificación), con las medidas físicas objetivo (módulo 0,254 mm = 6/600", alto 14 mm, zona muda ≥ 10 módulos). Sigue pendiente el **gate físico**: imprimir un cupón y escanearlo con un lector físico y una app, comparando los 50 dígitos contra `SEC_COD_BARRA`. **No se habilita el permiso `convenios.generar_cupon` en prod hasta pasar ese gate físico** |
 | R2 | Vencimiento impreso distinto del real | Cerrado (D12, fase 1.1): regla fija `min(hoy + 7 días, fechaVencimiento)`, nunca un parámetro que pueda extender el plazo real; el código de barras siempre lleva el vencimiento real |
 | R3 | La regla nueva en la consolidación cancela casos que no pagaron | Solo mira convenios `origen='CLAVE_PAGO'`, que no existen hasta la fase 2. Tests de la tabla de §10.3. Dry-run de consolidación de la empresa antes y después del deploy de la fase 4: `aSIT050PorClave` tiene que ser 0 si no hubo pagos de claves |
 | R4 | Los pagos de posbaja no caen en el caso (vienen por cuenta de 16 dígitos, el caso está por trámite) | Verificación operativa antes de la fase 4 con un archivo real de cobros de posbaja. Si no caen, la regla (b) es correcta pero nunca se dispara |
@@ -1513,6 +1540,108 @@ Siguen abiertas:
 ---
 
 ## 20. Changelog del spec
+
+### 2026-09-14 (fase 2 implementada, con una ronda de auditoría — cupón PDF, convenio de clave, ficha)
+
+Primera versión: `importe-en-letras.ts`, `cupon-pdf.service.ts` (3 talones, D6 vista previa con marca
+de agua y sin código de barras, D12 vencimiento impreso), assets del logo (placeholder gris con
+"PERSONAL", `nest-cli.json` actualizado), `cupon.service.ts` (acción DESCARGAR;
+ENVIAR/DESCARGAR_Y_ENVIAR cortan con 400 `ACCION_NO_DISPONIBLE` hasta la fase 3), el convenio de
+clave (crear/reusar/anular con `SELECT … FOR UPDATE` para la concurrencia), cambio de gestión a
+`GES-050` por default, comentario, endpoints de claves del caso/preview/generar/reimprimir, permiso
+`convenios.generar_cupon` en las dos copias del catálogo, `ClavesPagoCard` y `GenerarCuponDialog`
+(sin el paso de destinatarios: no hay envío por mail todavía), chips de convenio de clave y
+"Reimprimir cupón" en `FichaConveniosTab`. Un auditor la revisó antes de darla por cerrada y encontró
+lo siguiente — todo corregido en la misma unidad de trabajo:
+
+- **Simbología del código de barras — bloqueante, corregido.** La primera versión usó Interleaved 2
+  of 5 (`bwip-js`, `barratio: 3, spaceratio: 3`), una suposición del spike original **sin evidencia**.
+  El auditor decodificó el cupón viejo (`46992372.pdf`) desde los contornos de su propia fuente de
+  código de barras (`TT17E6t00`, embebida en el PDF) y es **Code 128 set C**: `Start C` (valor 105),
+  25 símbolos de datos, checksum mod 103 verificado, `Stop` (valor 106) — la simbología que ya leen
+  Pago Fácil/Rapipago. Reescrito: `bwip-js` se usa solo para calcular el patrón de anchos
+  (`raw()`, símbolo `code128`), y `utils/codigo-barras-pdf.ts` (nuevo) arma su propio SVG con
+  rectángulos en puntos exactos — nunca el `toSVG()` de bwip-js, que ajusta a un `width`/`height`
+  dados conservando SU PROPIA relación de aspecto (por eso el `height: 34` de la primera versión no
+  hacía nada: el alto real salía de la proporción del SVG, no del número pedido). Ver §7.3.
+- **Medidas físicas — bloqueante, corregido.** La primera versión medía (leyendo el PDF real, no
+  calculando) módulo 0,166 mm, alto 5,74 mm y zona muda de 1,41 mm — los tres por debajo de lo
+  pedido, porque el `height` no se aplicaba (ver punto anterior) y el módulo lo decidía el ancho de
+  columna, no un valor fijo. Con `utils/codigo-barras-pdf.ts` (módulo, alto y zona muda calculados
+  en puntos exactos, sin depender de cómo pdfmake escale el SVG): módulo **0,25 mm** (después ajustado a 0,254 mm), alto
+  **14 mm**, zona muda **≥ 2,5 mm** a cada lado — medido con un test que lee el PDF generado (ver
+  punto siguiente), no con el eco de los parámetros que se le pasaron a `bwip-js`.
+- **Verificación circular — bloqueante, corregido.** La "coincidencia con el cupón viejo" de la
+  primera verificación se hizo con `bwip-js raw()` sobre los mismos dígitos que se le habían pasado a
+  `bwip-js` para dibujar: probaba que la librería es consistente consigo misma, no que el PDF
+  generado dibuja lo correcto. `cupon-pdf.service.spec.ts` ahora incluye un decodificador de Code 128
+  **independiente de bwip-js**: parsea el content stream del PDF (operadores `m`/`l`/`re` + `f`,
+  siguiendo la matriz de transformación), agrupa las barras por fila (los separadores verticales
+  entre talones son igual de angostos y altos que las barras, y sin agrupar por fila se mezclaban con
+  ellas — otro hallazgo, ver más abajo) y decodifica con la tabla estándar de 107 símbolos de Code
+  128. Corrido contra el PDF completo (3 talones) generado por el servicio real, para la fila QUITA
+  del spec, la fila TOTAL, y el código del cupón viejo de referencia — los tres decodifican dígito
+  por dígito contra `SEC_COD_BARRA`, con `Start`/`Stop`/checksum válidos.
+- **La revalidación no comparaba el vencimiento — bloqueante, corregido.** `descomponerCodigoBarras`
+  ya devolvía `vto`, pero `revalidarCodigoBarras` solo comparaba importe y convenio. El auditor probó
+  cambiar el vencimiento embebido en el código, recalcular el DV (quedando "válido" en sí mismo), y
+  el PDF salía igual. Agregada la comparación contra `clave.fechaVencimiento` — `DatosCupon` suma el
+  campo `fechaVencimiento` (además del ya agregado `nroConvenio`) para poder hacerla.
+- **Fuga de datos — bloqueante, corregido.** `GET /multiclaves/deudores/:id/claves` (con
+  `convenios.ver`, no `convenios.generar_cupon`) y la vista previa del cupón devolvían la clave de 22
+  dígitos y el código de barras de 50 completos — con esos dígitos se arma un cupón cobrable por
+  fuera del sistema, sin pasar por el convenio, anulando la intención de D6. Las dos respuestas ahora
+  mandan solo `clavePagoUltimos4` (los últimos 4 dígitos, para identificar la clave en la UI) — nunca
+  la clave ni el código de barras completos. Corregido §9.1 y §9.2 acá arriba.
+- **La ficha solo consideraba cancelado el SIT-050** para deshabilitar "Generar cupón" y "Reimprimir
+  cupón" — el resto de la categoría CANCELADO (SIT-051 a SIT-053) los dejaba pasar en la UI (el
+  backend igual los bloqueaba con 403; era un problema de UX, no de seguridad). `ClavesPagoCard` ahora
+  usa `avisos.cuentaCancelada` del backend (que ya cubre la categoría completa, `DeudorBloqueoService`
+  mediante) y se lo reporta al padre para que `FichaConveniosTab` lo use también en "Reimprimir
+  cupón".
+- **La observación del convenio anulado mezclaba tipo y número** de dos claves distintas
+  (`Anulado al generar cupón de la clave ${TIPO de la vieja} ${NÚMERO de la nueva}`). Corregido para
+  que nombre cada clave con su tipo y número: `Anulado: se generó el cupón de la clave QUITA 96332206
+  (este convenio era de la clave TOTAL 96311343)`.
+- **La vista previa no avisaba que la clave ya tenía convenio en otro caso** (§11.2.5): si la MISMA
+  clave que se está por generar ya tiene un convenio activo en otro deudor, `preview()` no lo
+  reflejaba en `puedeGenerar`/`avisos` — el operador se enteraba recién al confirmar, con el 409. Se
+  agregó el aviso y `puedeGenerar: false`; el frontend ahora ofrece "Abrir ese caso" (con las
+  limitaciones de navegación de la pantalla de Gestión, que no tiene URL por caso — ver
+  `GenerarCuponDialog.tsx`).
+- **`otrosCasosDelTramite` comparaba `nroCliente` exacto**, mientras la resolución del propio trámite
+  hace `TRIM()`: un caso hermano con espacios alrededor del `nroCliente` no aparecía en el aviso
+  aunque fuera el mismo trámite. La consulta de "otros casos" ahora también usa `TRIM()` en SQL
+  (`$queryRaw`, dos pasos: ids por trim + `findMany` para los datos a mostrar).
+- Frontend: badge de la solapa Convenios con la cantidad de claves vigentes; `ClavesPagoCard` no pide
+  las claves si falta `convenios.ver`; `GenerarCuponDialog` muestra el error (con botón Reintentar) si
+  falla la vista previa o su PDF, en vez de quedarse con el esqueleto de carga para siempre.
+- Wiki (`05-cupones-de-pago.md`): corregidas tres afirmaciones que no coincidían con el código —
+  "el botón está pero rechaza al guardar" (en realidad sale deshabilitado con tooltip), el nombre de
+  la casilla de confirmación ("Anular el convenio de la otra clave y generar este cupón", no "el
+  convenio anterior"), y que el logo es un PNG de relleno, no el real.
+- Desvío del contrato de `GenerarCuponDto` (§9.2), sigue vigente: el DTO acepta las tres acciones para
+  no romper el contrato cuando llegue la fase 3, pero `CuponService.generar` rechaza `ENVIAR` y
+  `DESCARGAR_Y_ENVIAR` con 400 `ACCION_NO_DISPONIBLE` — el envío por mail, el chequeo de variables
+  vacías y `guardarEmailComoContacto` son la fase 3, fuera de esta unidad de trabajo.
+- Agregado no previsto explícitamente en el spec: `DeudorBloqueoService.estaBloqueado(estadoSituacionId)`,
+  variante de `assertNoBloqueado` que no lanza, para armar avisos de solo lectura (`cuentaCancelada`
+  en `GET .../claves` y en la vista previa del cupón) sin duplicar la lista de códigos CANCELADO.
+- `configuracion.multiclaves` (§9.5) se **lee** con sus defaults (`config-multiclaves.ts`) para
+  `gestionAlGenerar`, `leyendaTalonCedente` y `mediosDePago` — el endpoint `PATCH` para escribirla y
+  `templateCuponId` quedan para la fase 3, ya que dependen de la plantilla de Sender.
+- **Verificado contra la base local** con el processor y los servicios reales (sin datos de prueba
+  quedando en la base): carga de `MULTI_41645` (7.478 trámites, 14.956 claves, 0 rechazados), deudor
+  de prueba con `nroCliente` = trámite `1841012140` en TELECOM_PERSONAL, `GET .../claves` devolvió
+  QUITA $ 19.880,01 (convenio 96332206) y TOTAL $ 39.760,03 (convenio 96311343) — igual que el
+  archivo. `CuponService.generar` creó el convenio, cambió la gestión a GES-050 y dejó el comentario;
+  el PDF real (`obtenerPdfDeConvenio`) se leyó con el decodificador de Code 128 independiente de
+  bwip-js (ver arriba) y coincidió dígito por dígito con el `SEC_COD_BARRA` de la clave.
+- **Gate R1 (escaneo físico) sigue pendiente.** Todo lo de arriba es verificación **digital**
+  (confirma que el PDF generado dibuja los 50 dígitos correctos en Code 128 set C, con las medidas
+  físicas objetivo) — **no reemplaza** imprimir el cupón y leerlo con un lector físico y con una app,
+  como pide el spec. **No asignar el permiso `convenios.generar_cupon` en producción hasta hacer esa
+  prueba** — queda como paso manual de despliegue.
 
 ### 2026-09-14 (fase 1.1 implementada — trámite SOLO_TOTAL, y respuestas de Ana Maya)
 

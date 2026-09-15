@@ -1,10 +1,15 @@
 import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { PrismaService } from 'src/prisma/prisma.service';
+import { DeudorBloqueoService } from '../deudores/utils/deudor-bloqueo';
+import { calcularVtoImpreso, esClaveVencida } from './cupon-pdf.service';
+
+/** Tolerancia (en pesos) para avisar que el saldo del caso difiere del saldo que informó Telecom. */
+const TOLERANCIA_SALDO_DISTINTO = 1;
 
 /**
- * Resumen y navegación de una carga de MULTICLAVES, y (fases 2-3) claves del caso y config de
- * empresa. En esta fase 1 solo `resumenLote` y `sinCaso` (§5.7 y §9.3 del spec) — nada de esto
- * escribe: todo se calcula con queries, la carga misma la hace `MulticlavesProcessor`.
+ * Resumen y navegación de una carga de MULTICLAVES, más (fase 2) las claves de un caso para la
+ * ficha. Nada de esto escribe: todo se calcula con queries, la carga misma la hace
+ * `MulticlavesProcessor` y el cupón/convenio los escribe `CuponService`.
  *
  * Ver `docs/multiclaves-spec.md` §5.7, §6, §9.
  */
@@ -12,7 +17,10 @@ import { PrismaService } from 'src/prisma/prisma.service';
 export class ClavesService {
     private readonly logger = new Logger(ClavesService.name);
 
-    constructor(private readonly prisma: PrismaService) { }
+    constructor(
+        private readonly prisma: PrismaService,
+        private readonly bloqueo: DeudorBloqueoService,
+    ) { }
 
     /** 404 si la remesa no existe o no es de categoría MULTICLAVES. */
     private async assertRemesaMulticlaves(remesaId: number) {
@@ -148,5 +156,124 @@ export class ClavesService {
         });
 
         return { total, items };
+    }
+
+    /**
+     * `GET /multiclaves/deudores/:deudorId/claves` (spec §9.1): las claves del trámite de este
+     * caso (`clave_pago.nroTramite = deudor.nroCliente`, misma empresa — §6.2) para la ficha.
+     */
+    async clavesDelCaso(deudorId: number, incluirReemplazadas = false) {
+        const t0 = Date.now();
+        const deudor = await this.prisma.deudor.findUnique({
+            where: { id: deudorId },
+            select: { id: true, empresaId: true, nroCliente: true, saldo: true, montoTotal: true, estadoSituacionId: true },
+        });
+        if (!deudor) throw new NotFoundException(`Deudor ${deudorId} no encontrado`);
+
+        const nroTramite = (deudor.nroCliente ?? '').trim() || null;
+        const cuentaCancelada = this.bloqueo.estaBloqueado(deudor.estadoSituacionId);
+
+        if (!nroTramite) {
+            return {
+                nroTramite: null,
+                claves: [],
+                avisos: { cuentaCancelada, saldoDistinto: null, otrosCasosDelTramite: [], plantillaCuponConfigurada: false },
+            };
+        }
+
+        const [claves, otrosCasosIds] = await Promise.all([
+            this.prisma.clave_pago.findMany({
+                where: {
+                    empresaId: deudor.empresaId,
+                    nroTramite,
+                    ...(incluirReemplazadas ? {} : { estado: 'VIGENTE' }),
+                },
+                include: { remesa: { select: { id: true, numeroRemesa: true, createdAt: true } } },
+                orderBy: [{ tipo: 'asc' }],
+            }),
+            // Cruda porque `nroTramite` sale de un `TRIM(deudor.nroCliente)` (línea de arriba): un
+            // `where: { nroCliente: nroTramite }` de Prisma compara IGUAL, sin trim, así que un
+            // caso hermano cargado con espacios alrededor del número (`" 1841012140"`, visto en la
+            // auditoría) no matcheaba — quedaba afuera del aviso de "otro caso con este trámite"
+            // aunque fuera exactamente el mismo trámite. `TRIM` de MySQL para que las dos
+            // resoluciones (la propia y la de los hermanos) usen el mismo criterio.
+            this.prisma.$queryRaw<Array<{ id: number }>>`
+                SELECT id FROM deudor WHERE empresaId = ${deudor.empresaId} AND TRIM(nroCliente) = ${nroTramite} AND id <> ${deudorId}
+            `,
+        ]);
+
+        const otrosCasos = otrosCasosIds.length
+            ? await this.prisma.deudor.findMany({
+                where: {
+                    id: { in: otrosCasosIds.map((o) => o.id) },
+                    estadoSituacion: { is: { categoria: { not: 'CANCELADO' } } },
+                },
+                select: {
+                    id: true,
+                    remesa: { select: { numeroRemesa: true } },
+                    estadoSituacion: { select: { clave: true } },
+                    estadoGestion: { select: { clave: true } },
+                },
+            })
+            : [];
+
+        const convenios = claves.length
+            ? await this.prisma.convenio.findMany({
+                where: { origen: 'CLAVE_PAGO', estado: 'ACTIVO', clavePagoId: { in: claves.map((c) => c.id) } },
+                select: { id: true, deudorId: true, clavePagoId: true, createdAt: true },
+            })
+            : [];
+        const convenioPorClave = new Map(convenios.filter((c) => c.clavePagoId != null).map((c) => [c.clavePagoId as number, c]));
+
+        // El saldo de referencia de Telecom es el de la TOTAL (§4.1: `saldoTramite` es el mismo en
+        // las dos claves del par) — si por lo que sea no hay TOTAL vigente, se usa el que haya.
+        const claveTotal = claves.find((c) => c.tipo === 'TOTAL') ?? claves[0] ?? null;
+        const saldoTramiteRef = claveTotal ? Number(claveTotal.saldoTramite) : null;
+        const saldoCaso = deudor.saldo ?? deudor.montoTotal ?? null;
+        const saldoDistinto =
+            saldoTramiteRef != null && saldoCaso != null && Math.abs(saldoCaso - saldoTramiteRef) > TOLERANCIA_SALDO_DISTINTO
+                ? { saldoCaso, saldoTramite: String(saldoTramiteRef) }
+                : null;
+
+        this.logger.log(`Claves del caso ${deudorId} (trámite=${nroTramite}): ${claves.length} en ${Date.now() - t0}ms`);
+
+        return {
+            nroTramite,
+            claves: claves.map((c) => {
+                const convenio = convenioPorClave.get(c.id) ?? null;
+                return {
+                    id: c.id,
+                    tipo: c.tipo,
+                    nroConvenio: c.nroConvenio,
+                    importe: String(c.importe),
+                    saldoTramite: String(c.saldoTramite),
+                    fechaVencimiento: c.fechaVencimiento.toISOString().slice(0, 10),
+                    vtoImpreso: calcularVtoImpreso(c.fechaVencimiento),
+                    vencida: esClaveVencida(c.fechaVencimiento),
+                    // NUNCA la clave de 22 dígitos ni el código de barras completos (D6): con eso
+                    // alcanza para armar un cupón cobrable sin pasar por el convenio, a cualquiera
+                    // con `convenios.ver`. Solo los últimos 4 dígitos, para identificarla en la UI.
+                    // Hallazgo de la auditoría de la fase 2 — ver también `cupon.service.ts#preview`.
+                    clavePagoUltimos4: c.clavePago.slice(-4),
+                    estado: c.estado,
+                    lote: { remesaId: c.remesa.id, numeroRemesa: c.remesa.numeroRemesa, cargadaEn: c.remesa.createdAt.toISOString() },
+                    convenioActivo: convenio
+                        ? { id: convenio.id, deudorId: convenio.deudorId, esEsteCaso: convenio.deudorId === deudorId, createdAt: convenio.createdAt.toISOString() }
+                        : null,
+                };
+            }),
+            avisos: {
+                cuentaCancelada,
+                saldoDistinto,
+                otrosCasosDelTramite: otrosCasos.map((o) => ({
+                    deudorId: o.id,
+                    numeroRemesa: o.remesa?.numeroRemesa ?? '',
+                    situacion: o.estadoSituacion?.clave ?? null,
+                    enGestion: o.estadoGestion?.clave !== 'GES-094',
+                })),
+                // Fase 3: se completa cuando exista `configuracion.multiclaves.templateCuponId`.
+                plantillaCuponConfigurada: false,
+            },
+        };
     }
 }

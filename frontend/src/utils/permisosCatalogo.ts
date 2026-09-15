@@ -33,6 +33,7 @@ export const TODOS_LOS_PERMISOS: PermisoSeccion[] = [
             { key: 'convenios.crear', label: 'Crear convenios' },
             { key: 'convenios.cancelar', label: 'Cancelar convenios' },
             { key: 'convenios.registrar_pago', label: 'Registrar pagos de convenios' },
+            { key: 'convenios.generar_cupon', label: 'Generar cupones de pago', descripcion: 'Emite el cupón con la clave de pago del cedente y registra el convenio' },
         ],
     },
     {
