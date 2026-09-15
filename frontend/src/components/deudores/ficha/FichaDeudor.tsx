@@ -119,6 +119,25 @@ const FichaDeudor: React.FC<Props> = ({ deudorId }) => {
         }
     }, [deudorId]);
 
+    /** Mismo fetch que `cargarInicial`, pero SIN pasar por `loading` (hallazgo de la auditoría de
+     * multiclaves fase 3): `loading=true` hace que el render de más abajo (`if (loading || !deudor)
+     * return <LoadingSkeleton/>`) reemplace TODO el árbol, incluido cualquier diálogo abierto arriba
+     * — `GenerarCuponDialog` se desmontaba en el momento exacto en que necesitaba quedarse abierto
+     * para mostrar que el mail había fallado. No recarga los catálogos de parámetros (situación,
+     * gestión, motivo de no pago): esos no cambian por generar un cupón, solo el propio `deudor`
+     * (comentarios, estadoGestión, etc.). */
+    const recargarDeudorSilencioso = useCallback(async () => {
+        try {
+            const deu = await api.get(`/deudores/${deudorId}`);
+            setDeudor(deu.data || []);
+            setEstadoSituacion(deu.data.estadoSituacion?.clave || '');
+            setEstadoGestion(deu.data.estadoGestion?.clave || '');
+            setMotivoNoPago(deu.data.motivoNoPago?.clave || '');
+        } catch (e) {
+            notify.error(e as Error);
+        }
+    }, [deudorId]);
+
     const cargarConvenios = useCallback(async () => {
         setLoadingConvenios(true);
         try {
@@ -335,11 +354,14 @@ const FichaDeudor: React.FC<Props> = ({ deudorId }) => {
 
     const handleCuponGenerado = useCallback(() => {
         // El cupón cambió la gestión y dejó un comentario nuevo, además del convenio: se recarga
-        // todo lo que se ve en la ficha, no solo la lista de convenios.
-        cargarInicial();
+        // todo lo que se ve en la ficha, no solo la lista de convenios — pero en silencio
+        // (`recargarDeudorSilencioso`, no `cargarInicial`): esto se dispara también cuando el mail
+        // FALLA y el diálogo tiene que quedarse abierto mostrando el error, así que no puede pasar
+        // por el `loading` global que reemplaza toda la ficha (hallazgo de la auditoría).
+        recargarDeudorSilencioso();
         cargarConvenios();
         setReloadTokenClaves((t) => t + 1);
-    }, [cargarInicial, cargarConvenios]);
+    }, [recargarDeudorSilencioso, cargarConvenios]);
 
     const handleReimprimirCupon = useCallback(
         async (convenioId: number) => {
@@ -624,9 +646,11 @@ const FichaDeudor: React.FC<Props> = ({ deudorId }) => {
                 <GenerarCuponDialog
                     open={!!cuponDialog}
                     deudorId={deudorId}
+                    empresaId={deudor.empresaId}
                     claves={clavesVigentes}
                     claveInicialId={cuponDialog.claveId}
                     puedeCancelarConvenios={puedeCancelarConvenios}
+                    puedeEnviarEmail={puedeEnviarEmail}
                     onClose={() => setCuponDialog(null)}
                     onGenerado={handleCuponGenerado}
                 />

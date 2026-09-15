@@ -200,6 +200,10 @@ const EnviosDeLaFicha: React.FC<{ deudorId: number }> = ({ deudorId }) => {
                             {new Date(e.creadoAt).toLocaleString()} · {e.destinatarios}
                             {e.usuario?.nombre ? ` · ${e.usuario.nombre}` : ''}
                             {e.estado === 'ERROR' ? ' · falló' : ''}
+                            {/* `OMITIDO`: Sender respondió ok (sin error de SMTP) pero no le llegó a
+                                nadie porque todos los destinatarios están dados de baja — no es lo
+                                mismo que "falló" (hallazgo de la auditoría de multiclaves fase 3). */}
+                            {e.estado === 'OMITIDO' ? ' · no enviado: dado de baja' : ''}
                         </Typography>
                         {e.archivosNombres?.length > 0 && (
                             <Typography variant="caption" color="text.secondary" display="block">

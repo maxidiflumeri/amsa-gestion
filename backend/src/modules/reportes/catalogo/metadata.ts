@@ -305,7 +305,7 @@ export const DESCRIPCIONES: Record<string, string> = {
 
   // Emails
   'enviosEmail': 'Emails mandados al deudor desde el sistema',
-  'enviosEmail.estado': 'Si salió, falló o quedó pendiente',
+  'enviosEmail.estado': 'ENVIADO, ERROR (falló), u OMITIDO (no le llegó a nadie porque todos los destinatarios están dados de baja — no es un error del sistema)',
   'enviosEmail.error': 'El motivo, cuando el envío falló',
 
   // Auditoría

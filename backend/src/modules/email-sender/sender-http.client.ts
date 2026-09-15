@@ -157,20 +157,32 @@ export class SenderHttpClient implements OnModuleInit {
         ));
     }
 
+    /**
+     * `templateId` XOR `html`: Sender acepta las dos formas (`internal-email.controller.ts`,
+     * `manual-email.service.ts` — ya validado contra el repo de Sender, solo lectura). Con `html` no
+     * hay `{{variables}}`: el HTML que llega ya tiene los datos interpolados por quien llama (así lo
+     * arma multiclaves fase 3, docs/multiclaves-spec.md §8.4) — Sender solo le agrega layout,
+     * tracking y el envío en sí. `asunto` es obligatorio en ese caso.
+     */
     async enviarManual(params: {
         smtpId: number;
-        templateId: number;
+        templateId?: number;
+        html?: string;
         destinatarios: string[];
         asunto?: string;
-        variables: Record<string, string>;
+        variables?: Record<string, string>;
         toNombre?: string;
         archivos: Array<{ originalname: string; buffer: Buffer; mimetype: string }>;
         deudorDocumento?: string;
     }): Promise<SenderEnvioResult> {
+        if (!params.templateId && !params.html) {
+            throw new Error('enviarManual: se requiere templateId o html.');
+        }
         const FormData = require('form-data');
         const form = new FormData();
         form.append('smtpId', String(params.smtpId));
-        form.append('templateId', String(params.templateId));
+        if (params.templateId) form.append('templateId', String(params.templateId));
+        if (params.html) form.append('html', params.html);
         for (const email of params.destinatarios) form.append('to', email);
         if (params.asunto) form.append('subject', params.asunto);
         if (params.toNombre) form.append('toNombre', params.toNombre);

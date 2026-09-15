@@ -56,6 +56,12 @@ function armar(opts: {
     bloqueoFalla?: boolean;
     estaBloqueado?: boolean;
     otroConvenioDeEstaClave?: any; // prisma.convenio.findFirst (fuera de la tx) — clave REEMPLAZADA
+    contactosEmail?: any[];
+    smtp?: { id: number } | null; // EmailSenderService.smtpDeEmpresa
+    previewVariables?: { template: any; sugerencias: any[] }; // EmailSenderService.previewVariables
+    previewVariablesFalla?: Error;
+    enviarResultado?: any; // EmailSenderService.enviar
+    enviarFalla?: Error;
 } = {}) {
     const tx = {
         $queryRaw: jest.fn().mockResolvedValue([{ id: 1 }]),
@@ -64,7 +70,6 @@ function armar(opts: {
             create: jest.fn().mockImplementation(({ data }: any) => Promise.resolve({ id: 999, ...data })),
             update: jest.fn().mockImplementation(({ where, data }: any) => Promise.resolve({ id: where.id, ...data })),
         },
-        comentario: { create: jest.fn().mockImplementation(({ data }: any) => Promise.resolve({ id: 555, ...data })) },
         parametro: { findUnique: jest.fn().mockResolvedValue('gestion' in opts ? opts.gestion : { id: 99, clave: 'GES-050' }) },
         deudor: { update: jest.fn().mockResolvedValue(undefined) },
     };
@@ -74,6 +79,12 @@ function armar(opts: {
         deudor: { findUnique: jest.fn().mockResolvedValue(opts.deudor ?? DEUDOR) },
         empresa: { findUnique: jest.fn().mockResolvedValue({ configuracion: null }) },
         convenio: { findFirst: jest.fn().mockResolvedValue(opts.otroConvenioDeEstaClave ?? null) },
+        contacto: {
+            findMany: jest.fn().mockResolvedValue(opts.contactosEmail ?? []),
+            findFirst: jest.fn().mockResolvedValue(null),
+            create: jest.fn().mockResolvedValue({ id: 1 }),
+        },
+        comentario: { create: jest.fn().mockImplementation(({ data }: any) => Promise.resolve({ id: 555, ...data })) },
         $transaction: jest.fn((cb: any) => cb(tx)),
     };
 
@@ -94,13 +105,29 @@ function armar(opts: {
 
     const consolidacion: any = { consolidar: jest.fn().mockResolvedValue(undefined) };
 
-    const service = new CuponService(prisma, bloqueo, cuponPdf, consolidacion);
-    return { service, prisma, tx, bloqueo, cuponPdf, consolidacion };
+    const emailSender: any = {
+        smtpDeEmpresa: jest.fn().mockResolvedValue({ empresa: { id: 1, nombre: 'TELECOM' }, smtp: 'smtp' in opts ? opts.smtp : { id: 5 } }),
+        previewVariables: jest.fn().mockImplementation(() => {
+            if (opts.previewVariablesFalla) return Promise.reject(opts.previewVariablesFalla);
+            return Promise.resolve(
+                opts.previewVariables ?? { template: { id: 1, nombre: 'Plantilla', asunto: 'Asunto', variables: [] }, sugerencias: [] },
+            );
+        }),
+        enviar: jest.fn().mockImplementation(() => {
+            if (opts.enviarFalla) return Promise.reject(opts.enviarFalla);
+            return Promise.resolve(opts.enviarResultado ?? { envioId: 1, empresaId: 1, reporteIds: [1], ok: true, enviados: 1 });
+        }),
+    };
+
+    const contactos: any = { create: jest.fn().mockResolvedValue({ id: 1 }) };
+
+    const service = new CuponService(prisma, bloqueo, cuponPdf, consolidacion, emailSender, contactos);
+    return { service, prisma, tx, bloqueo, cuponPdf, consolidacion, emailSender, contactos };
 }
 
 describe('CuponService.generar', () => {
     it('flujo feliz DESCARGAR: crea el convenio con montoOriginal/importeQuita/clavePagoId, usuarioId del JWT, cambia la gestión y comenta', async () => {
-        const { service, tx, consolidacion } = armar();
+        const { service, prisma, tx, consolidacion } = armar();
 
         const res = await service.generar(CLAVE_QUITA.id, dtoDescargar(), USUARIO);
 
@@ -120,7 +147,9 @@ describe('CuponService.generar', () => {
         expect(dataCreado.importeQuita).toBeCloseTo(39760.03 - 19880.01, 2);
 
         expect(tx.deudor.update).toHaveBeenCalledWith({ where: { id: DEUDOR.id }, data: { estadoGestionId: 99 } });
-        expect(tx.comentario.create).toHaveBeenCalled();
+        // El comentario se crea DESPUÉS de la transacción (fase 3: así puede reflejar el resultado
+        // del envío por mail) — ya no cuelga de `tx`.
+        expect(prisma.comentario.create).toHaveBeenCalled();
         expect(consolidacion.consolidar).toHaveBeenCalledWith({ tipo: 'DEUDORES', deudorIds: [DEUDOR.id] });
     });
 
@@ -133,7 +162,7 @@ describe('CuponService.generar', () => {
 
     it('reuso: generar dos veces la misma clave para el mismo caso no crea un segundo convenio', async () => {
         const activo = { id: 777, deudorId: DEUDOR.id, clavePagoId: CLAVE_QUITA.id, observaciones: null, clavePago: CLAVE_QUITA };
-        const { service, tx, consolidacion } = armar({ activosEnTx: [activo] });
+        const { service, prisma, tx, consolidacion } = armar({ activosEnTx: [activo] });
 
         const res = await service.generar(CLAVE_QUITA.id, dtoDescargar(), USUARIO);
 
@@ -141,7 +170,7 @@ describe('CuponService.generar', () => {
         expect(res.convenioId).toBe(777);
         expect(res.gestionCambiada).toBe(false);
         expect(tx.convenio.create).not.toHaveBeenCalled();
-        expect(tx.comentario.create.mock.calls[0][0].data.texto).toMatch(/reenviado/);
+        expect(prisma.comentario.create.mock.calls[0][0].data.texto).toMatch(/reenviado/);
         expect(consolidacion.consolidar).not.toHaveBeenCalled(); // no hubo convenio nuevo ni anulado
     });
 
@@ -271,13 +300,344 @@ describe('CuponService.generar', () => {
         expect(prisma.$transaction).not.toHaveBeenCalled();
     });
 
-    it('acción ENVIAR o DESCARGAR_Y_ENVIAR (fase 3, sin implementar) → 400 ACCION_NO_DISPONIBLE, sin tocar nada', async () => {
-        const { service, prisma, cuponPdf } = armar();
-        await expect(service.generar(CLAVE_QUITA.id, dtoDescargar({ accion: 'ENVIAR' }), USUARIO)).rejects.toMatchObject({
-            response: expect.objectContaining({ code: 'ACCION_NO_DISPONIBLE' }),
+    describe('envío por mail (fase 3)', () => {
+        const USUARIO_ENVIA: UsuarioJwt = { sub: 77, email: 'gestor@amsa.com', permisos: ['email.enviar'] };
+
+        function dtoEnviar(overrides: Partial<GenerarCuponDto> = {}): GenerarCuponDto {
+            return dtoDescargar({ accion: 'ENVIAR', destinatarios: ['cliente@ejemplo.com'], ...overrides });
+        }
+
+        it('con plantilla y variables completas: manda por Sender con el templateId y las variables (propias pisando a las automáticas)', async () => {
+            const { service, prisma, emailSender } = armar({
+                previewVariables: {
+                    template: { id: 5, nombre: 'Cupón', asunto: 'Tu cupón', variables: ['nombre', 'importe_cupon'] },
+                    sugerencias: [{ variable: 'nombre', valor: 'Juan', origen: 'auto' }],
+                },
+            });
+
+            const res = await service.generar(CLAVE_QUITA.id, dtoEnviar({ templateId: 5 }), USUARIO_ENVIA);
+
+            expect(res.envio).toEqual({ envioId: 1, ok: true, enviados: 1, omitidos: undefined, errores: undefined });
+            expect(emailSender.enviar).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    templateId: 5,
+                    html: undefined,
+                    destinatarios: ['cliente@ejemplo.com'],
+                    asunto: 'Tu cupón',
+                    variables: expect.objectContaining({ nombre: 'Juan', importe_cupon: '$ 19.880,01' }),
+                }),
+            );
+            const comentario = prisma.comentario.create.mock.calls[0][0].data.texto;
+            expect(comentario).toMatch(/Enviado a 1 destinatario\.$/);
         });
-        expect(cuponPdf.generar).not.toHaveBeenCalled();
-        expect(prisma.$transaction).not.toHaveBeenCalled();
+
+        it('con plantilla y variables vacías: 400 PLANTILLA_CON_VARIABLES_VACIAS ANTES de generar el PDF ni tocar la base', async () => {
+            const { service, prisma, cuponPdf, emailSender } = armar({
+                previewVariables: {
+                    template: { id: 5, nombre: 'Cupón', asunto: 'Tu cupón', variables: ['telefono_alternativo'] },
+                    sugerencias: [],
+                },
+            });
+
+            await expect(service.generar(CLAVE_QUITA.id, dtoEnviar({ templateId: 5 }), USUARIO_ENVIA)).rejects.toMatchObject({
+                response: expect.objectContaining({ code: 'PLANTILLA_CON_VARIABLES_VACIAS', variables: ['telefono_alternativo'] }),
+            });
+            expect(cuponPdf.generar).not.toHaveBeenCalled();
+            expect(prisma.$transaction).not.toHaveBeenCalled();
+            expect(emailSender.enviar).not.toHaveBeenCalled();
+        });
+
+        it('la plantilla elegida desaparece de Sender entre el preview y la confirmación: 400 PLANTILLA_INVALIDA, nunca un 500', async () => {
+            const { service, prisma, cuponPdf, emailSender } = armar({ previewVariablesFalla: new Error('Template id=5 no encontrado') });
+
+            await expect(service.generar(CLAVE_QUITA.id, dtoEnviar({ templateId: 5 }), USUARIO_ENVIA)).rejects.toMatchObject({
+                response: expect.objectContaining({ code: 'PLANTILLA_INVALIDA' }),
+            });
+            expect(cuponPdf.generar).not.toHaveBeenCalled();
+            expect(prisma.$transaction).not.toHaveBeenCalled();
+            expect(emailSender.enviar).not.toHaveBeenCalled();
+        });
+
+        it('sin plantilla: manda el mensaje por defecto (subject/html propios) con el PDF adjunto y el nombre escapado', async () => {
+            const deudorConNombreRaro = { ...DEUDOR, nombre: '<b>Juan</b>', apellido: 'Pérez & Cía' };
+            const { service, emailSender } = armar({ deudor: deudorConNombreRaro });
+
+            const res = await service.generar(CLAVE_QUITA.id, dtoEnviar(), USUARIO_ENVIA);
+
+            expect(res.envio?.ok).toBe(true);
+            const llamada = emailSender.enviar.mock.calls[0][0];
+            expect(llamada.templateId).toBeUndefined();
+            expect(llamada.asunto).toBe('Cupón de pago - Personal');
+            expect(llamada.html).toContain('$ 19.880,01');
+            expect(llamada.html).not.toContain('<b>Juan</b>'); // nunca sin escapar
+            expect(llamada.html).toContain('Pérez &amp; Cía &lt;b&gt;Juan&lt;/b&gt;');
+            expect(llamada.archivos[0].originalname).toBe(`cupon-pago-${CLAVE_QUITA.nroTramite}.pdf`);
+            expect(llamada.archivos[0].mimetype).toBe('application/pdf');
+            expect(Buffer.isBuffer(llamada.archivos[0].buffer)).toBe(true);
+        });
+
+        it('empresa sin SMTP: 400 EMPRESA_SIN_SMTP, sin generar el PDF ni tocar la base', async () => {
+            const { service, prisma, cuponPdf, emailSender } = armar({ smtp: null });
+
+            await expect(service.generar(CLAVE_QUITA.id, dtoEnviar(), USUARIO_ENVIA)).rejects.toMatchObject({
+                response: expect.objectContaining({ code: 'EMPRESA_SIN_SMTP' }),
+            });
+            expect(cuponPdf.generar).not.toHaveBeenCalled();
+            expect(prisma.$transaction).not.toHaveBeenCalled();
+            expect(emailSender.enviar).not.toHaveBeenCalled();
+        });
+
+        it('destinatario inválido: 400 DESTINATARIOS_INVALIDOS, sin generar el PDF ni tocar la base', async () => {
+            const { service, prisma, cuponPdf } = armar();
+            await expect(
+                service.generar(CLAVE_QUITA.id, dtoEnviar({ destinatarios: ['no-es-un-email'] }), USUARIO_ENVIA),
+            ).rejects.toMatchObject({ response: expect.objectContaining({ code: 'DESTINATARIOS_INVALIDOS' }) });
+            expect(cuponPdf.generar).not.toHaveBeenCalled();
+            expect(prisma.$transaction).not.toHaveBeenCalled();
+        });
+
+        it('mail que falla: el convenio queda creado, el envío queda ok:false y el comentario dice FALLÓ', async () => {
+            const { service, prisma } = armar({ enviarResultado: { envioId: 42, empresaId: 1, reporteIds: [], ok: false, enviados: 0, errores: [{ email: 'cliente@ejemplo.com', error: 'SMTP rechazado' }] } });
+
+            const res = await service.generar(CLAVE_QUITA.id, dtoEnviar(), USUARIO_ENVIA);
+
+            expect(res.convenioId).toBeDefined();
+            expect(res.envio).toEqual({
+                envioId: 42,
+                ok: false,
+                enviados: 0,
+                omitidos: undefined,
+                errores: [{ email: 'cliente@ejemplo.com', error: 'SMTP rechazado' }],
+            });
+            const comentario = prisma.comentario.create.mock.calls[0][0].data.texto;
+            expect(comentario).toContain('El envío por mail FALLÓ: SMTP rechazado.');
+            // El convenio se creó igual — nada se revierte por un mail que falla.
+            expect(res.convenioReusado).toBe(false);
+        });
+
+        it('mail que explota (el cliente HTTP tira una excepción): igual queda registrado como fallo, sin relanzar', async () => {
+            const { service } = armar({ enviarFalla: new Error('ECONNREFUSED') });
+            const res = await service.generar(CLAVE_QUITA.id, dtoEnviar(), USUARIO_ENVIA);
+            expect(res.envio).toEqual({ envioId: null, ok: false, enviados: 0, omitidos: undefined, errores: [{ error: 'ECONNREFUSED' }] });
+        });
+
+        it('sin permiso email.enviar: 403, sin generar el PDF ni tocar la base', async () => {
+            const { service, prisma, cuponPdf, emailSender } = armar();
+            await expect(service.generar(CLAVE_QUITA.id, dtoEnviar(), USUARIO)).rejects.toBeInstanceOf(ForbiddenException); // USUARIO sin permisos
+            expect(cuponPdf.generar).not.toHaveBeenCalled();
+            expect(prisma.$transaction).not.toHaveBeenCalled();
+            expect(emailSender.enviar).not.toHaveBeenCalled();
+        });
+
+        it('reenvío (REUSO) con ENVIAR: reusa el convenio y manda otro mail, con comentario de reenvío', async () => {
+            const activo = { id: 777, deudorId: DEUDOR.id, clavePagoId: CLAVE_QUITA.id, observaciones: null, clavePago: CLAVE_QUITA };
+            const { service, prisma, emailSender } = armar({ activosEnTx: [activo] });
+
+            const res = await service.generar(CLAVE_QUITA.id, dtoEnviar(), USUARIO_ENVIA);
+
+            expect(res.convenioReusado).toBe(true);
+            expect(emailSender.enviar).toHaveBeenCalled();
+            const comentario = prisma.comentario.create.mock.calls[0][0].data.texto;
+            expect(comentario).toMatch(/^Cupón de pago reenviado/);
+            expect(comentario).toMatch(/Enviado a 1 destinatario\.$/);
+        });
+
+        it('DESCARGAR_Y_ENVIAR: manda el mail Y devuelve descargaUrl', async () => {
+            const { service } = armar();
+            const res = await service.generar(CLAVE_QUITA.id, dtoEnviar({ accion: 'DESCARGAR_Y_ENVIAR' }), USUARIO_ENVIA);
+            expect(res.envio?.ok).toBe(true);
+            expect(res.descargaUrl).toBe(`/api/multiclaves/convenios/${res.convenioId}/cupon.pdf`);
+        });
+
+        it('ENVIAR solo (sin descarga): descargaUrl es null', async () => {
+            const { service } = armar();
+            const res = await service.generar(CLAVE_QUITA.id, dtoEnviar({ accion: 'ENVIAR' }), USUARIO_ENVIA);
+            expect(res.descargaUrl).toBeNull();
+        });
+
+        it('guardarEmailComoContacto: crea el contacto (vía ContactosService, con la validación de siempre) si no existía', async () => {
+            const { service, prisma, contactos } = armar();
+            await service.generar(CLAVE_QUITA.id, dtoEnviar({ guardarEmailComoContacto: true }), USUARIO_ENVIA);
+            expect(prisma.contacto.findFirst).toHaveBeenCalledWith(
+                expect.objectContaining({ where: { deudorId: DEUDOR.id, tipo: 'email', valor: 'cliente@ejemplo.com' } }),
+            );
+            expect(contactos.create).toHaveBeenCalledWith(
+                expect.objectContaining({ deudorId: DEUDOR.id, tipo: 'email', valor: 'cliente@ejemplo.com' }),
+            );
+        });
+
+        it('guardarEmailComoContacto: no duplica si ya existe', async () => {
+            const { service, prisma, contactos } = armar();
+            prisma.contacto.findFirst.mockResolvedValueOnce({ id: 9 });
+            await service.generar(CLAVE_QUITA.id, dtoEnviar({ guardarEmailComoContacto: true }), USUARIO_ENVIA);
+            expect(contactos.create).not.toHaveBeenCalled();
+        });
+
+        it('guardarEmailComoContacto: NO se guarda si el envío no llegó a nadie (enviados:0)', async () => {
+            const { service, contactos } = armar({
+                enviarResultado: { envioId: 1, empresaId: 1, reporteIds: [], ok: true, enviados: 0, omitidos: [{ email: 'cliente@ejemplo.com', motivo: 'dado de baja' }] },
+            });
+            await service.generar(CLAVE_QUITA.id, dtoEnviar({ guardarEmailComoContacto: true }), USUARIO_ENVIA);
+            expect(contactos.create).not.toHaveBeenCalled();
+        });
+
+        it('guardarEmailComoContacto en un envío PARCIAL: guarda solo a los que sí recibieron, no al omitido (hallazgo de la auditoría)', async () => {
+            const { service, contactos } = armar({
+                enviarResultado: {
+                    envioId: 1,
+                    empresaId: 1,
+                    reporteIds: [1, 2],
+                    ok: true,
+                    enviados: 1,
+                    omitidos: [{ email: 'baja@ejemplo.com', motivo: 'dado de baja' }],
+                },
+            });
+            await service.generar(
+                CLAVE_QUITA.id,
+                dtoEnviar({ destinatarios: ['ok@ejemplo.com', 'baja@ejemplo.com'], guardarEmailComoContacto: true }),
+                USUARIO_ENVIA,
+            );
+            expect(contactos.create).toHaveBeenCalledTimes(1);
+            expect(contactos.create).toHaveBeenCalledWith(expect.objectContaining({ valor: 'ok@ejemplo.com' }));
+            expect(contactos.create).not.toHaveBeenCalledWith(expect.objectContaining({ valor: 'baja@ejemplo.com' }));
+        });
+
+        it('guardarComoContacto: si ContactosService.create no responde (DNS/MX colgado), se corta a los 3s, sin bloquear ni tirar', async () => {
+            jest.useFakeTimers();
+            try {
+                const contactos: any = { create: jest.fn().mockImplementation(() => new Promise(() => {})) }; // nunca resuelve
+                const { service } = armar();
+                (service as any).contactos = contactos;
+
+                const promesa = service.generar(CLAVE_QUITA.id, dtoEnviar({ guardarEmailComoContacto: true }), USUARIO_ENVIA);
+                // Deja correr los micro-tasks previos (envío del mail, transacción) antes de avanzar
+                // el timer del timeout de `crearContactoConTimeout`.
+                await Promise.resolve();
+                await Promise.resolve();
+                await jest.advanceTimersByTimeAsync(3000);
+
+                const res = await promesa;
+                expect(res.convenioId).toBeDefined(); // el cupón se generó igual
+                expect(contactos.create).toHaveBeenCalled();
+            } finally {
+                jest.useRealTimers();
+            }
+        });
+
+        it('omitido total (todos dados de baja): ok:true pero NO se cuenta como enviado, y el comentario lo dice', async () => {
+            const { service, prisma } = armar({
+                enviarResultado: {
+                    envioId: 1,
+                    empresaId: 1,
+                    reporteIds: [1],
+                    ok: true,
+                    enviados: 0,
+                    omitidos: [{ email: 'cliente@ejemplo.com', motivo: 'El destinatario se dio de baja de los envíos' }],
+                },
+            });
+            const res = await service.generar(CLAVE_QUITA.id, dtoEnviar(), USUARIO_ENVIA);
+            expect(res.envio?.enviados).toBe(0);
+            expect(res.envio?.omitidos).toHaveLength(1);
+            const comentario = prisma.comentario.create.mock.calls[0][0].data.texto;
+            expect(comentario).toContain('No se envió: destinatario(s) dado(s) de baja.');
+        });
+
+        it('envío parcial (algunos enviados, otros omitidos): el comentario distingue enviados de omitidos', async () => {
+            const { service, prisma } = armar({
+                enviarResultado: {
+                    envioId: 1,
+                    empresaId: 1,
+                    reporteIds: [1, 2],
+                    ok: true,
+                    enviados: 1,
+                    omitidos: [{ email: 'baja@ejemplo.com', motivo: 'dado de baja' }],
+                },
+            });
+            const res = await service.generar(CLAVE_QUITA.id, dtoEnviar({ destinatarios: ['ok@ejemplo.com', 'baja@ejemplo.com'] }), USUARIO_ENVIA);
+            expect(res.envio?.enviados).toBe(1);
+            expect(res.envio?.omitidos).toHaveLength(1);
+            const comentario = prisma.comentario.create.mock.calls[0][0].data.texto;
+            expect(comentario).toContain('Enviado a 1, 1 dado de baja.');
+        });
+
+        it('el asunto que se manda a Sender ya viene resuelto (sin {{variables}} literales) — así el historial de envio_email queda legible', async () => {
+            const { service, emailSender } = armar({
+                previewVariables: {
+                    template: { id: 5, nombre: 'Cupón', asunto: 'Tu cupón, {{nombre_cliente}}', variables: ['nombre_cliente'] },
+                    sugerencias: [],
+                },
+            });
+            await service.generar(CLAVE_QUITA.id, dtoEnviar({ templateId: 5 }), USUARIO_ENVIA);
+            const llamada = emailSender.enviar.mock.calls[0][0];
+            expect(llamada.asunto).not.toContain('{{');
+            expect(llamada.asunto).toBe('Tu cupón, PEREZ JUAN');
+        });
+
+        it('el comentario del envío que falla nunca supera 191 caracteres (varchar(191)), aunque el motivo sea larguísimo y haya anulación', async () => {
+            const motivoGmail =
+                'Invalid login: 535-5.7.8 Username and Password not accepted. For more information, go to ' +
+                '5.7.8 https://support.google.com/mail/?p=BadCredentials j2-20020a170902d38900b001c7b3e0a1c1sm123456plb.45 - gsmtp';
+            const otro = { id: 900, deudorId: DEUDOR.id, clavePagoId: CLAVE_TOTAL.id, montoTotal: 39760.03, observaciones: null, clavePago: CLAVE_TOTAL };
+            const { service, prisma } = armar({
+                activosEnTx: [otro],
+                enviarResultado: { envioId: 42, empresaId: 1, reporteIds: [], ok: false, enviados: 0, errores: [{ email: 'cliente@ejemplo.com', error: motivoGmail }] },
+            });
+
+            await service.generar(
+                CLAVE_QUITA.id,
+                dtoEnviar({ reemplazarConvenioActivo: true }),
+                { ...USUARIO_ENVIA, permisos: [...USUARIO_ENVIA.permisos, 'convenios.cancelar'] },
+            );
+
+            const comentario = prisma.comentario.create.mock.calls[0][0].data.texto;
+            expect(comentario.length).toBeLessThanOrEqual(191);
+            expect(comentario).toContain('Se anuló el convenio de la clave');
+            expect(comentario).toContain('El envío por mail FALLÓ:');
+        });
+
+        it('motivo lleno de emojis (fuera del BMP, 2 unidades UTF-16 cada uno): el truncado corta por code point, nunca a mitad de un carácter — el comentario se inserta', async () => {
+            // 😀 es U+1F600 — un solo code point, dos unidades UTF-16 (surrogate pair). Repetido
+            // muchas veces para forzar el camino de truncado incluso con la versión compacta.
+            const motivoEmoji = '😀'.repeat(120) + ' fin del motivo';
+            const { service, prisma } = armar({
+                enviarResultado: { envioId: 42, empresaId: 1, reporteIds: [], ok: false, enviados: 0, errores: [{ email: 'cliente@ejemplo.com', error: motivoEmoji }] },
+            });
+
+            await service.generar(CLAVE_QUITA.id, dtoEnviar(), USUARIO_ENVIA);
+
+            const comentario: string = prisma.comentario.create.mock.calls[0][0].data.texto;
+            // Contado por code point (`Array.from`), no por `.length` (unidades UTF-16) — con emojis
+            // de 2 unidades, `.length` daría un número mayor a la cantidad real de caracteres.
+            expect(Array.from(comentario).length).toBeLessThanOrEqual(191);
+            // Nunca un surrogate suelto: cada code point del comentario tiene que ser válido — si el
+            // corte hubiera partido un par por la mitad, `Array.from` tropieza con una unidad huérfana
+            // (queda como un `string` de longitud 1 en UTF-16 pero fuera del rango de un carácter
+            // completo) y el `codePointAt` da `undefined` para la posición siguiente inexistente.
+            for (const ch of comentario) {
+                expect(ch.codePointAt(0)).not.toBeUndefined();
+            }
+            expect(comentario).toContain('Cupón de pago generado — Clave QUITA 96332206.');
+        });
+
+        it('si el comentario igual explota (P2000 real u otro error de Prisma), NO tira un 500: el convenio ya escrito se devuelve con comentarioId:null', async () => {
+            const { service, prisma } = armar();
+            const p2000 = Object.assign(new Error("Data too long for column 'texto'"), { code: 'P2000' });
+            prisma.comentario.create.mockRejectedValueOnce(p2000);
+
+            const res = await service.generar(CLAVE_QUITA.id, dtoEnviar(), USUARIO_ENVIA);
+
+            expect(res.convenioId).toBeDefined();
+            expect(res.envio?.ok).toBe(true); // el mail sí salió, el comentario es lo que falló
+            expect(res.comentarioId).toBeNull();
+        });
+
+        it('si la consolidación explota después de la transacción, tampoco tira un 500 (el convenio ya está escrito)', async () => {
+            const { service, consolidacion } = armar();
+            consolidacion.consolidar.mockRejectedValueOnce(new Error('timeout de consolidación'));
+            const res = await service.generar(CLAVE_QUITA.id, dtoDescargar(), USUARIO);
+            expect(res.convenioId).toBeDefined();
+            expect(res.comentarioId).not.toBeNull();
+        });
     });
 
     it('clave inexistente → 404 CLAVE_NO_ENCONTRADA', async () => {
@@ -324,6 +684,7 @@ describe('CuponService.generar', () => {
             deudor: { findUnique: jest.fn().mockResolvedValue(DEUDOR) },
             empresa: { findUnique: jest.fn().mockResolvedValue({ configuracion: null }) },
             convenio: { findFirst: jest.fn().mockResolvedValue(null) },
+            comentario: { create: jest.fn().mockResolvedValue({ id: 1 }) },
             $transaction: jest.fn((cb: any) => {
                 const run = mutex.then(() => cb(tx));
                 mutex = run.catch(() => undefined);
@@ -334,7 +695,9 @@ describe('CuponService.generar', () => {
         const bloqueo: any = { assertNoBloqueado: jest.fn().mockResolvedValue(undefined), estaBloqueado: jest.fn().mockReturnValue(false) };
         const cuponPdf: any = { generar: jest.fn().mockResolvedValue(Buffer.from('%PDF-fake')) };
         const consolidacion: any = { consolidar: jest.fn().mockResolvedValue(undefined) };
-        const service = new CuponService(prisma, bloqueo, cuponPdf, consolidacion);
+        const emailSender: any = { smtpDeEmpresa: jest.fn(), previewVariables: jest.fn(), enviar: jest.fn() };
+        const contactos: any = { create: jest.fn() };
+        const service = new CuponService(prisma, bloqueo, cuponPdf, consolidacion, emailSender, contactos);
 
         const [r1, r2] = await Promise.all([
             service.generar(CLAVE_QUITA.id, dtoDescargar(), USUARIO),
@@ -354,12 +717,16 @@ describe('CuponService.preview', () => {
         convenioDeEstaClave?: any; // prisma.convenio.findFirst — clavePagoId = claveId
         otroActivo?: any; // prisma.convenio.findFirst — clavePagoId != claveId
         estaBloqueado?: boolean;
+        contactosEmail?: any[];
+        previewVariables?: { template: any; sugerencias: any[] };
+        previewVariablesFalla?: Error;
     } = {}) {
         const findFirstCalls: any[] = [];
         const prisma: any = {
             clave_pago: { findUnique: jest.fn().mockResolvedValue(opts.clave ?? CLAVE_QUITA) },
             deudor: { findUnique: jest.fn().mockResolvedValue(opts.deudor ?? DEUDOR) },
             empresa: { findUnique: jest.fn().mockResolvedValue({ configuracion: null }) },
+            contacto: { findMany: jest.fn().mockResolvedValue(opts.contactosEmail ?? []) },
             convenio: {
                 findFirst: jest.fn().mockImplementation((args: any) => {
                     findFirstCalls.push(args);
@@ -374,7 +741,15 @@ describe('CuponService.preview', () => {
         const bloqueo: any = { estaBloqueado: jest.fn().mockReturnValue(opts.estaBloqueado ?? false) };
         const cuponPdf: any = {};
         const consolidacion: any = {};
-        return { service: new CuponService(prisma, bloqueo, cuponPdf, consolidacion), prisma };
+        const emailSender: any = {
+            previewVariables: jest.fn().mockImplementation(() => {
+                if (opts.previewVariablesFalla) return Promise.reject(opts.previewVariablesFalla);
+                return Promise.resolve(
+                    opts.previewVariables ?? { template: { id: 1, nombre: 'Plantilla', asunto: 'Asunto', variables: [] }, sugerencias: [] },
+                );
+            }),
+        };
+        return { service: new CuponService(prisma, bloqueo, cuponPdf, consolidacion, emailSender), prisma, emailSender };
     }
 
     it('NUNCA devuelve la clave de 22 dígitos ni el código de barras completos (D6, hallazgo de la auditoría)', async () => {
@@ -418,6 +793,89 @@ describe('CuponService.preview', () => {
         expect(res.avisos.some((a) => /cancelada/.test(a))).toBe(true);
     });
 
+    it('sin templateId: plantilla null y sin variablesSinValor, pero sí trae destinatariosDisponibles', async () => {
+        const { service } = armarPreview({ contactosEmail: [{ id: 1, valor: 'a@b.com', prioridad: 1 }] });
+        const res = await service.preview(CLAVE_QUITA.id, DEUDOR.id);
+        expect(res.plantilla).toBeNull();
+        expect(res.variablesSinValor).toEqual([]);
+        expect(res.destinatariosDisponibles).toEqual([{ id: 1, valor: 'a@b.com', principal: true }]);
+    });
+
+    it('con templateId: arma variablesSinValor filtrando lo que la plantilla necesita y no tiene valor (ni automático ni propio del cupón)', async () => {
+        const { service, emailSender } = armarPreview({
+            previewVariables: {
+                template: { id: 9, nombre: 'Cupón', asunto: 'Asunto', variables: ['nombre', 'importe_cupon', 'telefono_alternativo'] },
+                sugerencias: [{ variable: 'nombre', valor: 'Juan', origen: 'auto' }],
+            },
+        });
+        const res = await service.preview(CLAVE_QUITA.id, DEUDOR.id, 9);
+        expect(emailSender.previewVariables).toHaveBeenCalledWith(DEUDOR.id, 9);
+        expect(res.plantilla).toEqual({ id: 9, nombre: 'Cupón', asunto: 'Asunto' });
+        // "nombre" e "importe_cupon" sí tienen valor (automático y propio del cupón); "telefono_alternativo" no.
+        expect(res.variablesSinValor).toEqual(['telefono_alternativo']);
+    });
+
+    it('con templateId que ya no existe: no revienta la vista previa, sigue con plantilla null y avisa con plantillaError', async () => {
+        const { service } = armarPreview({ previewVariablesFalla: new Error('Template id=9 no encontrado') });
+        const res = await service.preview(CLAVE_QUITA.id, DEUDOR.id, 9);
+        expect(res.plantilla).toBeNull();
+        expect(res.puedeGenerar).toBe(true); // el resto de la vista previa sigue andando
+        // Antes esto era indistinguible de "la plantilla no tiene variables sin valor" — el frontend
+        // habilitaba Enviar con una plantilla que en realidad nunca se pudo validar (hallazgo §5).
+        expect(res.plantillaError).toEqual(expect.stringContaining('ya no existe'));
+        expect(res.variablesSinValor).toEqual([]);
+    });
+
+    it('sin templateId: plantillaError es null (no se pidió ninguna)', async () => {
+        const { service } = armarPreview();
+        const res = await service.preview(CLAVE_QUITA.id, DEUDOR.id);
+        expect(res.plantillaError).toBeNull();
+    });
+
+    it('plantilla con variables riesgosas ({{saldo}}, {{importe}}): avisosPlantilla las señala, sin bloquear', async () => {
+        const { service } = armarPreview({
+            previewVariables: {
+                template: { id: 9, nombre: 'Riesgosa', asunto: 'Asunto', variables: ['saldo', 'importe', 'nombre', 'importe_cupon'] },
+                sugerencias: [{ variable: 'nombre', valor: 'Juan', origen: 'auto' }],
+            },
+        });
+        const res = await service.preview(CLAVE_QUITA.id, DEUDOR.id, 9);
+        expect(res.avisosPlantilla).toHaveLength(2); // saldo e importe, no nombre ni importe_cupon
+        expect(res.avisosPlantilla.some((a: string) => a.includes('{{saldo}}'))).toBe(true);
+        expect(res.avisosPlantilla.some((a: string) => a.includes('{{importe}}'))).toBe(true);
+        expect(res.avisosPlantilla.some((a: string) => a.includes('importe_cupon'))).toBe(true); // sugiere la variable correcta
+    });
+
+    it('plantilla con {{deuda_actualizada}}: también es riesgosa (hallazgo de la auditoría — faltaba en la lista original)', async () => {
+        const { service } = armarPreview({
+            previewVariables: {
+                template: { id: 9, nombre: 'Riesgosa2', asunto: 'Asunto', variables: ['deuda_actualizada', 'monto_total', 'importe_cupon'] },
+                sugerencias: [],
+            },
+        });
+        const res = await service.preview(CLAVE_QUITA.id, DEUDOR.id, 9);
+        expect(res.avisosPlantilla).toHaveLength(2); // deuda_actualizada y monto_total, no importe_cupon
+        expect(res.avisosPlantilla.some((a: string) => a.includes('{{deuda_actualizada}}'))).toBe(true);
+        expect(res.avisosPlantilla.some((a: string) => a.includes('{{monto_total}}'))).toBe(true);
+    });
+
+    it('las variables riesgosas se derivan del CATALOG (esMontoDelCaso), no de una lista fija — agregar un canónico nuevo con esa marca alcanza', async () => {
+        const { CATALOG } = require('../email-sender/variables-mapper');
+        const marcados = CATALOG.filter((e: any) => e.esMontoDelCaso).map((e: any) => e.canon);
+        expect(marcados.sort()).toEqual(['deuda', 'deuda_actualizada', 'monto_total', 'saldo']);
+    });
+
+    it('plantilla sin variables riesgosas: avisosPlantilla vacío', async () => {
+        const { service } = armarPreview({
+            previewVariables: {
+                template: { id: 9, nombre: 'OK', asunto: 'Asunto', variables: ['nombre', 'importe_cupon', 'vencimiento_cupon'] },
+                sugerencias: [{ variable: 'nombre', valor: 'Juan', origen: 'auto' }],
+            },
+        });
+        const res = await service.preview(CLAVE_QUITA.id, DEUDOR.id, 9);
+        expect(res.avisosPlantilla).toEqual([]);
+    });
+
     it('clave vencida: puedeGenerar false con aviso', async () => {
         const vencida = { ...CLAVE_QUITA, fechaVencimiento: new Date('2020-01-01T00:00:00.000Z') };
         const { service } = armarPreview({ clave: vencida });
@@ -436,7 +894,8 @@ describe('CuponService.obtenerPdfDeConvenio (reimpresión, §8.2)', () => {
         const bloqueo: any = { assertNoBloqueado: jest.fn().mockResolvedValue(undefined), estaBloqueado: jest.fn() };
         const cuponPdf: any = { generar: jest.fn().mockResolvedValue(Buffer.from('%PDF-fake')) };
         const consolidacion: any = { consolidar: jest.fn() };
-        return { service: new CuponService(prisma, bloqueo, cuponPdf, consolidacion), prisma, bloqueo, cuponPdf };
+        const emailSender: any = {};
+        return { service: new CuponService(prisma, bloqueo, cuponPdf, consolidacion, emailSender), prisma, bloqueo, cuponPdf };
     }
 
     const CONVENIO_ACTIVO = {

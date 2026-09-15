@@ -70,13 +70,13 @@ model envio_email {
   empresaId       Int
   usuarioId       Int       // quien lo envió desde Gestión
   smtpId          Int       // ID de CuentaSMTP en Sender
-  templateId      Int       // ID de TemplateEmail en Sender
+  templateId      Int?      // ID de TemplateEmail en Sender — null en un envío sin plantilla (ver Fase 3 más abajo)
   destinatarios   String    @db.Text   // CSV de emails
   asunto          String
   variables       Json      // mapa final aplicado (auto + overrides)
   archivosNombres Json      // ["factura.pdf", "extracto.xlsx"]
   senderReporteIds Json     // [123, 124] — IDs de ReporteEmail en Sender, uno por destinatario
-  estado          String    @default("ENVIADO")  // 'ENVIADO' | 'ERROR'
+  estado          String    @default("ENVIADO")  // 'ENVIADO' | 'ERROR' | 'OMITIDO'
   error           String?   @db.Text
   creadoAt        DateTime  @default(now())
 
@@ -91,6 +91,15 @@ model envio_email {
 ```
 
 `prisma db push` cuando se implemente la Fase 2.
+
+> **Fase 3 (multiclaves, 2026-09-15):** `templateId` pasó de `Int` a `Int?` — aditivo, `db push`
+> corrido, sin backfill (los envíos existentes conservan su valor). Motivo: `EmailSenderService.enviar`
+> y `SenderHttpClient.enviarManual` aceptan ahora `templateId` **o** `html`+`asunto` (mutuamente
+> excluyentes) — el cupón de pago de Telecom/Personal manda un mensaje por defecto sin plantilla de
+> Sender cuando el operador no elige una (`multiclaves/utils/cupon-mail.ts`), reusando el resto del
+> flujo (`envio_email`, desuscripciones, tracking, adjuntos) sin cambios. `estado` suma `'OMITIDO'`:
+> Sender responde `ok:true` aunque `enviados:0` si todos los destinatarios están dados de baja — eso
+> no es un `'ENVIADO'`. Ver `docs/multiclaves-spec.md` §8.4 y §20.
 
 ---
 

@@ -177,19 +177,32 @@ export class EmailSenderService {
         return [...fuentesCatalogo, ...fuentesAdicionales];
     }
 
+    /**
+     * `templateId` XOR `html` (multiclaves fase 3, docs/multiclaves-spec.md §8.4): con plantilla, el
+     * camino es el de siempre (Sender resuelve `{{variables}}`); sin plantilla, `html` ya viene
+     * completamente armado por quien llama (con los datos interpolados y escapados) y `asunto` es
+     * obligatorio — Sender no le aplica ningún reemplazo, solo el layout/tracking de siempre. Nunca
+     * se loguea `html` (política de logging, CLAUDE.md): ni acá ni en el `catch`.
+     */
     async enviar(params: {
         deudorId: number;
         usuarioId: number;
-        templateId: number;
+        templateId?: number;
+        html?: string;
         destinatarios: string[];
         asunto?: string;
-        variables: Record<string, string>;
+        variables?: Record<string, string>;
         archivos: any[];
     }): Promise<{ envioId: number; empresaId: number; reporteIds: number[]; ok: boolean; enviados: number; errores?: { email: string; error: string }[]; omitidos?: { email: string; motivo: string }[] }> {
-        const { deudorId, usuarioId, templateId, destinatarios, asunto, variables, archivos } = params;
+        const { deudorId, usuarioId, templateId, html, destinatarios, asunto, variables = {}, archivos } = params;
 
         if (!destinatarios.length) throw new BadRequestException('Indicá al menos un destinatario.');
-        this.logger.log(`Enviando email templateId=${templateId} destinatarios=${destinatarios.length} deudorId=${deudorId}`);
+        if (!templateId && !html) throw new BadRequestException('Se requiere templateId o html.');
+        if (!templateId && !asunto?.trim()) throw new BadRequestException('El asunto es obligatorio cuando no se usa una plantilla.');
+        this.logger.log(
+            `Enviando email ${templateId ? `templateId=${templateId}` : 'sin plantilla (html propio)'} ` +
+                `destinatarios=${destinatarios.length} deudorId=${deudorId}`,
+        );
 
         const deudor = await this.cargarDeudor(deudorId);
         const empresa = await this.cargarEmpresaConSmtp(deudor.empresaId);
@@ -202,6 +215,7 @@ export class EmailSenderService {
             resultado = await this.sender.enviarManual({
                 smtpId: empresa.cuentaSmtpId,
                 templateId,
+                html,
                 destinatarios,
                 asunto,
                 variables,
@@ -216,7 +230,7 @@ export class EmailSenderService {
                     empresaId: deudor.empresaId,
                     usuarioId,
                     smtpId: empresa.cuentaSmtpId,
-                    templateId,
+                    templateId: templateId ?? null,
                     destinatarios: destinatarios.join(', '),
                     asunto: asunto ?? '',
                     variables,
@@ -226,9 +240,19 @@ export class EmailSenderService {
                     error: String(err?.message ?? err),
                 },
             });
-            this.logger.error(`Envío email FAIL templateId=${templateId} deudorId=${deudorId}: ${err?.message}`, err?.stack);
+            this.logger.error(
+                `Envío email FAIL ${templateId ? `templateId=${templateId}` : 'sin plantilla'} deudorId=${deudorId}: ${err?.message}`,
+                err?.stack,
+            );
             return { envioId: envio.id, empresaId: deudor.empresaId, reporteIds: [], ok: false, enviados: 0, errores: [{ email: destinatarios[0], error: String(err?.message ?? err) }] };
         }
+
+        // Sender responde `ok:true` (sin `errores`) aunque nadie haya recibido nada, si TODOS los
+        // destinatarios estaban desuscriptos (`enviados:0, omitidos:[...]`) — antes esto quedaba
+        // igual que un envío exitoso (`estado:'ENVIADO'`), así que el historial mentía. `OMITIDO` es
+        // nuevo (columna `estado` es un `String` libre, sin enum en la DB — aditivo, sin `db push`).
+        const huboOmitidosTotales = resultado.ok && resultado.enviados === 0 && (resultado.omitidos?.length ?? 0) > 0;
+        const estado = !resultado.ok ? 'ERROR' : huboOmitidosTotales ? 'OMITIDO' : 'ENVIADO';
 
         const envio = await this.prisma.envio_email.create({
             data: {
@@ -236,13 +260,13 @@ export class EmailSenderService {
                 empresaId: deudor.empresaId,
                 usuarioId,
                 smtpId: empresa.cuentaSmtpId,
-                templateId,
+                templateId: templateId ?? null,
                 destinatarios: destinatarios.join(', '),
                 asunto: asunto ?? '',
                 variables,
                 archivosNombres: archivos.map(a => a.originalname),
                 senderReporteIds: resultado.reporteIds,
-                estado: resultado.ok ? 'ENVIADO' : 'ERROR',
+                estado,
                 error: resultado.errores ? JSON.stringify(resultado.errores) : null,
             },
         });

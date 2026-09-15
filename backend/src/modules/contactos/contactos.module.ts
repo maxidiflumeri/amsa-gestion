@@ -9,5 +9,8 @@ import { DeudoresModule } from '../deudores/deudores.module';
   imports: [TransaccionesModule, forwardRef(() => DeudoresModule)],
   controllers: [ContactosController],
   providers: [ContactosService, PrismaService],
+  // `multiclaves` (fase 3) reusa `ContactosService.create` para "guardar como contacto" — misma
+  // normalización/validación (minúsculas, trim, MX) que el alta manual desde la ficha.
+  exports: [ContactosService],
 })
 export class ContactosModule {}

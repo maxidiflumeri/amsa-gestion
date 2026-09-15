@@ -56,6 +56,13 @@ interface CatalogEntry {
     label: string;
     synonyms: string[];
     resolve: (d: DeudorParaMapper) => string | null;
+    /** `true` en los canónicos que resuelven a un monto de la DEUDA DEL CASO (`montoTotal`, `saldo`,
+     * `deudaActualizada`) — nunca a un importe propio de otra cosa (el cupón de multiclaves, por
+     * ejemplo). Lo usa `multiclaves/cupon.service.ts#variablesRiesgosas` para avisar cuando una
+     * plantilla de cupón usa una de estas variables en vez de `importe_cupon`: en una quita, el
+     * deudor vería el total de la deuda, no lo que tiene que pagar. Derivado del catálogo — agregar
+     * acá un nuevo canónico de monto del caso alcanza para que el aviso lo cubra solo. */
+    esMontoDelCaso?: boolean;
 }
 
 export const CATALOG: CatalogEntry[] = [
@@ -70,8 +77,8 @@ export const CATALOG: CatalogEntry[] = [
     { canon: 'documento', label: 'Documento (CUIT/DNI)', synonyms: ['documento', 'dni', 'cuit', 'cuil', 'identificacion'], resolve: d => d.documento || null },
     { canon: 'empresa', label: 'Empresa', synonyms: ['empresa', 'cliente', 'razon_social'], resolve: d => d.empresa?.nombre ?? null },
     { canon: 'remesa', label: 'Remesa', synonyms: ['remesa', 'cartera'], resolve: d => d.remesa?.nombre ?? null },
-    { canon: 'monto_total', label: 'Monto total ($)', synonyms: ['monto_total', 'monto', 'total', 'deuda_total', 'importe'], resolve: d => fmtMoney(d.montoTotal) },
-    { canon: 'deuda', label: 'Deuda original ($)', synonyms: ['deuda'], resolve: d => fmtMoney(d.montoTotal) },
+    { canon: 'monto_total', label: 'Monto total ($)', synonyms: ['monto_total', 'monto', 'total', 'deuda_total', 'importe'], resolve: d => fmtMoney(d.montoTotal), esMontoDelCaso: true },
+    { canon: 'deuda', label: 'Deuda original ($)', synonyms: ['deuda'], resolve: d => fmtMoney(d.montoTotal), esMontoDelCaso: true },
     // `saldo` tenía que ser sinónimo de `deuda` y devolvía el monto original: un deudor que había
     // pagado la mitad recibía un mail reclamándole el total, con la palabra "saldo" adelante.
     {
@@ -79,6 +86,7 @@ export const CATALOG: CatalogEntry[] = [
         label: 'Saldo pendiente ($)',
         synonyms: ['saldo', 'saldo_pendiente', 'resto', 'restante'],
         resolve: d => fmtMoney(d.saldo ?? d.montoTotal),
+        esMontoDelCaso: true,
     },
     // Solo tiene valor en las carteras con régimen de recargos, y sale del último recálculo de mora:
     // si nadie recalculó hace días, el número es el de esa corrida. Ver mora-aysa-spec.md.
@@ -87,6 +95,7 @@ export const CATALOG: CatalogEntry[] = [
         label: 'Deuda actualizada con mora ($)',
         synonyms: ['deuda_actualizada', 'deudaactualizada', 'total_actualizado', 'monto_actualizado'],
         resolve: d => fmtMoney(d.deudaActualizada),
+        esMontoDelCaso: true,
     },
     {
         canon: 'fecha_vencimiento',
@@ -100,7 +109,10 @@ export const CATALOG: CatalogEntry[] = [
     { canon: 'motivo_no_pago', label: 'Motivo no pago', synonyms: ['motivo_no_pago', 'motivo'], resolve: d => d.motivoNoPago?.descripcion ?? null },
 ];
 
-function normalizar(s: string): string {
+/** Exportada para `multiclaves/cupon.service.ts` (aviso de variables riesgosas, §8.4/§20 —
+ * `{{saldo}}`/`{{importe}}`/etc. en una plantilla resuelven a la deuda del CASO, no al importe del
+ * cupón, y no hay forma de detectarlo sin la misma normalización que usa el auto-mapeo). */
+export function normalizar(s: string): string {
     return s
         .toLowerCase()
         .normalize('NFD')

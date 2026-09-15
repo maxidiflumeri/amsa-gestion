@@ -1,7 +1,7 @@
 <!--
 seccion: Gestión de casos
-resumen: Las claves de pago de Telecom/Personal en la ficha, cómo emitir el cupón y qué pasa si lo generás dos veces o cambiás de clave.
-revisado: 2026-09-14
+resumen: Las claves de pago de Telecom/Personal en la ficha, cómo emitir el cupón (con o sin envío por mail) y qué pasa si lo generás dos veces o cambiás de clave.
+revisado: 2026-09-15
 rutas: /gestion
 -->
 # Cupones de pago
@@ -19,6 +19,10 @@ pago" (multiclaves). Si tu cartera no lo usa, esta sección de la ficha ni apare
 
 Necesitás el permiso **Generar cupones de pago** (sección Convenios). Sin él, el botón **Generar
 cupón** aparece deshabilitado, con un tooltip que explica por qué — pedíselo a quien administra roles.
+
+Para además **enviarlo por mail** hace falta, encima, el permiso **Enviar emails a deudores** — el
+mismo que usa [Enviar un email](/ayuda/telefonia-y-email/enviar-un-email) — y que la empresa tenga una
+cuenta de mail asignada. Sin el permiso o sin la cuenta, el diálogo igual te deja **Descargar**.
 
 ---
 
@@ -67,14 +71,54 @@ dos). Ahí la tabla trae una sola fila, "Saldo total": no hay quita para ofrecer
 1. Si el trámite tiene las dos claves (total y quita), podés cambiar la selección arriba del todo.
 2. Una vista previa del PDF, con **marca de agua y sin código de barras** — a propósito: así nadie se
    lleva un cupón que se pueda cobrar sin que quede el convenio registrado.
-3. **Descargar.** Genera el PDF de verdad (con el código de barras) y lo baja.
+3. Si tenés el permiso **Enviar emails a deudores**, aparece la sección **"Enviar por mail"** (ver más
+   abajo). Sin el permiso, esa sección directamente no aparece — solo queda **Descargar**. Con el
+   permiso pero **sin** una cuenta de mail asignada a la empresa, la sección igual aparece, pero con
+   un aviso ("La empresa no tiene una cuenta de mail configurada…") en vez de los campos de
+   destinatario y plantilla.
+4. Botones: **Descargar**, **Enviar** y **Enviar y descargar** (los dos últimos, solo si hay mail
+   disponible: permiso y cuenta).
 
 Al confirmar, además del PDF:
 
-- se crea un **convenio** por el importe exacto de la clave (chip `Clave · Con quita` o
+- se crea (o reusa) un **convenio** por el importe exacto de la clave (chip `Clave · Con quita` o
   `Clave · Saldo total` en la lista de convenios, ver [Convenios](/ayuda/gestion/convenios));
 - la gestión del caso pasa a **"Convenio acordado"**;
-- queda un **comentario** nuevo con el detalle (clave, importe, vencimiento).
+- queda un **comentario** nuevo con el detalle (clave, importe, vencimiento, y si mandaste mail, si
+  salió bien o mal).
+
+### Enviar el cupón por mail
+
+- **Destinatario:** los mails ya cargados como contacto del caso aparecen como chips para tildar, y
+  podés escribir uno nuevo a mano (se valida el formato). Con la casilla **"Guardar el destinatario
+  tipeado como contacto del caso"** tildada, el que escribiste a mano queda guardado para la próxima.
+- **Plantilla: es OPCIONAL.** Podés elegir una de las plantillas de mail de la empresa (las mismas
+  que en [Enviar un email](/ayuda/telefonia-y-email/enviar-un-email)) — ahí se completan solas
+  variables como el importe, el vencimiento, el tipo de cupón, el trámite y **el nombre del cliente**
+  (ver la lista completa de variables en esa misma página). Si alguna variable de la plantilla se
+  queda sin dato, el diálogo te lo dice y **no te deja enviar** hasta que seleccionás otra plantilla o
+  mandás sin ninguna. Si la plantilla elegida usa `{{saldo}}`, `{{importe}}`, `{{monto}}` o
+  `{{total}}`, un aviso te avisa que esas variables traen la **deuda del caso**, no el importe del
+  cupón — no bloquea, pero conviene revisarla antes de mandar.
+  Si **no** elegís plantilla, se manda un mensaje simple armado por el sistema, con el cupón adjunto,
+  el importe y el vencimiento — no hace falta que la empresa tenga una plantilla armada en AMSA
+  Sender para poder mandar el cupón.
+- **Adjunto:** siempre el PDF final del cupón, con el código de barras real — nunca uno que hayas
+  subido vos.
+- **Si el mail no tiene con qué salir** (la empresa no tiene una cuenta de mail asignada en
+  [Empresas](/ayuda/ajustes/empresas)), la sección "Enviar por mail" lo avisa y el diálogo solo deja
+  **Descargar**. Si Sender no responde al comprobar la cuenta, el aviso lo dice distinto ("Sender no
+  respondió") y tiene un botón para reintentar — no es lo mismo que "no tiene cuenta".
+- **Si el envío falla** (el servidor de correo rechazó el mensaje, por ejemplo), el cupón y el
+  convenio **igual quedan generados** — no se pierde nada. El diálogo **no se cierra**: se queda
+  abierto con el error a la vista, la opción de **Descargar** al toque y un botón **"Reintentar
+  envío"** que reusa el mismo convenio (no genera uno nuevo). El comentario del caso queda con "el
+  envío por mail FALLÓ" y el motivo.
+- **Si todos los destinatarios están dados de baja de los envíos**, Sender no manda nada pero tampoco
+  lo cuenta como un error del sistema: el diálogo lo distingue igual — "No se envió: destinatario(s)
+  dado(s) de baja" — y también se queda abierto para que puedas cambiar el destinatario o descargar.
+  Si diste **varios** destinatarios y solo algunos estaban dados de baja, el aviso dice a cuántos llegó
+  y a cuántos no ("Enviado a 1; 1 destinatario dado de baja").
 
 ### El cupón, tal cual sale
 
@@ -130,10 +174,16 @@ nada más. Sirve para un cupón que el deudor perdió o que no llegó a imprimir
 
 ## Qué puede salir mal
 
-### Generé el cupón pero no veo el botón para mandarlo por mail
+### No veo el botón para mandar el cupón por mail
 
-Todavía no existe: por ahora el cupón se **descarga**, no se envía por mail desde acá. Se avisa cuando
-esté disponible.
+Dos motivos posibles: te falta el permiso **Enviar emails a deudores**, o la empresa no tiene una
+cuenta de mail asignada (lo configura quien administra ajustes de Empresas). En los dos casos el
+diálogo sigue dejando **Descargar**.
+
+### Elegí una plantilla y "Enviar" quedó deshabilitado
+
+Alguna variable de esa plantilla se queda sin dato para este caso (el diálogo te dice cuál). Elegí
+otra plantilla, o mandalo sin plantilla — el mensaje por defecto no tiene ese problema.
 
 ### La ficha no muestra "Claves de pago" y sé que el trámite tiene clave
 

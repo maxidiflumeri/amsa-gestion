@@ -723,7 +723,10 @@ model envio_email {
   empresaId        Int
   usuarioId        Int
   smtpId           Int
-  templateId       Int
+  // Nullable desde multiclaves fase 3 (docs/multiclaves-spec.md §8.4): un envío sin plantilla de
+  // Sender (mensaje por defecto armado en Gestión, HTML propio) no tiene `templateId`. Los envíos
+  // existentes siempre lo traen — no hace falta backfill.
+  templateId       Int?
   destinatarios    String   @db.Text
   asunto           String   @db.VarChar(500)
   variables        Json

@@ -1,7 +1,7 @@
 <!--
 seccion: Importación de datos
 resumen: La categoría Claves de pago (multiclaves): qué archivo carga, cómo crear la plantilla, qué empresa elegir y cómo leer la vista previa.
-revisado: 2026-09-14
+revisado: 2026-09-15
 rutas: /carga, /plantillas, /historial-importaciones
 -->
 # Claves de pago (multiclaves)
@@ -9,9 +9,10 @@ rutas: /carga, /plantillas, /historial-importaciones
 ## Para qué sirve
 
 Telecom/Personal manda, junto con cada asignación, un archivo con **dos claves de pago por
-trámite**: una por el saldo total y otra con una quita del 50%. Esta categoría carga esas claves
-para que más adelante (fase 2) se pueda generar el cupón con el código de barras y registrar el
-convenio correspondiente.
+trámite**: una por el saldo total y otra con una quita del 50%. Esta categoría carga esas claves para
+que, desde la ficha del caso, se pueda generar el cupón con el código de barras, registrar el
+convenio y — opcionalmente — mandarlo por mail. Ver
+[Cupones de pago](/ayuda/gestion/cupones-de-pago).
 
 **Esta carga NO crea casos.** Las claves llegan casi siempre antes que el CA del cedente — el
 archivo trae trámites que todavía no existen en el sistema — así que se guardan solas y se
@@ -64,7 +65,7 @@ unas 15 mil líneas — así que se lee entero, no una muestra):
 |---|---|
 | **Válidos / rechazados** | Trámites que pasaron todas las validaciones vs. los que no. Los rechazados no se cargan; el motivo de cada uno (dígito verificador, columnas incompletas, mismo importe en las dos claves…) queda en el historial |
 | **Solo TOTAL** | De los válidos, cuántos trajeron una única clave cuyo importe es el saldo del trámite (sin la de quita). Se cargan igual, clasificada como TOTAL; no hay forma de fabricar la quita que Telecom no mandó. Una única clave cuyo importe **no** es el saldo no entra acá — se rechaza (ver arriba) |
-| **Con caso / sin caso** | Cuántos trámites ya tienen un caso cargado en la empresa elegida, ahora mismo. Los "sin caso" se cargan igual — quedan guardados y listos para usarse desde la ficha cuando se habilite el cupón (fase 2); los "con caso" tampoco se ven todavía en la ficha, esta fase solo carga y guarda |
+| **Con caso / sin caso** | Cuántos trámites ya tienen un caso cargado en la empresa elegida, ahora mismo. Los "sin caso" se cargan igual — quedan guardados y listos para usarse desde la ficha en cuanto llegue el caso (el CA); los "con caso" ya se pueden ver y usar desde la ficha para generar el cupón |
 | **En otra empresa** | Si ninguno tiene caso en la empresa elegida pero sí los tiene otra, aparece en rojo — es la señal de "elegiste mal la empresa" |
 | **Ya cargadas** | Trámites cuyas claves ya están **todas** en la base exactamente igual (recargaste el mismo archivo) — una, si el trámite es Solo TOTAL; dos, si es el par de siempre |
 | **Reemisiones** | Trámites que ya tenían una tanda de claves vigente, y la nueva tiene vencimiento **igual o posterior**: la anterior queda reemplazada por esta, que pasa a ser la vigente. Esto vale aunque la tanda vieja y la nueva no tengan la misma cantidad de claves — una tanda de 2 (TOTAL + QUITA) puede ser reemplazada por una de 1 (solo TOTAL), o al revés: siempre se reemplazan **todas** las claves vigentes del trámite, para no dejar una quita vieja conviviendo con una TOTAL nueva |
@@ -91,7 +92,7 @@ al número generado — nunca da error 500 por esto.
 
 ## Cuándo no se puede borrar
 
-Una clave que ya tiene un convenio (o un cupón emitido — fase 2) **nunca se borra**. Si intentás
+Una clave que ya tiene un convenio (un cupón emitido desde la ficha) **nunca se borra**. Si intentás
 eliminar una carga de claves que ya tiene alguna en ese estado, el sistema lo rechaza y dice
 cuántas. El resto del borrado se comporta distinto a las demás categorías: como esta carga no crea
 casos, borrarla no toca ningún deudor — solo borra las claves. Si esa carga había reemplazado una
@@ -111,9 +112,11 @@ listado de trámites que todavía no tienen caso.
 > estado actual de la base. Si recargás el mismo archivo (carga idempotente, "ya cargadas"), la carga
 > nueva no escribe nada — así que su propio chip "Solo TOTAL" da 0, aunque esos trámites sigan siendo
 > Solo TOTAL en la base. Para ver el estado vigente de un trámite puntual, andá a la ficha del caso
-> (cuando esté disponible) o a la vista previa de una carga nueva del mismo archivo.
+> o a la vista previa de una carga nueva del mismo archivo.
 
-## Lo que todavía no hace esta fase
+## Lo que esta pantalla NO hace
 
-Cargar las claves no genera ningún cupón ni convenio — eso es la fase 2. Por ahora, cargar el
-archivo deja las claves guardadas y listas para cuando la ficha del deudor las use.
+**Cargar el archivo no genera ningún cupón ni convenio por sí solo** — eso lo hace el operador desde
+la ficha del caso, clave por clave, cuando corresponda (ver
+[Cupones de pago](/ayuda/gestion/cupones-de-pago)). Esta pantalla solo deja las claves guardadas y
+listas para usarse.

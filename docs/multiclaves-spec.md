@@ -3,9 +3,14 @@
 **Proyecto:** AMSA Gestión
 **Módulos involucrados:** nuevo `multiclaves`; modificados `imports` (categoría nueva `MULTICLAVES`, parser, processor, preview, borrado), `convenios` (convenio de clave), `consolidacion` (cancelación por pago de clave), `email-sender` (reuso), `auth` (permiso), `empresas` (config); frontend: ficha del deudor (solapa Convenios), wizard y editor de plantillas, historial, ajustes de empresa.
 **Fecha:** 2026-09-14
-**Estado:** Fases 1, 1.1 y 2 implementadas (2026-09-14, ver CHANGELOG.md). Fases 3 a 5 sin implementar.
+**Estado:** Fases 1, 1.1, 2 y 3 implementadas (2026-09-14/15, ver CHANGELOG.md). Fases 4 y 5 sin
+implementar.
 Fase 2: **gate R1 (escaneo físico) pendiente** — no asignar `convenios.generar_cupon` en prod hasta
 imprimir un cupón real y leerlo con un lector físico y con una app (§14, R1; §16.2 paso 10).
+Fase 3: corregida la premisa de que el envío por mail necesita sí o sí una plantilla de Sender — es
+**opcional** (§8.4, §20); el envío requiere además que la empresa tenga `cuentaSmtpId` asignado
+(`PUT /email/empresas/:id/smtp`, ya existente) — **verificado 2026-09-15: en prod, TELECOM_PERSONAL
+(empresas 1, 9, 10 y 11) no tiene ninguna cuenta asignada** — paso de despliegue, §15.
 Q1 y Q3 cerradas por Ana Maya el 2026-09-14 (§19); quedan Q2, Q4 (con la muestra ya pedida — la fase
 4 se rediseña cuando llegue), Q5, Q6 y Q7; ninguna bloquea lo implementado.
 
@@ -769,13 +774,17 @@ t0; log intent: claveId, deudorId, accion, destinatarios=N (no las direcciones)
  6. hoy(AR) ≤ fechaVencimiento                        → 400 CLAVE_VENCIDA       (D9, siempre)
     clave.estado == VIGENTE, o REEMPLAZADA con convenio ACTIVO de esa clave en este caso (R8, se
     resuelve como REUSO en 9c)                        → si no, 400 CLAVE_REEMPLAZADA
- 7. si accion incluye ENVIAR:
+ 7. si accion incluye ENVIAR (implementado en la fase 3; la plantilla es OPCIONAL — ver §8.4 y el
+    desvío del §20, esta condición reemplaza la del diseño original que exigía `cfg.templateCuponId`):
       usuario.permisos incluye 'email.enviar'          → 403
-      cfg.templateCuponId != null                      → 400 EMPRESA_SIN_PLANTILLA_CUPON
       destinatarios ≥ 1, cada uno pasa esPosibleEmail  → 400 DESTINATARIOS_INVALIDOS
-      variables de la plantilla sin valor (§8.4)       → 400 PLANTILLA_CON_VARIABLES_VACIAS
+      empresa.cuentaSmtpId != null (`smtpDeEmpresa`)   → 400 EMPRESA_SIN_SMTP
+      si dto.templateId: variables de la plantilla sin valor (§8.4) → 400 PLANTILLA_CON_VARIABLES_VACIAS
+      si NO dto.templateId: mensaje por defecto (`utils/cupon-mail.ts`), no corta nada
  8. pdf = cuponPdf.generar({... vistaPrevia:false})   (antes de escribir nada: si falla, no queda
-                                                        un convenio sin cupón)
+                                                        un convenio sin cupón; si accion incluye
+                                                        ENVIAR, este mismo buffer es el adjunto del
+                                                        mail — no se regenera después)
  9. $transaction interactiva (timeout 10 s):
       a. SELECT id FROM clave_pago WHERE empresaId=? AND nroTramite=? FOR UPDATE
          → serializa dos clics y dos operadores sobre el mismo trámite, TOTAL y QUITA incluidas
@@ -799,20 +808,27 @@ t0; log intent: claveId, deudorId, accion, destinatarios=N (no las direcciones)
       f. si no es REUSO y existe parametro(cfg.gestionAlGenerar) y difiere de deudor.estadoGestionId
            → deudor.estadoGestionId = ese id
          si el parámetro no existe → warn, sigue (no bloquea el cupón por un catálogo incompleto)
-10. si accion incluye ENVIAR:
-      try  r = emailSender.enviar({deudorId, usuarioId, templateId, destinatarios, variables,
-                 archivos:[{originalname:`cupon-${nroTramite}-${tipo.toLowerCase()}.pdf`, buffer:pdf, mimetype:'application/pdf'}]})
+10. si hubo convenio creado o anulado (no en REUSO): consolidacion.consolidar({tipo:'DEUDORES', deudorIds:[deudorId]})
+      (implementado ANTES del intento de mail, no después como decía este mismo punto en el diseño
+      original: consolidar no depende del resultado del envío, y así el caso queda consolidado aunque
+      Sender tarde o esté caído — desvío sin impacto de negocio, documentado en §20)
+11. si accion incluye ENVIAR:
+      try  r = emailSender.enviar({deudorId, usuarioId, templateId?, html?, destinatarios, asunto,
+                 variables?, archivos:[{originalname:`cupon-pago-${nroTramite}.pdf`, buffer:pdf, mimetype:'application/pdf'}]})
+           (con dto.templateId: `templateId` + `variables` merge de automáticas + propias, `asunto` =
+            el de la plantilla; sin dto.templateId: `html`+`asunto` del mensaje por defecto, sin
+            `templateId` — Sender acepta las dos formas, `sender-http.client.ts`)
       catch e → r = { ok:false, errores:[{error: e.message}] }   (el convenio queda: el reenvío lo reusa)
-      EmailSenderService.enviar ya crea envio_email en éxito y en error (email-sender.service.ts:180-259)
-11. si dto.guardarEmailComoContacto: por cada destinatario que no exista como contacto email del caso,
-      crear contacto { tipo:'email', valor } — best-effort, warn si falla
+      EmailSenderService.enviar ya crea envio_email en éxito y en error, con `templateId` NULL si se
+      mandó sin plantilla (columna `envio_email.templateId` pasó a `Int?` en la fase 3)
+      si dto.guardarEmailComoContacto: por cada destinatario que no exista como contacto email del
+      caso, crear contacto { tipo:'email', valor } — best-effort, warn si falla
 12. comentario (siempre, origen 'CUPON_CLAVE'):
       "Cupón de pago generado — Con quita ($ 19.880,01, vto 27/10/2026, convenio Telecom 96332206). Enviado a 1 destinatario."
       "Cupón de pago reenviado — …"            (REUSO)
       "… El envío por mail FALLÓ: <motivo>."   (r.ok == false)
-      "… Se anuló el convenio #123 (saldo total)."  (paso 9d)
-13. si hubo convenio creado o anulado: consolidacion.consolidar({tipo:'DEUDORES', deudorIds:[deudorId]})
-14. log done con resultado y ms
+      "… Se anuló el convenio de la clave <nroConvenio>."  (paso 9d)
+13. log done con resultado (incluido envio=ok|fail) y ms
 ```
 
 Si el proceso muere entre 9 y 12: queda el convenio sin comentario ni mail. Generar de nuevo lo
@@ -833,22 +849,61 @@ del diálogo; `GET /api/multiclaves/claves/:claveId/cupon/preview.pdf?deudorId=`
 
 ### 8.4 Mail
 
-- Plantilla de Sender configurada por empresa (`cfg.templateCuponId`). Sender no manda un mail sin
-  plantilla (`sender-http.client.ts:160-190`).
-- Variables: las de siempre (`EmailSenderService.previewVariables` → `autoMapearVariables` con los
-  mapeos guardados) **más** cinco propias que pisan a las automáticas:
+> **Corrección de esta fase 3 sobre el diseño original:** el párrafo de abajo decía que Sender "no
+> manda un mail sin plantilla" y que hacía falta `cfg.templateCuponId` configurado — **es falso**. El
+> internal-api de Sender (`internal-email.controller.ts` `POST manual/send`, solo lectura desde acá)
+> acepta `templateId` **o** `html` (con `subject` obligatorio en ese caso) y aplica el mismo layout de
+> header/footer y tracking en los dos casos. La decisión de esta fase 3 es **plantilla opcional**: si
+> el operador no elige una, se manda un mensaje por defecto armado en Gestión. Ver el desvío completo
+> en §20.
+
+- **Plantilla OPCIONAL**, elegida por el operador en el diálogo (§11.2) de entre las plantillas de la
+  cuenta SMTP de la empresa — no hay un `templateCuponId` "fijo" por empresa que la reemplace del
+  todo: `configuracion.multiclaves.templateCuponId` (§9.5) solo la **preselecciona** en el diálogo
+  (ajustable desde Ajustes → Empresas), el operador puede elegir otra o ninguna igual.
+- **Con plantilla:** variables de siempre (`EmailSenderService.previewVariables` →
+  `autoMapearVariables` con los mapeos guardados) **más** seis propias que pisan a las automáticas
+  (`utils/cupon-mail.ts#variablesPropiasCupon`):
 
   | Variable | Valor |
   |---|---|
   | `importe_cupon` | `$ 19.880,01` |
+  | `importe_cupon_letras` | "diecinueve mil ochocientos ochenta con 01 centavos" |
   | `vencimiento_cupon` | vencimiento impreso, `DD/MM/AAAA` |
-  | `tipo_cupon` | `saldo total` / `con quita del 50%` |
+  | `tipo_cupon` | `Saldo total` / `Con quita 50%` |
   | `nro_tramite` | trámite |
-  | `clave_pago` | 22 dígitos |
+  | `nombre_cliente` | nombre y apellido del caso |
 
-- Si alguna variable de la plantilla queda sin valor → 400 `PLANTILLA_CON_VARIABLES_VACIAS` con la
-  lista. Hoy Sender reemplaza lo que falta por cadena vacía y el deudor recibe "pagá $ antes del ".
-  La vista previa JSON devuelve la misma lista para que el botón Enviar ya aparezca deshabilitado.
+  **NO** incluye la clave de pago de 22 dígitos ni el código de barras (consistente con D6, §9.1/§9.2):
+  esos solo existen dentro del PDF adjunto — una plantilla de mail es contenido que un operador puede
+  reenviar o editar sin que el sistema lo controle, no es el lugar para ese dato completo.
+
+  Si alguna variable de la plantilla queda sin valor → 400 `PLANTILLA_CON_VARIABLES_VACIAS` con la
+  lista, **antes** de generar el PDF o tocar la base. La vista previa JSON (`GET …/cupon/preview
+  ?templateId=`) devuelve la misma lista para que el botón Enviar ya aparezca deshabilitado.
+- **Sin plantilla:** mensaje por defecto (`utils/cupon-mail.ts#mensajeCuponDefault`):
+  - Asunto: `Cupón de pago - Personal` (nombre comercial fijo por ahora; no hay config por empresa
+    para esto todavía — ver desvío en §20).
+  - HTML simple con el nombre del cliente (**siempre escapado**, `escapeHtml` — nunca interpolado
+    crudo), el importe, el vencimiento impreso y los medios de pago de `cfg.mediosDePago` (§9.5).
+  - Va como `html`+`asunto` a Sender, sin `templateId`: Sender le agrega el layout/tracking igual que
+    a un mail con plantilla, pero no aplica ningún reemplazo de `{{variable}}` sobre este HTML — ya
+    viene completo.
+- **Cuenta SMTP:** la de la empresa (`empresa.cuentaSmtpId`, `EmailSenderService.smtpDeEmpresa` — no
+  hay selector de cuenta en el diálogo, mismo criterio que `EnviarEmailDialog`). Sin ella → 400
+  `EMPRESA_SIN_SMTP`, y el diálogo deja únicamente Descargar.
+- **Resultado del envío, clasificado (`clasificarEnvio`, hallazgo de la auditoría §20):** Sender puede
+  responder `ok:true` con `enviados:0` si todos los destinatarios están dados de baja — eso NO es un
+  envío exitoso. `enviado` (`enviados>0`, sin omitidos), `parcial` (`enviados>0` y algún omitido),
+  `omitido` (`enviados:0`, todos omitidos) y `fallo` (`ok:false`) son los cuatro estados; solo
+  `enviado` persiste `envio_email.estado='ENVIADO'` — `omitido` persiste `'OMITIDO'` (nuevo, columna
+  libre sin enum, sin `db push`) y `fallo` sigue siendo `'ERROR'`. El comentario y la respuesta del
+  POST distinguen los cuatro (§20).
+- **Variables riesgosas, aviso no bloqueante (hallazgo de la auditoría §20):** si la plantilla elegida
+  usa `{{saldo}}`, `{{importe}}`, `{{monto}}` o `{{total}}` (sinónimos de los canónicos generales
+  `saldo`/`monto_total`/`deuda`, `variables-mapper.ts#CATALOG`), esas variables se completan con la
+  **deuda del caso**, no con el importe del cupón — en una quita, el deudor vería el total. `preview()`
+  lo marca en `avisosPlantilla` y el diálogo lo muestra, sin bloquear el envío.
 
 ---
 
@@ -894,7 +949,7 @@ Errores de negocio con cuerpo `{ code, message, ...detalle }`.
 
 | Método | Ruta | Permiso | Entrada | Salida |
 |---|---|---|---|---|
-| GET | `/multiclaves/claves/:claveId/cupon/preview` | `convenios.generar_cupon` | query `deudorId` | `{ clave, deudor:{nombre, nroTramite}, vtoImpreso, avisos[], convenioActivo, otroConvenioActivo, plantilla:{id,nombre,asunto} \| null, variablesSinValor: string[], destinatariosDisponibles:[{id,valor,principal}] }` |
+| GET | `/multiclaves/claves/:claveId/cupon/preview` | `convenios.generar_cupon` | query `deudorId`, `templateId?` | `{ clave, deudor:{nombre, nroTramite}, vtoImpreso, avisos[], convenioActivo, otroConvenioActivo, plantilla:{id,nombre,asunto} \| null, variablesSinValor: string[], destinatariosDisponibles:[{id,valor,principal}] }` — `plantilla`/`variablesSinValor` solo se completan si se pasó `templateId` |
 | GET | `/multiclaves/claves/:claveId/cupon/preview.pdf` | `convenios.generar_cupon` | query `deudorId` | `application/pdf` (vista previa) |
 | POST | `/multiclaves/claves/:claveId/cupon` | `convenios.generar_cupon` (+ `email.enviar` si envía, + `convenios.cancelar` si reemplaza) | `GenerarCuponDto` | `GenerarCuponRespuesta` |
 | GET | `/multiclaves/convenios/:convenioId/cupon.pdf` | `convenios.generar_cupon` | — | `application/pdf`, `Content-Disposition: attachment; filename="cupon-<tramite>-<tipo>.pdf"` |
@@ -908,6 +963,8 @@ export class GenerarCuponDto {
   @IsInt() @Type(() => Number) deudorId!: number;
   @IsIn(['DESCARGAR', 'ENVIAR', 'DESCARGAR_Y_ENVIAR']) accion!: 'DESCARGAR' | 'ENVIAR' | 'DESCARGAR_Y_ENVIAR';
   @IsOptional() @IsArray() @IsString({ each: true }) @ArrayMaxSize(5) destinatarios?: string[];
+  // Fase 3: OPCIONAL — sin ella se manda el mensaje por defecto (§8.4).
+  @IsOptional() @IsInt() @Type(() => Number) templateId?: number;
   @IsOptional() @IsBoolean() guardarEmailComoContacto?: boolean;
   @IsOptional() @IsBoolean() reemplazarConvenioActivo?: boolean;
   @IsOptional() @IsString() @MaxLength(500) observacion?: string;
@@ -925,9 +982,13 @@ interface GenerarCuponRespuesta {
 ```
 
 Códigos de error: `CLAVE_NO_ENCONTRADA` 404, `DEUDOR_NO_ENCONTRADO` 404, `CLAVE_NO_CORRESPONDE` 400,
-`CLAVE_REEMPLAZADA` 400, `CLAVE_VENCIDA` 400, `DEUDOR_CANCELADO` 403, `EMPRESA_SIN_PLANTILLA_CUPON`
-400, `DESTINATARIOS_INVALIDOS` 400, `PLANTILLA_CON_VARIABLES_VACIAS` 400,
-`CONVENIO_OTRA_CLAVE_ACTIVO` 409, `CONVENIO_CLAVE_EN_OTRO_CASO` 409. Los 400/404/409 se loguean `warn`.
+`CLAVE_REEMPLAZADA` 400, `CLAVE_VENCIDA` 400, `DEUDOR_CANCELADO` 403, `EMPRESA_SIN_SMTP` 400 (fase 3;
+reemplaza al `EMPRESA_SIN_PLANTILLA_CUPON` del diseño original — la plantilla ya no es obligatoria,
+ver §8.4/§20), `DESTINATARIOS_INVALIDOS` 400, `PLANTILLA_CON_VARIABLES_VACIAS` 400 (solo si se eligió
+plantilla), `PLANTILLA_INVALIDA` 400 (la plantilla elegida no existe o dejó de existir en Sender entre
+el preview y la confirmación — mismo código que usa `PATCH .../config`, §9.4, cuando el
+`templateCuponId` que se quiere guardar no es de la cuenta SMTP de la empresa), `CONVENIO_OTRA_CLAVE_ACTIVO` 409, `CONVENIO_CLAVE_EN_OTRO_CASO` 409. Los 400/404/409 se
+loguean `warn`.
 
 Auditoría: `@Audit({ modulo: GESTION, entidad: 'Convenio', tipo: 'CUPON_GENERADO', entidadIdFromResponse: 'convenioId', resumen: … })`
 en el POST; el resumen incluye clave, tipo, reuso y anulación, no las direcciones de mail (esas ya
@@ -948,6 +1009,12 @@ quedan en `envio_email`).
 `MulticlavesConfigDto` (todos opcionales). **Mergea solo la clave `multiclaves`** dentro de
 `empresa.configuracion`, leyendo y escribiendo en una transacción: el `update` genérico reemplaza el
 JSON entero (`empresas.service.ts:31-38`) y se llevaría la config de mora.
+
+Si el body trae `templateCuponId` (no `null`), se valida **antes** de la transacción contra
+`EmailSenderService.templatesDeEmpresa(empresaId)`: si el id no aparece en esa lista (no existe, o es
+de otra cuenta SMTP) → 400 `PLANTILLA_INVALIDA`, sin escribir nada. Si la empresa no tiene
+`cuentaSmtpId` o Sender no responde, el error de `templatesDeEmpresa` se propaga tal cual — tampoco se
+escribe nada (hallazgo de la auditoría de la fase 3, §20).
 
 `GET /api/multiclaves/empresas/:empresaId/config` — permiso `empresas.ver`. Devuelve la config con
 defaults aplicados.
@@ -1132,21 +1199,58 @@ chip `Cumplido` en `success`.
 
 ### 11.2 Diálogo `GenerarCuponDialog.tsx`
 
-`frontend/src/components/deudores/ficha/modals/GenerarCuponDialog.tsx`. Pasos:
+`frontend/src/components/deudores/ficha/modals/GenerarCuponDialog.tsx`.
 
-1. **Opción**: TOTAL o QUITA (preseleccionada la de la fila), con importe y vencimiento impreso. Si
-   `otroConvenioActivo`, `Alert` warning: *"Ya hay un cupón emitido por el saldo total ($ 39.760,03).
-   Generar este lo anula."* + checkbox obligatorio "Anular el convenio anterior" (solo con
-   `convenios.cancelar`; sin el permiso, el botón queda deshabilitado con la explicación).
-2. **Destinatarios**: lista de emails del caso (`destinatariosDisponibles`) con checkbox + campo para
-   uno manual + checkbox "Guardar como contacto". Si no hay plantilla configurada o faltan variables,
-   el paso muestra por qué y solo deja **Descargar**.
-3. **Vista previa**: el PDF de preview en un `<iframe>` (blob), asunto de la plantilla.
-4. Botones: **Descargar**, **Enviar**, **Enviar y descargar**. Al volver del POST: si la acción
-   incluye descarga, se baja `descargaUrl` como blob con el token; notificación con el resultado
-   (incluido "el mail falló, el convenio quedó registrado: reintentá desde Reimprimir/Generar"); se
-   recargan claves, convenios, comentarios y el caso (la gestión cambió).
-5. 409 `CONVENIO_CLAVE_EN_OTRO_CASO`: mensaje con link a la ficha del otro caso.
+> **Desvío de esta fase 3 sobre el diseño original:** el plan de abajo describía un asistente de
+> pasos numerados (opción → destinatarios → vista previa → botones). Se implementó como **una sola
+> vista** (como ya era el diálogo de la fase 2, sin envío), con una sección nueva "Enviar por mail"
+> que aparece debajo de la vista previa — más simple de mantener y consistente con cómo ya se veía el
+> diálogo antes de esta fase. La funcionalidad de cada "paso" está toda, solo que no son pantallas
+> separadas. No implementado: el link directo desde el 409 `CONVENIO_CLAVE_EN_OTRO_CASO` (ese caso ya
+> se corta antes, en la vista previa — ver `otroCasoId`/"Abrir ese caso" más abajo, que cubre el mismo
+> problema desde el aviso, no desde el error del POST).
+
+Contenido:
+
+- **Opción**: TOTAL o QUITA (preseleccionada la de la fila, `ToggleButtonGroup` si el trámite tiene
+  las dos), con importe y vencimiento impreso.
+- **Avisos** (`Alert`, uno por cada string de `preview.avisos`): incluye el de `otroConvenioActivo`
+  ("Ya hay un cupón emitido por…") con el checkbox obligatorio "Anular el convenio de la otra clave y
+  generar este cupón" al lado (solo habilitado con `convenios.cancelar`; sin el permiso, deshabilitado
+  con la explicación) y el de "esta clave ya tiene un convenio en otro caso" con un botón **"Abrir ese
+  caso"** (deja el id en `localStorage` y recarga `/gestion` — la pantalla de Gestión no tiene URL por
+  caso).
+- **Vista previa**: el PDF de preview en un `<iframe>` (blob), con marca de agua.
+- **Enviar por mail** (solo si `puedeEnviarEmail`, prop que baja de `FichaDeudor.tsx` con
+  `tienePermiso('email.enviar')`): al abrir el diálogo se piden `GET /email/empresa/:id/smtp` y, si
+  hay cuenta, `GET /email/empresa/:id/templates` — mismo patrón que `EnviarEmailDialog.tsx`, sin
+  selector de cuenta SMTP. Sin cuenta, `Alert` informativo y la sección no ofrece nada más (solo
+  Descargar); si la comprobación de la cuenta explota (Sender no responde, no "sin cuenta"), un
+  `Alert` de error distinto con botón Reintentar (hallazgo de la auditoría, §20 — antes las dos cosas
+  se confundían). Con cuenta:
+  - Destinatarios: chips de `preview.destinatariosDisponibles` (tildable, solo se aplican como
+    default la PRIMERA vez que carga el preview — cambiar de clave ya no pisa lo tipeado a mano) +
+    campo para uno manual (validado con una regex simple, igual que `EnviarEmailDialog`) + checkbox
+    "Guardar como contacto" (crea el contacto vía `ContactosService.create`, y solo si el envío llegó
+    a alguien).
+  - Select de plantilla ("Sin plantilla — mensaje por defecto" primera opción, después las de
+    `templatesDeEmpresa`; nunca muestra un id preseleccionado que no esté en esa lista). Al cambiar
+    (o al cambiar de clave con una plantilla ya elegida), se vuelve a pedir
+    `GET …/cupon/preview?templateId=` (sin regenerar el PDF) para refrescar `variablesSinValor`,
+    `avisosPlantilla` y `plantillaError` — estado que vive aparte de `preview` (`plantillaInfo`,
+    hallazgo de la auditoría, §20) para no arrastrar el aviso de una plantilla vieja. `variablesSinValor`
+    no vacío, o `plantillaError` no nulo (la plantilla no se pudo resolver), deshabilitan "Enviar"/
+    "Enviar y descargar". `avisosPlantilla` (variables que resuelven a la deuda del caso, no al cupón)
+    se muestra pero no bloquea.
+- Botones: **Descargar** siempre; **Enviar** y **Enviar y descargar** solo si `puedeEnviarEmail` y hay
+  cuenta SMTP. Al volver del POST: si `descargaUrl` no es `null`, se baja como blob con el token; se
+  llama a `onGenerado()` (recarga claves, convenios, comentarios y el caso) **pase lo que pase con el
+  mail**, porque el convenio ya se creó. Si el envío no fue un éxito total (`parcial`, `omitido` o
+  `fallo` — clasificación igual a `CuponService`), el diálogo **no se cierra**: queda un `Alert`
+  persistente con el detalle, `Descargar` sigue disponible y el botón "Enviar" pasa a decir
+  "Reintentar envío" (reusa el mismo convenio). Solo con envío 100% exitoso, o sin envío
+  (`DESCARGAR`), se cierra solo con un `notify.success` (hallazgo de la auditoría, §20 — antes se
+  cerraba siempre, con un aviso de 4 segundos como única pista de que algo había fallado).
 
 Todo con `theme.palette`, sin colores fijos. Funciona en modo oscuro.
 
@@ -1170,11 +1274,22 @@ Todo con `theme.palette`, sin colores fijos. Funciona en modo oscuro.
 
 ### 11.4 Ajustes de empresa
 
-`AjustesEmpresas.tsx`: sección colapsable "Claves de pago" (visible con `empresas.editar`): plantilla
-de Sender (combo con `GET /email-sender/empresa/:id/templates`), código de gestión al generar, medios
-de pago y leyenda. Sin campo de corrimiento del vencimiento impreso: desde la fase 1.1 (D12) es una
-regla fija (`hoy + 7 días`, tope en el vencimiento real), no un parámetro por empresa. Guarda con
-`PATCH /multiclaves/empresas/:id/config` (§9.4), **no** con el update de empresa.
+`AjustesEmpresas.tsx`: dentro del diálogo "Editar empresa" (solo al editar una empresa existente, no
+al crearla), un `Accordion` colapsable "Claves de pago (cupón de Telecom/Personal)" — visible con
+`empresas.editar`: plantilla de Sender **preseleccionada** (combo con `GET /email/empresa/:id/
+templates`, corregido del `/email-sender/empresa/:id/templates` del diseño original — ese prefijo no
+existe, el controller de `EmailSenderModule` cuelga de `/email`; deshabilitado si la empresa no tiene
+`cuentaSmtpId`, o si a quien edita le falta `email.enviar` — el pedido de plantillas a Sender ni se
+hace en ese caso, hallazgo de la auditoría, §20), código de gestión al generar, medios de pago (campo
+de texto separado por comas) y leyenda. Sin campo de corrimiento del vencimiento impreso: desde la
+fase 1.1 (D12) es una regla fija (`hoy + 7 días`, tope en el vencimiento real), no un parámetro por
+empresa. Guarda con `PATCH /multiclaves/empresas/:id/config` (§9.4), **no** con el update de
+empresa — en el mismo click de "Guardar" del diálogo, después de guardar los datos básicos de la
+empresa, y **solo si algo de esta sección cambió** respecto de lo que se cargó al abrir (hallazgo de
+la auditoría, §20: antes se mandaba siempre, así que guardar cualquier campo de una empresa que nunca
+usó multiclaves —AYSA, por ejemplo— igual le agregaba un bloque `multiclaves` con los defaults). Si
+ese `PATCH` falla, el diálogo lo dice por separado — no dice "Empresa actualizada correctamente" como
+si nada.
 
 ---
 
@@ -1259,14 +1374,17 @@ número de cuenta del cedente y se loguea solo en conteos o en `warn` puntuales.
 | **1** | Schema completo de §4.1–4.4 + `clave-pago.ts` + parser + processor + categoría + número de remesa + vista previa + resumen + borrado + editor de plantilla + wizard + wiki de importación | Ninguna. Q1 afecta qué empresa se elige, no el código (ver R9) — cerrada en la 1.1. Q2: se guarda `marca` cruda | `db push` |
 | **1.1** | Trámite con una única clave (SOLO_TOTAL): parser, processor (idempotencia y reemisión por cantidad de claves), invariante del borrado, vista previa, resumen del lote, wiki. Ver §20 | Ninguna | Sin push |
 | **2** | Cupón PDF (`importe-en-letras`, bwip-js, logo, layout) + endpoints de preview, POST con acción `DESCARGAR` y reimpresión + convenio de clave + gestión + comentario + `ClavesPagoCard` + `GenerarCuponDialog` (sin envío) + permiso + wiki de gestión | Ninguna para implementar. **Gate R1** (escaneo) antes de dar el permiso en prod. Q3 cerrada (D12, regla fija); Q5 sigue con default (`GES-050`) | Sin push |
-| **3** | Envío por mail: acciones `ENVIAR`/`DESCARGAR_Y_ENVIAR`, variables propias, chequeo de variables vacías, guardar contacto, config de empresa (endpoint + sección en ajustes) | Ninguna. Depende de la plantilla creada en Sender (fase 0.4) | Sin push |
+| **3** | Envío por mail: acciones `ENVIAR`/`DESCARGAR_Y_ENVIAR` (plantilla **opcional** — corrige el diseño original, ver §8.4/§20), variables propias, chequeo de variables vacías, guardar contacto, config de empresa (endpoint + sección en ajustes), extensión de `email-sender` para mandar `html`+`asunto` sin plantilla | Ninguna. **Ya no** depende de la plantilla en Sender (fase 0.4) — sigue siendo útil tenerla, pero no bloquea | `db push` (`envio_email.templateId` pasa a nullable, aditivo) |
 | **4** | Regla (b) en la consolidación + cuota PAGADA + `aSIT050PorClave` + tolerancia por env + chips `Cumplido` + wiki de pagos | **Se rediseña** cuando llegue la muestra de pagos de posbaja con multiclave (§19): la cancelación con quita va a quedar en un código nuevo "Cancelado con quita" (propuesta `SIT-054`), no en SIT-050. No redecidido todavía — no tocar esta fase hasta tener la muestra | Sin push |
 | **5** | Regla (a): `pago.referenciaClave`, campo mapeable en plantillas de PAGOS, rama en la consolidación | **Q4** | `db push` |
 | ~~**1b**~~ | ~~Carga de claves con varias empresas destino~~ | **Descartada** (cierre de Q1, fase 1.1): el archivo es de una sola empresa (TELECOM_PERSONAL) | — |
 
 Pasos de despliegue de cada fase con UI nueva: asignar `convenios.generar_cupon` a los roles que
 corresponda desde la pantalla de Roles (fase 2), crear la plantilla `MULTICLAVES` en la empresa
-(fase 1), configurar `templateCuponId` (fase 3).
+(fase 1). Fase 3: `db push` (ver arriba); asignar `cuentaSmtpId` a las empresas TELECOM_PERSONAL que
+vayan a mandar el cupón por mail (Ajustes → Empresas → Editar — **verificado 2026-09-15: en prod
+ninguna de las 1, 9, 10 y 11 lo tiene**, sin esto el diálogo solo deja Descargar); `templateCuponId`
+es opcional, se puede configurar después sin bloquear nada.
 
 ---
 
@@ -1541,6 +1659,206 @@ Siguen abiertas:
 
 ## 20. Changelog del spec
 
+### 2026-09-15 (fase 3 implementada — envío del cupón por mail)
+
+- **Corrección bloqueante del diseño original: la plantilla de Sender NO es obligatoria.** §8.4 y
+  §9.2 (código `EMPRESA_SIN_PLANTILLA_CUPON`) decían que sin `cfg.templateCuponId` configurado no se
+  podía enviar el cupón, "porque Sender no manda un mail sin plantilla". Es falso: el internal-api de
+  AMSA Sender (`internal-email.controller.ts` `POST manual/send`, repo hermano, solo lectura) ya
+  acepta `templateId` **o** `html` (con `subject` obligatorio en ese segundo caso), y
+  `manual-email.service.ts` le aplica el mismo layout de header/footer y tracking a los dos casos —
+  la única diferencia es que con `html` no hay reemplazo de `{{variables}}` porque no hace falta, el
+  HTML ya viene completo. Decisión: **plantilla opcional**. Con plantilla, se arman las variables
+  (automáticas + seis propias del cupón, ver abajo) y se valida que ninguna quede vacía antes de
+  mandar; sin plantilla, se manda un mensaje por defecto armado en Gestión
+  (`multiclaves/utils/cupon-mail.ts#mensajeCuponDefault`). El código `EMPRESA_SIN_PLANTILLA_CUPON`
+  queda reemplazado por `EMPRESA_SIN_SMTP` (la única condición real: la empresa necesita una cuenta de
+  mail asignada, no una plantilla).
+- **Dato de producción verificado 2026-09-15 (antes de cerrar la fase, a pedido explícito):**
+  `email_template_variable_mapeo` tiene 0 filas y **ninguna** empresa TELECOM_PERSONAL (ids 1, 9, 10 y
+  11) tiene `cuentaSmtpId` asignado. Con el diseño original (plantilla obligatoria + `cuentaSmtpId`
+  obligatorio) el envío no se podría usar en prod bajo ninguna circunstancia hasta configurar las dos
+  cosas; con la plantilla opcional, alcanza con asignar `cuentaSmtpId` (paso de despliegue, §15) — la
+  plantilla se puede sumar después sin bloquear nada.
+- **`email-sender` extendido para mandar sin plantilla**, reusando todo lo demás (historial en
+  `envio_email`, desuscripciones, tracking, adjuntos):
+  - `sender-http.client.ts#enviarManual`: `templateId` pasa a opcional, nuevo parámetro `html?`
+    (mutuamente excluyente con `templateId` — si no viene ninguno de los dos, lanza sin llamar a
+    Sender). `variables` pasa a opcional.
+  - `email-sender.service.ts#enviar`: mismos parámetros opcionales; valida que venga `templateId` o
+    `html`, y que el `asunto` sea obligatorio cuando no hay plantilla (con plantilla, el asunto sigue
+    siendo opcional — gana el de la plantilla). Nunca loguea `html` (política de logging).
+  - Cambio de schema **imprescindible y aditivo**: `envio_email.templateId` pasa de `Int` a `Int?` —
+    un envío sin plantilla no tiene ese dato. `db push` local corrido y verificado; los envíos
+    existentes conservan su valor, no hace falta backfill.
+- **`multiclaves/utils/cupon-mail.ts`** (nuevo, + 12 tests): `escapeHtml` (los cinco caracteres
+  especiales de HTML — nunca se interpola el nombre del cliente sin pasar por acá),
+  `formatearListaOr` (medios de pago: "PAGO FACIL, RAPIPAGO … o COBRO EXPRESS"),
+  `variablesPropiasCupon` (las seis del cupón — ver tabla actualizada en §8.4; **sin** la clave de
+  pago ni el código de barras, a propósito, ver la nota de D6 ahí mismo) y `mensajeCuponDefault`
+  (asunto `Cupón de pago - Personal` + HTML fijo con el nombre, importe, vencimiento y medios de
+  pago).
+- **`cupon.service.ts`**: `generar()` reescrito — ya no corta `ENVIAR`/`DESCARGAR_Y_ENVIAR` con 400
+  `ACCION_NO_DISPONIBLE`. Nuevo método privado `prepararEnvio` (permiso `email.enviar`, destinatarios
+  con `esPosibleEmail`, `EMPRESA_SIN_SMTP`, variables de la plantilla si se eligió una) que se corre
+  **antes** de generar el PDF y de la transacción — igual que el resto de las validaciones de negocio,
+  para no dejar nada a medio camino. El PDF generado antes de la transacción se **reusa** como adjunto
+  del mail (no se regenera después: los datos no dependen de si el convenio se creó o se reusó).
+  `ejecutarEnvio` llama a `EmailSenderService.enviar` con `try/catch` — `enviar()` ya devuelve
+  `ok:false` en el camino esperado (SMTP rechaza), el `catch` es la red por si algo explota antes de
+  eso; ninguno de los dos casos revierte el convenio.
+  **Reordenamiento sobre el punto 9 del diseño original:** el `comentario.create` de la fase 2 vivía
+  **dentro** de la transacción (9c/9e) porque todavía no existía el envío; en esta fase 3 se movió
+  **fuera**, después del intento de mail (§8.1, pasos 11-12), para que el texto del comentario pueda
+  decir si el mail salió bien o mal. Sin impacto de negocio: si el proceso muere entre el commit de la
+  transacción y el comentario, el cupón sigue siendo válido y generar de nuevo lo reusa (mismo
+  invariante que ya describía el spec original para esta ventana). `consolidacion.consolidar` se
+  llama inmediatamente después de la transacción (antes de intentar el mail, no después del
+  comentario como decía el punto 13 original) — no depende del resultado del envío, así el caso queda
+  consolidado aunque Sender esté caído.
+- **`preview()`**: nuevo parámetro opcional `templateId` — con él, llama a
+  `EmailSenderService.previewVariables` y arma `plantilla`/`variablesSinValor` igual que el envío real
+  (misma función que arma las variables propias, para no calcular el importe/vencimiento dos veces con
+  criterios distintos); si la plantilla ya no existe o Sender está caído, `warn` y sigue con
+  `plantilla: null` — no rompe la vista previa. Nuevo método `destinatariosDelCaso` (contactos
+  `tipo: 'email'` del caso, igual criterio que `EmailSenderService.previewVariables`) para
+  `destinatariosDisponibles`, disponible aunque no se haya elegido plantilla todavía.
+- **Config de empresa** (`ConfigEmpresaMulticlavesService`, nuevo, + 6 tests): `GET`/`PATCH
+  /multiclaves/empresas/:id/config` tal como describía §9.4 — merge transaccional de la clave
+  `multiclaves` dentro de `empresa.configuracion`, sin tocar el resto (mora, promesas). Controller:
+  agregados a `MulticlavesController` con `empresas.ver`/`empresas.editar` (permisos ya existentes en
+  el catálogo, sin altas nuevas).
+- **Permisos:** ninguno nuevo — `email.enviar` y `convenios.generar_cupon` ya estaban en el catálogo
+  (fase 2 y módulo de email existente). El backend exige los dos para `ENVIAR`/`DESCARGAR_Y_ENVIAR`
+  (`email.enviar` se valida a mano en el servicio, no con `@Permisos(...)` en el controller — ese
+  decorador es OR entre los permisos listados, no AND, así que la combinación "las dos cosas" no se
+  puede expresar ahí; queda documentado en el controller).
+- **Frontend:** `GenerarCuponDialog.tsx` reescrito con la sección "Enviar por mail" (ver desvío de UX
+  en §11.2); `multiclaves.ts` (api) con `templateId`/`destinatarios` en `generarCupon`,
+  `obtenerConfig`/`actualizarConfig`; `FichaDeudor.tsx` pasa `empresaId` y `puedeEnviarEmail` nuevos al
+  diálogo. `AjustesEmpresas.tsx`: sección "Claves de pago" dentro de "Editar empresa" (§11.4, con la
+  corrección del endpoint de plantillas).
+- **Verificado contra la base local** (sin datos de prueba quedando en la base): `CuponService.generar`
+  con `accion: 'ENVIAR'` sobre un `EmailSenderService` con el `SenderHttpClient` **mockeado** (no hay
+  Sender local levantado, y la instrucción fue explícita: no mandar mails reales) — camino feliz con
+  plantilla, camino feliz sin plantilla, variables vacías (400 antes de tocar la base), sin SMTP (400
+  antes de tocar la base), mail que devuelve `ok:false`, mail que tira una excepción, reenvío
+  (REUSO) con `ENVIAR`, permiso faltante (403). El convenio, la gestión y el comentario del flujo
+  `DESCARGAR` (fase 2) no cambiaron de comportamiento — cubierto por los 18 tests de esa fase que
+  siguen en verde.
+- **Desvíos que quedan documentados, no implementados:** el nombre comercial del asunto por defecto
+  ("Personal") es fijo en código, no configurable por empresa todavía — si otra cartera de Telecom
+  necesita un nombre distinto, hace falta agregarlo a `configuracion.multiclaves`. El aviso
+  `avisos.plantillaCuponConfigurada` de `GET .../claves` (§9.1) sigue siendo un stub que devuelve
+  `false` siempre (ya lo era en la fase 2) y el frontend nunca lo mostró — con la plantilla opcional
+  pierde buena parte de su sentido original; no se tocó en esta unidad de trabajo.
+
+Un auditor revisó esta primera versión antes de darla por cerrada y la devolvió **NO PASA**, con dos
+hallazgos bloqueantes. Todo lo de arriba (Backend/Frontend/Verificación) ya incluye las correcciones;
+el detalle de qué estaba mal y cómo se corrigió queda acá:
+
+- **`comentario.texto` es `varchar(191)` (confirmado contra la base local, `SHOW COLUMNS`) —
+  bloqueante, corregido.** El comentario se arma DESPUÉS de la transacción (para poder incluir el
+  resultado del mail), y con "El envío por mail FALLÓ: <motivo real de Gmail>" más una anulación, el
+  texto se pasaba de largo — `comentario.create` tiraba `P2000` con el convenio, la cuota y (si
+  correspondía) la anulación **ya escritos**, y el front recibía un 500 sin enterarse de que el cupón
+  sí se había generado. `CuponService.textoComentario` ahora arma el texto en capas: la acción, el
+  tipo y número de la clave, la anulación y el resultado del mail nunca se cortan (con una versión
+  compacta sin importe/vencimiento como segunda opción si hiciera falta el espacio); solo el motivo
+  técnico del fallo cede, truncado con "…", y como último recurso hay un slice duro a 191 que no
+  debería activarse nunca (los números involucrados son de largo fijo). Además, **todo** lo que corre
+  después de la transacción (`consolidacion.consolidar`, la creación del comentario) quedó envuelto en
+  su propio `try/catch`: una excepción ahí nunca vuelve a ser un 500 con escrituras hechas — se
+  loguea `error` con stack y se responde con éxito parcial (`comentarioId: null` si hizo falta).
+- **Un envío totalmente omitido (todos los destinatarios dados de baja) quedaba registrado como
+  "Enviado" — bloqueante, corregido.** Sender responde `ok:true, enviados:0, omitidos:[…]` en ese
+  caso (`manual-email.service.ts`, solo lectura) — ni error ni éxito real, y ni `CuponService` ni
+  `EmailSenderService.enviar` miraban `enviados`/`omitidos`: el `envio_email` quedaba `'ENVIADO'`, el
+  comentario decía "Enviado a 1 destinatario" y el diálogo lo festejaba igual. Corregido en capas: (1)
+  `EmailSenderService.enviar` calcula el `estado` mirando `enviados` y `omitidos` — nuevo valor
+  `'OMITIDO'` cuando nadie recibió nada (columna libre, sin enum en la DB, sin `db push`); (2)
+  `CuponService` clasifica el resultado en `enviado` / `parcial` / `omitido` / `fallo`
+  (`clasificarEnvio`) y lo usa tanto para el comentario ("No se envió: destinatario(s) dado(s) de
+  baja." / "Enviado a N, M dado(s) de baja.") como para la respuesta (`envio.enviados`,
+  `envio.omitidos`); (3) `GenerarCuponDialog.tsx` usa esos campos en vez de `destinatarios.length` y
+  distingue los cuatro casos en pantalla. `guardarEmailComoContacto` ahora solo guarda si
+  `enviados > 0` — guardar un contacto al que no le llegó nada no aporta nada.
+
+También corregidos, sin ser bloqueantes:
+
+- **El diálogo se cerraba igual cuando el mail fallaba o se omitía**, con un aviso de 4 segundos como
+  única pista. `GenerarCuponDialog.tsx` ahora se queda abierto en esos tres casos (`parcial`,
+  `omitido`, `fallo`) con un `Alert` persistente, `Descargar` disponible al toque y el botón "Enviar"
+  cambia a "Reintentar envío" (reusa el mismo convenio, no genera uno nuevo). Con envío 100% exitoso o
+  sin envío (`DESCARGAR`), se sigue cerrando solo.
+- **Cambiar de plantilla a "Sin plantilla" no destrababa "Enviar"**, y cambiar de clave (TOTAL/QUITA)
+  con una plantilla ya elegida perdía el aviso de variables faltantes — las dos cosas por el mismo
+  motivo: `variablesSinValor` colgaba de `preview`, que se pisaba entero al cambiar de clave sin
+  volver a pedir las variables de la plantilla vigente, y el efecto que las recalculaba cortaba
+  temprano (`if (!templateId) return`) sin limpiar el estado viejo. Ahora `plantillaInfo` vive aparte
+  de `preview` y se recalcula con `[templateId, claveId]` como dependencias — sin plantilla, se limpia
+  al toque.
+- **`templateCuponId` no se validaba contra Sender.** El `PATCH /multiclaves/empresas/:id/config`
+  guardaba cualquier id sin comprobar que existiera o que fuera de la cuenta SMTP de la empresa —
+  `ConfigEmpresaMulticlavesService.actualizar` ahora llama a `EmailSenderService.templatesDeEmpresa`
+  antes de escribir y corta con 400 `PLANTILLA_INVALIDA` si no aparece en la lista (sin escribir
+  nada); si Sender no responde, el error se propaga tal cual, tampoco se guarda. En el otro extremo,
+  `CuponService.prepararEnvio` ahora envuelve su propio `previewVariables` en `try/catch`: si la
+  plantilla elegida desaparece de Sender entre el preview y la confirmación, es un 400
+  `PLANTILLA_INVALIDA`, nunca un 500. Y `preview()` distingue "sin variables sin valor" (`[]`) de "no
+  se pudo ni comprobar" (`plantillaError`, nuevo campo) — antes eran indistinguibles y el frontend
+  habilitaba "Enviar" con una plantilla que nunca llegó a validarse. El `<Select>` del diálogo también
+  descarta cualquier `templateId` preseleccionado que no aparezca en `templates`, para no mostrarle a
+  MUI un value fuera de rango.
+- **`{{saldo}}`/`{{importe}}`/`{{monto}}`/`{{total}}` en una plantilla resuelven a la deuda del CASO,
+  no al importe del cupón** — un cupón de quita con una plantilla así le manda al deudor el total de
+  la deuda. Nuevo aviso, no bloqueante: `preview()` (con `templateId`) marca `avisosPlantilla` cuando
+  alguna variable de la plantilla matchea esos canónicos del catálogo general
+  (`variables-mapper.ts#CATALOG`, función `normalizar` exportada para esto) y el diálogo lo muestra.
+- **El asunto guardado en `envio_email` quedaba con `{{nombre_cliente}}` literal** cuando se mandaba
+  con plantilla — Sender sí lo resuelve al mandar (`renderTemplate` en `manual-email.service.ts`),
+  pero el historial de Gestión mostraba el texto crudo. `prepararEnvio` ahora resuelve el asunto acá
+  mismo con `renderVariables` (mismo patrón `{{\w+}}` que usa Sender) antes de mandarlo — Sender lo
+  vuelve a "renderizar" pero como ya no quedan variables sin resolver, es un no-op.
+  **Deuda pendiente, sin resolver:** `nombre_cliente` (y el resto de las variables propias) se pasan
+  **sin escapar** a la plantilla — mismo criterio que el resto de las variables del mapeo general
+  (`autoMapearVariables`), que tampoco escapan nada; no se introdujo un criterio distinto solo para
+  esto. Si algún día se decide escapar las variables de plantilla en general, esto tiene que ir con
+  esa decisión, no suelto acá.
+- **`guardarEmailComoContacto` insertaba directo por Prisma**, sin la validación de siempre
+  (minúsculas, trim, chequeo de MX) — ahora reusa `ContactosService.create` (`ContactosModule` exporta
+  el servicio, importado en `MulticlavesModule`).
+- **`AjustesEmpresas.tsx` pedía la lista de plantillas de Sender sin `email.enviar`**, y mandaba el
+  `PATCH` de "Claves de pago" cada vez que se guardaba CUALQUIER campo de la empresa — aunque nadie
+  hubiera tocado esa sección (una empresa que nunca usó multiclaves, como AYSA, terminaba con un
+  bloque `multiclaves` de defaults en su `configuracion` solo por renombrarla). Corregido: la lista de
+  plantillas solo se pide con el permiso, y el `PATCH` solo se manda si `cuponForm` difiere de
+  `cuponFormOriginal` (el snapshot cargado al abrir). Si ese `PATCH` falla, ya no dice "Empresa
+  actualizada correctamente" — avisa qué se guardó y qué no.
+- **El diálogo no distinguía "la empresa no tiene cuenta de mail" de "Sender no respondió"** al
+  comprobar la cuenta SMTP — las dos caían en el mismo `catch` y mostraban el mismo aviso, engañoso en
+  el segundo caso. Ahora un error real de red/Sender muestra su propio aviso con botón Reintentar, sin
+  afirmar que la empresa "no tiene cuenta configurada" cuando en realidad no se pudo comprobar nada.
+  También se corrigió que cambiar de clave (TOTAL/QUITA) pisaba los destinatarios ya tipeados a
+  mano — la lista sugerida de contactos solo se aplica la primera vez que carga el preview.
+- Controller: agregado el comentario que explica por qué `email.enviar` se valida a mano en el
+  servicio y no con un segundo `@Permisos(...)` (ese decorador es OR entre los permisos, nunca AND).
+- Wiki: `05-cupones-de-pago.md` corregida ("tu nombre" → "el nombre del cliente"; la sección "Enviar
+  por mail" si aparece sin cuenta SMTP, con un aviso, en vez de no aparecer; agregado el
+  comportamiento de diálogo-que-no-se-cierra y de omitido/parcial); variables del cupón documentadas
+  también en `08-telefonia-y-email/03-enviar-un-email.md` y en
+  `05-ajustes/01-empresas.md` (nueva sección "Claves de pago"); `03-importacion/10-claves-de-pago.md`
+  ya no dice "cuando se habilite el cupón (fase 2)" — el cupón y el envío por mail ya existen.
+  `docs/email-sender-spec.md` actualizada (schema `templateId` nullable, estado `OMITIDO`, envío sin
+  plantilla desde Gestión).
+- **Verificado contra la base local**, sin datos de prueba quedando en la base: `SHOW COLUMNS FROM
+  comentario LIKE 'texto'` confirmó `varchar(191)` antes de escribir el fix. Todo lo demás, con
+  `SenderHttpClient`/`EmailSenderService` mockeados (no hay Sender local levantado, y la instrucción
+  fue explícita: no mandar mails reales) — incluidos el motivo real de Gmail
+  ("Invalid login: 535-5.7.8 Username and Password not accepted…") con anulación en el mismo
+  comentario, y la simulación de un `P2000` real en `comentario.create` para probar que ya no
+  produce un 500.
+
 ### 2026-09-14 (fase 2 implementada, con una ronda de auditoría — cupón PDF, convenio de clave, ficha)
 
 Primera versión: `importe-en-letras.ts`, `cupon-pdf.service.ts` (3 talones, D6 vista previa con marca
@@ -1784,7 +2102,10 @@ Paso 5: Módulo `multiclaves` con `GET lotes/:id/resumen` y `sin-caso`. Frontend
 Paso 5.1 (fase 1.1, **hecho** 2026-09-14): trámite SOLO_TOTAL — parser, idempotencia/reemisión por cantidad de claves en el processor, invariante del borrado, `soloTotal` en vista previa y resumen del lote, wiki, CHANGELOG. Sin push. Ver §20.
 Paso 6 (fase 2): `importe-en-letras.ts` + spec; `bwip-js`; `cupon-pdf.service.ts` (vto impreso con D12, no `mesesVtoImpreso`) + assets + `nest-cli.json`; gate de escaneo.
 Paso 7: Columnas de convenio en uso: `cupon.service.ts` (acción DESCARGAR), endpoints de preview/POST/reimpresión, permiso en las dos copias, `ClavesPagoCard` + `GenerarCuponDialog` + chips en `FichaConveniosTab`. Wiki de gestión y permisos. CHANGELOG fase 2.
-Paso 8 (fase 3): envío por mail, variables propias, chequeo de variables vacías, guardar contacto, endpoint de config con merge + sección en AjustesEmpresas. Wiki. CHANGELOG.
+Paso 8 (fase 3, ✅ implementado 2026-09-15): envío por mail (plantilla OPCIONAL, corregido del diseño
+original), variables propias, chequeo de variables vacías, guardar contacto, endpoint de config con
+merge + sección en AjustesEmpresas. Wiki. CHANGELOG. Detalle completo del desvío de la plantilla y de
+lo verificado en §20.
 Paso 9 (fase 4): regla (b) en `consolidacion.service.ts`, cuota PAGADA, `aSIT050PorClave`, env de tolerancia, chip Cumplido, specs de §10.3, actualización de `consolidacion-situacion-spec.md`. Wiki de pagos. CHANGELOG.
 Paso 10 (fase 5, solo con respuesta a Q4): `pago.referenciaClave` (db push), mapeo en pagos.processor, regla (a).
 

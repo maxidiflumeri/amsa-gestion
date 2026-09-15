@@ -107,6 +107,37 @@ export interface PreviewCuponRespuesta {
     avisos: string[];
     convenioActivo: null | { id: number; deudorId: number; esEsteCaso: boolean; createdAt: string };
     otroConvenioActivo: null | { id: number; deudorId: number; tipo: 'TOTAL' | 'QUITA' | null; importe: number };
+    /** Fase 3: solo si se pidió `previewCupon(..., templateId)`. */
+    plantilla: null | { id: number; nombre: string; asunto: string };
+    /** Variables de la plantilla elegida que quedarían vacías — si hay alguna, "Enviar" se
+     * deshabilita ANTES de mandar (§8.4). Vacío si no se eligió plantilla. */
+    variablesSinValor: string[];
+    /** No nulo solo cuando se pidió `templateId` y no se pudo resolver (404 de Sender, Sender caído):
+     * a diferencia de `variablesSinValor: []`, esto NO significa "está todo bien" — el frontend tiene
+     * que deshabilitar Enviar con esa plantilla igual (hallazgo de la auditoría, §5). */
+    plantillaError: string | null;
+    /** Variables de la plantilla que en realidad resuelven a la deuda del CASO (`{{saldo}}`,
+     * `{{importe}}`, etc.), no al importe del cupón — aviso, no bloquea (§8.4/§20). */
+    avisosPlantilla: string[];
+    /** Emails ya cargados como contacto del caso, para elegir como destinatario. */
+    destinatariosDisponibles: Array<{ id: number; valor: string; principal: boolean }>;
+    /** `configuracion.multiclaves` de la empresa, con sus defaults — `templateCuponId` preselecciona
+     * la plantilla en el diálogo (el operador puede igual elegir otra, o ninguna). */
+    cfg: { templateCuponId: number | null; gestionAlGenerar: string; leyendaTalonCedente: string; mediosDePago: string[] };
+}
+
+export type AccionCupon = 'DESCARGAR' | 'ENVIAR' | 'DESCARGAR_Y_ENVIAR';
+
+export interface GenerarCuponBody {
+    deudorId: number;
+    accion: AccionCupon;
+    /** Requerido si `accion` incluye ENVIAR. */
+    destinatarios?: string[];
+    /** Plantilla de Sender opcional — sin ella se manda el mensaje por defecto (§8.4). */
+    templateId?: number;
+    guardarEmailComoContacto?: boolean;
+    reemplazarConvenioActivo?: boolean;
+    observacion?: string;
 }
 
 export interface GenerarCuponRespuesta {
@@ -114,9 +145,26 @@ export interface GenerarCuponRespuesta {
     convenioReusado: boolean;
     convenioAnuladoId: number | null;
     gestionCambiada: boolean;
-    comentarioId: number;
-    envio: null;
-    descargaUrl: string;
+    /** `null` en el caso raro de que el cupón se haya generado (o enviado) pero el comentario no se
+     * pudo dejar — el convenio sigue siendo válido igual (§20). */
+    comentarioId: number | null;
+    envio: null | {
+        envioId: number | null;
+        ok: boolean;
+        enviados: number;
+        /** Destinatarios que Sender no mandó a propósito (dados de baja) — no es un error. */
+        omitidos?: Array<{ email: string; motivo: string }>;
+        errores?: Array<{ email?: string; error: string }>;
+    };
+    /** Solo si `accion` incluye DESCARGAR. */
+    descargaUrl: string | null;
+}
+
+export interface ConfigMulticlaves {
+    templateCuponId: number | null;
+    gestionAlGenerar: string;
+    leyendaTalonCedente: string;
+    mediosDePago: string[];
 }
 
 export const multiclavesApi = {
@@ -136,8 +184,10 @@ export const multiclavesApi = {
             .then((r) => r.data);
     },
 
-    previewCupon(claveId: number, deudorId: number): Promise<PreviewCuponRespuesta> {
-        return api.get(`/multiclaves/claves/${claveId}/cupon/preview`, { params: { deudorId } }).then((r) => r.data);
+    previewCupon(claveId: number, deudorId: number, templateId?: number): Promise<PreviewCuponRespuesta> {
+        return api
+            .get(`/multiclaves/claves/${claveId}/cupon/preview`, { params: { deudorId, templateId } })
+            .then((r) => r.data);
     },
 
     previewCuponPdf(claveId: number, deudorId: number) {
@@ -147,14 +197,19 @@ export const multiclavesApi = {
         });
     },
 
-    generarCupon(
-        claveId: number,
-        body: { deudorId: number; accion: 'DESCARGAR'; reemplazarConvenioActivo?: boolean; observacion?: string },
-    ): Promise<GenerarCuponRespuesta> {
+    generarCupon(claveId: number, body: GenerarCuponBody): Promise<GenerarCuponRespuesta> {
         return api.post(`/multiclaves/claves/${claveId}/cupon`, body).then((r) => r.data);
     },
 
     descargarCupon(convenioId: number) {
         return api.get(`/multiclaves/convenios/${convenioId}/cupon.pdf`, { responseType: 'blob' });
+    },
+
+    obtenerConfig(empresaId: number): Promise<ConfigMulticlaves> {
+        return api.get(`/multiclaves/empresas/${empresaId}/config`).then((r) => r.data);
+    },
+
+    actualizarConfig(empresaId: number, body: Partial<ConfigMulticlaves>): Promise<ConfigMulticlaves> {
+        return api.patch(`/multiclaves/empresas/${empresaId}/config`, body).then((r) => r.data);
     },
 };

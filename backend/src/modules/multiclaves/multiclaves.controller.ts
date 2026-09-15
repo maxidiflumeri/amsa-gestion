@@ -1,23 +1,27 @@
-import { Body, Controller, DefaultValuePipe, Get, Param, ParseIntPipe, Post, Query, Res } from '@nestjs/common';
+import { Body, Controller, DefaultValuePipe, Get, Param, ParseIntPipe, Patch, Post, Query, Res } from '@nestjs/common';
 import type { Response } from 'express';
 import { Permisos, UsuarioActual } from '../../auth/decorators';
 import { Audit } from '../transacciones/audit.decorator';
-import { AuditModulo } from '../transacciones/audit.enums';
+import { AuditModulo, AuditTipo } from '../transacciones/audit.enums';
 import { ClavesService } from './claves.service';
 import { CuponService } from './cupon.service';
 import type { UsuarioJwt } from './cupon.service';
+import { ConfigEmpresaMulticlavesService } from './config-empresa.service';
 import { GenerarCuponDto } from './dto/generar-cupon.dto';
+import { MulticlavesConfigDto } from './dto/config-multiclaves.dto';
 
 /**
  * Endpoints de MULTICLAVES. Fase 1: resumen y sin-caso de una carga (§5.7, §9.3). Fase 2: claves
- * del caso para la ficha (§9.1) y el cupón (preview, generar, reimprimir — §9.2). La config de
- * empresa (§9.4) llega en la fase 3, junto con el envío por mail.
+ * del caso para la ficha (§9.1) y el cupón (preview, generar, reimprimir — §9.2). Fase 3: envío del
+ * cupón por mail (mismos endpoints de generar/preview, con `templateId` opcional) y config de
+ * empresa (§9.4).
  */
 @Controller('multiclaves')
 export class MulticlavesController {
     constructor(
         private readonly claves: ClavesService,
         private readonly cupon: CuponService,
+        private readonly config: ConfigEmpresaMulticlavesService,
     ) { }
 
     @Get('lotes/:remesaId/resumen')
@@ -52,8 +56,9 @@ export class MulticlavesController {
     preview(
         @Param('claveId', ParseIntPipe) claveId: number,
         @Query('deudorId', ParseIntPipe) deudorId: number,
+        @Query('templateId') templateId?: string,
     ) {
-        return this.cupon.preview(claveId, deudorId);
+        return this.cupon.preview(claveId, deudorId, templateId ? Number(templateId) : undefined);
     }
 
     @Get('claves/:claveId/cupon/preview.pdf')
@@ -69,6 +74,11 @@ export class MulticlavesController {
         res.send(buffer);
     }
 
+    // El `@Permisos` de acá abajo solo pide `convenios.generar_cupon` — cuando `dto.accion` incluye
+    // ENVIAR/DESCARGAR_Y_ENVIAR, `CuponService.generar` (`prepararEnvio`) exige ADEMÁS
+    // `email.enviar` a mano, con `usuario.permisos.includes(...)`. No se puede expresar ese "Y" acá:
+    // `PermisosGuard` hace OR entre los permisos que se le pasan a `@Permisos(...)` (alcanza con
+    // cualquiera de la lista), nunca AND — por eso el segundo permiso vive en el servicio.
     @Post('claves/:claveId/cupon')
     @Permisos('convenios.generar_cupon')
     @Audit({
@@ -98,5 +108,26 @@ export class MulticlavesController {
         res.setHeader('Content-Type', 'application/pdf');
         res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
         res.send(buffer);
+    }
+
+    @Get('empresas/:empresaId/config')
+    @Permisos('empresas.ver')
+    obtenerConfig(@Param('empresaId', ParseIntPipe) empresaId: number) {
+        return this.config.obtener(empresaId);
+    }
+
+    @Patch('empresas/:empresaId/config')
+    @Permisos('empresas.editar')
+    @Audit({
+        modulo: AuditModulo.ADMIN,
+        entidad: 'EmpresaMulticlavesConfig',
+        tipo: AuditTipo.UPDATE,
+        entidadIdParam: 'empresaId',
+        empresaId: (_res, req) => Number(req.params.empresaId),
+        resumen: (_res, req) => `Actualizó la config de claves de pago de la empresa ${req.params.empresaId}`,
+        data: (res, req) => ({ params: req.body, after: res }),
+    })
+    actualizarConfig(@Param('empresaId', ParseIntPipe) empresaId: number, @Body() dto: MulticlavesConfigDto) {
+        return this.config.actualizar(empresaId, dto);
     }
 }

@@ -6,6 +6,193 @@
 
 ---
 
+## [2026-09-15] — Claves de pago de Telecom/Personal (multiclaves) — fase 3: envío del cupón por mail
+
+El diálogo "Generar cupón de pago" ya puede, además de descargar, **enviar el cupón por mail** (o las
+dos cosas). La plantilla de Sender es **opcional** — corrección de una premisa falsa del spec original
+(§8.4/§20 de `docs/multiclaves-spec.md`): Sender ya aceptaba mandar un HTML propio sin plantilla, así
+que no hacía falta exigirle a cada empresa que tuviera una plantilla armada de antemano para poder
+mandar el cupón.
+
+### Backend
+
+- `email-sender/sender-http.client.ts` y `email-sender.service.ts` (+ 15 tests nuevos): `enviarManual`
+  y `enviar` aceptan `templateId` **o** `html`+`asunto` (antes solo `templateId`) — reflejando lo que
+  el internal-api de AMSA Sender ya soporta (`POST internal/email/manual/send`, verificado contra el
+  repo hermano, solo lectura). Sin plantilla, el `asunto` pasa a ser obligatorio (con plantilla, sigue
+  siendo opcional). Nunca se loguea el `html`.
+- **Schema:** `envio_email.templateId` pasa de `Int` a `Int?` — un envío sin plantilla no tiene ese
+  dato. Cambio aditivo, `db push` corrido en local; los envíos existentes no necesitan backfill.
+- `multiclaves/utils/cupon-mail.ts` (nuevo, + 12 tests): `escapeHtml`, `formatearListaOr`,
+  `variablesPropiasCupon` (seis variables para una plantilla: `importe_cupon`,
+  `importe_cupon_letras`, `vencimiento_cupon`, `tipo_cupon`, `nro_tramite`, `nombre_cliente` — nunca
+  la clave de 22 dígitos ni el código de barras, consistente con D6) y `mensajeCuponDefault` (asunto
+  `Cupón de pago - Personal` + HTML fijo, con el nombre del cliente siempre escapado).
+- `multiclaves/cupon.service.ts` (+ 16 tests nuevos, 45 en total): `generar()` ya no corta
+  `ENVIAR`/`DESCARGAR_Y_ENVIAR` con 400. Nuevo `prepararEnvio` (permiso `email.enviar`, destinatarios
+  con `esPosibleEmail`, `EMPRESA_SIN_SMTP` si la empresa no tiene `cuentaSmtpId`, variables de la
+  plantilla si se eligió una — 400 `PLANTILLA_CON_VARIABLES_VACIAS` con la lista si falta alguna) que
+  se valida **antes** de generar el PDF y de tocar la base, igual que el resto de las validaciones de
+  negocio. El PDF ya generado se reusa como adjunto del mail (`cupon-pago-<tramite>.pdf`) — no se
+  regenera. El envío es *best-effort*: si Sender rechaza o explota, el convenio queda igual, el
+  `envio_email` queda en `ERROR` y el comentario del caso dice "el envío por mail FALLÓ: <motivo>". El
+  comentario (antes se creaba dentro de la transacción del convenio) se movió a después del intento de
+  mail, para poder incluir el resultado del envío en su texto — sin impacto de negocio, ver el desvío
+  documentado en el spec.
+  `preview()` acepta un `templateId` opcional para devolver `plantilla`/`variablesSinValor` con el
+  mismo criterio que usaría el envío real, y siempre devuelve `destinatariosDisponibles` (contactos
+  email del caso).
+- `ConfigEmpresaMulticlavesService` (nuevo, + 6 tests): `GET`/`PATCH
+  /multiclaves/empresas/:empresaId/config` — mergea solo la clave `multiclaves` de
+  `empresa.configuracion` (permisos `empresas.ver`/`empresas.editar`, ya existentes).
+- Sin permisos nuevos: `email.enviar` y `convenios.generar_cupon` ya estaban en el catálogo. El
+  backend exige los dos para enviar — `email.enviar` se valida a mano en el servicio porque
+  `@Permisos(...)` es OR entre los permisos listados, no AND.
+
+### Frontend
+
+- `GenerarCuponDialog.tsx`: sección nueva "Enviar por mail" (destinatarios del caso + uno manual +
+  checkbox "guardar como contacto", plantilla opcional con aviso de variables vacías). La cuenta SMTP
+  se resuelve igual que en `EnviarEmailDialog` (`empresa.cuentaSmtpId`, sin selector) — sin ella, el
+  diálogo lo dice y solo deja Descargar. Botones **Descargar**, **Enviar**, **Enviar y descargar**;
+  si el mail falla, aviso (`notify.warning`, no error) aclarando que el cupón y el convenio quedaron
+  generados igual.
+- `api/multiclaves.ts`: `generarCupon` acepta `templateId`; `obtenerConfig`/`actualizarConfig` nuevos;
+  `previewCupon` acepta `templateId` opcional.
+- `FichaDeudor.tsx`: pasa `empresaId` y `puedeEnviarEmail` al diálogo del cupón.
+- `AjustesEmpresas.tsx`: sección colapsable "Claves de pago" dentro de "Editar empresa" (plantilla
+  preseleccionada opcional, código de gestión, leyenda del talón, medios de pago) — corregido el
+  endpoint de plantillas del spec original (`/email/empresa/:id/templates`, no `/email-sender/...`).
+
+### Verificación
+
+- **No se mandó ningún mail real**: no hay Sender local levantado y así lo pidió el usuario. Todos los
+  tests mockean `SenderHttpClient`/`EmailSenderService`. Backend: `npm run build` limpio, suite
+  completa **1190 tests en verde** (0 fallos). Frontend: `tsc --noEmit` en la línea base de 5 errores
+  preexistentes (sin sumar ninguno), `npm run build` limpio, `npm run verificar-ayuda` en verde (38
+  páginas, 0 errores).
+- **Dato de producción verificado 2026-09-15** (solo lectura, a pedido explícito antes de cerrar la
+  fase): ninguna empresa TELECOM_PERSONAL (ids 1, 9, 10, 11) tiene `cuentaSmtpId` asignado —
+  `email_template_variable_mapeo` tiene 0 filas. **Paso de despliegue:** asignar una cuenta SMTP desde
+  Ajustes → Empresas antes de que el envío por mail sirva de algo en prod; sin eso, el diálogo va a
+  seguir mostrando solo Descargar, que es el comportamiento correcto (no un bug).
+- Wiki: `docs/ayuda/02-gestion/05-cupones-de-pago.md` actualizada (sección "Enviar el cupón por mail",
+  FAQ corregida); referencia cruzada agregada en
+  `docs/ayuda/08-telefonia-y-email/03-enviar-un-email.md`.
+
+### Hallazgos de la auditoría (misma fecha, corregidos en la misma unidad de trabajo)
+
+Un auditor revisó esta primera versión de la fase 3 y la devolvió **NO PASA**, con dos bloqueantes.
+Detalle completo en `docs/multiclaves-spec.md` §20; resumen acá:
+
+- **Bloqueante — `comentario.texto` es `varchar(191)`** (confirmado contra la base local): con "El
+  envío por mail FALLÓ: <motivo real>" más una anulación, el texto se pasaba de largo y
+  `comentario.create` tiraba `P2000` **con el convenio ya escrito** — 500 al front, cupón generado sin
+  que nadie se enterara. `CuponService.textoComentario` arma el texto en capas (nunca se corta la
+  acción, la clave ni la anulación; el motivo técnico cede primero, truncado) y todo lo que corre
+  después de la transacción quedó en su propio `try/catch` — nunca más un 500 con escrituras hechas.
+- **Bloqueante — un envío 100% omitido (destinatarios dados de baja) quedaba como "Enviado".** Sender
+  responde `ok:true, enviados:0, omitidos:[…]` en ese caso; ni `CuponService` ni
+  `EmailSenderService.enviar` lo miraban. Nuevo estado `envio_email.estado='OMITIDO'`, clasificación en
+  cuatro casos (`enviado`/`parcial`/`omitido`/`fallo`) reflejada en el comentario, la respuesta del
+  POST y el diálogo.
+- Importantes, también corregidos: el diálogo se cerraba igual cuando el mail fallaba o se omitía
+  (ahora queda abierto, con Descargar y "Reintentar envío" a mano); cambiar de plantilla a "Sin
+  plantilla" no destrababa "Enviar" y cambiar de clave con una plantilla elegida perdía el aviso de
+  variables faltantes; `templateCuponId` no se validaba contra Sender al guardarlo en Ajustes ni al
+  confirmar un envío.
+- Menores: aviso nuevo (no bloqueante) cuando una plantilla usa `{{saldo}}`/`{{importe}}`/`{{monto}}`/
+  `{{total}}` — esas resuelven a la deuda del caso, no al importe del cupón; el asunto guardado en
+  `envio_email` ahora es el resuelto, no `{{nombre_cliente}}` literal; `guardarEmailComoContacto` reusa
+  `ContactosService.create` (antes insertaba directo por Prisma) y solo guarda si el envío llegó a
+  alguien; `AjustesEmpresas.tsx` ya no pide plantillas sin `email.enviar` ni manda el `PATCH` de
+  "Claves de pago" si nadie tocó esa sección (antes cualquier empresa editada, use o no multiclaves,
+  terminaba con un bloque `multiclaves` de defaults en su `configuracion`).
+- Verificado contra la base local: `SHOW COLUMNS FROM comentario LIKE 'texto'` confirmó `varchar(191)`
+  antes del fix. El resto, con `SenderHttpClient`/`EmailSenderService` mockeados (sin Sender local, sin
+  mails reales) — incluido el motivo real de Gmail con anulación en el mismo comentario, y un `P2000`
+  simulado para probar que ya no da 500. Backend: **1211 tests en verde**. Frontend: misma línea base
+  de 5 errores de `tsc`, build y `verificar-ayuda` limpios.
+
+### Tercera ronda de auditoría (misma fecha) — el diálogo se desmontaba al fallar el envío
+
+Segunda vuelta del mismo auditor: backend OK, **bloqueante en el frontend**.
+
+- **Bloqueante — `GenerarCuponDialog` se desmontaba en el momento exacto en que tenía que quedarse
+  abierto.** `handleCuponGenerado` (`FichaDeudor.tsx`) llamaba a `cargarInicial()`, que hace
+  `setLoading(true)` — y el render de la ficha, más abajo, reemplaza TODO el árbol
+  (`if (loading || !deudor) return <LoadingSkeleton/>`) mientras `loading` es `true`, diálogo abierto
+  incluido. Como el diálogo de la fase 3 dispara `onGenerado()` también cuando el mail FALLA (no solo
+  al cerrar con éxito), el aviso de error, el botón "Reintentar envío" y los destinatarios/plantilla
+  elegidos desaparecían al toque — al volver a montarse, el diálogo arrancaba de cero. Nueva función
+  `recargarDeudorSilencioso` (mismo fetch que `cargarInicial`, sin pasar por `loading`) — mismo patrón
+  que ya usaba `NuevoConvenioModal` con `onSaved={cargarConvenios}` (`loadingConvenios` es un estado
+  aparte, no global). `handleCuponGenerado` usa la versión silenciosa; el camino que sí cierra el
+  diálogo (envío 100% exitoso, o `DESCARGAR`) sigue refrescando la ficha igual, solo que sin el
+  parpadeo del skeleton completo. **Verificado por inspección de código**, no con un test de
+  componente: el frontend no tiene React Testing Library ni ningún runner de tests de componente
+  instalado (`package.json` sin `jest`/`vitest`/`@testing-library/*`, consistente con "no hay lint ni
+  tests configurados en el frontend" del `CLAUDE.md`) — agregar esa infraestructura para un solo test
+  quedaba fuera de esta unidad de trabajo.
+- **Importante — con la plantilla preseleccionada borrada en Sender, no se podía volver a "Sin
+  plantilla".** El `<Select>` ya "escondía" el id inválido (mostraba `''` si no estaba en `templates`),
+  pero el estado real (`templateId`) seguía apuntando al id viejo — como React ve el mismo `value=''`
+  antes y después, `onChange` nunca se disparaba al tocar "Sin plantilla" (comportamiento de
+  `SelectInput` de MUI), y `plantillaInfo.plantillaError` quedaba pegado para siempre bloqueando
+  "Enviar", sin ninguna acción posible en la UI para salir de ahí. Ahora `templateId` se resetea a
+  `''` de VERDAD (no solo lo que se muestra) en dos casos: el preview devuelve `plantillaError`, o
+  (nuevo) la plantilla ya no aparece en la lista `templates` aunque Sender la siga resolviendo sin
+  error — con un aviso aparte (`preseleccionInvalidaMsg`) que no depende del ciclo de `templateId`, así
+  no se pierde justo cuando se limpia el estado que lo disparó.
+- Menores, mismo lote: truncado del motivo del comentario por *code point* (`Array.from`), no por
+  unidad UTF-16 — un motivo con emojis ya no puede dejar un surrogate suelto que MySQL rechace; en un
+  envío parcial, `guardarEmailComoContacto` ya no guarda al destinatario que quedó omitido (dado de
+  baja); `TimelineDeudorTab.tsx` marca "· no enviado: dado de baja" para `estado='OMITIDO'` (antes solo
+  distinguía `ERROR`); catálogo de reportes (`metadata.ts`) documenta el estado nuevo;
+  `AjustesEmpresas.tsx` arma el `PATCH` de "Claves de pago" campo por campo — cambiar solo los medios
+  de pago ya no revalida `templateCuponId` contra Sender ni puede fallar por eso; las variables
+  "riesgosas" del cupón (aviso de `{{saldo}}`/`{{importe}}`/etc.) ahora se derivan de un flag
+  `esMontoDelCaso` en el `CATALOG` de `variables-mapper.ts` en vez de una lista a mano — sumó
+  `{{deuda_actualizada}}`, que faltaba; `guardarComoContacto` corta a los 3s la validación de
+  `ContactosService.create` (su `dns.resolveMx` no tiene timeout propio y puede tardar ~28s con un DNS
+  caído) — solo en el camino del cupón, el alta manual de contactos no se tocó.
+- **Nota transversal:** el cambio de estado `'OMITIDO'` en `EmailSenderService.enviar` (introducido en
+  la ronda anterior) no es exclusivo de multiclaves — el envío común desde la ficha
+  (`EnviarEmailDialog`, `POST /email/deudores/:id/enviar`) también empieza a guardar `envio_email`
+  con `estado='OMITIDO'` cuando **todos** los destinatarios de ese envío están dados de baja. Antes
+  quedaba como `'ENVIADO'` ahí también — no es una regresión de comportamiento visible para el
+  operador (`EnviarEmailDialog` ya avisaba "se dio de baja" por pantalla), pero el historial ahora es
+  preciso para los dos flujos, no solo para el del cupón.
+- Verificado: `npm run build` limpio, **1216 tests en verde** (+5 sobre la ronda anterior). Frontend:
+  misma línea base de `tsc`, build y `verificar-ayuda` limpios.
+
+### Cuarta ronda (misma fecha) — spinner colgado y detalles del diálogo
+
+La auditoría montó `FichaDeudor` y `GenerarCuponDialog` reales en jsdom, con MUI real y las APIs
+reemplazadas. Así confirmó que el diálogo ya no se desmonta y encontró lo siguiente:
+
+- **"Comprobando las variables…" quedaba colgado.** Pasaba al volver a "Sin plantilla" con el preview
+  de una plantilla todavía en vuelo, o cuando se reseteaba una preselección mientras su preview no
+  había vuelto. El cleanup del efecto cancelaba el `finally` que apagaba el spinner y la rama sin
+  plantilla no lo apagaba, así que Enviar quedaba deshabilitado sin salida. Ahora la rama sin
+  plantilla lo apaga.
+- **Si fallaba solo la lista de plantillas, se ocultaba el formulario y Enviar seguía activo.**
+  Mandaba al destinatario precargado sin que el operador lo viera. Ahora ese error tiene su propio
+  aviso ("podés mandar el mensaje por defecto", con Reintentar) y el formulario queda visible. El
+  error de "no se pudo comprobar la cuenta" bloquea Enviar.
+- **Aviso de plantilla inválida.** Se limpia al elegir una plantilla válida, y distingue la plantilla
+  configurada de la empresa de una elegida a mano.
+- **Log del timeout de 3 s al guardar el contacto.** `Promise.race` no cancela
+  `ContactosService.create`, que podía terminar después y guardar el contacto igual, mientras el
+  log decía "no se pudo guardar". Ahora el log dice que sigue en segundo plano y el desenlace tardío
+  se loguea aparte.
+- Verificado con el montaje en jsdom: en los escenarios de vuelta a "Sin plantilla" y de
+  reconciliación en vuelo, Enviar queda habilitado y sin spinner; con la lista de plantillas caída,
+  el formulario queda visible y el envío sale sin plantilla. Tests de backend de multiclaves, email
+  y contactos en verde (232); `tsc` en la línea base.
+
+---
+
 ## [2026-09-14] — Claves de pago de Telecom/Personal (multiclaves) — fase 2: cupón PDF y convenio de clave
 
 El operador ya puede, desde la ficha, elegir una clave de pago (saldo total o quita del 50%), generar

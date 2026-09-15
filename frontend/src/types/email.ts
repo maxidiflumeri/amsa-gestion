@@ -90,7 +90,8 @@ export interface EnvioEmail {
     empresaId: number
     usuarioId: number
     smtpId: number
-    templateId: number
+    /** `null` en un envío sin plantilla (mensaje por defecto, multiclaves fase 3). */
+    templateId: number | null
     destinatarios: string
     asunto: string
     variables: Record<string, string>

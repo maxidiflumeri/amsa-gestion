@@ -1,7 +1,7 @@
 <!--
 seccion: Ajustes
-resumen: Dar de alta una cartera y qué hay que configurarle después para poder trabajarla.
-revisado: 2026-08-20
+resumen: Dar de alta una cartera, qué hay que configurarle después para poder trabajarla, y la config de claves de pago (cupón de Telecom/Personal).
+revisado: 2026-09-15
 rutas: /ajustes/empresas
 rutaPrincipal: /ajustes/empresas
 -->
@@ -53,6 +53,44 @@ identifique con quien le está reclamando.
 
 **Este campo no siempre aparece**: se muestra solo si tenés el permiso *Administrar cuentas SMTP de
 empresas*. Si no lo ves y necesitás cambiar la casilla, es eso. Se puede dejar **sin asignar**.
+
+---
+
+## Claves de pago (cupón de Telecom/Personal)
+
+Solo aparece al **editar** una empresa que ya existe (no al crearla), y con el permiso *Editar
+empresas*: una sección colapsable "Claves de pago (cupón de Telecom/Personal)". Es la config de la
+carga de claves de pago (multiclaves) — ver [Cupones de pago](/ayuda/gestion/cupones-de-pago).
+
+| Campo | Para qué |
+|---|---|
+| **Plantilla de mail preseleccionada** | La plantilla de Sender que el diálogo "Generar cupón" trae elegida de entrada. El operador igual puede cambiarla por otra, o sacarla, en cada envío — esto es solo el punto de partida. Deshabilitado si la empresa no tiene cuenta de mail asignada, o si a quien edita le falta el permiso *Enviar emails a deudores* |
+| **Código de gestión al generar el cupón** | La clave del catálogo de gestión (`GES-050` por defecto) a la que pasa el caso cuando se genera un cupón nuevo |
+| **Leyenda del talón para el cedente** | El texto fijo que va en el talón que se queda Telecom/Personal |
+| **Medios de pago** | Separados por coma — se listan en el cupón y en el mensaje por defecto del mail cuando no se elige plantilla |
+
+Guarda aparte del resto del formulario (no se pierde si falla): si el resto de la empresa se guardó
+bien pero esto no, el aviso lo dice por separado.
+
+### Variables del cupón, para armar una plantilla en Sender
+
+Si vas a crear o editar una plantilla de mail para el cupón en AMSA Sender, además de las variables
+de siempre (nombre, apellido, etc. — ver
+[Enviar un email](/ayuda/telefonia-y-email/enviar-un-email)) tenés estas seis, propias del cupón:
+
+| Variable | Qué trae |
+|---|---|
+| `{{importe_cupon}}` | El importe de la clave elegida, con signo — `$ 19.880,01` |
+| `{{importe_cupon_letras}}` | El mismo importe, en letras |
+| `{{vencimiento_cupon}}` | El vencimiento impreso del cupón (`DD/MM/AAAA`) |
+| `{{tipo_cupon}}` | `Saldo total` o `Con quita 50%` |
+| `{{nro_tramite}}` | El número de trámite de Telecom |
+| `{{nombre_cliente}}` | Nombre y apellido del caso |
+
+**Ojo con `{{saldo}}`, `{{importe}}`, `{{monto}}` o `{{total}}`**: esas son variables del mapeo
+general y se completan con la **deuda del caso**, no con el importe del cupón — en un cupón de quita,
+el deudor recibiría el total de la deuda en vez de lo que tiene que pagar. El diálogo avisa si la
+plantilla elegida usa alguna, pero no lo bloquea: revisá la plantilla antes de usarla para esto.
 
 ---
 

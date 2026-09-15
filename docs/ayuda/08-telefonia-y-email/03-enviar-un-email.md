@@ -211,3 +211,32 @@ Sí. El bloqueo de las cuentas canceladas no alcanza al envío de mails.
 
 **¿Desde qué dirección le llega al deudor?**
 De la cuenta SMTP de la empresa. Por eso conviene que cada cartera tenga la suya.
+
+---
+
+## Ver también — el mail del cupón de pago (Telecom/Personal)
+
+El envío del **cupón de pago** de Telecom/Personal es un caso aparte: tiene su propio diálogo
+("Generar cupón", en la solapa Convenios, ver [Cupones de pago](/ayuda/gestion/cupones-de-pago)) y
+ahí la plantilla es **opcional** — sin elegir una, se manda un mensaje simple armado por el sistema
+con el cupón adjunto.
+
+Si armás una plantilla en Sender para usarla ahí, además de las variables de siempre tenés seis
+propias del cupón:
+
+| Variable | Qué trae |
+|---|---|
+| `{{importe_cupon}}` | El importe de la clave elegida, con signo — `$ 19.880,01` |
+| `{{importe_cupon_letras}}` | El mismo importe, en letras |
+| `{{vencimiento_cupon}}` | El vencimiento impreso del cupón (`DD/MM/AAAA`) |
+| `{{tipo_cupon}}` | `Saldo total` o `Con quita 50%` |
+| `{{nro_tramite}}` | El número de trámite de Telecom |
+| `{{nombre_cliente}}` | Nombre y apellido del caso |
+
+**No uses `{{saldo}}`, `{{importe}}`, `{{monto}}` ni `{{total}}` para esto**: son variables del mapeo
+general y se completan con la deuda del caso, no con el importe del cupón — en una quita, el deudor
+vería el total de la deuda en vez de lo que tiene que pagar. El diálogo avisa si la plantilla elegida
+usa alguna, pero no lo bloquea.
+
+Configuración de empresa (plantilla preseleccionada, código de gestión, medios de pago) en
+[Empresas](/ayuda/ajustes/empresas).
