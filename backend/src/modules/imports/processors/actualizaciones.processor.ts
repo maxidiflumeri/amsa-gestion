@@ -8,6 +8,7 @@ import { esDocumentoPlaceholder } from '../utils/documento';
 import { adicionalesEquivalentes, mergeAdicionales } from '../utils/campos-adicionales';
 import { enriquecerContactosHistoricos } from '../utils/enriquecimiento-historico';
 import { AuditModulo, AuditTipo, AuditSeveridad, AuditEstado } from '../../transacciones/audit.enums';
+import { idsSituacionCancelada } from '../utils/situaciones-cerradas';
 
 /**
  * Procesador ACTUALIZACIONES — tres escenarios:
@@ -84,11 +85,13 @@ export class ActualizacionesProcessor implements ICategoryProcessor {
     private sawReconciliationData = false;
 
     /**
-     * Caches por batch de los parámetros GES-094 (desasignado) y SIT-050 (cancelado).
+     * Caches por batch del parámetro GES-094 (desasignado) y de los ids de situación CANCELADO
+     * (SIT-050 a SIT-054, resueltos por categoría — ver `situaciones-cerradas.ts` y
+     * docs/multiclaves-spec.md §10.7).
      * `undefined` = sin resolver aún; `null` = resuelto pero no seedeado (modo degradado).
      */
     private desasignadoIdCache: number | null | undefined = undefined;
-    private sit050IdCache: number | null | undefined = undefined;
+    private idsCanceladoCache: number[] | undefined = undefined;
     /** IDs de parámetros del grupo "gestion" (para validar el previo al re-asignar). */
     private gestionesValidasCache: Set<number> | undefined = undefined;
     /** Deudores re-asignados en este batch (venían desasignados y volvieron al archivo). */
@@ -105,7 +108,7 @@ export class ActualizacionesProcessor implements ICategoryProcessor {
         this.pagosDeudorIds.clear();
         this.sawReconciliationData = false;
         this.desasignadoIdCache = undefined;
-        this.sit050IdCache = undefined;
+        this.idsCanceladoCache = undefined;
         this.gestionesValidasCache = undefined;
         this.reasignadosCount = 0;
         this.contactosEnriquecidos = 0;
@@ -128,15 +131,16 @@ export class ActualizacionesProcessor implements ICategoryProcessor {
         return this.desasignadoIdCache;
     }
 
-    /** Resuelve (y cachea) el id del parámetro SIT-050 "Cancelado". null si no está seedeado. */
-    private async resolverParametroSit050(ctx: ProcessContext): Promise<number | null> {
-        if (this.sit050IdCache !== undefined) return this.sit050IdCache;
-        const p = await ctx.prisma.parametro.findUnique({
-            where: { clave: 'SIT-050' },
-            select: { id: true },
-        });
-        this.sit050IdCache = p?.id ?? null;
-        return this.sit050IdCache;
+    /**
+     * Ids de los parámetros de situación CANCELADO (SIT-050 a SIT-054), cacheados por batch.
+     * Reemplaza al viejo `resolverParametroSit050` (comparaba solo contra esa clave) — un caso
+     * cancelado con quita (SIT-054, multiclaves) tiene que quedar tan "cancelado" como uno en
+     * SIT-050 para esta categoría. Ver docs/multiclaves-spec.md §10.7.
+     */
+    private async resolverSituacionesCanceladas(ctx: ProcessContext): Promise<number[]> {
+        if (this.idsCanceladoCache !== undefined) return this.idsCanceladoCache;
+        this.idsCanceladoCache = await idsSituacionCancelada(ctx.prisma);
+        return this.idsCanceladoCache;
     }
 
     /**
@@ -167,9 +171,9 @@ export class ActualizacionesProcessor implements ICategoryProcessor {
         if (desasignadoId == null) return null; // modo degradado
         if (deudor.estadoGestionId !== desasignadoId) return null; // no estaba desasignado
 
-        const sit050Id = await this.resolverParametroSit050(ctx);
-        if (sit050Id != null && deudor.estadoSituacionId === sit050Id) {
-            this.logger.log(`Deudor ${deudor.id} en SIT-050 — no se re-asigna.`);
+        const idsCancelado = await this.resolverSituacionesCanceladas(ctx);
+        if (deudor.estadoSituacionId != null && idsCancelado.includes(deudor.estadoSituacionId)) {
+            this.logger.log(`Deudor ${deudor.id} cancelado (categoría CANCELADO) — no se re-asigna.`);
             return null;
         }
 
@@ -208,7 +212,7 @@ export class ActualizacionesProcessor implements ICategoryProcessor {
             return;
         }
 
-        const sit050Id = await this.resolverParametroSit050(ctx);
+        const idsCancelado = await this.resolverSituacionesCanceladas(ctx);
 
         const deudores = await ctx.prisma.deudor.findMany({
             where: { remesaId: ctx.remesaOrigenId, empresaId: ctx.empresaId },
@@ -218,7 +222,7 @@ export class ActualizacionesProcessor implements ICategoryProcessor {
         const paraDesasignar: Array<{ id: number; previo: number | null }> = [];
         for (const d of deudores) {
             if (this.processedDeudorIds.has(d.id)) continue;                    // vino en el archivo
-            if (sit050Id != null && d.estadoSituacionId === sit050Id) continue; // cancelado
+            if (d.estadoSituacionId != null && idsCancelado.includes(d.estadoSituacionId)) continue; // cancelado
             if (d.estadoGestionId === desasignadoId) continue;                  // ya desasignado
             paraDesasignar.push({ id: d.id, previo: d.estadoGestionId ?? null });
         }

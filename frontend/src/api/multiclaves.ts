@@ -57,6 +57,26 @@ export interface MulticlavesPreview {
     avisos: Array<{ codigo: string; cantidad: number; ejemplos: string[] }>;
 }
 
+/**
+ * Fase 4a (docs/multiclaves-spec.md §10.9): cuando la plantilla de PAGOS mapea `nroConvenio`, la
+ * vista previa de esa carga (`POST /import/validar/:id`, categoría PAGOS) agrega este bloque —
+ * cruce COMPLETO (no solo la muestra) contra `clave_pago`.
+ */
+export interface MulticlavePagosPreview {
+    filas: number;
+    conClave: number;
+    ilegibles: number;
+    claveCargada: number;
+    claveOtraEmpresa: number;
+    claveNoCargada: number;
+    quita: number;
+    total: number;
+    sinCaso: number;
+    tramitesEnVariosCasos: number;
+    /** Suma de los importes de las filas con clave, como string (consistente con el resto del módulo). */
+    importeConClave: string;
+}
+
 // ─── Fase 2: claves del caso y cupón (docs/multiclaves-spec.md §9.1, §9.2) ──────────────────────
 
 export interface ClaveDelCaso {
@@ -76,6 +96,9 @@ export interface ClaveDelCaso {
     estado: 'VIGENTE' | 'REEMPLAZADA';
     lote: { remesaId: number; numeroRemesa: string; cargadaEn: string };
     convenioActivo: null | { id: number; deudorId: number; esEsteCaso: boolean; createdAt: string };
+    /** Fase 4a: pagos de ESTE caso cuyo `referenciaClave` es esta clave. `null` si no hay ninguno —
+     * sin importar si el convenio se generó desde la plataforma (D13, docs/multiclaves-spec.md §9.1). */
+    pagos: null | { cantidad: number; pagado: string; ultimaFecha: string; cubreLaClave: boolean };
 }
 
 export interface ClavesDelCasoRespuesta {
@@ -86,6 +109,8 @@ export interface ClavesDelCasoRespuesta {
         saldoDistinto: null | { saldoCaso: number; saldoTramite: string };
         otrosCasosDelTramite: Array<{ deudorId: number; numeroRemesa: string; situacion: string | null; enGestion: boolean }>;
         plantillaCuponConfigurada: boolean;
+        /** Fase 4a: el caso está cancelado con quita por el pago de esta clave. */
+        canceladoConQuita: null | { claveId: number; nroConvenio: string; pagado: string; importeClave: string; quita: string };
     };
 }
 

@@ -42,12 +42,20 @@ Este spec propone:
 | 8 | El "importe actualizado" / saldo es un **campo persistido** `deudor.saldo`. NO cálculo dinámico. |
 | 9 | La consolidación es **idempotente**: correrla N veces sobre el mismo conjunto produce el mismo resultado. |
 | 10 | Sólo se evalúan códigos `SIT-050` y `SIT-041`. **`SIT-040` (Pagando) NO se aplica** desde acá. |
+| 11 | **(Fase 4a, multiclaves)** Antes de las reglas 2-4, se evalúa si el caso pagó una **clave de pago** de Telecom/Personal por el archivo de cobros: `pago.referenciaClave` matchea una `clave_pago` de la misma empresa. **Única regla** — la auditoría de la fase 4a sacó del alcance una regla de respaldo por convenio `CLAVE_PAGO` ACTIVO cumplido por monto (condonaba deuda sin que el archivo confirmara que se pagó ESA clave; ver `docs/multiclaves-spec.md` §10.10). Si pagó la clave **QUITA** → `SIT-054` "Cancelado con quita"; si pagó la **TOTAL** → `SIT-050`. En los dos casos `saldo = 0` explícito, sin importar `montoTotal`. Ver `docs/multiclaves-spec.md` §10 para el detalle completo (queries, tolerancia en centavos, degradación sin `SIT-054`). |
 
 ### 1.1 Aclaración importante sobre SIT-040 ("Pagando")
 
 `SIT-040` queda reservado para gestión manual o futuras reglas (por ej. "tiene convenio activo y al menos una cuota pagada"). La consolidación automática **nunca** transiciona a SIT-040.
 
 ### 1.2 Bloqueo SIT-050: alcance preciso
+
+> **Actualizado en la fase 4a de multiclaves:** el bloqueo no es solo por la clave `SIT-050` — es
+> por la **categoría `CANCELADO`** completa del catálogo de parámetros (`DeudorBloqueoService`,
+> `backend/src/modules/deudores/utils/deudor-bloqueo.ts`), que hoy incluye `SIT-050` a `SIT-053` y,
+> desde esta fase, también `SIT-054` "Cancelado con quita". Ya era así en el código antes de esta
+> fase (el helper siempre resolvió por categoría); lo que cambia es que ahora hay un quinto código
+> que entra solo, sin tocar el helper.
 
 - Bloquear **mutaciones** del deudor (situación, gestión, motivoNoPago, crear/cancelar convenio, agregar comentario, registrar resultado de llamada, registrar pago de cuota, ABM de contactos).
 - **NO bloquear** lecturas (consultar ficha, ver historial, ver timeline, ejecutar reportes).
@@ -96,6 +104,19 @@ Validar al startup en `ConsolidacionSituacionService.onModuleInit`: si el valor 
 
 > Alternativa rechazada: poner la tolerancia en `parametro` (con grupo `consolidacion`). Se evaluó pero agrega un round-trip a DB por cada batch y no aporta valor (la tolerancia cambia muy rara vez y siempre la define un admin de sistema, no de negocio).
 
+### 2.4 Fase 4a — variables de entorno de la regla de clave
+
+```env
+CONSOLIDACION_TOLERANCIA_CLAVE_CENTAVOS=100   # $1,00. Rango [0, 1000] — CENTAVOS, no pesos
+CONSOLIDACION_CLAVE_MODO=SUMA                 # SUMA | PAGO_UNICO
+```
+
+Se validan en el mismo `onModuleInit`, con el mismo criterio (fuera de rango o valor inválido →
+falla el bootstrap). La tolerancia va en centavos enteros y no en pesos porque `pago.importe` es
+`Float` y `clave_pago.importe` es `Decimal(14,2)`: comparar en `Float` con una tolerancia en pesos
+arrastra el error de coma flotante al lado equivocado del umbral (ver `docs/multiclaves-spec.md`
+§10.5b).
+
 ---
 
 ## 3. Servicio core: `ConsolidacionSituacionService`
@@ -134,6 +155,10 @@ export interface ConsolidacionResult {
   aSIT041: number;                    // transicionarían/transicionaron a SIT-041
   sinCambios: number;                 // saldo y situación quedaron igual
   saldoActualizado: number;           // deudores cuyo saldo cambió (incluye sinCambios de situación)
+  // Fase 4a de multiclaves (docs/multiclaves-spec.md §10.5f):
+  aSIT054: number;                     // cancelados con quita por el pago de una clave QUITA
+  aSIT050PorClave: number;             // subconjunto de aSIT050 cancelado por clave TOTAL (no por Σpagos)
+  sit054Degradado: number;             // debían ir a SIT-054 pero el código no existe → quedaron en SIT-050
   durationMs: number;
   // En modo dryRun no se persiste nada. En modo apply, los conteos reflejan lo aplicado.
 }
@@ -628,9 +653,26 @@ WHERE situacionConsolidadaEn >= '2026-XX-XX 00:00:00';
 
 El snapshot del paso 1 es la red de seguridad. **Es OBLIGATORIO sacarlo antes del apply.**
 
+### 7.4 Fase 4a — sin backfill para `pago.referenciaClave` (D18)
+
+`pago.referenciaClave` nace `NULL` para todos los pagos existentes: **no se recorre el histórico**
+para inferir con qué clave se pagó. Razones (docs/multiclaves-spec.md §10.8, D18): el dato no existe
+en ningún lado (la columna no existía cuando esos pagos se cargaron), no hay `clave_pago` contra qué
+matchear en la mayoría de los casos, e inferir por "el pago es la mitad del monto" es la clase de
+heurística que ya causó cancelaciones indebidas en este sistema. La regla de la fase 4a
+simplemente no mira los pagos que no tienen la referencia — no hace falta ni un `UPDATE ... SET
+saldo` como en el backfill original, porque estos casos ya estaban consolidados por las reglas de
+siempre.
+
 ---
 
 ## 8. Enforcement del bloqueo SIT-050
+
+> **Nota (fase 4a):** el código real de `DeudorBloqueoService` ya no cachea un único `sit050Id` como
+> muestra el ejemplo de abajo — cachea **todos** los ids de la categoría `CANCELADO` (ver §1.2).
+> Desde esta fase esa categoría incluye `SIT-054` "Cancelado con quita". El ejemplo se deja tal cual
+> por valor histórico; la fuente de verdad es
+> `backend/src/modules/deudores/utils/deudor-bloqueo.ts`.
 
 ### 8.1 Helper compartido
 
@@ -696,7 +738,9 @@ Se prefirió **check inline en el service** sobre `@BloqueoDeudorGuard()` por ra
 
 Lista whitelist de operaciones que pueden tocar al deudor cancelado:
 
-- `ConsolidacionSituacionService` (escribe `saldo`, `estadoSituacionId`, `situacionConsolidadaEn`).
+- `ConsolidacionSituacionService` (escribe `saldo`, `estadoSituacionId`, `situacionConsolidadaEn`, y
+  desde la fase 4a también `cuota_convenio.estado`/`fechaPago` cuando la cancelación es por el pago
+  de una clave de pago — D17: el convenio en sí queda `ACTIVO`, no cambia de estado).
 - Workers de import (`pagos.processor`, `actualizaciones.processor`, `deudores.processor`, etc.) — pueden generar pagos y modificar facturas, dato económico real.
 - Internal-api de timeline / lectura (no muta).
 
@@ -847,6 +891,11 @@ Si un deudor está en SIT-050 y *después* entra un ajuste negativo (factura de 
 
 **Caveat de la regla 6 (bloqueo)**: durante el período entre el ingreso del ajuste y la siguiente consolidación, el deudor sigue marcado SIT-050 → bloqueado. La consolidación automática del `afterAll` lo descancela en cuestión de segundos. No es un problema operativo siempre que las actualizaciones pasen por el processor.
 
+> **Fase 4a — esta reversa NO aplica a la cancelación por clave de pago (R14, docs/multiclaves-spec.md
+> §2).** Un caso en `SIT-054` no se "descancela" porque después suba la deuda: la clave está pagada,
+> y esa plata ya no vuelve a deberse. Solo vuelve atrás si desaparece el pago con la referencia o se
+> borra la carga de la clave (`clave_pago`) — ver la tabla de §10.6 de `multiclaves-spec.md`.
+
 ### 10.8 `montoTotal` cambia tras un import inicial buggy
 
 Si por alguna razón hay que corregir `montoTotal` a posteriori (ej. cedente reenvió la remesa con valores correctos):
@@ -919,6 +968,19 @@ Por diseño. El `DeudorBloqueoService` se usa en los services de negocio, no en 
 ---
 
 ## 12. Changelog del spec
+
+### 2026-09-16 — Fase 4a de multiclaves: cancelación por clave de pago
+
+Implementada la integración con `docs/multiclaves-spec.md` §10: una regla nueva, evaluada ANTES de
+las reglas 2-4 de siempre, que cancela un caso con `saldo = 0` cuando un pago cubre una clave de
+pago de Telecom/Personal (por el número de convenio del archivo de cobros, o por respaldo un
+convenio `CLAVE_PAGO` cumplido). Código nuevo `SIT-054` "Cancelado con quita" para las canceladas
+con quita del 50%; `SIT-050` sigue siendo el destino cuando se pagó la clave del saldo total.
+Cambios: §1 (regla 11), §1.2 (el bloqueo es de la categoría CANCELADO, ya lo era en el código),
+§2.4 (dos variables de entorno nuevas), §3 (`ConsolidacionResult.aSIT054/aSIT050PorClave/
+sit054Degradado`), §7.4 (D18, sin backfill), §8.1/§8.4 (nota sobre el helper real y la escritura de
+`cuota_convenio`), §10.7 (R14: la cancelación reversa no aplica a SIT-054). Regresión obligatoria:
+una empresa sin claves de pago tiene que dar exactamente los mismos contadores que antes del cambio.
 
 ### 2026-06-30
 

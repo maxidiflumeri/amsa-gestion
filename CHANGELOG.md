@@ -6,6 +6,245 @@
 
 ---
 
+## [2026-09-16] — Claves de pago de Telecom/Personal (multiclaves) — fase 4a: cancelación por pago de clave
+
+Con el archivo real de cobros (`MA_20260911_1008_POSBAJA_HW_260910_260911_C.txt`) se confirmó que
+Telecom/Personal informa, en el archivo de cobros de posbaja, **con qué convenio de clave se pagó**.
+La fase 4a conecta esa columna con la consolidación: un pago que cubre una clave del cedente cancela
+el caso — con quita (código nuevo `SIT-054`) si la clave era la de "con quita del 50%", por el total
+(`SIT-050`) si era la del saldo total — sin que el cupón tenga que haberse emitido desde esta
+plataforma (D13: alcanza con que Telecom haya cobrado la clave, aunque el cupón haya salido del
+sistema viejo).
+
+Esta entrada describe el estado **final**, después de una auditoría (misma fecha, misma unidad de
+trabajo) que encontró 1 bloqueante y 13 hallazgos más — corregidos todos antes de cerrar la fase. El
+detalle de qué cambió por cada hallazgo está en la sección "Hallazgos de la auditoría" más abajo; lo
+que sigue ya incorpora las correcciones (no es el diseño original).
+
+### Backend
+
+- **Schema:** `pago.referenciaClave` (`VarChar(8)?`, aditivo, con índice) — el `NRO_CONVENIO` de la
+  clave con la que se pagó, normalizado desde el convenio de 8, la clave de 22 o el código de barras
+  de 50 dígitos. `db push` corrido en local, sin `--accept-data-loss`.
+- **Código nuevo `SIT-054` "Cancelado con quita"**, categoría CANCELADO — `seed-codigos-curados.ts` y
+  script idempotente nuevo `prisma/scripts/alta-sit-054.ts` (`--dry-run` soportado). La consolidación
+  **no exige** que exista: si falta, cancela a `SIT-050` contando `sit054Degradado` y se corrige sola
+  en la corrida siguiente a que se cree el código (`error` en el log de arranque, no falla el
+  bootstrap — a diferencia de `SIT-050`/`SIT-041`).
+- `pagos.processor.ts` (reescrito): lee `row.nroConvenio` (campo mapeable nuevo, opcional, solo
+  PAGOS), lo normaliza con `normalizarReferenciaClave` (ya existía en `multiclaves/utils/clave-pago.ts`),
+  y si matchea una `clave_pago` de la MISMA empresa resuelve el caso por el **trámite de la clave**
+  con un desempate determinista y **estable** (convenio exacto → convenio de origen CLAVE_PAGO →
+  remesa más reciente → id más alto — nunca "el caso no cancelado": ver el hallazgo bloqueante más
+  abajo). El camino común (sin clave) ya no usa `LIMIT 1` sin `ORDER BY` — mismo desempate por
+  remesa/id, arreglando una moneda al aire medida en producción sobre 5.448 `nroCliente` repetidos de
+  la empresa 9. El anti-duplicados (exacto por `idExterno` y heurístico por día+importe+observación)
+  busca en **todos** los casos candidatos del trámite, no solo en el elegido. `idExterno` derivado
+  (`MC-<convenio>-<AAAAMMDD>-<centavos>`, D16) para los pagos con clave que no traen `PAYMENT_ID` —
+  **no** saltea la heurística de día+importe+observación (a diferencia de un `idExterno` real del
+  cedente), para que recargar un archivo cargado antes de mapear el convenio no duplique la cobranza.
+  El claim de un pago MANUAL confirmado por el import ahora también guarda `referenciaClave`.
+- `consolidacion.service.ts`: regla nueva evaluada ANTES que las de siempre, por el **archivo**
+  únicamente (join `pago.referenciaClave = clave_pago.nroConvenio AND empresaId` igual) — **no** hay
+  regla de respaldo por convenio (se diseñó una y se descartó en la auditoría antes de llegar a
+  producción, ver más abajo). TOTAL le gana a QUITA. `saldo = 0` explícito para los cancelados por
+  clave, **fuera** de los `$executeRaw` que recalculan saldo (si no, le devolverían el 50% a una
+  cuenta ya saldada). La cuota del convenio de clave (si existe) pasa a `PAGADA`; el convenio sigue
+  `ACTIVO` (D17). El mensaje de auditoría de la quita usa `saldoTramite` (no el importe de la clave),
+  igual que la ficha. Dos variables de entorno nuevas: `CONSOLIDACION_TOLERANCIA_CLAVE_CENTAVOS`
+  (default 100) y `CONSOLIDACION_CLAVE_MODO` (`SUMA` default | `PAGO_UNICO`), validadas al arranque y
+  compartidas con `claves.service.ts` (antes tenía su propia tolerancia hardcodeada, podían divergir).
+  `ConsolidacionResult` suma `aSIT054`, `aSIT050PorClave`, `sit054Degradado`.
+- **Los cinco lugares que comparaban contra la clave `SIT-050`** en vez de la categoría CANCELADO,
+  todos con el mismo comportamiento salvo que ahora también reconocen `SIT-054` (y cualquier código
+  futuro de la categoría): `pagos.service.ts` (`revertirSinPagos`), `imports.service.ts`
+  (`listRemesas`), `acciones.processor.ts` (`saltearCanceladas`), `actualizaciones.processor.ts` y
+  `casos-cedente.processor.ts` (re-asignación de ausentes). **Esto no es solo "sumar SIT-054":**
+  cambia también el comportamiento para `SIT-051`/`SIT-052`/`SIT-053`, que antes de esta fase NO se
+  salteaban en acciones masivas ni se excluían de la desasignación/re-asignación de casos ausentes, y
+  desde esta fase sí (igual que `SIT-050`). Es la ampliación correcta —un caso "Cancelado antes de la
+  gestión" o "a liquidar" está tan cancelado como uno "Pagado"— pero no estaba probado; se agregaron
+  tests `it.each` sobre los tres códigos en los tres processors tocados. Helper compartido nuevo
+  `imports/utils/situaciones-cerradas.ts` (`idsSituacionCancelada`, cacheado por proceso, modo
+  degradado = `[]` si no hay catálogo).
+- `multiclaves.processor.ts` (`afterAll`): al cargar una tanda de claves, re-consolida (best-effort)
+  los casos cuyos trámites ya tenían pagos con esa referencia pero sin la clave cargada — cierra el
+  círculo de R13 sin que el operador tenga que acordarse de apretar "Consolidar".
+- `claves.service.ts` (`GET /multiclaves/deudores/:id/claves`): cada clave trae ahora `pagos`
+  (cantidad, pagado, última fecha, si cubre la clave) y `avisos.canceladoConQuita` con el importe
+  perdonado — para la ficha.
+- **Sin permisos nuevos**: `consolidacion.ejecutar`, `importacion.*` y `convenios.ver` ya alcanzan.
+
+### Frontend
+
+- `MappingEditor.tsx`: campo nuevo en PAGOS, *"Nº de convenio de la clave de pago (Telecom/Personal)"*,
+  opcional.
+- `PagosConClaveResumen.tsx` (nuevo): bloque de la vista previa de PAGOS cuando la plantilla mapea el
+  convenio — con clave / clave cargada (quita, total) / no cargada / de otra empresa / en varios
+  casos / ilegibles, más el aviso en texto de cuántas claves faltan cargar. La vista previa ya no
+  contradice el total de filas (antes decía "23 de 23 filas" con el contador de "con clave" repetido).
+- `ConsolidacionModal.tsx`: fila nueva "Cancelados con quita (SIT-054)", con `aSIT050PorClave`
+  anidado bajo la fila de SIT-050 (es subconjunto de ese contador, no de SIT-054) y una nota inline
+  cuando parte de lo cancelado con quita se escribió como SIT-050 por el modo degradado. `Alert`
+  cuando `sit054Degradado > 0` con el comando para correr `alta-sit-054.ts`.
+- `ClavesPagoCard.tsx`: chip "Pagada" por clave (con el importe y la fecha del último pago, y la misma
+  tolerancia/modo que la consolidación) y un `Alert` de éxito con "Cancelado con quita: pagó $X con la
+  clave N (quita $Y)".
+- `FichaConveniosTab.tsx`: chip "Cumplido" en el convenio `CLAVE_PAGO` cuya cuota quedó `PAGADA`.
+- `FichaDeudor.tsx`: el bloqueo de la ficha (comentario, pago, promesa, convenio) pasa a mirar
+  `estadoSituacion.categoria === 'CANCELADO'` en vez de la clave `SIT-050` — un caso `SIT-054` daba
+  403 al guardar aunque la ficha no lo mostrara bloqueado.
+- `AccionesEditor.tsx`: la etiqueta de "no tocar cuentas canceladas" ya no dice "(SIT-050)" — ahora
+  saltea toda la categoría CANCELADO.
+
+### Hallazgos de la auditoría (misma fecha, corregidos en la misma unidad de trabajo)
+
+Auditoría posterior a la implementación inicial. Encontró 1 bloqueante, 6 importantes y 7 menores —
+los 14 corregidos antes de cerrar la fase. Resumen por hallazgo (el detalle completo, con
+archivo:línea, quedó en la revisión de código; acá el qué y el test):
+
+1. **[Bloqueante] Recargar un archivo de pagos duplicaba la cobranza en trámites con más de un caso.**
+   `pagos.processor.ts`: el desempate ("caso no cancelado de la remesa más reciente") dependía de un
+   dato que la propia importación cambia (`estadoSituacion.categoria`), y el anti-duplicados solo
+   miraba el caso elegido. Arreglado: desempate estable (`remesa.createdAt`, `id` — nunca la
+   situación) + anti-duplicados contra **todos** los candidatos del trámite. Tests: los tres
+   escenarios del auditor (con clave, sin clave, `PAYMENT_ID` real) con dos casos cada uno, más la
+   recarga completa del archivo real con 4 trámites duplicados — ver números más abajo.
+2. **[Importante] El claim de un pago MANUAL no guardaba `referenciaClave`.** Ahora lo guarda al
+   confirmar el import. Test: pago MANUAL con la referencia mapeada en el archivo → queda confirmado
+   con `referenciaClave` seteada y el caso pasa a SIT-054.
+3. **[Importante] La auditoría de la consolidación mostraba "quita $ 0,00".** Usaba
+   `importeClave − pagado` (da 0 con un pago exacto); ahora usa `saldoTramite − pagado`, igual que la
+   ficha. Test que compara el texto de auditoría con el de `claves.service.ts`.
+4. **[Importante] La regla (b) (convenio de clave cumplido por monto) condonaba deuda sin respaldo.**
+   Sacada del código y del spec (§10.10 de `multiclaves-spec.md`) — la única regla que cancela con
+   quita es la del archivo (`pago.referenciaClave`). Test que reemplaza al que cubría la regla (b):
+   un pago sin esa referencia no cancela con quita aunque el caso tenga un convenio `CLAVE_PAGO`
+   ACTIVO con el monto cumplido.
+5. **[Importante] La vista previa de PAGOS decía "23 de 23 filas".** `filas` y `conClave` eran el
+   mismo contador. Unificado: `filas` es el total de filas del archivo, `conClave` las que tienen
+   clave — dejan de contradecirse.
+6. **[Importante] `FichaDeudor.tsx` no bloqueaba un caso SIT-054.** Comparaba contra la clave
+   `SIT-050`; el backend bloquea por categoría, así que daba 403 al guardar. Pasado a
+   `estadoSituacion.categoria === 'CANCELADO'`.
+7. **[Importante] La ampliación a la categoría CANCELADO no es solo "sumar SIT-054".** Cambia también
+   el comportamiento para SIT-051/052/053 (acciones masivas, desasignación/re-asignación, vincular a
+   remesa) — antes no se salteaban/excluían, ahora sí. Correcto, pero no estaba probado ni dicho: se
+   agregaron tests `it.each` sobre los tres códigos en `AccionesProcessor`, `ActualizacionesProcessor`,
+   `CasosCedenteProcessor`/`MultiarchivoProcessor` y `listRemesas`.
+8. **[Menor] `ConsolidacionModal.tsx`**: `aSIT050PorClave` pasó a anidarse bajo la fila de SIT-050 (es
+   subconjunto de ese contador, no de SIT-054).
+9. **[Menor] Modo degradado**: la tabla ahora aclara cuándo parte de lo cancelado con quita se
+   escribió como SIT-050 (por no estar `SIT-054` seedeado todavía).
+10. **[Menor] `claves.service.ts`** leía una tolerancia hardcodeada (`-100`) y modo `SUMA` fijo; ahora
+    lee las mismas variables de entorno que la consolidación (extraídas a un util compartido).
+11. **[Menor] `AccionesEditor.tsx`**: la etiqueta decía "(SIT-050)" y ahora saltea toda la categoría.
+12. **[Menor] El CHANGELOG mandaba correr `fix-pagos-multiclave-negativos.ts`.** Ese script no existe
+    — la corrección de los 20 pagos de julio la maneja el usuario aparte, no es un paso de esta fase
+    (ver "Desvíos del spec" más abajo).
+13. **[Menor] `multiclaves.processor.ts`**: el `IN` de hasta ~15.000 convenios se trocea de a 1.000,
+    como el resto del módulo.
+14. **[Menor] Spec**: §10.5a documentaba campos que la query no trae (corregido); §15 no mencionaba
+    que hay que reiniciar el backend después de `alta-sit-054.ts` (se cachea en `onModuleInit`, sin
+    reinicio el proceso sigue en modo degradado aunque el código ya exista en la base).
+
+### Segunda ronda de auditoría (misma fecha) — el claim del pago manual
+
+La re-auditoría dio PASA con el bloqueante cerrado (recarga del archivo real: 0 pagos nuevos en los
+tres escenarios, incluido el trámite con tres partidas legítimas, que no se pierden). Quedó un camino
+de la misma familia que el fix no alcanzó, y dos textos del spec:
+
+- **El claim de un pago MANUAL seguía acotado al caso elegido** (`pagos.processor.ts`). El gestor
+  registra a mano el pago en el caso que tiene abierto y el desempate elige el otro: el import creaba
+  un segundo pago y dejaba el manual sin confirmar, así que el mismo cobro quedaba contado dos veces
+  en el trámite (medido con el archivo real: $ 15.500 de cobro → $ 31.000 registrados, un caso en
+  SIT-054 y el gemelo en SIT-041 con saldo). Ahora el claim busca primero en el caso elegido y, si no
+  hay, en los demás casos del trámite. Dos tests nuevos: el manual en el gemelo se confirma sin crear
+  un pago, y con un manual en cada caso gana el del elegido.
+- **Spec**: la cabecera de §10 y §2 (D10, R9) seguían diciendo que la regla (b) "queda como
+  respaldo", treinta líneas arriba de §10.10, que la da por descartada.
+- **Spec**: §15, el criterio 35 y el PLAN mandaban correr `fix-pagos-multiclave-negativos.ts`, que no
+  existe. Se reemplazó por lo que realmente hay que hacer: los 20 pagos de julio son 10 trámites
+  duplicados entre las remesas `00606` y `22222` de TELECOM (el mismo archivo cargado dos veces:
+  5.448 casos y 14.784 facturas cada una), y primero hay que decidir qué remesa queda.
+
+Queda anotado, sin arreglar porque es preexistente: dos importaciones de pagos simultáneas sobre la
+misma empresa pueden duplicar un pago sin `idExterno` (el anti-duplicados es un `findFirst` seguido de
+un `create`, sin transacción ni unique que lo respalde). Con `idExterno` la unique lo frena.
+
+### Verificación
+
+- Backend: `npm run build` limpio; suite completa **1311 tests en verde** (0 fallos, 3 skips
+  preexistentes) — incluye 50 tests de `pagos.processor.spec.ts` (con el describe nuevo del hallazgo
+  bloqueante: los tres escenarios del auditor + recarga triple) y 35 de `consolidacion.service.spec.ts`
+  (con el test que reemplaza a la regla (b) removida). Tests nuevos dedicados a la categoría CANCELADO
+  completa (hallazgo #7): `acciones.processor.spec.ts` (nuevo, 9 tests), `imports-list-remesas.spec.ts`
+  (nuevo, 7 tests), y `it.each` agregados a `actualizaciones-desasignacion.spec.ts` y
+  `multiarchivo.processor.spec.ts` sobre SIT-051/052/053. `situaciones-cerradas.spec.ts` (nuevo, 4
+  tests) para el helper compartido.
+- Frontend: `tsc --noEmit` en la línea base de 5 errores preexistentes (sin sumar), `npm run build`
+  limpio, `npm run verificar-ayuda` en verde (38 páginas).
+- **Prueba de punta a punta contra la base local** (MySQL/Redis locales, código real compilado —
+  `pagos.processor.ts` y `consolidacion.service.ts` de `dist/`, sin mocks):
+  - Vista previa de la carga de pagos del archivo real (antes de la corrección del hallazgo #1):
+    **104 filas, 23 con clave, 6 con clave cargada (6 QUITA / 0 TOTAL), 17 con clave no cargada, 0
+    ilegibles, 0 de otra empresa**; 6 casos a SIT-054 con saldo 0,00; recarga sin trámites duplicados:
+    0 pagos nuevos; borrar/recargar una tanda de claves re-consolidó solo con `afterAll` (R13); una
+    empresa sin multiclaves (21.335 deudores) dio los mismos contadores de siempre antes y después.
+  - **Recarga del archivo real CON trámites duplicados (prueba obligatoria del hallazgo #1,
+    corrida después del fix)**: mismo archivo `MA_20260911_1008_POSBAJA_HW_260910_260911_C.txt` (104
+    filas, 100 trámites distintos), con 4 de esos trámites armados a propósito con **dos casos** cada
+    uno (misma `nroCliente`, remesas DEUDORES de fechas distintas) — 2 con clave real (trámites
+    `1981517609` y `2451382645`, con su `clave_pago` QUITA real) y 2 sin clave (`2220255966`, que
+    además tiene 3 partidas reales distintas el mismo trámite, y `2293440967`). Carga 1: **104 filas
+    OK, 0 errores, 104 pagos** creados (23 con `referenciaClave`, exactos a los 23 con clave del
+    archivo). Recarga completa del mismo archivo: **104 filas OK, 0 errores, 104 pagos ya cargados
+    salteados, 0 pagos nuevos** — el total de pagos en la base se mantuvo en 104 antes y después. Los
+    3 pagos del trámite `2220255966` (partidas de $15.000/$12.000/$11.000 en días distintos) quedaron
+    los 3, sin colapsar entre sí ni duplicarse en la recarga. Además, los tres escenarios puntuales
+    del auditor (con clave, sin clave, `PAYMENT_ID` real, dos casos por trámite) confirmaron **0
+    pagos nuevos** en cada uno.
+  - Base local limpiada al final de las dos pruebas: deudores, pagos, claves y remesas de la prueba
+    borrados (`clave_pago` volvió a 0 filas, `deudor`/`pago`/`remesa` a los conteos previos:
+    21.338/944/6); el código `SIT-054` se dejó cargado (es un paso de despliegue, no debris).
+
+### Desvíos del spec
+
+- La resolución "camino común" ahora aplica el mismo desempate por remesa-más-reciente/id-DESC que
+  antes solo describía la regla de la clave — es lo que pide §10.3c ("se le agrega ORDER BY por los
+  criterios 3 y 4"), documentado acá porque cambia el resultado de un `nroCliente` repetido incluso
+  para carteras sin una sola clave de pago (comportamiento querido, no un efecto secundario).
+- La regla (b) de la consolidación (convenio de clave cumplido por monto, sin mirar
+  `pago.referenciaClave`) se sacó del alcance de esta fase — la auditoría encontró que condona deuda
+  sin respaldo (hallazgo #4 de arriba) y **nunca llegó a producción**. La única regla que cancela con
+  quita es la del archivo de cobros.
+- No se implementó el script `fix-pagos-multiclave-negativos.ts` de los 20 pagos de julio en
+  producción: el spec lo marca explícitamente fuera de esta fase (§10.8, D18) y a cargo del usuario —
+  **no es un paso de despliegue de esta fase** (ver hallazgo #12; el paso 7 de despliegue que lo
+  mencionaba se sacó de la lista de abajo).
+- No se tocaron `AjustesEmpresas.tsx` ni la sección "Claves de pago" (fase 3): esta fase no agrega
+  configuración de empresa nueva.
+
+### Pasos de despliegue (en este orden)
+
+1. `npx prisma db push` (agrega `pago.referenciaClave` — aditivo, sin `--accept-data-loss`).
+2. `npx ts-node prisma/scripts/alta-sit-054.ts --dry-run` y después sin el flag. Reiniciar el backend
+   después (cachea `SIT-054` en `onModuleInit`).
+3. Editar las plantillas **48** (TELECOM PERSONAL PAGOS DEIMOS, empresa 10) y **49** (TELECOM PAGOS
+   DEIMOS, empresa 9): mapear el campo nuevo *"Nº de convenio de la clave de pago"* a la columna 23
+   (índice 22), transform `trim`. Las dos, porque el mismo archivo se carga una vez por empresa.
+4. Cargar los `MULTI_*` de las nóminas vigentes en TELECOM_PERSONAL **antes** de cargar pagos — sin
+   claves cargadas, la fase 4a no tiene nada contra qué matchear.
+5. Dry-run de consolidación por empresa (9 y 10) antes de cargar nada nuevo: `aSIT054` y
+   `aSIT050PorClave` tienen que dar 0.
+6. Después de cargar un archivo de pagos, revisar la vista previa (`multiclavePagos`) antes de
+   ejecutar — en particular cuántas claves no están cargadas todavía.
+
+No hay un paso 7 "aparte de esta fase": el script de los 20 pagos de julio no existe (hallazgo #12 de
+la auditoría) y esa corrección queda fuera del alcance, a cargo del usuario.
+
+---
+
 ## [2026-09-15] — Claves de pago de Telecom/Personal (multiclaves) — fase 3: envío del cupón por mail
 
 El diálogo "Generar cupón de pago" ya puede, además de descargar, **enviar el cupón por mail** (o las

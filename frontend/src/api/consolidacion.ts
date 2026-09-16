@@ -12,6 +12,12 @@ export interface ConsolidacionResult {
     aSIT041: number;
     sinCambios: number;
     saldoActualizado: number;
+    /** Fase 4a (multiclaves): cancelados con quita (SIT-054) por el pago de una clave QUITA. */
+    aSIT054: number;
+    /** Subconjunto de `aSIT050` cancelado por el pago de una clave TOTAL, no por Σpagos. */
+    aSIT050PorClave: number;
+    /** Casos que debían ir a SIT-054 y quedaron en SIT-050 porque falta el código en `parametro`. */
+    sit054Degradado: number;
     durationMs: number;
 }
 

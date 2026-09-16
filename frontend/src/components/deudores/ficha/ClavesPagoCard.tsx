@@ -135,6 +135,12 @@ const ClavesPagoCard: React.FC<Props> = ({
                         no cancelar el convenio de este caso.
                     </Alert>
                 )}
+                {data.avisos.canceladoConQuita && (
+                    <Alert severity="success" variant="outlined">
+                        Cancelado con quita: pagó $ {fmtMonto(data.avisos.canceladoConQuita.pagado)} con la clave{' '}
+                        {data.avisos.canceladoConQuita.nroConvenio} (quita $ {fmtMonto(data.avisos.canceladoConQuita.quita)}).
+                    </Alert>
+                )}
             </Stack>
 
             <TableContainer>
@@ -179,13 +185,19 @@ const ClavesPagoCard: React.FC<Props> = ({
                                     </TableCell>
                                     <TableCell>{c.nroConvenio}</TableCell>
                                     <TableCell>
-                                        {c.convenioActivo?.esEsteCaso ? (
-                                            <Chip size="small" label="Cupón emitido" color="success" />
-                                        ) : c.convenioActivo ? (
-                                            <Chip size="small" label="Convenio en otro caso" color="warning" />
-                                        ) : (
-                                            '—'
-                                        )}
+                                        <Stack direction="row" spacing={0.5} flexWrap="wrap">
+                                            {c.convenioActivo?.esEsteCaso ? (
+                                                <Chip size="small" label="Cupón emitido" color="success" />
+                                            ) : c.convenioActivo ? (
+                                                <Chip size="small" label="Convenio en otro caso" color="warning" />
+                                            ) : null}
+                                            {c.pagos?.cubreLaClave && (
+                                                <Tooltip title={`Pagó $ ${fmtMonto(c.pagos.pagado)} — ${fechaDelCedente(c.pagos.ultimaFecha)}`}>
+                                                    <Chip size="small" label="Pagada" color="success" variant="outlined" />
+                                                </Tooltip>
+                                            )}
+                                            {!c.convenioActivo && !c.pagos?.cubreLaClave && '—'}
+                                        </Stack>
                                     </TableCell>
                                     <TableCell>
                                         <Tooltip title={disabledMotivo ?? ''} disableHoverListener={!disabledMotivo}>

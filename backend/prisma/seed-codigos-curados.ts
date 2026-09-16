@@ -96,6 +96,12 @@ const codigos = [
   { grupo: 'situacion', clave: 'SIT-051', descripcion: 'Cancelado antes de la gestión', categoria: 'CANCELADO', esGlobal: true },
   { grupo: 'situacion', clave: 'SIT-052', descripcion: 'Cancelado a liquidar', categoria: 'CANCELADO', esGlobal: true },
   { grupo: 'situacion', clave: 'SIT-053', descripcion: 'Cancelado a monto histórico', categoria: 'CANCELADO', esGlobal: true },
+  // Fase 4a de multiclaves (docs/multiclaves-spec.md §10.7, D14): cancelación por el pago de una
+  // clave de pago QUITA del cedente. Categoría CANCELADO para que bloquee la cuenta y entre en los
+  // tableros sin tocar ningún otro código. En prod se crea con el script idempotente
+  // `prisma/scripts/alta-sit-054.ts` (este seed completo reasigna TODO el catálogo, no conviene
+  // correrlo en prod solo para agregar un código).
+  { grupo: 'situacion', clave: 'SIT-054', descripcion: 'Cancelado con quita', categoria: 'CANCELADO', esGlobal: true },
   // NEGATIVA
   { grupo: 'situacion', clave: 'SIT-060', descripcion: 'Negativa de pago', categoria: 'NEGATIVA', esGlobal: true },
   { grupo: 'situacion', clave: 'SIT-061', descripcion: 'Desconoce la deuda', categoria: 'NEGATIVA', esGlobal: true },

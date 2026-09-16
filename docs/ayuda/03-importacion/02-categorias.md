@@ -1,7 +1,7 @@
 <!--
 seccion: Importación de datos
 resumen: Las once categorías, qué hace cada una y cómo elegir la correcta.
-revisado: 2026-09-14
+revisado: 2026-09-16
 rutas: /carga, /plantillas
 -->
 # Las categorías
@@ -103,6 +103,30 @@ identificador. Funciona, pero tiene dos agujeros:
 
 > **Una fila salteada cuenta como OK.** Reimportar un archivo acumulativo reporta "N filas OK" sin
 > haber creado nada nuevo.
+
+### Pagos con clave de pago (Telecom/Personal, multiclaves)
+
+Si el archivo de cobros informa con qué **clave de pago** se canceló —Telecom/Personal lo hace con
+un número de convenio de 8 dígitos—, mapeá esa columna al campo **"Nº de convenio de la clave de
+pago (Telecom/Personal)"**. Es opcional y no hace falta para el resto de las carteras.
+
+Con ese campo mapeado:
+
+- Si el número corresponde a una clave ya cargada (categoría **Claves de pago**) de la misma
+  empresa, el pago se resuelve por el **trámite de la clave**, no por el número de cliente de la
+  fila — así el pago cae en el caso correcto aunque el trámite esté repetido en varias remesas.
+- Si el pago **alcanza el importe de esa clave**, el caso queda **cancelado** —con quita si la clave
+  era la de "con quita", por el total si era la del saldo total— aunque haya pagado la mitad. Ver
+  [Pagos y promesas](/ayuda/gestion/pagos-y-promesas) para cómo se ve esto en la ficha.
+- Si el número no corresponde a ninguna clave cargada todavía, el pago se guarda igual: apenas se
+  carguen las claves de esa nómina y se vuelva a consolidar, el caso se cancela solo.
+- Un `0`, vacío o `-` en esa columna se trata como "sin clave" (son las filas de pagos comunes) sin
+  ningún aviso. Un valor que no se puede interpretar sí genera un aviso, pero la fila se carga igual
+  como pago común.
+
+La vista previa de la carga muestra un bloque aparte con cuántas filas traen clave, cuántas
+corresponden a claves ya cargadas (de quita / de saldo total) y cuántas todavía no — revisalo antes
+de ejecutar.
 
 ## Contactos
 

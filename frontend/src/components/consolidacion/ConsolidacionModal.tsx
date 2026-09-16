@@ -251,6 +251,16 @@ const ConsolidacionModal: React.FC<Props> = ({ open, scope, onClose }) => {
                                                 {fmt(resultado.aSIT050)}
                                             </TableCell>
                                         </TableRow>
+                                        {resultado.aSIT050PorClave > 0 && (
+                                            <TableRow hover>
+                                                <TableCell sx={{ color: theme.palette.text.secondary, pl: 3 }}>
+                                                    …de ellos, por clave de saldo total (multiclaves)
+                                                </TableCell>
+                                                <TableCell align="right" sx={{ fontWeight: 600 }}>
+                                                    {fmt(resultado.aSIT050PorClave)}
+                                                </TableCell>
+                                            </TableRow>
+                                        )}
                                         <TableRow hover>
                                             <TableCell sx={{ color: theme.palette.warning.main }}>
                                                 {paso === 'finalizado' ? 'Pasaron' : 'Pasaran'} a SIT-041 (Pago parcial)
@@ -262,6 +272,25 @@ const ConsolidacionModal: React.FC<Props> = ({ open, scope, onClose }) => {
                                                 {fmt(resultado.aSIT041)}
                                             </TableCell>
                                         </TableRow>
+                                        {resultado.aSIT054 > 0 && (
+                                            <TableRow hover>
+                                                <TableCell sx={{ color: theme.palette.success.main }}>
+                                                    {paso === 'finalizado' ? 'Pasaron' : 'Pasaran'} a SIT-054 (Cancelado con quita)
+                                                    {resultado.sit054Degradado > 0 && (
+                                                        <Typography component="span" variant="caption" sx={{ display: 'block', color: theme.palette.warning.main }}>
+                                                            {fmt(resultado.sit054Degradado)} de estos se {paso === 'finalizado' ? 'escribieron' : 'escribirían'} como
+                                                            SIT-050 — falta el código SIT-054 (ver aviso abajo)
+                                                        </Typography>
+                                                    )}
+                                                </TableCell>
+                                                <TableCell
+                                                    align="right"
+                                                    sx={{ fontWeight: 700, color: theme.palette.success.main }}
+                                                >
+                                                    {fmt(resultado.aSIT054)}
+                                                </TableCell>
+                                            </TableRow>
+                                        )}
                                         <TableRow>
                                             <TableCell sx={{ color: theme.palette.text.secondary }}>
                                                 Sin cambios
@@ -281,6 +310,13 @@ const ConsolidacionModal: React.FC<Props> = ({ open, scope, onClose }) => {
                                     </TableBody>
                                 </Table>
                             </TableContainer>
+                            {resultado.sit054Degradado > 0 && (
+                                <Alert severity="warning" sx={{ mt: 1.5 }}>
+                                    {fmt(resultado.sit054Degradado)} caso(s) se cancelaron como SIT-050 porque falta el
+                                    código SIT-054 ("Cancelado con quita"). Correr{' '}
+                                    <code>npx ts-node prisma/scripts/alta-sit-054.ts</code> y volver a consolidar.
+                                </Alert>
+                            )}
                         </Box>
                     )}
 

@@ -3,6 +3,7 @@ import { ICategoryProcessor, MappedRow, ProcessContext, RowValidationResult } fr
 import { Prisma } from '@prisma/client';
 import { Logger } from '@nestjs/common';
 import { procesarBloquesDeudor } from '../utils/procesar-bloques';
+import { normalizarReferenciaClave } from '../../multiclaves/utils/clave-pago';
 
 /**
  * Importe del pago como número.
@@ -32,6 +33,61 @@ export function importeDePago(valor: any): number | null {
     return Number.isFinite(n) ? n : null;
 }
 
+/**
+ * Referencia de clave de pago (multiclaves) de una fila de PAGOS, normalizada.
+ *
+ * `0`, vacío, `-` y `00000000` significan "sin clave" (las filas comunes del archivo real de
+ * Telecom/Personal, spec §10.2) y NO cuentan como aviso. Cualquier otro valor que no normalice
+ * (ni 8, 22 ni 50 dígitos) es `REFERENCIA_CLAVE_ILEGIBLE`: la fila se carga igual como pago común.
+ */
+export function refClaveDeFila(crudo: any): { refClave: string | null; ilegible: boolean } {
+    const t = crudo == null ? '' : String(crudo).trim();
+    if (t === '' || t === '0' || t === '-' || t === '00000000') return { refClave: null, ilegible: false };
+    const norm = normalizarReferenciaClave(t);
+    if (norm == null) return { refClave: null, ilegible: true };
+    return { refClave: norm, ilegible: false };
+}
+
+/** Candidato a caso para un pago: lo mínimo que hace falta para el desempate estable. */
+interface CandidatoDeudor {
+    id: number;
+    remesa: { createdAt: Date } | null;
+}
+
+/**
+ * Desempate determinista y ESTABLE entre varios casos candidatos del mismo trámite: la remesa más
+ * reciente y, si sigue habiendo empate, el `id` más alto.
+ *
+ * Reemplaza al `LIMIT 1` sin `ORDER BY` que tenía el camino común antes de la fase 4a — una moneda
+ * al aire medida en producción sobre 5.448 `nroCliente` repetidos de la empresa 9 (TELECOM).
+ *
+ * A propósito NO mira la situación del caso (¿está cancelado?). La primera versión de esta función
+ * sí lo hacía ("preferir el no cancelado"), y un auditor encontró que eso duplica cobros: la propia
+ * carga de pagos CAMBIA esa situación al cancelar un caso, así que una recarga del mismo archivo
+ * evalúa el criterio con datos distintos a los de la primera carga, elige el caso HERMANO (que
+ * ahora es "el no cancelado") y le crea un segundo pago — con clave (dos casos en "Cancelado con
+ * quita" por el mismo cobro) y sin ella (dos casos en SIT-050 por un cobro que era uno solo). El
+ * desempate tiene que depender solo de hechos que la propia importación no pueda cambiar
+ * (`remesa.createdAt`, `id`); la defensa real contra duplicar cuando hay más de un candidato es
+ * `pagoYaExisteEnAlgunCandidato()`, que busca en TODOS los candidatos, no solo en el elegido.
+ */
+export function elegirPorRemesaMasRecienteYId<T extends CandidatoDeudor>(candidatos: T[]): T {
+    return [...candidatos].sort((a, b) => {
+        const aFecha = a.remesa?.createdAt?.getTime() ?? 0;
+        const bFecha = b.remesa?.createdAt?.getTime() ?? 0;
+        if (aFecha !== bFecha) return bFecha - aFecha;
+        return b.id - a.id;
+    })[0];
+}
+
+/** Candidatos de un trámite/nroCliente, más cuál de ellos recibiría un pago NUEVO. */
+interface Candidatos {
+    /** TODOS los casos candidatos — el anti-duplicados busca en todos, no solo en `elegido`. */
+    ids: number[];
+    /** El caso que recibiría un pago genuinamente nuevo, si no hay duplicado en ningún candidato. */
+    elegido: number;
+}
+
 export class PagosProcessor implements ICategoryProcessor {
     readonly category = 'PAGOS';
     private readonly logger = new Logger(PagosProcessor.name);
@@ -51,6 +107,33 @@ export class PagosProcessor implements ICategoryProcessor {
     /** Pagos con importe negativo: no bajan la deuda, la suben. Se avisa al terminar. */
     private negativos = 0;
 
+    // ─── Contadores de multiclaves (fase 4a, spec §10.3e) — se resetean junto con los de arriba ──
+
+    /** Filas cuyo `nroConvenio` normaliza a una clave cargada en ESTA empresa. */
+    private claveCargada = 0;
+    /** Filas cuyo `nroConvenio` normaliza a una clave cargada, pero de OTRA empresa. */
+    private claveOtraEmpresa = 0;
+    /** Filas cuyo `nroConvenio` normaliza a una referencia válida que no está en `clave_pago`. */
+    private claveNoCargada = 0;
+    /** Filas con algo en la columna del convenio que no normaliza a ninguna forma conocida. */
+    private referenciaIlegible = 0;
+    /** Trámites de una clave con más de un caso candidato en la empresa (desempate aplicado). */
+    private tramitesEnVariosCasos = 0;
+    /** Casos que solo se encontraron fuera de las remesas de origen de esta carga. */
+    private casosFueraDeRemesaOrigen = 0;
+
+    private resetContadores(): void {
+        this.facturasMarcadas = 0;
+        this.yaCargados = 0;
+        this.negativos = 0;
+        this.claveCargada = 0;
+        this.claveOtraEmpresa = 0;
+        this.claveNoCargada = 0;
+        this.referenciaIlegible = 0;
+        this.tramitesEnVariosCasos = 0;
+        this.casosFueraDeRemesaOrigen = 0;
+    }
+
     validateRow(row: MappedRow, _ctx: ProcessContext): RowValidationResult {
         const nroCliente = String(row.nro_cliente ?? '').trim();
         if (!nroCliente) {
@@ -68,11 +151,112 @@ export class PagosProcessor implements ICategoryProcessor {
         return { valid: true };
     }
 
+    /**
+     * Candidatos de un pago hecho con una clave de pago (multiclaves, spec §10.3c): busca los casos
+     * dentro de las remesas de origen y, si no hay ninguno, los busca sin ese filtro (avisando
+     * `casosFueraDeRemesaOrigen`). Devuelve `null` si el trámite de la clave no tiene ningún caso en
+     * la empresa. `elegido` es el que recibiría un pago NUEVO (criterio 1: convenio ACTIVO con esta
+     * clave exacta; criterio 2: cualquier convenio ACTIVO de origen CLAVE_PAGO del mismo trámite;
+     * si no, desempate estable por remesa/id) — pero el anti-duplicados de `processRow` busca en
+     * `ids` completo, no solo en `elegido`.
+     */
+    private async candidatosPorClave(
+        ctx: ProcessContext,
+        clave: { id: number; nroTramite: string },
+        targetRemesaIds: number[],
+    ): Promise<Candidatos | null> {
+        let ids = (
+            await ctx.prisma.$queryRaw<{ id: number }[]>(
+                Prisma.sql`
+                    SELECT id FROM deudor
+                    WHERE empresaId = ${ctx.empresaId}
+                      AND remesaId IN (${Prisma.join(targetRemesaIds)})
+                      AND TRIM(nroCliente) = ${clave.nroTramite}
+                `,
+            )
+        ).map((r) => r.id);
+
+        if (ids.length === 0) {
+            const fuera = (
+                await ctx.prisma.$queryRaw<{ id: number }[]>(
+                    Prisma.sql`
+                        SELECT id FROM deudor
+                        WHERE empresaId = ${ctx.empresaId} AND TRIM(nroCliente) = ${clave.nroTramite}
+                    `,
+                )
+            ).map((r) => r.id);
+            if (fuera.length > 0) this.casosFueraDeRemesaOrigen++;
+            ids = fuera;
+        }
+
+        if (ids.length === 0) return null;
+        if (ids.length === 1) return { ids, elegido: ids[0] };
+
+        this.tramitesEnVariosCasos++;
+
+        // Desempate — criterio 1: convenio ACTIVO con clavePagoId = esta clave exacta.
+        const conClaveExacta = await ctx.prisma.convenio.findFirst({
+            where: { clavePagoId: clave.id, estado: 'ACTIVO', deudorId: { in: ids } },
+            select: { deudorId: true },
+        });
+        if (conClaveExacta) return { ids, elegido: conClaveExacta.deudorId };
+
+        // Criterio 2: cualquier convenio de origen CLAVE_PAGO activo del mismo trámite.
+        const conOrigenClave = await ctx.prisma.convenio.findFirst({
+            where: {
+                estado: 'ACTIVO',
+                origen: 'CLAVE_PAGO',
+                deudorId: { in: ids },
+                clavePago: { nroTramite: clave.nroTramite },
+            },
+            select: { deudorId: true },
+        });
+        if (conOrigenClave) return { ids, elegido: conOrigenClave.deudorId };
+
+        // Criterios 3 y 4, estables: remesa más reciente, después id DESC. NUNCA "no cancelado" —
+        // ver el comentario de `elegirPorRemesaMasRecienteYId`.
+        const candidatos = await ctx.prisma.deudor.findMany({
+            where: { id: { in: ids } },
+            select: { id: true, remesa: { select: { createdAt: true } } },
+        });
+        return { ids, elegido: elegirPorRemesaMasRecienteYId(candidatos).id };
+    }
+
+    /**
+     * Camino común (sin clave, o clave no cargada / de otra empresa): mismo alcance de siempre
+     * (nroCliente dentro de las remesas de origen), con el desempate estable de
+     * `elegirPorRemesaMasRecienteYId` en vez del `LIMIT 1` sin orden de antes.
+     */
+    private async candidatosComunes(
+        ctx: ProcessContext,
+        nroCliente: string,
+        targetRemesaIds: number[],
+    ): Promise<Candidatos | null> {
+        const ids = (
+            await ctx.prisma.$queryRaw<{ id: number }[]>(
+                Prisma.sql`
+                    SELECT id FROM deudor
+                    WHERE empresaId = ${ctx.empresaId}
+                      AND remesaId IN (${Prisma.join(targetRemesaIds)})
+                      AND nroCliente = ${nroCliente}
+                `,
+            )
+        ).map((r) => r.id);
+
+        if (ids.length === 0) return null;
+        if (ids.length === 1) return { ids, elegido: ids[0] };
+
+        const candidatos = await ctx.prisma.deudor.findMany({
+            where: { id: { in: ids } },
+            select: { id: true, remesa: { select: { createdAt: true } } },
+        });
+        return { ids, elegido: elegirPorRemesaMasRecienteYId(candidatos).id };
+    }
+
     async processRow(row: MappedRow, ctx: ProcessContext): Promise<void> {
         const nroCliente = String(row.nro_cliente ?? '').trim();
         if (!nroCliente) throw new Error('nro_cliente es requerido para pagos');
 
-        // Buscar deudor en la(s) remesa(s) de origen (las de deudores), igual que facturas/contactos.
         // Los pagos apuntan a una remesa origen distinta a la del propio archivo; usar ctx.remesaId
         // acá hacía fallar la búsqueda con "Deudor no encontrado" aunque el nro_cliente fuera correcto.
         //
@@ -82,25 +266,56 @@ export class PagosProcessor implements ICategoryProcessor {
             ? ctx.remesaOrigenIds
             : [ctx.remesaOrigenId ?? ctx.remesaId];
 
-        const deudorRows = await ctx.prisma.$queryRaw<{ id: number }[]>(
-            Prisma.sql`
-                SELECT id
-                FROM deudor
-                WHERE empresaId = ${ctx.empresaId}
-                  AND remesaId IN (${Prisma.join(targetRemesaIds)})
-                  AND nroCliente = ${nroCliente}
-                LIMIT 1
-            `,
-        );
+        // Referencia de clave de pago (multiclaves, spec §10.2/§10.3a). Se resuelve ANTES que el
+        // caso: si el `nroConvenio` matchea una clave cargada de esta empresa, el caso se busca por
+        // el trámite de la clave, no por el `nroCliente` del archivo (que en este mismo archivo real
+        // vale lo mismo, pero no hay por qué asumirlo en general).
+        const { refClave: refClaveCruda, ilegible } = refClaveDeFila(row.nroConvenio);
+        if (ilegible) this.referenciaIlegible++;
 
-        if (!deudorRows.length) {
-            throw new Error(`Deudor no encontrado para pago (nro_cliente=${nroCliente})`);
+        let candidatos: Candidatos | null;
+        let clave: { id: number; nroTramite: string } | null = null;
+
+        if (refClaveCruda) {
+            const claveEncontrada = await ctx.prisma.clave_pago.findUnique({
+                where: { nroConvenio: refClaveCruda },
+                select: { id: true, empresaId: true, nroTramite: true },
+            });
+            if (claveEncontrada && claveEncontrada.empresaId !== ctx.empresaId) {
+                this.claveOtraEmpresa++;
+            } else if (claveEncontrada) {
+                this.claveCargada++;
+                clave = { id: claveEncontrada.id, nroTramite: claveEncontrada.nroTramite };
+            } else {
+                this.claveNoCargada++;
+            }
         }
 
-        const deudor = deudorRows[0];
+        if (clave) {
+            candidatos = await this.candidatosPorClave(ctx, clave, targetRemesaIds);
+            if (!candidatos) {
+                throw new Error(
+                    `El trámite ${clave.nroTramite} de la clave ${refClaveCruda} no tiene caso en esta empresa`,
+                );
+            }
+        } else {
+            candidatos = await this.candidatosComunes(ctx, nroCliente, targetRemesaIds);
+            if (!candidatos) {
+                throw new Error(`Deudor no encontrado para pago (nro_cliente=${nroCliente})`);
+            }
+        }
 
-        // Bloques repetitivos del archivo → al deudor encontrado.
-        await procesarBloquesDeudor(deudor.id, row._blocks, ctx);
+        const { ids: candidatoIds, elegido: deudorId } = candidatos;
+
+        // La referencia se guarda tal como normalizó, aunque la clave todavía no esté cargada en
+        // esta empresa (R13: cuando se cargue, la consolidación siguiente cancela sola) o sea de
+        // otra empresa (el join de la consolidación exige `empresaId` igual, así que no cancela
+        // cruzado — solo queda de dato). `refClaveCruda` ya es `null` en los casos "sin clave" e
+        // "ilegible" (`refClaveDeFila`).
+        const refClave = refClaveCruda;
+
+        // Bloques repetitivos del archivo → al caso elegido.
+        await procesarBloquesDeudor(deudorId, row._blocks, ctx);
 
         const importe = importeDePago(row.importe ?? row.monto) ?? 0;
         if (importe < 0) this.negativos++;
@@ -109,7 +324,7 @@ export class PagosProcessor implements ICategoryProcessor {
         // Telecom/Personal). Es la clave de idempotencia real: mientras exista, un archivo
         // acumulativo se puede recargar cuantas veces haga falta sin duplicar nada, sin depender
         // de que la fecha y el importe coincidan.
-        const idExterno = row.idExterno != null && String(row.idExterno).trim() !== ''
+        const idExternoDelArchivo = row.idExterno != null && String(row.idExterno).trim() !== ''
             ? String(row.idExterno).trim()
             : null;
 
@@ -125,11 +340,33 @@ export class PagosProcessor implements ICategoryProcessor {
         const fechaParsed = fechaRaw != null && fechaRaw !== '' ? new Date(fechaRaw) : null;
         const fechaPago = fechaParsed && !isNaN(fechaParsed.getTime()) ? fechaParsed : new Date();
 
-        // Anti-dup por identificador del cedente: si este cobro ya se cargó, no se hace nada.
-        // Va antes que todo lo demás porque es el criterio exacto; el resto son heurísticas.
+        // `idExterno` derivado (D16, spec §10.3b): los pagos con clave de la muestra real NO traen
+        // `PAYMENT_ID` (columna vacía). Sin un identificador propio, la única defensa sería la
+        // heurística de día + importe + observación. Se deriva uno con prefijo `MC-` —nunca puede
+        // colisionar con un id numérico del cedente— más el día y los centavos, para que un segundo
+        // pago de la MISMA clave en otro día (Telecom podría aceptar pagar en partes, Q6) no choque
+        // contra la unique `(deudorId, idExterno)` y se pierda.
+        let idExterno = idExternoDelArchivo;
+        let idExternoDerivado = false;
+        if (!idExterno && refClave) {
+            const yyyymmdd = fechaPago.toISOString().slice(0, 10).replace(/-/g, '');
+            const centavos = Math.round(importe * 100);
+            idExterno = `MC-${refClave}-${yyyymmdd}-${centavos}`;
+            idExternoDerivado = true;
+        }
+
+        // ─── Anti-duplicados — SIEMPRE contra TODOS los candidatos del trámite, nunca solo contra
+        // `deudorId` (hallazgo de la auditoría de la fase 4a): si el trámite tiene más de un caso, el
+        // desempate puede elegir uno u otro en cargas sucesivas (aunque ahora es estable, un cambio
+        // de criterio en un deploy futuro o un dato que no contemplamos podría volver a moverlo). Si
+        // el pago ya está imputado a CUALQUIERA de los candidatos, no se crea uno nuevo en otro.
+
+        // Anti-dup por identificador del cedente (o derivado): si este cobro ya se cargó, no se
+        // hace nada. Va antes que todo lo demás porque es el criterio exacto; el resto son
+        // heurísticas. Corre siempre que haya `idExterno`, sea del archivo o derivado.
         if (idExterno) {
             const ya = await ctx.prisma.pago.findFirst({
-                where: { deudorId: deudor.id, idExterno },
+                where: { deudorId: { in: candidatoIds }, idExterno },
                 select: { id: true },
             });
             if (ya) {
@@ -138,18 +375,28 @@ export class PagosProcessor implements ICategoryProcessor {
             }
         }
 
-        // Anti-dup (spec §3.1): si ya hay un pago MANUAL no confirmado del mismo deudor
-        // con este importe exacto → confirmarlo en vez de duplicar. Un claim por fila.
-        const claim = await ctx.prisma.pago.findFirst({
-            where: {
-                deudorId: deudor.id,
-                origen: 'MANUAL',
-                confirmadoImport: false,
-                importe,
-            },
-            orderBy: { fecha: 'asc' },
-            select: { id: true },
-        });
+        // Anti-dup (spec §3.1): si ya hay un pago MANUAL no confirmado con este importe exacto en
+        // CUALQUIERA de los candidatos del trámite → confirmarlo en vez de duplicar. Un claim por
+        // fila. Mirar solo el caso elegido (hallazgo de la re-auditoría de la fase 4a) duplicaba el
+        // cobro cuando el trámite tiene dos casos: el gestor registra el pago a mano en el caso que
+        // abrió y el desempate elige el otro, así que el import creaba un segundo pago y dejaba el
+        // manual sin confirmar. Se prefiere el del caso elegido, y si no hay, el más viejo.
+        const claimBase = { origen: 'MANUAL', confirmadoImport: false, importe };
+        // Primero el caso elegido: si el gestor cargó el pago ahí, se confirma ahí.
+        const claim =
+            (await ctx.prisma.pago.findFirst({
+                where: { deudorId, ...claimBase },
+                orderBy: { fecha: 'asc' },
+                select: { id: true },
+            })) ??
+            // Si no, cualquiera de los otros casos del mismo trámite.
+            (candidatoIds.length > 1
+                ? await ctx.prisma.pago.findFirst({
+                    where: { deudorId: { in: candidatoIds.filter((id) => id !== deudorId) }, ...claimBase },
+                    orderBy: { fecha: 'asc' },
+                    select: { id: true },
+                })
+                : null);
 
         if (claim) {
             await ctx.prisma.pago.update({
@@ -159,12 +406,17 @@ export class PagosProcessor implements ICategoryProcessor {
                     confirmadoEn: new Date(),
                     origenArchivo: `PAGOS_REMESA_${ctx.remesaId}`,
                     idExterno,
+                    // Hallazgo de la auditoría (fase 4a, importante #2): sin esto, un pago cargado a
+                    // mano ANTES de que llegara el archivo de multiclaves quedaba confirmado pero sin
+                    // `referenciaClave` — la regla (a) de la consolidación no lo veía y el caso se
+                    // quedaba en SIT-041 con saldo en vez de SIT-054 con saldo 0.
+                    referenciaClave: refClave,
                 },
             });
         } else {
             // Anti-dup acumulativo (Tema 2): si ya existe un pago importado idéntico
-            // (mismo deudor, mismo día e importe) NO se reinserta. Hace idempotente
-            // reimportar un archivo de pagos acumulativo (que repite pagos ya cargados).
+            // (mismo día e importe, en CUALQUIERA de los candidatos) NO se reinserta. Hace
+            // idempotente reimportar un archivo de pagos acumulativo (que repite pagos ya cargados).
             // La comparación es por día (no por timestamp exacto) porque cuando la fecha no
             // viene mapeada se usa `new Date()` y cada corrida tendría una hora distinta.
             const inicioDia = new Date(fechaPago);
@@ -172,12 +424,15 @@ export class PagosProcessor implements ICategoryProcessor {
             const finDia = new Date(fechaPago);
             finDia.setHours(23, 59, 59, 999);
 
-            // Con `idExterno` la pregunta ya se respondió arriba de forma exacta; repetirla por
-            // día+importe solo puede dar un falso positivo (dos cobros distintos del mismo monto
-            // el mismo día) y perder plata.
-            const yaImportado = idExterno ? null : await ctx.prisma.pago.findFirst({
+            // Con un `idExterno` DEL ARCHIVO la pregunta ya se respondió arriba de forma exacta;
+            // repetirla por día+importe solo puede dar un falso positivo y perder plata. Un
+            // `idExterno` DERIVADO (D16) NO saltea esta heurística: si el archivo se cargó una
+            // primera vez sin mapear `nroConvenio` (sin idExterno del todo) y se recarga después
+            // con el mapeo puesto, la búsqueda exacta por la llave derivada no encuentra nada —la
+            // primera carga no la tiene— y sin la heurística de respaldo el pago se duplicaría.
+            const yaImportado = (idExterno && !idExternoDerivado) ? null : await ctx.prisma.pago.findFirst({
                 where: {
-                    deudorId: deudor.id,
+                    deudorId: { in: candidatoIds },
                     origen: 'IMPORT_PAGOS',
                     importe,
                     fecha: { gte: inicioDia, lte: finDia },
@@ -192,28 +447,30 @@ export class PagosProcessor implements ICategoryProcessor {
                     // mismo día.
                     //
                     // Las plantillas que no mapean `observacion` no cambian: el criterio sigue
-                    // siendo deudor + día + importe.
+                    // siendo día + importe (ahora sobre cualquiera de los candidatos del trámite).
                     ...(observacion ? { observacion } : {}),
                 },
                 select: { id: true },
             });
 
             if (yaImportado) {
-                // Pago ya cargado en una importación previa → skip idempotente.
-                // No se toca el deudor: no hubo movimiento, no hace falta consolidar.
+                // Pago ya cargado en una importación previa (en este caso o en un caso hermano del
+                // mismo trámite) → skip idempotente. No se toca ningún deudor: no hubo movimiento
+                // nuevo, no hace falta consolidar.
                 this.yaCargados++;
                 return;
             }
 
             await ctx.prisma.pago.create({
                 data: {
-                    deudorId: deudor.id,
+                    deudorId,
                     fecha: fechaPago,
                     importe,
                     origen: 'IMPORT_PAGOS',
                     origenArchivo: row.origenArchivo ?? null,
                     observacion,
                     idExterno,
+                    referenciaClave: refClave,
                 },
             });
         }
@@ -228,14 +485,14 @@ export class PagosProcessor implements ICategoryProcessor {
         // mapean `observacion` no cambian. Es el mismo criterio de ACTUALIZACIONES y MULTIRREGISTRO.
         if (observacion) {
             const marcadas = await ctx.prisma.factura.updateMany({
-                where: { deudorId: deudor.id, nroFactura: observacion, estado: { not: 'PAGADA' } },
+                where: { deudorId, nroFactura: observacion, estado: { not: 'PAGADA' } },
                 data: { estado: 'PAGADA' },
             });
             if (marcadas.count > 0) this.facturasMarcadas += marcadas.count;
         }
 
         // Trackear deudor tocado para la consolidación selectiva en afterAll
-        this.processedDeudorIds.add(deudor.id);
+        this.processedDeudorIds.add(deudorId);
     }
 
     /**
@@ -265,9 +522,72 @@ export class PagosProcessor implements ICategoryProcessor {
                 '`removeDashes` al mapeo del importe.',
             );
         }
-        this.facturasMarcadas = 0;
-        this.yaCargados = 0;
-        this.negativos = 0;
+
+        const conClave = this.claveCargada + this.claveOtraEmpresa + this.claveNoCargada;
+        if (conClave > 0) {
+            this.logger.log(
+                `Pagos remesa=${ctx.remesaId}: ${conClave} con clave (${this.claveCargada} cargadas, ` +
+                `${this.claveOtraEmpresa} de otra empresa, ${this.claveNoCargada} sin cargar), ` +
+                `${this.tramitesEnVariosCasos} trámite(s) en varios casos, ` +
+                `${this.casosFueraDeRemesaOrigen} caso(s) fuera de la remesa origen.`,
+            );
+            if (this.claveNoCargada > 0) {
+                await ctx.prisma.importerror.create({
+                    data: {
+                        remesaId: ctx.remesaId,
+                        rowNumber: 0,
+                        rawRow: [] as any,
+                        errorMsg:
+                            `[aviso] CLAVE_NO_CARGADA: ${this.claveNoCargada} pago(s) con un número de convenio ` +
+                            'que no corresponde a ninguna clave cargada en esta empresa. No se cancela nada ' +
+                            'hasta cargar las claves de esas nóminas y volver a consolidar.',
+                    },
+                }).catch((e: any) => this.logger.warn(`No se pudo guardar el aviso CLAVE_NO_CARGADA: ${e.message}`));
+            }
+            if (this.claveOtraEmpresa > 0) {
+                await ctx.prisma.importerror.create({
+                    data: {
+                        remesaId: ctx.remesaId,
+                        rowNumber: 0,
+                        rawRow: [] as any,
+                        errorMsg: `[aviso] CLAVE_DE_OTRA_EMPRESA: ${this.claveOtraEmpresa} pago(s) con convenio de una clave de otra empresa.`,
+                    },
+                }).catch((e: any) => this.logger.warn(`No se pudo guardar el aviso CLAVE_DE_OTRA_EMPRESA: ${e.message}`));
+            }
+            if (this.tramitesEnVariosCasos > 0) {
+                await ctx.prisma.importerror.create({
+                    data: {
+                        remesaId: ctx.remesaId,
+                        rowNumber: 0,
+                        rawRow: [] as any,
+                        errorMsg: `[aviso] TRAMITE_EN_VARIOS_CASOS: ${this.tramitesEnVariosCasos} trámite(s) con clave estaban en más de un caso; se desempató.`,
+                    },
+                }).catch((e: any) => this.logger.warn(`No se pudo guardar el aviso TRAMITE_EN_VARIOS_CASOS: ${e.message}`));
+            }
+            if (this.casosFueraDeRemesaOrigen > 0) {
+                await ctx.prisma.importerror.create({
+                    data: {
+                        remesaId: ctx.remesaId,
+                        rowNumber: 0,
+                        rawRow: [] as any,
+                        errorMsg: `[aviso] CASO_FUERA_DE_REMESA_ORIGEN: ${this.casosFueraDeRemesaOrigen} caso(s) de una clave se encontraron fuera de la(s) remesa(s) de origen elegidas.`,
+                    },
+                }).catch((e: any) => this.logger.warn(`No se pudo guardar el aviso CASO_FUERA_DE_REMESA_ORIGEN: ${e.message}`));
+            }
+        }
+        if (this.referenciaIlegible > 0) {
+            this.logger.warn(`${this.referenciaIlegible} fila(s) con un número de convenio ilegible (se cargaron como pago común).`);
+            await ctx.prisma.importerror.create({
+                data: {
+                    remesaId: ctx.remesaId,
+                    rowNumber: 0,
+                    rawRow: [] as any,
+                    errorMsg: `[aviso] REFERENCIA_CLAVE_ILEGIBLE: ${this.referenciaIlegible} fila(s) con un valor de convenio que no se pudo interpretar.`,
+                },
+            }).catch((e: any) => this.logger.warn(`No se pudo guardar el aviso REFERENCIA_CLAVE_ILEGIBLE: ${e.message}`));
+        }
+
+        this.resetContadores();
 
         if (this.processedDeudorIds.size > 0) {
             const deudorIds = [...this.processedDeudorIds];

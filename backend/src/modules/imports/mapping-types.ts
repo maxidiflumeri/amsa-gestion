@@ -157,6 +157,15 @@ export interface DivisionRemesaConfig {
 export interface MappingJson {
     entity: 'DEUDOR' | 'FACTURA' | 'PAGO' | 'CONTACTO' | 'ENRIQ_MIXTO' | 'MIXTO';
     matchKeys: string[];        // ej: ["empresaId","documento"]
+    /**
+     * Campos principales. En PAGO, además de `nro_cliente`/`documento` (match), `monto`,
+     * `fechaPago`, `medioPago`, `observacion` e `idExterno`, admite `nroConvenio` — el número de
+     * convenio de una clave de pago de Telecom/Personal (multiclaves), OPCIONAL. Lo lee
+     * `pagos.processor.ts`, lo normaliza (`normalizarReferenciaClave`) y lo guarda en
+     * `pago.referenciaClave`; si matchea una `clave_pago` de la misma empresa, el caso se resuelve
+     * por el trámite de la clave y un pago que la cubre cancela el caso (con o sin quita). Ver
+     * docs/multiclaves-spec.md §10.2.
+     */
     columns: Record<string, MappingColumn>;  // campos principales
     extras?: Record<string, MappingColumn>;   // <-- campos adicionales (JSON)
     blocks?: RepetitiveBlock[];               // <-- bloques repetitivos (N-1)

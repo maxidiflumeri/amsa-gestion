@@ -71,6 +71,7 @@ const DEST_FIELDS_BY_CATEGORY: Record<string, { value: string; label: string }[]
         { value: "medioPago", label: "Medio de pago" },
         { value: "observacion", label: "Observación / Nº de comprobante cobrado" },
         { value: "idExterno", label: "ID del cobro en el sistema del cedente (evita duplicados)" },
+        { value: "nroConvenio", label: "Nº de convenio de la clave de pago (Telecom/Personal)" },
     ],
     ENRIQUECIMIENTO: [
         { value: "nro_cliente", label: "Nro. Cliente (match)" },

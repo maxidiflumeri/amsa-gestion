@@ -228,7 +228,7 @@ export default function AccionesEditor({
                     />
                     <FormControlLabel
                         control={<Switch checked={!!cfg.saltearCanceladas} onChange={(e) => set({ saltearCanceladas: e.target.checked })} />}
-                        label="No tocar cuentas canceladas (SIT-050)"
+                        label="No tocar cuentas canceladas (cualquier situación Cancelado)"
                     />
                 </Stack>
             </SectionCard>

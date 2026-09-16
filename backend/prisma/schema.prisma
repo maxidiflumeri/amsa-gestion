@@ -220,6 +220,10 @@ model pago {
   // duplica cuando la fecha del archivo no se puede parsear y colapsa dos cobros distintos del
   // mismo monto en el mismo día.
   idExterno        String?
+  /// NRO_CONVENIO de la clave con la que se pagó, normalizado desde el convenio de 8, la clave de 22
+  /// o el código de barras de 50 dígitos. Lo llena `pagos.processor` cuando la plantilla mapea
+  /// `nroConvenio`. Ver docs/multiclaves-spec.md §10.
+  referenciaClave  String?   @db.VarChar(8)
   deudor           deudor    @relation(fields: [deudorId], references: [id], map: "Pago_deudorId_fkey")
   usuario          usuario?  @relation("PagoUsuario", fields: [usuarioId], references: [id])
 
@@ -231,6 +235,7 @@ model pago {
   @@index([fecha], map: "Pago_fecha_idx")
   @@index([deudorId, fecha], map: "Pago_deudorId_fecha_idx")
   @@index([deudorId, origen, confirmadoImport], map: "Pago_dedup_idx")
+  @@index([referenciaClave], map: "Pago_referenciaClave_idx")
 }
 
 model promesa_pago {

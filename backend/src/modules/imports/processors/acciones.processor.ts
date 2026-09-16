@@ -11,8 +11,7 @@ import { AccionesConfig, AccionOperacion } from '../mapping-types';
 import { mergeAdicionales } from '../utils/campos-adicionales';
 import { normalizarTelefonoArgentino } from '../../../common/utils/phone-utils';
 import { AuditEstado, AuditModulo, AuditSeveridad, AuditTipo } from '../../transacciones/audit.enums';
-
-const CLAVE_SIT_CANCELADO = 'SIT-050';
+import { idsSituacionCancelada } from '../utils/situaciones-cerradas';
 
 type SnapshotRow = {
     remesaId: number;
@@ -176,14 +175,18 @@ export class AccionesProcessor implements ICategoryProcessor {
                 id: true, estadoSituacionId: true, estadoGestionId: true, motivoNoPagoId: true,
                 nombre: true, apellido: true, montoTotal: true, fechaVencimiento: true, nroCliente: true,
                 camposAdicionales: true,
-                estadoSituacion: { select: { clave: true } },
             },
         });
 
         if (!deudores.length) { this.sinMatch++; return; }
 
+        // Categoría CANCELADO completa, no solo SIT-050: un caso cancelado con quita (SIT-054,
+        // multiclaves) es tan "cancelado" como uno en SIT-050/051/052/053. Ver
+        // docs/multiclaves-spec.md §10.7.
+        const idsCancelado = cfg.saltearCanceladas ? await idsSituacionCancelada(ctx.prisma) : [];
+
         for (const d of deudores) {
-            if (cfg.saltearCanceladas && d.estadoSituacion?.clave === CLAVE_SIT_CANCELADO) {
+            if (cfg.saltearCanceladas && d.estadoSituacionId != null && idsCancelado.includes(d.estadoSituacionId)) {
                 this.saltadosCancelados++;
                 continue;
             }

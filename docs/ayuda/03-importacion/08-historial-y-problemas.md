@@ -1,7 +1,7 @@
 <!--
 seccion: Importación de datos
 resumen: Ver qué pasó con una carga, revisar los errores fila por fila, y qué se puede deshacer y qué no.
-revisado: 2026-09-14
+revisado: 2026-09-16
 rutas: /historial-importaciones
 rutaPrincipal: /historial-importaciones
 -->
@@ -111,6 +111,18 @@ ya había cargado antes, que no calza.
 > **Ojo con lo que NO aparece acá.** Las filas descartadas por un **filtro de fila** no son errores: no
 > figuran en este listado. Y un **teléfono que no se pudo normalizar** se descarta en silencio, sin
 > quedar registrado. Si las cuentas no cierran y el listado de errores está vacío, mirá por ahí.
+
+**Pagos con número de convenio (claves de pago de Telecom/Personal):** si la plantilla de una carga
+de **Pagos** mapea el campo *"Nº de convenio de la clave de pago"*, el detalle puede traer estos
+avisos — nunca restan de las filas OK, son informativos:
+
+| Aviso | Qué significa |
+|---|---|
+| `CLAVE_NO_CARGADA` | El número de convenio no corresponde a ninguna clave cargada en esta empresa todavía. El pago se guarda igual: en cuanto se carguen las claves de esa nómina (categoría **Claves de pago**) y se vuelva a consolidar, el caso se cancela solo |
+| `CLAVE_DE_OTRA_EMPRESA` | El convenio existe, pero en **otra** empresa — típicamente porque el mismo archivo se carga una vez por empresa. La fila entra como pago común si el trámite existe acá |
+| `TRAMITE_EN_VARIOS_CASOS` | El trámite de la clave está en más de un caso de esta empresa. El sistema desempata solo: primero el caso con el convenio de esa clave, si no el de la remesa más reciente |
+| `CASO_FUERA_DE_REMESA_ORIGEN` | El caso del trámite existe, pero no en la(s) remesa(s) de origen que elegiste para esta carga — igual se usa |
+| `REFERENCIA_CLAVE_ILEGIBLE` | La columna trae algo que no se puede leer como número de convenio, clave de pago ni código de barras. La fila se carga igual como pago común |
 
 ---
 

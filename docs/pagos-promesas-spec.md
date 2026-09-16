@@ -122,6 +122,29 @@ si no:    crear pago(origen='IMPORT_PAGOS', ...)  // comportamiento actual
 - Un claim por fila (no consume dos manuales con una fila).
 - `processedDeudorIds` se trackea igual (creado o confirmado → deudor tocado → consolida en afterAll).
 
+#### 3.1.1 Fase 4a de multiclaves — `idExterno` derivado y la llave `MC-…` (D16)
+
+Los pagos con clave de pago de Telecom/Personal (`nroConvenio` mapeado, ver `multiclaves-spec.md`
+§10.2/§10.3) no siempre traen un `PAYMENT_ID` del archivo — la muestra real que motivó el diseño no
+trae ninguno. Sin un `idExterno`, la única defensa contra duplicados sería la heurística de día +
+importe + observación (§3.1), que es más débil.
+
+El processor deriva uno: `idExterno = MC-<nroConvenio>-<AAAAMMDD>-<centavos>` cuando el archivo no
+trae un identificador propio y la fila sí tiene una referencia de clave válida. El prefijo `MC-`
+hace imposible que colisione con un `PAYMENT_ID` numérico de cualquier cedente; el día y el importe
+adentro de la llave permiten que un segundo pago de la MISMA clave en otro día (Telecom podría
+aceptar pagos parciales) entre sin chocar contra la unique `(deudorId, idExterno)`.
+
+**El punto que casi se pasa por alto:** la condición que hoy apaga la heurística de día+importe
+cuando hay `idExterno` (`idExterno ? null : findFirst(...)`) tiene que distinguir la llave derivada
+de la real. Con una llave derivada, un archivo cargado **antes** de mapear `nroConvenio` (sin
+`idExterno` de ningún tipo) y recargado **después** (ya con la llave `MC-…`) no encontraría nada por
+la búsqueda exacta —la primera carga no tiene esa llave— y si además la heurística estuviera
+apagada, el pago se duplicaría. La condición correcta es `(idExterno && !idExternoDerivado) ? null :
+findFirst(...)`: la llave del cedente sigue salteando la heurística tal cual; la derivada no. Las
+carteras con `PAYMENT_ID` real (AYSA, Toyota, Fiat) no cambian en nada — hay test de regresión
+específico para eso.
+
 ### 3.2 Categoría ACTUALIZACIONES — reconciliación por total
 
 **Confirmado con el usuario:** el archivo trae, por deudor, **el saldo que queda por pagar** (valor único). El processor hoy lo lee en `row.montoTotal` (nombre engañoso del mapping — es el saldo, no el original). El original inmutable es `deudor.montoTotal`.
@@ -312,6 +335,12 @@ Promesas de pago: promesas.ver | promesas.crear | promesas.cancelar | promesas.p
 - `DeudorBloqueoService.assertNoBloqueado(deudorId, accion)` en: crear pago, eliminar pago (I8: además solo MANUAL), crear promesa.
 - Sin bloqueo en processors de import ni en la consolidación (como hoy).
 - Consecuencia asumida (regla 6): revertir cancelación errónea requiere admin que saque SIT-050 primero.
+- **Fase 4a de multiclaves:** el bloqueo alcanza también a `SIT-054` "Cancelado con quita" — no es un
+  código aparte para `DeudorBloqueoService`, que ya resolvía por la categoría `CANCELADO` completa
+  (ver `docs/consolidacion-situacion-spec.md` §1.2). `pagos.service.ts` (`revertirSinPagos`) sí
+  necesitó un cambio puntual: al borrar el último pago de un caso, solo devolvía al default de la
+  plantilla si la situación era `SIT-041` o `SIT-050` — ahora también `SIT-054`, para que un caso
+  cancelado con quita sin ningún pago no quede huérfano.
 
 ---
 

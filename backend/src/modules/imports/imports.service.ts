@@ -39,6 +39,8 @@ import { ConsolidacionSituacionService } from '../consolidacion/consolidacion.se
 import { PromesasService } from '../promesas/promesas.service';
 import { AuditoriaHelper } from '../transacciones/auditoria.helper';
 import { normalizarTelefonoArgentino } from '../../common/utils/phone-utils';
+import { idsSituacionCancelada } from './utils/situaciones-cerradas';
+import { refClaveDeFila } from './processors/pagos.processor';
 
 /**
  * Filas que el runner acumula antes de procesarlas juntas.
@@ -1339,6 +1341,25 @@ export class ImportService {
             typeof idxNroCliente === 'number' && idxNroCliente >= 0;
         const colisiones = new ContadorColisiones();
 
+        // Fase 4a de multiclaves (spec §10.9): si la plantilla de PAGOS mapea `nroConvenio`, se hace
+        // una pasada COMPLETA sobre esa columna (no solo la muestra) — reusa el mismo recorrido de
+        // arriba, que ya lee el archivo entero para `colisiones`. `idExterno` derivado (D16) NO
+        // entra acá: esto es solo el conteo de la vista previa, no escribe nada.
+        const idxNroConvenio = mapping?.columns?.nroConvenio?.fromIndex;
+        const idxImporteRaw = mapping?.columns?.monto?.fromIndex ?? mapping?.columns?.importe?.fromIndex;
+        const transformsImporte = mapping?.columns?.monto?.transforms ?? mapping?.columns?.importe?.transforms;
+        const medirMulticlavePagos =
+            remesa.categoria === 'PAGOS' && typeof idxNroConvenio === 'number' && idxNroConvenio >= 0;
+        let mcFilasConClave = 0;
+        let mcIlegibles = 0;
+        let mcImporteConClave = 0;
+        // Cuenta OCURRENCIAS por convenio (no un Set): si el mismo convenio aparece en dos filas,
+        // las dos tienen que contar en `claveCargada`/`quita`/`total` — un `Set` (versión anterior)
+        // deduplicaba el convenio y dejaba "2 filas con clave / 1 clave cargada", una contradicción
+        // que encontró la auditoría (hallazgo #5). Se sigue consultando `clave_pago` una vez por
+        // convenio DISTINTO (barato); lo que cambia es que el conteo final es por FILA.
+        const mcConveniosVistos = new Map<string, number>();
+
         try {
             await recorrerFilas(
                 {
@@ -1359,6 +1380,19 @@ export class ImportService {
                             String(valores[idxDocumento!] ?? '').trim(),
                             String(valores[idxNroCliente!] ?? '').trim() || null,
                         );
+                    }
+                    if (medirMulticlavePagos) {
+                        const { refClave, ilegible } = refClaveDeFila(valores[idxNroConvenio!]);
+                        if (ilegible) mcIlegibles++;
+                        if (refClave) {
+                            mcFilasConClave++;
+                            mcConveniosVistos.set(refClave, (mcConveniosVistos.get(refClave) ?? 0) + 1);
+                            if (typeof idxImporteRaw === 'number' && idxImporteRaw >= 0) {
+                                const importeTransformado = applyTransforms(valores[idxImporteRaw], transformsImporte);
+                                const imp = importeDePago(importeTransformado);
+                                if (imp != null) mcImporteConClave += imp;
+                            }
+                        }
                     }
                     const indice = totalRows++;
                     // El preview son las primeras N filas; el resto solo se cuenta.
@@ -1404,6 +1438,121 @@ export class ImportService {
             );
         }
 
+        // Fase 4a de multiclaves (spec §10.9): con `nroConvenio` mapeado, cruzar los convenios
+        // vistos en TODO el archivo contra `clave_pago`, en tandas de 1.000 (mismo patrón que el
+        // resumen de la carga de claves, `ClavesService.resumenLote`).
+        let multiclavePagos: {
+            filas: number; conClave: number; ilegibles: number;
+            claveCargada: number; claveOtraEmpresa: number; claveNoCargada: number;
+            quita: number; total: number; sinCaso: number; tramitesEnVariosCasos: number;
+            importeConClave: string;
+        } | undefined;
+
+        if (medirMulticlavePagos) {
+            const convenios = [...mcConveniosVistos.keys()];
+            const clavesEncontradas: Array<{ nroConvenio: string; empresaId: number; nroTramite: string; tipo: string }> = [];
+            for (let i = 0; i < convenios.length; i += 1000) {
+                const chunk = convenios.slice(i, i + 1000);
+                const rows = await this.prisma.clave_pago.findMany({
+                    where: { nroConvenio: { in: chunk } },
+                    select: { nroConvenio: true, empresaId: true, nroTramite: true, tipo: true },
+                });
+                clavesEncontradas.push(...rows);
+            }
+            const claveInfoPorConvenio = new Map(clavesEncontradas.map((c) => [c.nroConvenio, c]));
+
+            // Todos los conteos de acá son POR FILA (multiplicando por las ocurrencias de cada
+            // convenio en `mcConveniosVistos`), consistente con `filas`/`conClave` — no por convenio
+            // distinto, que es lo que producía la contradicción del hallazgo #5.
+            let claveCargada = 0;
+            let claveOtraEmpresa = 0;
+            let claveNoCargada = 0;
+            let quita = 0;
+            let total = 0;
+            for (const [convenio, ocurrencias] of mcConveniosVistos) {
+                const info = claveInfoPorConvenio.get(convenio);
+                if (!info) {
+                    claveNoCargada += ocurrencias;
+                } else if (info.empresaId !== remesa.empresaId) {
+                    claveOtraEmpresa += ocurrencias;
+                } else {
+                    claveCargada += ocurrencias;
+                    if (info.tipo === 'QUITA') quita += ocurrencias;
+                    else if (info.tipo === 'TOTAL') total += ocurrencias;
+                }
+            }
+
+            // sinCaso/tramitesEnVariosCasos son propiedades del TRÁMITE, no de la fila ni del
+            // convenio: un trámite tiene o no tiene caso una sola vez, sin importar cuántas filas de
+            // pago lo referencien. Se calculan sobre los convenios DISTINTOS cargados en esta empresa.
+            const claveCargadaRows = clavesEncontradas.filter((c) => c.empresaId === remesa.empresaId);
+            const nroTramites = [...new Set(claveCargadaRows.map((c) => c.nroTramite))];
+            let sinCaso = 0;
+            let tramitesEnVariosCasos = 0;
+            for (let i = 0; i < nroTramites.length; i += 1000) {
+                const chunk = nroTramites.slice(i, i + 1000);
+                const casos = await this.prisma.deudor.findMany({
+                    where: { empresaId: remesa.empresaId, nroCliente: { in: chunk } },
+                    select: { nroCliente: true },
+                });
+                const porTramite = new Map<string, number>();
+                for (const c of casos) {
+                    if (!c.nroCliente) continue;
+                    porTramite.set(c.nroCliente, (porTramite.get(c.nroCliente) ?? 0) + 1);
+                }
+                for (const t of chunk) {
+                    const n = porTramite.get(t) ?? 0;
+                    if (n === 0) sinCaso++;
+                    else if (n > 1) tramitesEnVariosCasos++;
+                }
+            }
+
+            multiclavePagos = {
+                // `filas` = TOTAL de filas del archivo (spec §10.9); `conClave` = las que traen un
+                // `nroConvenio` que normaliza. Eran el mismo número (hallazgo #5) — un texto que dice
+                // "23 de 23 filas" en vez de "23 de 104" es inservible para decidir si conviene cargar
+                // las claves que faltan antes de ejecutar.
+                filas: totalRows,
+                conClave: mcFilasConClave,
+                ilegibles: mcIlegibles,
+                claveCargada,
+                claveOtraEmpresa,
+                claveNoCargada,
+                quita,
+                total,
+                sinCaso,
+                tramitesEnVariosCasos,
+                importeConClave: mcImporteConClave.toFixed(2),
+            };
+
+            if (mcFilasConClave > 0) {
+                advertencias.push(
+                    `${mcFilasConClave} de las ${totalRows.toLocaleString('es-AR')} filas traen número de convenio de ` +
+                    `clave de pago. ${claveCargada} corresponden a claves cargadas en esta empresa ` +
+                    `(${quita} de quita, ${total} de saldo total)${claveNoCargada > 0 ? ` y ${claveNoCargada} a claves ` +
+                    'que no están cargadas: esos casos NO se van a cancelar con quita. Cargá las claves de esas ' +
+                    'nóminas y volvé a consolidar.' : '.'}`,
+                );
+            }
+            if (claveOtraEmpresa > 0) {
+                advertencias.push(
+                    `${claveOtraEmpresa} convenio(s) pertenecen a claves de OTRA empresa. Esas filas se cargan ` +
+                    'como pago común si el trámite existe acá.',
+                );
+            }
+            if (tramitesEnVariosCasos > 0) {
+                advertencias.push(
+                    `${tramitesEnVariosCasos} trámite(s) con clave están en más de un caso de esta empresa: el pago ` +
+                    'va al caso con el convenio de la clave, o al de la remesa más reciente.',
+                );
+            }
+            if (mcIlegibles > 0) {
+                advertencias.push(
+                    `${mcIlegibles} fila(s) traen algo en la columna del convenio que no se puede leer como clave.`,
+                );
+            }
+        }
+
         await this.prisma.remesa.update({
             where: { id: remesaId },
             data: {
@@ -1423,6 +1572,7 @@ export class ImportService {
             descartadas: descartadas || undefined,
             filtro: descartadas ? describirFiltros(filtros) : undefined,
             advertencias: advertencias.length ? advertencias : undefined,
+            multiclavePagos,
         };
     }
 
@@ -2346,13 +2496,21 @@ export class ImportService {
         // El filtro de "vivo" se arma con los ids de los parámetros de cierre y no con sus claves
         // porque `deudor` guarda ids. Si el catálogo no está seedeado, no se filtra nada: es
         // preferible mostrar de más a esconder la remesa que el operador necesita.
+        //
+        // La situación cancelada se resuelve por CATEGORÍA (`idsSituacionCancelada`), no por la
+        // clave `SIT-050`: un caso cancelado con quita (SIT-054, multiclaves) es tan "cerrado" como
+        // uno en SIT-050/051/052/053, y antes de este cambio el combo lo contaba como vivo — ver
+        // docs/multiclaves-spec.md §10.7.
         let idsCerrados: number[] = [];
         if (soloEnGestion) {
-            const cierres = await this.prisma.parametro.findMany({
-                where: { clave: { in: ['SIT-050', 'GES-094', 'GES-090'] } },
-                select: { id: true, clave: true },
-            });
-            idsCerrados = cierres.map((c) => c.id);
+            const [idsCancelado, gestionCierre] = await Promise.all([
+                idsSituacionCancelada(this.prisma),
+                this.prisma.parametro.findMany({
+                    where: { clave: { in: ['GES-094', 'GES-090'] } },
+                    select: { id: true },
+                }),
+            ]);
+            idsCerrados = [...idsCancelado, ...gestionCierre.map((c) => c.id)];
         }
 
         const cerradoSituacion = idsCerrados.length

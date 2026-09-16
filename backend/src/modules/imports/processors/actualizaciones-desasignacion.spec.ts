@@ -12,10 +12,17 @@
  */
 import { ActualizacionesProcessor } from './actualizaciones.processor';
 import { ProcessContext } from './processor.interface';
+import { _resetCacheSituacionesCerradas } from '../utils/situaciones-cerradas';
 
 const GES_094 = 94;
 const SIT_050 = 50;
 const DEFAULT_GESTION = 200;
+
+beforeEach(() => {
+    // `idsSituacionCancelada` cachea por módulo (no por instancia) — sin este reset, un test que
+    // corre después de otro dentro del mismo archivo vería la respuesta cacheada del primero.
+    _resetCacheSituacionesCerradas();
+});
 
 function makeCtx(overrides: Partial<ProcessContext> = {}) {
     const deudorUpdate = jest.fn().mockResolvedValue({});
@@ -58,11 +65,20 @@ function makeCtx(overrides: Partial<ProcessContext> = {}) {
         return Promise.resolve(listadoAfterAll);
     });
 
+    // `idsSituacionCancelada` (categoría CANCELADO) resuelve por `findMany`, no por `findUnique`
+    // como el viejo `resolverParametroSit050` — hay que diferenciarlo del `findMany` de
+    // `resolverGestionesValidas` (grupo 'gestion'), que sigue devolviendo las gestiones válidas.
+    let situacionesCanceladas: Array<{ id: number }> = [{ id: SIT_050 }];
+    const parametroFindMany = jest.fn().mockImplementation(({ where }: any) => {
+        if (where?.categoria === 'CANCELADO') return Promise.resolve(situacionesCanceladas);
+        return Promise.resolve([{ id: DEFAULT_GESTION }, { id: 210 }]);
+    });
+
     const prisma: any = {
         parametro: {
             findUnique: parametroFindUnique,
             findFirst: jest.fn().mockResolvedValue({ id: DEFAULT_GESTION }),
-            findMany: jest.fn().mockResolvedValue([{ id: DEFAULT_GESTION }, { id: 210 }]),
+            findMany: parametroFindMany,
         },
         deudor: {
             findMany: deudorFindMany,
@@ -106,8 +122,12 @@ function makeCtx(overrides: Partial<ProcessContext> = {}) {
     const setListado = (deudores: any[]) => {
         listadoAfterAll = deudores;
     };
+    /** Cambia qué ids devuelve la categoría CANCELADO (default: solo SIT-050). */
+    const setSituacionesCanceladas = (ids: number[]) => {
+        situacionesCanceladas = ids.map((id) => ({ id }));
+    };
 
-    return { ctx, prisma, deudorUpdate, deudorCreate, setCartera, setListado };
+    return { ctx, prisma, deudorUpdate, deudorCreate, setCartera, setListado, setSituacionesCanceladas };
 }
 
 /** Deudor de cartera con los campos que trae el prefetch. */
@@ -153,6 +173,26 @@ describe('ActualizacionesProcessor — accionAusente=DESASIGNAR (afterAll)', () 
         expect(ctx.auditoria.log).toHaveBeenCalledTimes(1);
         // No hubo datos de deuda → no se consolida ni se generan pagos
         expect(ctx.consolidacion.consolidar).not.toHaveBeenCalled();
+    });
+
+    it.each([
+        ['SIT-051 (Cancelado antes de la gestión)', 51],
+        ['SIT-052 (Cancelado a liquidar)', 52],
+        ['SIT-053 (Cancelado a monto histórico)', 53],
+        ['SIT-054 (Cancelado con quita, multiclaves)', 54],
+    ])('también ignora un ausente en %s — no solo SIT-050 (hallazgo de la auditoría de la fase 4a)', async (_nombre, sitId) => {
+        const proc = new ActualizacionesProcessor();
+        const { ctx, prisma, deudorUpdate, setSituacionesCanceladas } = makeCtx();
+        setSituacionesCanceladas([SIT_050, sitId]);
+
+        prisma.deudor.findMany.mockResolvedValue([
+            { id: 1, estadoGestionId: 210, estadoSituacionId: sitId }, // cancelado por un código != SIT-050 → skip
+        ]);
+        (proc as any).matchedExistingCount = 1;
+
+        await proc.afterAll(ctx);
+
+        expect(deudorUpdate).not.toHaveBeenCalled();
     });
 
     it('idempotente: si todos los ausentes ya están en GES-094, no hace updates', async () => {
@@ -518,6 +558,29 @@ describe('ActualizacionesProcessor — re-asignación (calcularReasignacion)', (
                 estadoGestionId: GES_094,
                 estadoGestionPrevioAId: 210,
                 estadoSituacionId: SIT_050,
+            }),
+            ctx,
+        );
+
+        expect(data).toBeNull();
+    });
+
+    it.each([
+        ['SIT-051 (Cancelado antes de la gestión)', 51],
+        ['SIT-052 (Cancelado a liquidar)', 52],
+        ['SIT-053 (Cancelado a monto histórico)', 53],
+        ['SIT-054 (Cancelado con quita, multiclaves)', 54],
+    ])('tampoco re-asigna a un deudor cancelado en %s — no solo SIT-050 (hallazgo de la auditoría de la fase 4a)', async (_nombre, sitId) => {
+        const proc = new ActualizacionesProcessor();
+        const { ctx, setSituacionesCanceladas } = makeCtx();
+        setSituacionesCanceladas([SIT_050, sitId]);
+
+        const data = await (proc as any).calcularReasignacion(
+            deudorEnCartera({
+                id: 7,
+                estadoGestionId: GES_094,
+                estadoGestionPrevioAId: 210,
+                estadoSituacionId: sitId,
             }),
             ctx,
         );

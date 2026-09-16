@@ -331,5 +331,48 @@ export class MulticlavesProcessor implements ICategoryProcessor {
             `tramites=${nroTramites.length} conCaso=${conCaso} sinCaso=${nroTramites.length - conCaso} ` +
             `en ${Date.now() - t0}ms`,
         );
+
+        // Fase 4a (spec §10.9): un pago con `nroConvenio` de una clave que todavía no estaba cargada
+        // guarda igual la referencia (R13) — "huérfano" hasta que llegue esta carga. Ahora que las
+        // claves de esta remesa ya están, re-consolidar los casos que tengan pagos apuntando a
+        // alguno de sus convenios los cancela solos, sin tocar los pagos.
+        //
+        // Best-effort A PROPÓSITO (desvío consciente de §5.5): es el único lugar donde este
+        // processor hace algo en `afterAll`, y los errores de `afterAll` se tragan
+        // (`imports.service.ts`), así que si esto falla el botón "Consolidar" de siempre sigue
+        // estando — no puede ser la única vía para que estos casos se cancelen.
+        try {
+            const convenios = await ctx.prisma.clave_pago.findMany({
+                where: { remesaId: ctx.remesaId },
+                select: { nroConvenio: true },
+            });
+            const nroConvenios = convenios.map((c) => c.nroConvenio);
+            // En tandas de 1.000 (mismo patrón que `ClavesService.resumenLote`/`sinCaso`): un
+            // `MULTI_*` completo trae ~15.000 convenios, y un solo `IN (...)` con todos adentro es
+            // justo el tipo de query gigante que este módulo ya evita en el resto de sus consultas.
+            const deudorIdsSet = new Set<number>();
+            for (let i = 0; i < nroConvenios.length; i += 1000) {
+                const chunk = nroConvenios.slice(i, i + 1000);
+                const pagosHuerfanos = await ctx.prisma.pago.findMany({
+                    where: { referenciaClave: { in: chunk } },
+                    select: { deudorId: true },
+                    distinct: ['deudorId'],
+                });
+                for (const p of pagosHuerfanos) deudorIdsSet.add(p.deudorId);
+            }
+            if (deudorIdsSet.size > 0) {
+                const deudorIds = [...deudorIdsSet];
+                await ctx.consolidacion.consolidar({ tipo: 'DEUDORES', deudorIds });
+                this.logger.log(
+                    `Multiclaves remesa=${ctx.remesaId}: ${deudorIds.length} caso(s) con pagos que ya ` +
+                    'referenciaban estas claves fueron re-consolidados.',
+                );
+            }
+        } catch (e: any) {
+            this.logger.warn(
+                `Multiclaves remesa=${ctx.remesaId}: la re-consolidación de pagos huérfanos falló (no crítico, ` +
+                `queda el botón "Consolidar" de siempre): ${e.message}`,
+            );
+        }
     }
 }

@@ -199,6 +199,7 @@ describe('ClavesService.clavesDelCaso', () => {
         claves?: any[];
         convenios?: any[];
         otrosCasos?: any[];
+        pagos?: any[];
         estaBloqueado?: boolean;
     } = {}) {
         const deudor = 'deudor' in opts ? opts.deudor : {
@@ -215,6 +216,9 @@ describe('ClavesService.clavesDelCaso', () => {
             },
             clave_pago: { findMany: jest.fn().mockResolvedValue(claves) },
             convenio: { findMany: jest.fn().mockResolvedValue(convenios) },
+            // Fase 4a (§9.1): pagos de este caso con `referenciaClave` = alguna de sus claves. Vacío
+            // por default — la mayoría de los tests de este describe no tienen pagos con clave.
+            pago: { findMany: jest.fn().mockResolvedValue(opts.pagos ?? []) },
             // La resolución de "otros casos" hace TRIM en SQL (ver comentario en claves.service.ts):
             // el mock simplemente devuelve los ids de la fixture, como si el TRIM ya los hubiese
             // encontrado — el `deudor.findMany` de arriba resuelve los datos a mostrar.
@@ -235,7 +239,7 @@ describe('ClavesService.clavesDelCaso', () => {
         expect(res).toEqual({
             nroTramite: null,
             claves: [],
-            avisos: { cuentaCancelada: false, saldoDistinto: null, otrosCasosDelTramite: [], plantillaCuponConfigurada: false },
+            avisos: { cuentaCancelada: false, saldoDistinto: null, otrosCasosDelTramite: [], plantillaCuponConfigurada: false, canceladoConQuita: null },
         });
         expect(prisma.clave_pago.findMany).not.toHaveBeenCalled();
     });
@@ -336,6 +340,61 @@ describe('ClavesService.clavesDelCaso', () => {
         await service.clavesDelCaso(500, false);
         const where = prisma.clave_pago.findMany.mock.calls[0][0].where;
         expect(where.estado).toBe('VIGENTE');
+    });
+
+    // ── Fase 4a de multiclaves (spec §9.1): pagos con clave y "cancelado con quita" ──────────
+    it('sin pagos con referenciaClave, `pagos` es null en cada clave', async () => {
+        const { service } = armar();
+        const res = await service.clavesDelCaso(500);
+        for (const c of res.claves) expect(c.pagos).toBeNull();
+        expect(res.avisos.canceladoConQuita).toBeNull();
+    });
+
+    it('con un pago que cubre la clave QUITA, `pagos.cubreLaClave` es true', async () => {
+        const { service } = armar({
+            pagos: [{ referenciaClave: CLAVE_QUITA.nroConvenio, importe: 19880.01, fecha: new Date('2026-09-10T00:00:00.000Z') }],
+        });
+        const res = await service.clavesDelCaso(500);
+        const quita = res.claves.find((c: any) => c.tipo === 'QUITA')!;
+        expect(quita.pagos).toEqual({ cantidad: 1, pagado: '19880.01', ultimaFecha: '2026-09-10T00:00:00.000Z', cubreLaClave: true });
+    });
+
+    it('un pago parcial NO cubre la clave: cubreLaClave false, sin aviso de cancelado con quita', async () => {
+        const { service } = armar({
+            pagos: [{ referenciaClave: CLAVE_QUITA.nroConvenio, importe: 10000, fecha: new Date('2026-09-10T00:00:00.000Z') }],
+        });
+        const res = await service.clavesDelCaso(500);
+        const quita = res.claves.find((c: any) => c.tipo === 'QUITA')!;
+        expect(quita.pagos?.cubreLaClave).toBe(false);
+        expect(res.avisos.canceladoConQuita).toBeNull();
+    });
+
+    it('cuenta cancelada + pago que cubre la QUITA → avisos.canceladoConQuita con el importe perdonado', async () => {
+        const { service } = armar({
+            deudor: { id: 500, empresaId: 10, nroCliente: '1841012140', saldo: 0, montoTotal: 39760.03, estadoSituacionId: 54 },
+            pagos: [{ referenciaClave: CLAVE_QUITA.nroConvenio, importe: 19880.01, fecha: new Date('2026-09-10T00:00:00.000Z') }],
+            estaBloqueado: true,
+        });
+        const res = await service.clavesDelCaso(500);
+        expect(res.avisos.canceladoConQuita).toEqual({
+            claveId: CLAVE_QUITA.id,
+            nroConvenio: CLAVE_QUITA.nroConvenio,
+            pagado: '19880.01',
+            importeClave: '19880.01',
+            quita: '19880.02',
+        });
+    });
+
+    it('cuenta cancelada por pago de la clave TOTAL: no arma canceladoConQuita (solo aplica a QUITA)', async () => {
+        const { service } = armar({
+            deudor: { id: 500, empresaId: 10, nroCliente: '1841012140', saldo: 0, montoTotal: 39760.03, estadoSituacionId: 50 },
+            pagos: [{ referenciaClave: CLAVE_TOTAL.nroConvenio, importe: 39760.03, fecha: new Date('2026-09-10T00:00:00.000Z') }],
+            estaBloqueado: true,
+        });
+        const res = await service.clavesDelCaso(500);
+        expect(res.avisos.canceladoConQuita).toBeNull();
+        const total = res.claves.find((c: any) => c.tipo === 'TOTAL')!;
+        expect(total.pagos?.cubreLaClave).toBe(true);
     });
 
     it('incluirReemplazadas=true no filtra por estado', async () => {

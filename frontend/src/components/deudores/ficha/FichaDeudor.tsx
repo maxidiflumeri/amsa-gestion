@@ -168,9 +168,15 @@ const FichaDeudor: React.FC<Props> = ({ deudorId }) => {
 
     // ── Derived state ─────────────────────────────────────────────────────────────
 
-    // Derivar si la cuenta está cancelada (SIT-050) para el modo bloqueado.
+    // Derivar si la cuenta está cancelada para el modo bloqueado. Por CATEGORÍA (CANCELADO), no por
+    // la clave SIT-050: el backend bloquea toda la categoría (SIT-050 a SIT-053, y desde la fase 4a
+    // de multiclaves también SIT-054 "Cancelado con quita") — comparar solo contra SIT-050 dejaba
+    // un caso en SIT-054 sin el modo bloqueado en la ficha, y el gestor recibía un 403 al primer
+    // intento de comentar/pagar/prometer/convenir (hallazgo de la auditoría). `estadoSituacion` ya
+    // trae `categoria` porque el backend lo incluye completo (`deudores.service.ts`, `include:
+    // { estadoSituacion: true }`).
     // Esta prop se propaga a todos los componentes hijos que tienen mutaciones.
-    const cuentaCancelada = deudor?.estadoSituacion?.clave === 'SIT-050';
+    const cuentaCancelada = deudor?.estadoSituacion?.categoria === 'CANCELADO';
 
     // ── Handlers ──────────────────────────────────────────────────────────────────
 

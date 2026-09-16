@@ -1,7 +1,7 @@
 <!--
 seccion: Gestión de casos
 resumen: Registrar una cobranza, anotar una promesa y entender qué pasa cuando vence.
-revisado: 2026-08-20
+revisado: 2026-09-16
 rutas: /gestion
 -->
 # Pagos y promesas
@@ -144,6 +144,36 @@ nuevo**: toma el tuyo y lo marca **Confirmado** — vas a ver el chip en la sola
 >
 > Después de una importación de pagos, contrastá los chips **Confirmado** contra el extracto.
 
+### Cancelado con quita (claves de pago de Telecom/Personal)
+
+Telecom y Personal mandan, con cada asignación, dos **claves de pago** por trámite: una por el
+saldo total y otra con una **quita del 50%**. Si el archivo de cobros informa con qué clave se pagó
+(ver [Las categorías](/ayuda/importacion/categorias), sección Pagos), el sistema lo detecta solo,
+sin que nadie tenga que generar ni imprimir nada desde acá.
+
+**Cuándo cancela y cómo queda:**
+
+| Qué pagó | Qué pasa |
+|---|---|
+| La clave de **saldo total** | El caso queda **Cancelado / Pagado**, igual que cualquier otro |
+| La clave **con quita** | El caso queda **Cancelado con quita** — un estado distinto, aunque haya pagado la mitad |
+| Menos del importe de la clave (más de $1 de diferencia) | No cancela: sigue en Pago parcial con el saldo real |
+| El pago no trae el número de convenio, o corresponde a una clave que todavía no se cargó | No cancela todavía. En cuanto se carguen las claves de esa nómina, se cancela solo — sin volver a tocar el pago |
+
+**Por qué el saldo queda en $ 0,00 aunque pagó la mitad**: la quita la aceptó el cedente al emitir
+esa clave, no el sistema. Que Telecom haya cobrado esa clave **es** la aceptación de la quita —así
+haya salido un cupón impreso desde acá o desde el sistema viejo—, así que la cuenta se salda entera,
+no a mitad de camino.
+
+**"Cancelado con quita" bloquea la cuenta igual que "Cancelado / Pagado"**: no se pueden cargar
+comentarios, no se puede generar otro cupón, y las acciones masivas con "saltear canceladas" no lo
+tocan. La única diferencia es la etiqueta, para que se pueda distinguir en los reportes y en la
+liquidación al cedente cuánto se cobró entero y cuánto con quita.
+
+> **Un reporte guardado que filtra por "situación = Cancelado / Pagado" no incluye a los cancelados
+> con quita.** Son dos códigos de situación distintos. Si necesitás ver los dos, agregá "Cancelado
+> con quita" al filtro.
+
 ---
 
 ## Qué puede salir mal
@@ -187,6 +217,11 @@ en negativo: la plantilla necesita el transform *Quitar guiones ( - )* en el imp
 
 El saldo llegó a cero, o quedó dentro de la tolerancia del 1%. Si el pago estaba mal, hay que
 escalarlo.
+
+### El caso quedó "Cancelado con quita" en vez de "Cancelado / Pagado"
+
+Es lo esperado si el pago corresponde a la clave con quita del cedente (Telecom/Personal). Ver
+arriba, "Cancelado con quita".
 
 ---
 

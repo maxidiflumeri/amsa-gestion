@@ -11,6 +11,14 @@
  */
 import { MultiarchivoProcessor } from './multiarchivo.processor';
 import { ProcessContext } from './processor.interface';
+import { _resetCacheSituacionesCerradas } from '../utils/situaciones-cerradas';
+
+beforeEach(() => {
+    // `idsSituacionCancelada` cachea por módulo (no por instancia de processor) — sin este reset,
+    // los tests que agregan SIT-051/052/053/054 a la categoría CANCELADO verían la respuesta
+    // cacheada de un test anterior (hallazgo propio, detectado corriendo esta extensión).
+    _resetCacheSituacionesCerradas();
+});
 
 const GES_090 = 90;
 const SIT_071 = 71;
@@ -45,9 +53,15 @@ function makeCtx(overrides: Partial<ProcessContext> = {}) {
                 if (where.clave === 'SIT-050') return Promise.resolve({ id: SIT_050 });
                 return Promise.resolve(null);
             }),
-            findMany: jest.fn().mockResolvedValue(
-                [GESTION_DEFAULT, GESTION_EN_TRAMITE, GES_090, GES_094].map((id) => ({ id })),
-            ),
+            // `resolverGestionesValidas` (grupo 'gestion') e `idsSituacionCancelada` (categoría
+            // CANCELADO, fase 4a de multiclaves) usan el mismo `findMany`: hay que distinguirlos por
+            // el `where`, si no cualquiera de los dos "ve" la lista del otro.
+            findMany: jest.fn().mockImplementation(({ where }: any) => {
+                if (where?.categoria === 'CANCELADO') return Promise.resolve([{ id: SIT_050 }]);
+                return Promise.resolve(
+                    [GESTION_DEFAULT, GESTION_EN_TRAMITE, GES_090, GES_094].map((id) => ({ id })),
+                );
+            }),
         },
         $transaction: transaction,
         deudor: { findFirst: deudorFindFirst, findMany: deudorFindMany, create: deudorCreate, update: deudorUpdate },
@@ -497,6 +511,32 @@ describe('MultiarchivoProcessor — desasignación de ausentes', () => {
         expect(desasignaciones(deudorUpdate).map((u: any) => u.where.id)).toEqual([400]);
     });
 
+    it.each([
+        ['SIT-051 (Cancelado antes de la gestión)', 51],
+        ['SIT-052 (Cancelado a liquidar)', 52],
+        ['SIT-053 (Cancelado a monto histórico)', 53],
+        ['SIT-054 (Cancelado con quita, multiclaves)', 54],
+    ])(
+        'tampoco toca a un caso cancelado en %s — no solo SIT-050 (hallazgo de la auditoría de la fase 4a)',
+        async (_nombre, sitId) => {
+            const proc = new MultiarchivoProcessor();
+            const { ctx, prisma, deudorUpdate } = makeCtxDesasignando();
+            prisma.parametro.findMany.mockImplementation(({ where }: any) => {
+                if (where?.categoria === 'CANCELADO') return Promise.resolve([{ id: SIT_050 }, { id: sitId }]);
+                return Promise.resolve([GESTION_DEFAULT, GESTION_EN_TRAMITE, GES_090, GES_094].map((id) => ({ id })));
+            });
+            prisma.deudor.findMany.mockResolvedValue([
+                { id: 100, estadoGestionId: GESTION_EN_TRAMITE, estadoSituacionId: sitId }, // cancelado, código != SIT-050
+                { id: 400, estadoGestionId: GESTION_EN_TRAMITE, estadoSituacionId: null },  // este sí
+            ]);
+
+            await proc.processRow(caso() as any, ctx);
+            await proc.afterAll!(ctx);
+
+            expect(desasignaciones(deudorUpdate).map((u: any) => u.where.id)).toEqual([400]);
+        },
+    );
+
     it('ABORTA si ninguna fila del archivo matcheó la cartera', async () => {
         // Es el guard del incidente del 2026-07-21: un batch fallido desasignó 342.792 deudores.
         const proc = new MultiarchivoProcessor();
@@ -612,6 +652,31 @@ describe('MultiarchivoProcessor — re-asignación', () => {
 
         expect(deudorUpdate.mock.calls.filter((c: any) => 'estadoGestionId' in c[0].data)).toHaveLength(0);
     });
+
+    it.each([
+        ['SIT-051 (Cancelado antes de la gestión)', 51],
+        ['SIT-052 (Cancelado a liquidar)', 52],
+        ['SIT-053 (Cancelado a monto histórico)', 53],
+        ['SIT-054 (Cancelado con quita, multiclaves)', 54],
+    ])(
+        'tampoco re-asigna a un caso cancelado en %s — no solo SIT-050 (hallazgo de la auditoría de la fase 4a)',
+        async (_nombre, sitId) => {
+            const proc = new MultiarchivoProcessor();
+            const { ctx, prisma, deudorUpdate } = makeCtxDesasignando();
+            prisma.parametro.findMany.mockImplementation(({ where }: any) => {
+                if (where?.categoria === 'CANCELADO') return Promise.resolve([{ id: SIT_050 }, { id: sitId }]);
+                return Promise.resolve([GESTION_DEFAULT, GESTION_EN_TRAMITE, GES_090, GES_094].map((id) => ({ id })));
+            });
+            prisma.deudor.findFirst.mockResolvedValue({
+                id: 555, nombre: 'X', documento: '27179395431', camposAdicionales: null,
+                estadoGestionId: GES_094, estadoGestionPrevioAId: GESTION_EN_TRAMITE, estadoSituacionId: sitId,
+            });
+
+            await proc.processRow(caso() as any, ctx);
+
+            expect(deudorUpdate.mock.calls.filter((c: any) => 'estadoGestionId' in c[0].data)).toHaveLength(0);
+        },
+    );
 
     it('no toca la gestión del caso que ya estaba activo', async () => {
         const proc = new MultiarchivoProcessor();

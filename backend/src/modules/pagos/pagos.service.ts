@@ -113,7 +113,11 @@ export class PagosService {
 
         const clave = deudor?.estadoSituacion?.clave;
         const defaultSit = deudor?.remesa?.plantilla?.defaultEstadoSituacionId ?? null;
-        if ((clave === 'SIT-041' || clave === 'SIT-050') && defaultSit) {
+        // SIT-054 "Cancelado con quita" (multiclaves, docs/multiclaves-spec.md §10.7): un caso
+        // cancelado por el pago de una clave queda en la misma situación que uno cancelado por
+        // Σpagos (SIT-050/041) si se le borra el último pago — sin esto quedaría "Cancelado con
+        // quita" sin un solo pago que lo respalde.
+        if ((clave === 'SIT-041' || clave === 'SIT-050' || clave === 'SIT-054') && defaultSit) {
             data.estadoSituacionId = defaultSit;
         }
 

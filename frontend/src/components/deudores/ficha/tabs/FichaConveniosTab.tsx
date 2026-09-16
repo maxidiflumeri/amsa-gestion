@@ -126,6 +126,9 @@ const FichaConveniosTab: React.FC<Props> = ({
                                 ) : (
                                     <Chip label={conv.tipo} variant="outlined" size="small" />
                                 )}
+                                {conv.origen === 'CLAVE_PAGO' && conv.cuotas?.some((c: any) => c.estado === 'PAGADA') && (
+                                    <Chip label="Cumplido" color="success" size="small" />
+                                )}
                                 <Typography variant="body2" fontWeight="bold">
                                     ${conv.montoTotal?.toLocaleString('es-AR', { minimumFractionDigits: 2 })}
                                 </Typography>

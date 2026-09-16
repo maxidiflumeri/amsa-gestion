@@ -27,6 +27,22 @@ export interface ConsolidacionResult {
     sinCambios: number;
     /** Deudores cuyo saldo cambió (independientemente de si cambió la situación). */
     saldoActualizado: number;
+    /**
+     * Fase 4a de multiclaves (docs/multiclaves-spec.md §10.5f): cancelados con quita (SIT-054) por
+     * el pago de una clave QUITA del cedente, con `saldo = 0` aunque hayan pagado solo la mitad.
+     */
+    aSIT054: number;
+    /**
+     * Subconjunto de `aSIT050` cancelado por el pago de una clave TOTAL (regla de multiclaves), no
+     * por `Σpagos >= montoTotal` (regla de siempre).
+     */
+    aSIT050PorClave: number;
+    /**
+     * Casos que debían cancelarse con quita (SIT-054) y quedaron en SIT-050 porque el código
+     * `SIT-054` todavía no existe en `parametro` (docs/multiclaves-spec.md §10.7). Se corrige solo
+     * en la corrida siguiente a que se cree el código (`prisma/scripts/alta-sit-054.ts`).
+     */
+    sit054Degradado: number;
     /** Duración total en milisegundos. */
     durationMs: number;
 }

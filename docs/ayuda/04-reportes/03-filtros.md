@@ -1,7 +1,7 @@
 <!--
 seccion: Reportes
 resumen: Cómo acotar qué casos entran, y cómo dejar filtros que se piden al ejecutar.
-revisado: 2026-08-20
+revisado: 2026-09-16
 rutas: /reportes
 -->
 # Filtros
@@ -171,6 +171,14 @@ de no pago.
 ### Filtré por pagos y las columnas de pago salen vacías
 
 Tenés dos filtros sobre la misma rama que ningún elemento cumple a la vez.
+
+### Un reporte que venía trayendo todos los cancelados ahora trae menos
+
+Desde que existe **"Cancelado con quita"** (los casos de Telecom/Personal que se cancelaron con la
+clave de pago con quita, ver [Pagos y promesas](/ayuda/gestion/pagos-y-promesas)), un filtro que
+compara "situación = Cancelado / Pagado" **no** incluye a esos casos: son dos códigos de situación
+distintos. Si el reporte tiene que ver "todo lo cancelado", agregá también "Cancelado con quita" al
+filtro (o filtrá por lo que compare contra la lista completa de situaciones, no una sola).
 
 ---
 

@@ -49,7 +49,8 @@ import PreviewTable from "../components/import/PreviewTable";
 import ImportProgress from "../components/import/ImportProgress";
 import ImportSummary from "../components/import/ImportSummary";
 import MulticlavesResumen from "../components/import/MulticlavesResumen";
-import type { MulticlavesPreview } from "../api/multiclaves";
+import PagosConClaveResumen from "../components/import/PagosConClaveResumen";
+import type { MulticlavesPreview, MulticlavePagosPreview } from "../api/multiclaves";
 
 const steps = [
     "Categoría",
@@ -114,6 +115,8 @@ export default function ImportWizard() {
     const [paqueteResumen, setPaqueteResumen] = useState<any | null>(null);
     // MULTICLAVES: resumen del cruce contra la cartera (con caso / sin caso / conflictos) para el preview.
     const [multiclavesResumen, setMulticlavesResumen] = useState<MulticlavesPreview | null>(null);
+    // PAGOS con `nroConvenio` mapeado (fase 4a de multiclaves): bloque adicional, no reemplaza la tabla.
+    const [pagosConClaveResumen, setPagosConClaveResumen] = useState<MulticlavePagosPreview | null>(null);
     // Qué archivos entraron en la remesa y cuántas filas descartó el filtro de la plantilla. Es lo
     // que el operador confirma antes de ejecutar cuando sube una tanda de archivos.
     const [resumenArchivos, setResumenArchivos] = useState<
@@ -400,6 +403,7 @@ export default function ImportWizard() {
             setMultiResumen(resValidar.data.multirregistro ?? null);
             setPaqueteResumen(resValidar.data.multiarchivo ?? null);
             setMulticlavesResumen(resValidar.data.multiclaves ?? null);
+            setPagosConClaveResumen(resValidar.data.multiclavePagos ?? null);
             setResumenArchivos(
                 resValidar.data.archivos || resValidar.data.descartadas
                     ? {
@@ -499,6 +503,7 @@ export default function ImportWizard() {
         setResumenArchivos(null);
         setMultiResumen(null);
         setMulticlavesResumen(null);
+        setPagosConClaveResumen(null);
         setRemesaId(null);
         setRemesaOrigenId(null);
         setRemesaOrigenIds([]);
@@ -981,12 +986,17 @@ export default function ImportWizard() {
                             // útil. Lo que importa es el cruce contra la cartera (spec §5.6).
                             <MulticlavesResumen resumen={multiclavesResumen} />
                         ) : (
-                            <PreviewTable
-                                preview={preview}
-                                total={previewStats.total}
-                                ok={previewStats.ok}
-                                err={previewStats.err}
-                            />
+                            <>
+                                {categoria === "PAGOS" && pagosConClaveResumen && (
+                                    <PagosConClaveResumen resumen={pagosConClaveResumen} />
+                                )}
+                                <PreviewTable
+                                    preview={preview}
+                                    total={previewStats.total}
+                                    ok={previewStats.ok}
+                                    err={previewStats.err}
+                                />
+                            </>
                         )}
                     </>
                 )}

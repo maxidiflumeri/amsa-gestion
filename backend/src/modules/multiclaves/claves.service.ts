@@ -2,6 +2,7 @@ import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { PrismaService } from 'src/prisma/prisma.service';
 import { DeudorBloqueoService } from '../deudores/utils/deudor-bloqueo';
 import { calcularVtoImpreso, esClaveVencida } from './cupon-pdf.service';
+import { leerModoClave, leerToleranciaClaveCentavos } from '../consolidacion/utils/config-clave-env';
 
 /** Tolerancia (en pesos) para avisar que el saldo del caso difiere del saldo que informó Telecom. */
 const TOLERANCIA_SALDO_DISTINTO = 1;
@@ -177,7 +178,7 @@ export class ClavesService {
             return {
                 nroTramite: null,
                 claves: [],
-                avisos: { cuentaCancelada, saldoDistinto: null, otrosCasosDelTramite: [], plantillaCuponConfigurada: false },
+                avisos: { cuentaCancelada, saldoDistinto: null, otrosCasosDelTramite: [], plantillaCuponConfigurada: false, canceladoConQuita: null },
             };
         }
 
@@ -225,6 +226,59 @@ export class ClavesService {
             : [];
         const convenioPorClave = new Map(convenios.filter((c) => c.clavePagoId != null).map((c) => [c.clavePagoId as number, c]));
 
+        // Fase 4a (spec §9.1): pagos de ESTE caso cuyo `referenciaClave` es alguna de estas claves —
+        // para mostrar "pagó $X de $Y" en la ficha, sin depender de que el convenio se haya generado
+        // desde la plataforma (D13: Telecom pudo haber cobrado un cupón del sistema viejo).
+        const nroConvenios = claves.map((c) => c.nroConvenio);
+        const pagosConClave = nroConvenios.length
+            ? await this.prisma.pago.findMany({
+                where: { deudorId, referenciaClave: { in: nroConvenios } },
+                select: { referenciaClave: true, importe: true, fecha: true },
+            })
+            : [];
+        const pagosPorConvenio = new Map<string, { cantidad: number; pagado: number; mayorPago: number; ultimaFecha: Date }>();
+        for (const p of pagosConClave) {
+            if (!p.referenciaClave) continue;
+            const acc = pagosPorConvenio.get(p.referenciaClave) ?? { cantidad: 0, pagado: 0, mayorPago: 0, ultimaFecha: p.fecha };
+            acc.cantidad += 1;
+            acc.pagado += p.importe;
+            if (p.importe > acc.mayorPago) acc.mayorPago = p.importe;
+            if (p.fecha > acc.ultimaFecha) acc.ultimaFecha = p.fecha;
+            pagosPorConvenio.set(p.referenciaClave, acc);
+        }
+
+        // Misma tolerancia y modo que usa la consolidación real (`consolidacion.service.ts`, vía el
+        // util compartido `config-clave-env.ts`) — antes esto tenía su propia tolerancia hardcodeada
+        // y siempre sumaba los pagos, así que con `CONSOLIDACION_CLAVE_MODO=PAGO_UNICO` la ficha
+        // podía mostrar "Pagada" por la suma de dos pagos parciales que la consolidación real no
+        // habría aceptado (hallazgo de la auditoría, menor #10).
+        const toleranciaClaveCentavos = leerToleranciaClaveCentavos();
+        const modoClave = leerModoClave();
+        const cubreElImporte = (pago: { pagado: number; mayorPago: number }, importe: number): boolean => {
+            const importeCentavos = Math.round(importe * 100);
+            const pagadoCentavos = Math.round((modoClave === 'PAGO_UNICO' ? pago.mayorPago : pago.pagado) * 100);
+            return pagadoCentavos >= importeCentavos - toleranciaClaveCentavos;
+        };
+
+        // La clave QUITA que efectivamente cubre el importe pagado — para el aviso "Cancelado con quita".
+        let canceladoConQuita: null | { claveId: number; nroConvenio: string; pagado: string; importeClave: string; quita: string } = null;
+        if (cuentaCancelada) {
+            for (const c of claves) {
+                const pago = pagosPorConvenio.get(c.nroConvenio);
+                if (!pago) continue;
+                if (cubreElImporte(pago, Number(c.importe)) && c.tipo === 'QUITA') {
+                    canceladoConQuita = {
+                        claveId: c.id,
+                        nroConvenio: c.nroConvenio,
+                        pagado: String(pago.pagado),
+                        importeClave: c.importe.toString(),
+                        quita: String(Math.max(0, Number(c.saldoTramite) - pago.pagado)),
+                    };
+                    break;
+                }
+            }
+        }
+
         // El saldo de referencia de Telecom es el de la TOTAL (§4.1: `saldoTramite` es el mismo en
         // las dos claves del par) — si por lo que sea no hay TOTAL vigente, se usa el que haya.
         const claveTotal = claves.find((c) => c.tipo === 'TOTAL') ?? claves[0] ?? null;
@@ -260,11 +314,20 @@ export class ClavesService {
                     convenioActivo: convenio
                         ? { id: convenio.id, deudorId: convenio.deudorId, esEsteCaso: convenio.deudorId === deudorId, createdAt: convenio.createdAt.toISOString() }
                         : null,
+                    // Fase 4a (§9.1): pagos de ESTE caso con `referenciaClave` = esta clave, sin
+                    // importar si el convenio se generó desde la plataforma (D13).
+                    pagos: (() => {
+                        const p = pagosPorConvenio.get(c.nroConvenio);
+                        if (!p) return null;
+                        const cubreLaClave = cubreElImporte(p, Number(c.importe));
+                        return { cantidad: p.cantidad, pagado: String(p.pagado), ultimaFecha: p.ultimaFecha.toISOString(), cubreLaClave };
+                    })(),
                 };
             }),
             avisos: {
                 cuentaCancelada,
                 saldoDistinto,
+                canceladoConQuita,
                 otrosCasosDelTramite: otrosCasos.map((o) => ({
                     deudorId: o.id,
                     numeroRemesa: o.remesa?.numeroRemesa ?? '',

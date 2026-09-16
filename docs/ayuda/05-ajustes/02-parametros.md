@@ -1,7 +1,7 @@
 <!--
 seccion: Ajustes
 resumen: Los códigos de situación, gestión y motivo de no pago, y cómo se asignan a cada cartera.
-revisado: 2026-08-20
+revisado: 2026-09-16
 rutas: /ajustes/parametros
 rutaPrincipal: /ajustes/parametros
 -->
@@ -77,6 +77,7 @@ Algunos códigos no son decorativos: **hay procesos que los buscan por clave**.
 |---|---|
 | **SIT-050** — Cancelado / Pagado | La consolidación, cuando el caso se da por saldado |
 | **SIT-041** — Pago parcial | La consolidación, cuando entró algo pero no todo |
+| **SIT-054** — Cancelado con quita | La consolidación, cuando el caso pagó una clave de pago **con quita** de Telecom/Personal |
 | **SIT-020** — Promesa de pago vigente | Al cargar una promesa |
 | **SIT-021** — Promesa incumplida | Cuando la promesa vence |
 | **GES-094** — Desasignado | Las importaciones de actualizaciones |
@@ -87,6 +88,11 @@ Algunos códigos no son decorativos: **hay procesos que los buscan por clave**.
 ### Si falta uno, cada uno falla distinto
 
 - **SIT-050 y SIT-041** — el backend **no arranca**. Es imposible no darse cuenta.
+- **SIT-054** — es el único de esta tabla que **no frena nada**: si falta, los casos que pagaron la
+  clave con quita quedan como *Cancelado / Pagado* en vez de *Cancelado con quita* (queda registrado
+  aparte para poder corregirlo). En cuanto se crea el código, la consolidación siguiente los pasa
+  solos a *Cancelado con quita*, sin tocar los pagos. No se crea a mano desde esta pantalla: lo crea
+  un script de despliegue.
 - **SIT-020** — al cargar una promesa el gestor recibe *"El código SIT-020 no está configurado; no se
   pueden cargar promesas."*
 - **SIT-021 y GES-094** — acá sí es silencioso. Las promesas vencidas no pasan a incumplidas, o la
@@ -94,10 +100,10 @@ Algunos códigos no son decorativos: **hay procesos que los buscan por clave**.
 
 ### Y los códigos de cancelación hacen algo más
 
-Un caso en cualquiera de los **cuatro códigos de la categoría CANCELADO** —*Cancelado / Pagado*,
-*antes de la gestión*, *a liquidar* y *a monto histórico*— **queda bloqueado**: no acepta comentarios,
-ni convenios, ni cambios de gestión o de motivo, ni promesas, ni resultados de llamada. Es la
-consecuencia más grande de toda esta tabla. Ver
+Un caso en cualquiera de los **cinco códigos de la categoría CANCELADO** —*Cancelado / Pagado*,
+*antes de la gestión*, *a liquidar*, *a monto histórico* y *Cancelado con quita*— **queda
+bloqueado**: no acepta comentarios, ni convenios, ni cambios de gestión o de motivo, ni promesas, ni
+resultados de llamada. Es la consecuencia más grande de toda esta tabla. Ver
 [Comentarios y estados](/ayuda/gestion/comentarios-y-estados).
 
 La cancelación además **no espera al saldo exacto en cero**: alcanza con que lo pagado llegue al 99%

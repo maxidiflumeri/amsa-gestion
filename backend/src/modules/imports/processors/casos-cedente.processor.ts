@@ -8,6 +8,7 @@ import { enriquecerContactosHistoricos } from '../utils/enriquecimiento-historic
 import { prepararContactoImport } from '../utils/contacto-import';
 import { parseFechaCedente } from '../utils/fecha-cedente';
 import { AuditModulo, AuditTipo } from '../../transacciones/audit.enums';
+import { idsSituacionCancelada } from '../utils/situaciones-cerradas';
 
 /**
  * Base de los procesadores de **carteras que el cedente manda como casos completos + bajas sueltas**.
@@ -50,8 +51,9 @@ const CLAVE_GESTION_BAJA = 'GES-090';
 const CLAVE_SITUACION_BAJA = 'SIT-071';
 /** Estado de GESTIÓN de un caso que el cedente sacó de la cartera (reversible). */
 const CLAVE_GESTION_DESASIGNADO = 'GES-094';
-/** Estado de SITUACIÓN de un caso cancelado: nunca se lo desasigna ni se lo re-asigna. */
-const CLAVE_SITUACION_CANCELADO = 'SIT-050';
+// La situación de un caso cancelado ya no se resuelve por una clave fija (`SIT-050`): se resuelve
+// por la categoría CANCELADO completa (`resolverSituacionesCanceladas`, `situaciones-cerradas.ts`),
+// que también cubre SIT-054 "Cancelado con quita" (multiclaves, docs/multiclaves-spec.md §10.7).
 
 /** Qué hacer con los casos de la cartera ausentes del archivo. */
 export type AccionAusenteCaso = 'DESASIGNAR' | 'IGNORAR';
@@ -138,9 +140,11 @@ export abstract class CasosCedenteProcessor implements ICategoryProcessor {
     /** ids de GES-090 y SIT-071; `null` = no seedeado (modo degradado). */
     private bajaIdCache: number | null | undefined = undefined;
     private situacionBajaIdCache: number | null | undefined = undefined;
-    /** ids de GES-094 y SIT-050 (desasignación); `null` = no seedeado. */
+    /** ids de GES-094 (desasignación) y de la categoría CANCELADO (SIT-050 a SIT-054, por
+     * categoría — ver `situaciones-cerradas.ts` y docs/multiclaves-spec.md §10.7); `null`/`[]` =
+     * no seedeado. */
     private desasignadoIdCache: number | null | undefined = undefined;
-    private canceladoIdCache: number | null | undefined = undefined;
+    private idsCanceladoCache: number[] | undefined = undefined;
     /** ids de los parámetros del grupo "gestion", para validar el previo al re-asignar. */
     private gestionesValidasCache: Set<number> | undefined = undefined;
     /** Para no repetir el aviso de "motivosPago sin configurar" una vez por baja. */
@@ -164,7 +168,7 @@ export abstract class CasosCedenteProcessor implements ICategoryProcessor {
         this.bajaIdCache = undefined;
         this.situacionBajaIdCache = undefined;
         this.desasignadoIdCache = undefined;
-        this.canceladoIdCache = undefined;
+        this.idsCanceladoCache = undefined;
         this.gestionesValidasCache = undefined;
         this.avisoMotivosPagoEmitido = false;
     }
@@ -331,14 +335,16 @@ export abstract class CasosCedenteProcessor implements ICategoryProcessor {
         return this.desasignadoIdCache;
     }
 
-    /** Resuelve (y cachea) el id de SIT-050 "Cancelado". `null` si no está seedeado. */
-    private async resolverParametroCancelado(ctx: ProcessContext): Promise<number | null> {
-        if (this.canceladoIdCache !== undefined) return this.canceladoIdCache;
-        const p = await ctx.prisma.parametro.findUnique({
-            where: { clave: CLAVE_SITUACION_CANCELADO }, select: { id: true },
-        });
-        this.canceladoIdCache = p?.id ?? null;
-        return this.canceladoIdCache;
+    /**
+     * Ids de los parámetros de situación de categoría CANCELADO (SIT-050 a SIT-054), cacheados por
+     * batch. Reemplaza al viejo `resolverParametroCancelado` (comparaba solo contra `SIT-050`) — un
+     * caso cancelado con quita (SIT-054, multiclaves) es tan "cancelado" como uno en SIT-050 para
+     * esta re-asignación. Ver docs/multiclaves-spec.md §10.7.
+     */
+    private async resolverSituacionesCanceladas(ctx: ProcessContext): Promise<number[]> {
+        if (this.idsCanceladoCache !== undefined) return this.idsCanceladoCache;
+        this.idsCanceladoCache = await idsSituacionCancelada(ctx.prisma);
+        return this.idsCanceladoCache;
     }
 
     /** ids de los parámetros de gestión, una sola query por batch, para validar el previo. */
@@ -366,9 +372,9 @@ export abstract class CasosCedenteProcessor implements ICategoryProcessor {
         if (desasignadoId == null) return null;
         if (deudor.estadoGestionId !== desasignadoId) return null; // no estaba desasignado
 
-        const canceladoId = await this.resolverParametroCancelado(ctx);
-        if (canceladoId != null && deudor.estadoSituacionId === canceladoId) {
-            this.logger.log(`Deudor ${deudor.id} en ${CLAVE_SITUACION_CANCELADO} — no se re-asigna.`);
+        const idsCancelado = await this.resolverSituacionesCanceladas(ctx);
+        if (deudor.estadoSituacionId != null && idsCancelado.includes(deudor.estadoSituacionId)) {
+            this.logger.log(`Deudor ${deudor.id} cancelado (categoría CANCELADO) — no se re-asigna.`);
             return null;
         }
 
@@ -419,7 +425,7 @@ export abstract class CasosCedenteProcessor implements ICategoryProcessor {
             return;
         }
 
-        const canceladoId = await this.resolverParametroCancelado(ctx);
+        const idsCancelado = await this.resolverSituacionesCanceladas(ctx);
         const bajaId = await this.resolverParametroBaja(ctx);
 
         // La cartera son los casos que cargó ESTA plantilla, no todos los de la empresa.
@@ -431,7 +437,7 @@ export abstract class CasosCedenteProcessor implements ICategoryProcessor {
         const paraDesasignar: Array<{ id: number; previo: number | null }> = [];
         for (const d of cartera) {
             if (this.deudoresEnSnapshot.has(d.id)) continue;                    // vino en el archivo
-            if (canceladoId != null && d.estadoSituacionId === canceladoId) continue; // cancelado
+            if (d.estadoSituacionId != null && idsCancelado.includes(d.estadoSituacionId)) continue; // cancelado
             if (bajaId != null && d.estadoGestionId === bajaId) continue;       // ya dado de baja
             if (d.estadoGestionId === desasignadoId) continue;                  // ya desasignado
             paraDesasignar.push({ id: d.id, previo: d.estadoGestionId ?? null });

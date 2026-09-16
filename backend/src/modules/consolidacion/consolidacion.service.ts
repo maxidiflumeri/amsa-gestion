@@ -10,6 +10,31 @@
  *  - 0 < sum(pagos) < umbralCancelado                  → SIT-041 (Pago parcial).
  *  - saldoNuevo = max(0, montoTotal − sum(pagos))      → nunca negativo.
  *
+ * Fase 4a de multiclaves (docs/multiclaves-spec.md §10) — una regla más, evaluada ANTES que las de
+ * arriba (un caso puede tener la clave pagada con `montoTotal` nulo, o `Σpagos = 0` por un ajuste
+ * negativo, y aun así haber pagado su clave):
+ *
+ *  - Regla del ARCHIVO (R11): un pago cuyo `referenciaClave` matchea una `clave_pago` de la MISMA
+ *    empresa, por un importe que alcanza el de la clave (tolerancia en centavos), cancela el caso
+ *    con `saldo = 0` — SIT-054 "Cancelado con quita" si la clave es QUITA, SIT-050 si es TOTAL —
+ *    aunque no haya ningún convenio en la plataforma (D13).
+ *  - TOTAL le gana a QUITA cuando las dos aplican a un mismo caso (determinista).
+ *  - `SIT-054` puede no existir todavía en `parametro`: la regla NO deja de cancelar por eso —
+ *    cancela a SIT-050 contando `sit054Degradado`, y se corrige sola en la corrida siguiente a que
+ *    se cree el código (`prisma/scripts/alta-sit-054.ts`).
+ *
+ *  **Descartada — regla (b) del convenio (respaldo, R9/§10.10 del spec original).** El diseño
+ *  original agregaba una segunda regla: si el caso tenía un convenio `CLAVE_PAGO` ACTIVO y
+ *  `Σpagos (fecha ≥ día(createdAt) − 1) ≥ montoTotal del convenio`, cancelaba igual — pensada para
+ *  pagos que llegan sin `nroConvenio` (manuales, o plantillas sin ese campo mapeado). Un auditor
+ *  detectó que esto condona deuda sin respaldo real: un cobro común de $16.000 contra una deuda de
+ *  $31.000 con un cupón de quita emitido dejaba el caso "Cancelado con quita" con saldo 0,
+ *  perdonando $15.000 sin que Telecom hubiera confirmado nada — la regla solo mira el TOTAL
+ *  acumulado desde una fecha, no de dónde vino la plata. El número de convenio del archivo del
+ *  cedente (regla del archivo, arriba) es la única prueba real de que se pagó ESA clave; una
+ *  condonación automática por monto no tiene ese respaldo y se saca del alcance de esta fase. Ver
+ *  docs/multiclaves-spec.md §10.10 y §20.
+ *
  * IMPORTANTE:
  *  - Este servicio escribe directo con prisma.deudor.updateMany / $executeRaw.
  *    NO pasa por DeudorBloqueoService (ver spec §8.4 y §10.10).
@@ -21,6 +46,9 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { AuditoriaHelper } from '../transacciones/auditoria.helper';
 import { AuditModulo, AuditTipo } from '../transacciones/audit.enums';
 import { ConsolidacionResult, ConsolidacionScope } from './interfaces/consolidacion-result.interface';
+import {
+    DEFAULT_MODO_CLAVE, DEFAULT_TOLERANCIA_CLAVE_CENTAVOS, ModoClave, leerModoClave, leerToleranciaClaveCentavos,
+} from './utils/config-clave-env';
 
 const DEFAULT_BATCH_SIZE = 500;
 const TOLERANCIA_MIN = 0;
@@ -37,13 +65,46 @@ interface ChunkRow {
     totalPagado: string | number | bigint;
 }
 
+/** Una fila de la agregación de pagos-con-clave por caso (spec §10.5a). */
+interface ClaveChunkRow {
+    deudorId: bigint | number;
+    claveId: bigint | number;
+    nroConvenio: string;
+    tipoClave: string; // 'TOTAL' | 'QUITA'
+    importeClave: string | number;
+    /** Saldo original del trámite (`clave_pago.saldoTramite`) — la base contra la que se calcula la
+     * quita perdonada (spec §10.5e), NO el importe de la clave. */
+    saldoTramite: string | number;
+    nroTramite: string;
+    nroClienteCaso: string | null;
+    pagadoClave: string | number;
+    mayorPagoClave: string | number;
+    ultimaFecha: Date;
+}
+
+/** Decisión de cancelación por clave para un caso, lista para escribir en `aplicarChunk`. */
+interface DecisionClave {
+    tipoClave: 'TOTAL' | 'QUITA';
+    claveId: number;
+    nroConvenio: string;
+    importeClave: number;
+    /** Saldo original del trámite — para el mensaje de auditoría ("pagó $X de $saldoTramite"). */
+    saldoTramite: number;
+    pagado: number;
+    ultimaFecha: Date;
+}
+
 @Injectable()
 export class ConsolidacionSituacionService implements OnModuleInit {
     private readonly logger = new Logger(ConsolidacionSituacionService.name);
 
     private sit050Id: number | null = null;
     private sit041Id: number | null = null;
+    /** `null` = SIT-054 no está seedeado (modo degradado, spec §10.7) — no lanza, cancela a SIT-050. */
+    private sit054Id: number | null = null;
     private toleranciaPct: number = DEFAULT_TOLERANCIA;
+    private toleranciaClaveCentavos: number = DEFAULT_TOLERANCIA_CLAVE_CENTAVOS;
+    private modoClave: ModoClave = DEFAULT_MODO_CLAVE;
 
     constructor(
         private readonly prisma: PrismaService,
@@ -54,6 +115,7 @@ export class ConsolidacionSituacionService implements OnModuleInit {
 
     async onModuleInit(): Promise<void> {
         this.validarToleranciaEnv();
+        this.validarConfigClaveEnv();
         await this.cachearParametrosSIT();
     }
 
@@ -79,10 +141,29 @@ export class ConsolidacionSituacionService implements OnModuleInit {
         this.logger.log(`CONSOLIDACION_TOLERANCIA_PCT=${this.toleranciaPct}`);
     }
 
+    /**
+     * Fase 4a (spec §9.8/§10.5c): `CONSOLIDACION_TOLERANCIA_CLAVE_CENTAVOS` y
+     * `CONSOLIDACION_CLAVE_MODO`. Un valor fuera de rango hace fallar el arranque, igual que la
+     * tolerancia de siempre — a diferencia de SIT-054 ausente, que degrada en vez de romper: acá el
+     * valor está simplemente mal escrito, no es un dato que "todavía no se cargó".
+     */
+    private validarConfigClaveEnv(): void {
+        // Lectura y validación compartidas con `ClavesService` (utils/config-clave-env.ts) — un
+        // único lugar que decide qué dicen estas dos variables, para que la ficha (chip "Pagada") y
+        // la consolidación real nunca se desincronicen (hallazgo de la auditoría, menor #10).
+        this.toleranciaClaveCentavos = leerToleranciaClaveCentavos();
+        this.modoClave = leerModoClave();
+
+        this.logger.log(
+            `CONSOLIDACION_TOLERANCIA_CLAVE_CENTAVOS=${this.toleranciaClaveCentavos} CONSOLIDACION_CLAVE_MODO=${this.modoClave}`,
+        );
+    }
+
     private async cachearParametrosSIT(): Promise<void> {
-        const [sit050, sit041] = await Promise.all([
+        const [sit050, sit041, sit054] = await Promise.all([
             this.prisma.parametro.findUnique({ where: { clave: 'SIT-050' } }),
             this.prisma.parametro.findUnique({ where: { clave: 'SIT-041' } }),
+            this.prisma.parametro.findUnique({ where: { clave: 'SIT-054' } }),
         ]);
 
         if (!sit050 || !sit041) {
@@ -98,8 +179,19 @@ export class ConsolidacionSituacionService implements OnModuleInit {
 
         this.sit050Id = sit050.id;
         this.sit041Id = sit041.id;
+
+        // SIT-054 (multiclaves, spec §10.7): a diferencia de SIT-050/041, su ausencia NO frena el
+        // arranque — degrada a SIT-050 y se corrige sola en cuanto se crea el código.
+        this.sit054Id = sit054?.id ?? null;
+        if (this.sit054Id == null) {
+            this.logger.error(
+                'SIT-054 no existe: las cancelaciones con quita (multiclaves) van a quedar en SIT-050. ' +
+                'Correr: npx ts-node prisma/scripts/alta-sit-054.ts',
+            );
+        }
+
         this.logger.log(
-            `Parámetros SIT cacheados: sit050Id=${this.sit050Id} sit041Id=${this.sit041Id}`,
+            `Parámetros SIT cacheados: sit050Id=${this.sit050Id} sit041Id=${this.sit041Id} sit054Id=${this.sit054Id ?? '(ausente)'}`,
         );
     }
 
@@ -136,6 +228,9 @@ export class ConsolidacionSituacionService implements OnModuleInit {
             aSIT041: 0,
             sinCambios: 0,
             saldoActualizado: 0,
+            aSIT054: 0,
+            aSIT050PorClave: 0,
+            sit054Degradado: 0,
             durationMs: 0,
         };
 
@@ -166,6 +261,9 @@ export class ConsolidacionSituacionService implements OnModuleInit {
             result.aSIT041 += chunkResult.aSIT041;
             result.sinCambios += chunkResult.sinCambios;
             result.saldoActualizado += chunkResult.saldoActualizado;
+            result.aSIT054 += chunkResult.aSIT054;
+            result.aSIT050PorClave += chunkResult.aSIT050PorClave;
+            result.sit054Degradado += chunkResult.sit054Degradado;
 
             const avance = Math.min(start + chunk.length, total);
             opts?.onProgress?.(avance, total);
@@ -173,6 +271,7 @@ export class ConsolidacionSituacionService implements OnModuleInit {
             this.logger.verbose(
                 `chunk ${chunkIdx + 1}/${totalChunks} evaluados=${chunkResult.evaluados} ` +
                 `aSIT050=${chunkResult.aSIT050} aSIT041=${chunkResult.aSIT041} ` +
+                `aSIT054=${chunkResult.aSIT054} aSIT050PorClave=${chunkResult.aSIT050PorClave} ` +
                 `sinCambios=${chunkResult.sinCambios} req=${reqId}`,
             );
         }
@@ -182,6 +281,8 @@ export class ConsolidacionSituacionService implements OnModuleInit {
         this.logger.log(
             `Consolidación done scope=${scope.tipo} evaluados=${result.evaluados} ` +
             `aSIT050=${result.aSIT050} aSIT041=${result.aSIT041} ` +
+            `aSIT054=${result.aSIT054} aSIT050PorClave=${result.aSIT050PorClave} ` +
+            `sit054Degradado=${result.sit054Degradado} ` +
             `sinCambios=${result.sinCambios} en ${result.durationMs}ms req=${reqId}`,
         );
 
@@ -192,7 +293,7 @@ export class ConsolidacionSituacionService implements OnModuleInit {
                     modulo: AuditModulo.IMPORT,
                     entidad: 'Deudor',
                     tipo: AuditTipo.UPDATE,
-                    resumen: `Consolidación scope=${scope.tipo} aSIT050=${result.aSIT050} aSIT041=${result.aSIT041}`,
+                    resumen: `Consolidación scope=${scope.tipo} aSIT050=${result.aSIT050} aSIT041=${result.aSIT041} aSIT054=${result.aSIT054}`,
                     data: { params: scope as Record<string, any>, contexto: result as any },
                 });
             } catch (e: any) {
@@ -246,6 +347,9 @@ export class ConsolidacionSituacionService implements OnModuleInit {
             aSIT041: 0,
             sinCambios: 0,
             saldoActualizado: 0,
+            aSIT054: 0,
+            aSIT050PorClave: 0,
+            sit054Degradado: 0,
         };
 
         if (ids.length === 0) {
@@ -266,8 +370,44 @@ export class ConsolidacionSituacionService implements OnModuleInit {
             GROUP BY d.id, d.montoTotal, d.estadoSituacionId, d.saldo
         `;
 
+        // ─── Fase 4a — regla (a): pagos con `referenciaClave` que matchea una clave de la MISMA
+        // empresa del caso (spec §10.5a). Se joinea por `nroConvenio` + `empresaId` (único global),
+        // NUNCA por `nroCliente`: eso haría que un `nroCliente` con espacios apague la regla sin que
+        // nadie se entere. La comparación con el trámite se hace en memoria, más abajo.
+        const clavesRows = ids.length
+            ? await this.prisma.$queryRaw<ClaveChunkRow[]>`
+                SELECT p.deudorId,
+                       k.id            AS claveId,
+                       k.nroConvenio   AS nroConvenio,
+                       k.tipo          AS tipoClave,
+                       k.importe       AS importeClave,
+                       k.saldoTramite  AS saldoTramite,
+                       k.nroTramite    AS nroTramite,
+                       TRIM(d.nroCliente) AS nroClienteCaso,
+                       SUM(p.importe)  AS pagadoClave,
+                       MAX(p.importe)  AS mayorPagoClave,
+                       MAX(p.fecha)    AS ultimaFecha
+                FROM pago p
+                JOIN deudor d      ON d.id = p.deudorId
+                JOIN clave_pago k  ON k.nroConvenio = p.referenciaClave AND k.empresaId = d.empresaId
+                WHERE p.deudorId IN (${Prisma.join(ids)}) AND p.referenciaClave IS NOT NULL
+                GROUP BY p.deudorId, k.id, k.nroConvenio, k.tipo, k.importe, k.saldoTramite, k.nroTramite, d.nroCliente
+            `
+            : [];
+
+        const clavesPorDeudor = new Map<number, ClaveChunkRow[]>();
+        for (const r of clavesRows) {
+            const deudorId = Number(r.deudorId);
+            const lista = clavesPorDeudor.get(deudorId) ?? [];
+            lista.push(r);
+            clavesPorDeudor.set(deudorId, lista);
+        }
+
         const sit050Ids: number[] = [];
         const sit041Ids: number[] = [];
+        const sit054Ids: number[] = [];
+        const sit050PorClaveIds: number[] = [];
+        const decisionesClave = new Map<number, DecisionClave>();
         const now = new Date();
 
         for (const row of rows) {
@@ -276,6 +416,44 @@ export class ConsolidacionSituacionService implements OnModuleInit {
             const saldoActual = row.saldo != null ? Number(row.saldo) : null;
             const estadoActual =
                 row.estadoSituacionId != null ? Number(row.estadoSituacionId) : null;
+
+            // ─── Regla de clave — ANTES de los salteos por montoTotal nulo o Σpagos=0: un caso
+            // puede tener la clave pagada con `montoTotal` nulo, o `Σpagos=0` por un ajuste
+            // negativo, y aun así haber pagado su clave (spec §10.5b).
+            const decision = this.evaluarReglaDeClave(deudorId, clavesPorDeudor.get(deudorId));
+
+            if (decision) {
+                partial.evaluados++;
+
+                const esQuita = decision.tipoClave === 'QUITA';
+                const degradado = esQuita && this.sit054Id == null;
+                if (degradado) partial.sit054Degradado++;
+                const situacionDestino = esQuita ? (this.sit054Id ?? this.sit050Id!) : this.sit050Id!;
+
+                const situacionCambia = situacionDestino !== estadoActual;
+                const saldoCambia = saldoActual == null || Math.abs(0 - saldoActual) > SALDO_EPSILON;
+
+                if (!situacionCambia && !saldoCambia) {
+                    partial.sinCambios++;
+                    continue;
+                }
+
+                if (esQuita) {
+                    partial.aSIT054++;
+                } else {
+                    partial.aSIT050++;
+                    partial.aSIT050PorClave++;
+                }
+                if (saldoCambia) partial.saldoActualizado++;
+
+                if (!dryRun) {
+                    if (esQuita) sit054Ids.push(deudorId); else sit050PorClaveIds.push(deudorId);
+                    decisionesClave.set(deudorId, decision);
+                }
+                continue;
+            }
+
+            // ─── Reglas de siempre (Σpagos vs montoTotal) — SIN cambios de comportamiento.
 
             // Edge case §10.1: montoTotal nulo
             if (row.montoTotal == null) {
@@ -340,20 +518,82 @@ export class ConsolidacionSituacionService implements OnModuleInit {
         }
 
         // Escribir el chunk en una transacción
-        if (!dryRun && (sit050Ids.length > 0 || sit041Ids.length > 0)) {
-            await this.aplicarChunk(sit050Ids, sit041Ids, now);
+        if (!dryRun && (sit050Ids.length > 0 || sit041Ids.length > 0 || sit054Ids.length > 0 || sit050PorClaveIds.length > 0)) {
+            await this.aplicarChunk(sit050Ids, sit041Ids, sit054Ids, sit050PorClaveIds, decisionesClave, now);
         }
 
         return partial;
     }
 
     /**
+     * Regla de clave (spec §10.5): decide si un caso se cancela por el pago de una clave de pago
+     * del cedente, mirando SOLO el archivo de cobros (`clavesDelCaso`, agregado por
+     * `pago.referenciaClave` en `procesarChunk`). TOTAL le gana a QUITA cuando las dos están
+     * cumplidas para el mismo caso.
+     *
+     * La regla (b) de respaldo (un convenio `CLAVE_PAGO` ACTIVO cumplido por monto, sin mirar de
+     * dónde vino la plata) se descartó — ver el comentario de cabecera del archivo y
+     * docs/multiclaves-spec.md §10.10/§20: condona deuda sin que el cedente haya confirmado que se
+     * pagó ESA clave. Un pago que no trae `referenciaClave` (manual, o de una plantilla que no
+     * mapea `nroConvenio`) simplemente no cancela con quita por esta vía — sigue las reglas de
+     * siempre (Σpagos vs `montoTotal`).
+     *
+     * Centavos enteros, no pesos: `pago.importe` es `Float` y `clave_pago.importe` llega como
+     * texto/Decimal — comparar en `Float` con una tolerancia en pesos arrastra el error de coma
+     * flotante al lado equivocado del umbral.
+     */
+    private evaluarReglaDeClave(
+        deudorId: number,
+        clavesDelCaso: ClaveChunkRow[] | undefined,
+    ): DecisionClave | null {
+        if (!clavesDelCaso?.length) return null;
+
+        const cumplidas = clavesDelCaso.filter((c) => {
+            const nroClienteCaso = (c.nroClienteCaso ?? '').trim();
+            if (nroClienteCaso !== c.nroTramite) {
+                this.logger.warn(
+                    `Deudor id=${deudorId}: un pago referencia la clave ${c.nroConvenio} (trámite ${c.nroTramite}) ` +
+                    `pero el nroCliente del caso ("${nroClienteCaso}") no es ese trámite — no se cancela por esta regla.`,
+                );
+                return false;
+            }
+            const importeClaveCentavos = Math.round(parseFloat(String(c.importeClave)) * 100);
+            const pagadoCentavos = Math.round(
+                parseFloat(String(this.modoClave === 'PAGO_UNICO' ? c.mayorPagoClave : c.pagadoClave)) * 100,
+            );
+            return pagadoCentavos >= importeClaveCentavos - this.toleranciaClaveCentavos;
+        });
+
+        const total = cumplidas.find((c) => c.tipoClave === 'TOTAL');
+        const quita = cumplidas.find((c) => c.tipoClave === 'QUITA');
+        const ganadora = total ?? quita;
+        if (!ganadora) return null;
+
+        return {
+            tipoClave: ganadora.tipoClave === 'TOTAL' ? 'TOTAL' : 'QUITA',
+            claveId: Number(ganadora.claveId),
+            nroConvenio: ganadora.nroConvenio,
+            importeClave: parseFloat(String(ganadora.importeClave)),
+            saldoTramite: parseFloat(String(ganadora.saldoTramite)),
+            pagado: parseFloat(String(ganadora.pagadoClave)),
+            ultimaFecha: ganadora.ultimaFecha,
+        };
+    }
+
+    // ─── Escritura de un chunk ────────────────────────────────────────────────
+
+    /**
      * Escribe los cambios del chunk en una transacción Prisma.
      *
      * Estrategia:
-     *  - 2 updateMany para `estadoSituacionId` + `situacionConsolidadaEn` (uno por situación destino).
+     *  - 2 updateMany para `estadoSituacionId` + `situacionConsolidadaEn` (uno por situación destino
+     *    de la regla de siempre).
      *  - 2 $executeRaw para recalcular `saldo` con GREATEST(0, montoTotal - sum(pagos)) en SQL
      *    (evita traer valores a memoria y hace el cálculo final con la snapshot del momento exacto).
+     *  - Fase 4a: 2 updateMany más para los cancelados por clave (SIT-054 / SIT-050 por TOTAL), con
+     *    `saldo = 0` EXPLÍCITO — nunca pasan por los `$executeRaw` de arriba, que le devolverían a
+     *    una cuenta cancelada con quita el 50% del saldo (spec §10.5d). Más el `UPDATE` de las
+     *    cuotas de los convenios de clave cumplidos.
      *
      * Nota: el $executeRaw hace un sub-SELECT sobre `pago` para cada deudor, lo cual es
      * aceptable para chunks de 500 con índice pago(deudorId) — ver spec §10.6.
@@ -361,6 +601,9 @@ export class ConsolidacionSituacionService implements OnModuleInit {
     private async aplicarChunk(
         sit050Ids: number[],
         sit041Ids: number[],
+        sit054Ids: number[],
+        sit050PorClaveIds: number[],
+        decisionesClave: Map<number, DecisionClave>,
         situacionConsolidadaEn: Date,
     ): Promise<void> {
         const ops: any[] = [];
@@ -407,6 +650,59 @@ export class ConsolidacionSituacionService implements OnModuleInit {
             );
         }
 
+        // Fase 4a — cancelados con quita (SIT-054, o SIT-050 degradado si el código no existe).
+        if (sit054Ids.length > 0) {
+            ops.push(
+                this.prisma.deudor.updateMany({
+                    where: { id: { in: sit054Ids } },
+                    data: {
+                        estadoSituacionId: this.sit054Id ?? this.sit050Id!,
+                        situacionConsolidadaEn,
+                        saldo: 0,
+                    },
+                }),
+            );
+        }
+
+        // Fase 4a — cancelados por la clave TOTAL (van a SIT-050, como los de siempre, pero con
+        // saldo 0 EXPLÍCITO en vez de recalculado: no importa si `montoTotal` es null o distinto
+        // del importe de la clave, la cuenta quedó saldada).
+        if (sit050PorClaveIds.length > 0) {
+            ops.push(
+                this.prisma.deudor.updateMany({
+                    where: { id: { in: sit050PorClaveIds } },
+                    data: {
+                        estadoSituacionId: this.sit050Id!,
+                        situacionConsolidadaEn,
+                        saldo: 0,
+                    },
+                }),
+            );
+        }
+
+        // Cuotas de los convenios de clave cumplidos → PAGADA (D17: el convenio sigue ACTIVO, solo
+        // cambia la cuota — en toda la base solo se usan ACTIVO/ANULADO en `convenio.estado`).
+        const claveIds = [...decisionesClave.values()].map((d) => d.claveId);
+        let convenioPorClave = new Map<number, number>();
+        if (claveIds.length > 0) {
+            const convenios = await this.prisma.convenio.findMany({
+                where: { clavePagoId: { in: claveIds }, estado: 'ACTIVO' },
+                select: { id: true, clavePagoId: true },
+            });
+            convenioPorClave = new Map(convenios.filter((c) => c.clavePagoId != null).map((c) => [c.clavePagoId as number, c.id]));
+            for (const decision of decisionesClave.values()) {
+                const convenioId = convenioPorClave.get(decision.claveId);
+                if (convenioId) {
+                    ops.push(
+                        this.prisma.cuota_convenio.updateMany({
+                            where: { convenioId, estado: { in: ['PENDIENTE', 'VENCIDA'] } },
+                            data: { estado: 'PAGADA', fechaPago: decision.ultimaFecha },
+                        }),
+                    );
+                }
+            }
+        }
+
         await this.prisma.$transaction(ops);
 
         // Un registro **por caso** para las cancelaciones. El resto de las transiciones se auditan
@@ -415,9 +711,11 @@ export class ConsolidacionSituacionService implements OnModuleInit {
         //
         // El volumen está acotado: un caso se cancela una sola vez — en la corrida siguiente ya no
         // cambia y no vuelve a registrarse.
+        const auditorias: Promise<any>[] = [];
+
         if (sit050Ids.length > 0) {
-            await Promise.all(
-                sit050Ids.map((deudorId) =>
+            auditorias.push(
+                ...sit050Ids.map((deudorId) =>
                     this.auditoria.log({
                         modulo: AuditModulo.GESTION,
                         entidad: 'Deudor',
@@ -430,5 +728,45 @@ export class ConsolidacionSituacionService implements OnModuleInit {
                 ),
             );
         }
+
+        for (const [deudorId, decision] of decisionesClave) {
+            const esQuita = decision.tipoClave === 'QUITA';
+            // La quita perdonada es contra el SALDO ORIGINAL DEL TRÁMITE (`clave_pago.saldoTramite`),
+            // no contra el importe de la clave — hallazgo de la auditoría: `importeClave − pagado`
+            // da $0 con un pago exacto (que es el caso normal), cuando lo que hay que mostrar es
+            // "pagó $15.500 de $31.000 — quita $15.500" (spec §10.5e), igual que ya hace la ficha
+            // (`claves.service.ts`).
+            const quita = esQuita ? Math.max(0, decision.saldoTramite - decision.pagado) : 0;
+            const fmt = (n: number) => n.toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+            const situacionTxt = esQuita && this.sit054Id != null ? 'SIT-054' : 'SIT-050';
+            auditorias.push(
+                this.auditoria.log({
+                    modulo: AuditModulo.GESTION,
+                    entidad: 'Deudor',
+                    entidadId: String(deudorId),
+                    deudorId,
+                    tipo: AuditTipo.UPDATE,
+                    resumen: esQuita
+                        ? `Cancelado con quita por el pago de la clave QUITA ${decision.nroConvenio}: pagó $ ${fmt(decision.pagado)} de $ ${fmt(decision.saldoTramite)} — quita $ ${fmt(quita)}`
+                        : `Cancelado por el pago de la clave TOTAL ${decision.nroConvenio}: pagó $ ${fmt(decision.pagado)} de $ ${fmt(decision.saldoTramite)}`,
+                    data: {
+                        after: { estadoSituacion: situacionTxt },
+                        contexto: {
+                            origen: 'consolidacion',
+                            regla: 'CLAVE_PAGO_ARCHIVO',
+                            claveId: decision.claveId,
+                            nroConvenio: decision.nroConvenio,
+                            tipoClave: decision.tipoClave,
+                            importeClave: decision.importeClave,
+                            saldoTramite: decision.saldoTramite,
+                            pagado: decision.pagado,
+                            deudorId,
+                        },
+                    },
+                }),
+            );
+        }
+
+        await Promise.all(auditorias);
     }
 }
