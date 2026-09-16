@@ -6,6 +6,44 @@
 
 ---
 
+## [2026-09-16] — Multiclaves: despliegue de las fases 3 y 4a, cierre de la 4b y limpieza de TELECOM
+
+Operación sobre producción, sin cambios de código salvo este registro y el spec.
+
+### Producción
+
+- **Deploy** de las fases 3 (mail del cupón) y 4a (cancelación por pago de clave): imagen `3f1d152`,
+  `db push` del CI creó `pago.referenciaClave`.
+- **`SIT-054` "Cancelado con quita"** dado de alta con `prisma/scripts/alta-sit-054.ts` (id 113,
+  asociado a las 26 empresas) y backend reiniciado: el log de arranque muestra `sit054Id=113` y
+  `DeudorBloqueoService` bloqueando `SIT-050..054`.
+- **Plantillas de pagos 48 (TELECOM PERSONAL PAGOS DEIMOS) y 49 (TELECOM PAGOS DEIMOS)**: se agregó
+  `nroConvenio` con `fromIndex: 22` (columna 23 del archivo de cobros de posbaja). En los pagos comunes
+  esa columna trae `0`, que `normalizarReferenciaClave` descarta.
+- **Cartera de julio de TELECOM (empresa 9) borrada**: las remesas `00606` (17/07) y `22222` (20/07)
+  eran el mismo archivo cargado dos veces (mismo hash), sin comentarios, convenios, promesas, llamadas,
+  mails ni transacciones; `00606` tenía además los pagos en negativo (anterior al fix de
+  `removeDashes`). Se borraron las dos —la cartera vigente es la 608 de agosto— junto con 4 remesas
+  vacías y trabadas del 31/08 (`608`, `300608`, `200608`, `000608`): 10.896 casos, 29.568 facturas,
+  32 pagos, 18.875 contactos. Snapshot previo `amsa-gestion-pre-wipe-telecom-julio-20260916`. En el
+  historial quedan 4 cargas de facturas/pagos de julio ya sin datos.
+
+### Decisiones
+
+- **Fase 4b cerrada sin código.** El script de recuperación de los 20 pagos de julio (§10.8 del spec)
+  pierde sentido con la cartera borrada. Q5 (GES-050), Q6 (`SUMA`) y Q8 (los dos medios cancelan) se
+  quedan con el default; se consultan a Ana Maya y solo se cambia algo si la respuesta lo exige.
+
+### Pendiente para el primer uso real
+
+En prod hay 0 claves cargadas: TELECOM_PERSONAL (empresa 10) solo tiene las carteras de julio
+(`00144`, `7101`), y los `MULTI_*` necesitan `CA_20260828`. Orden: cargar esa cartera → cargar los
+`MULTI_*` → asignar la cuenta SMTP de la empresa en Ajustes → Empresas (ninguna empresa tiene una) →
+gate R1 (escanear un cupón real en caja de Pago Fácil/Rapipago) antes de dar
+`convenios.generar_cupon` a roles que no sean ADMIN.
+
+---
+
 ## [2026-09-16] — Claves de pago de Telecom/Personal (multiclaves) — fase 4a: cancelación por pago de clave
 
 Con el archivo real de cobros (`MA_20260911_1008_POSBAJA_HW_260910_260911_C.txt`) se confirmó que

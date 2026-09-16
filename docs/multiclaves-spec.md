@@ -3,10 +3,16 @@
 **Proyecto:** AMSA Gestión
 **Módulos involucrados:** nuevo `multiclaves`; modificados `imports` (categoría nueva `MULTICLAVES`, parser, processor, preview, borrado), `convenios` (convenio de clave), `consolidacion` (cancelación por pago de clave), `email-sender` (reuso), `auth` (permiso), `empresas` (config); frontend: ficha del deudor (solapa Convenios), wizard y editor de plantillas, historial, ajustes de empresa.
 **Fecha:** 2026-09-14 (fase 4 rediseñada el 2026-09-16, fase 4a implementada el mismo día)
-**Estado:** Fases 1, 1.1, 2, 3 y **4a** implementadas (ver CHANGELOG.md, entrada 2026-09-16 de la fase
-4a). La fase 4b (Q5/Q6/Q8 y el script de los 20 pagos de julio) sigue sin implementar — bloqueada por
-respuestas y por los archivos de esas nóminas, no por código. La fase 5 del plan anterior queda
-absorbida por la 4.
+**Estado:** Fases 1, 1.1, 2, 3 y **4a** implementadas y **desplegadas en producción el 2026-09-16**
+(imagen `3f1d152`; `SIT-054` creado, plantillas de pagos 48 y 49 con `nroConvenio` en el índice 22).
+**La fase 4b se cierra sin código** (decisión del 2026-09-16): el script de los 20 pagos de julio ya no
+hace falta —esos pagos eran de la cartera de julio de TELECOM (remesas `00606` y `22222`, cargada dos
+veces), que se borró entera ese día—, y Q5, Q6 y Q8 quedan con los defaults ya implementados
+(GES-050, `CONSOLIDACION_CLAVE_MODO=SUMA`, los dos medios cancelan). Solo se toca algo si la respuesta
+de Ana Maya contradice alguno. La fase 5 del plan anterior queda absorbida por la 4.
+**Para el primer uso real en prod** (verificado el 2026-09-16: 0 claves cargadas, 0 convenios
+`CLAVE_PAGO`): (1) cargar en TELECOM_PERSONAL la cartera `CA_20260828` —hoy solo están las de julio—,
+(2) recién ahí los `MULTI_41645`/`MULTI_41647`, (3) asignar la cuenta SMTP de la empresa, (4) gate R1.
 **Producción, verificado el 2026-09-16** (consultas de solo lectura contra la RDS): el schema de la
 fase 1 está aplicado, pero **`clave_pago` tiene 0 filas y hay 0 convenios `CLAVE_PAGO`** — nunca se
 cargó un archivo de claves ni se emitió un cupón. Hay, en cambio, **20 pagos hechos con multiclave ya
