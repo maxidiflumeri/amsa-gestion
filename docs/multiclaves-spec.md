@@ -1289,8 +1289,9 @@ mejor, y para los pagos comunes al menos se puede dejar de tirar la moneda:
 1. el caso que tiene un `convenio` ACTIVO con `clavePagoId = clave.id` — el cupón se emitió desde
    nuestra plataforma **para ese caso**, no hay nada más exacto;
 2. el caso con cualquier convenio `origen='CLAVE_PAGO'` ACTIVO de ese trámite;
-3. el caso **no cancelado** (situación fuera de la categoría CANCELADO) de la **remesa más reciente**
-   (`remesa.createdAt DESC`);
+3. el caso de la **remesa más reciente** (`remesa.createdAt DESC`) entre los de las remesas origen
+   (o entre todos, si no hay ninguno ahí). **Sin mirar la situación**: ver la auditoría de la fase 4a
+   en §20 (preferir el no cancelado duplicaba cobros al recargar);
 4. `deudor.id DESC`.
 
 El criterio 3 antes que el 4 es el mismo que ya se usa para elegir la tanda ganadora al borrar una
@@ -2344,6 +2345,27 @@ Siguen abiertas:
 ---
 
 ## 20. Changelog del spec
+
+### 2026-09-25 (trámite en varias remesas: se gestiona desde un solo caso)
+
+Implementado y auditado (1 bloqueante y 3 importantes, corregidos antes del commit).
+
+- **Pagos (§10.3c):** los criterios 1 y 2 se buscan entre **todos los casos del trámite en la
+  empresa**, no solo en las remesas origen: si el trámite estaba en la remesa vieja con el convenio y
+  en la nueva, y se elegía solo la nueva, el pago caía en la nueva y el caso del convenio no se
+  cancelaba. El criterio 3 sigue acotado a las remesas origen. **El anti-duplicados mira siempre
+  todos los casos del trámite en la empresa**: el caso elegido puede cambiar entre dos cargas (se
+  anula un convenio en el medio) y, si no, la recarga duplicaba el pago en el otro caso (bloqueante
+  de la auditoría).
+- **Ficha y cupón:** el caso que gestiona las claves de un trámite es (1) el que tiene un convenio
+  CLAVE_PAGO activo, si no (2) el de la remesa más reciente entre los no cancelados, y si están todos
+  cancelados (3) el más reciente. `clavesDelCaso` devuelve `avisos.gestionarDesde = { deudorId,
+  numeroRemesa, porConvenio, motivo }`; la tarjeta deja las claves en solo lectura. `generar`
+  rechaza con 400 `CLAVE_DE_OTRO_CASO` y `preview` lo avisa con `puedeGenerar: false`. Se permite
+  reusar un convenio que el caso ya tiene con esa misma clave. Código en
+  `multiclaves/utils/caso-del-tramite.ts`.
+- Como el caso con convenio es el que gestiona, el paso de QUITA a TOTAL (o al revés) se hace desde
+  ese caso con el reemplazo de siempre, sin anular a mano.
 
 ### 2026-09-16 (fase 4a implementada y auditada — 14 hallazgos, 1 bloqueante)
 

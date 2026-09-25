@@ -86,6 +86,8 @@ interface Candidatos {
     ids: number[];
     /** El caso que recibiría un pago genuinamente nuevo, si no hay duplicado en ningún candidato. */
     elegido: number;
+    /** `true` si `elegido` salió de un convenio de clave activo (criterios 1 y 2 de los pagos con clave). */
+    porConvenio?: boolean;
 }
 
 export class PagosProcessor implements ICategoryProcessor {
@@ -152,20 +154,32 @@ export class PagosProcessor implements ICategoryProcessor {
     }
 
     /**
-     * Candidatos de un pago hecho con una clave de pago (multiclaves, spec §10.3c): busca los casos
-     * dentro de las remesas de origen y, si no hay ninguno, los busca sin ese filtro (avisando
-     * `casosFueraDeRemesaOrigen`). Devuelve `null` si el trámite de la clave no tiene ningún caso en
-     * la empresa. `elegido` es el que recibiría un pago NUEVO (criterio 1: convenio ACTIVO con esta
-     * clave exacta; criterio 2: cualquier convenio ACTIVO de origen CLAVE_PAGO del mismo trámite;
-     * si no, desempate estable por remesa/id) — pero el anti-duplicados de `processRow` busca en
-     * `ids` completo, no solo en `elegido`.
+     * Candidatos de un pago hecho con una clave de pago (multiclaves, spec §10.3c). Devuelve `null`
+     * si el trámite de la clave no tiene ningún caso en la empresa.
+     *
+     * `ids` —lo que mira el anti-duplicados— son SIEMPRE todos los casos del trámite en la empresa,
+     * no solo los de las remesas elegidas: el caso que recibe el pago puede cambiar entre dos cargas
+     * del mismo archivo (se anuló o se emitió un convenio en el medio), y si el anti-duplicados no
+     * mirara el caso donde quedó el primer pago, la recarga lo duplicaría en otro caso (hallazgo de
+     * la auditoría del 2026-09-25).
+     *
+     * `elegido` es el que recibiría un pago NUEVO:
+     *  1. el caso con el convenio ACTIVO de esta clave exacta, en toda la empresa;
+     *  2. el caso con cualquier convenio ACTIVO de origen CLAVE_PAGO del trámite, en toda la empresa
+     *     (es el caso desde el que se gestionan las claves: ver `multiclaves/utils/caso-del-tramite.ts`);
+     *  3. desempate estable por remesa/id entre los casos de las remesas de origen o, si no hay
+     *     ninguno ahí, entre todos (aviso `casosFueraDeRemesaOrigen`).
+     *
+     * 1 y 2 van en toda la empresa porque el convenio ya dice qué caso pagó: acotados a las remesas
+     * elegidas, un trámite que estaba en la remesa de agosto (con el convenio) y en la de septiembre
+     * mandaba el pago al caso de septiembre si solo se elegía esa, y el del convenio no se cancelaba.
      */
     private async candidatosPorClave(
         ctx: ProcessContext,
         clave: { id: number; nroTramite: string },
         targetRemesaIds: number[],
     ): Promise<Candidatos | null> {
-        let ids = (
+        const enRemesasOrigen = (
             await ctx.prisma.$queryRaw<{ id: number }[]>(
                 Prisma.sql`
                     SELECT id FROM deudor
@@ -176,30 +190,31 @@ export class PagosProcessor implements ICategoryProcessor {
             )
         ).map((r) => r.id);
 
-        if (ids.length === 0) {
-            const fuera = (
-                await ctx.prisma.$queryRaw<{ id: number }[]>(
-                    Prisma.sql`
-                        SELECT id FROM deudor
-                        WHERE empresaId = ${ctx.empresaId} AND TRIM(nroCliente) = ${clave.nroTramite}
-                    `,
-                )
-            ).map((r) => r.id);
-            if (fuera.length > 0) this.casosFueraDeRemesaOrigen++;
-            ids = fuera;
-        }
-
+        const todos = (
+            await ctx.prisma.$queryRaw<{ id: number }[]>(
+                Prisma.sql`
+                    SELECT id FROM deudor
+                    WHERE empresaId = ${ctx.empresaId} AND TRIM(nroCliente) = ${clave.nroTramite}
+                `,
+            )
+        ).map((r) => r.id);
+        // Por las dudas de una carrera entre las dos lecturas: `ids` tiene que incluir a los dos.
+        const ids = [...new Set([...todos, ...enRemesasOrigen])];
         if (ids.length === 0) return null;
-        if (ids.length === 1) return { ids, elegido: ids[0] };
 
-        this.tramitesEnVariosCasos++;
+        const porConvenio = (deudorId: number): Candidatos => {
+            if (!enRemesasOrigen.includes(deudorId)) this.casosFueraDeRemesaOrigen++;
+            if (ids.length > 1) this.tramitesEnVariosCasos++;
+            return { ids, elegido: deudorId, porConvenio: true };
+        };
 
-        // Desempate — criterio 1: convenio ACTIVO con clavePagoId = esta clave exacta.
+        // Criterio 1: convenio ACTIVO con clavePagoId = esta clave exacta. Solo entre los casos del
+        // trámite: un caso cuyo nroCliente cambió después de emitir el convenio ya no es candidato.
         const conClaveExacta = await ctx.prisma.convenio.findFirst({
             where: { clavePagoId: clave.id, estado: 'ACTIVO', deudorId: { in: ids } },
             select: { deudorId: true },
         });
-        if (conClaveExacta) return { ids, elegido: conClaveExacta.deudorId };
+        if (conClaveExacta) return porConvenio(conClaveExacta.deudorId);
 
         // Criterio 2: cualquier convenio de origen CLAVE_PAGO activo del mismo trámite.
         const conOrigenClave = await ctx.prisma.convenio.findFirst({
@@ -211,12 +226,20 @@ export class PagosProcessor implements ICategoryProcessor {
             },
             select: { deudorId: true },
         });
-        if (conOrigenClave) return { ids, elegido: conOrigenClave.deudorId };
+        if (conOrigenClave) return porConvenio(conOrigenClave.deudorId);
 
         // Criterios 3 y 4, estables: remesa más reciente, después id DESC. NUNCA "no cancelado" —
         // ver el comentario de `elegirPorRemesaMasRecienteYId`.
+        let pool = enRemesasOrigen;
+        if (pool.length === 0) {
+            this.casosFueraDeRemesaOrigen++;
+            pool = ids;
+        }
+        if (pool.length === 1) return { ids, elegido: pool[0] };
+
+        this.tramitesEnVariosCasos++;
         const candidatos = await ctx.prisma.deudor.findMany({
-            where: { id: { in: ids } },
+            where: { id: { in: pool } },
             select: { id: true, remesa: { select: { createdAt: true } } },
         });
         return { ids, elegido: elegirPorRemesaMasRecienteYId(candidatos).id };
@@ -305,7 +328,7 @@ export class PagosProcessor implements ICategoryProcessor {
             }
         }
 
-        const { ids: candidatoIds, elegido: deudorId } = candidatos;
+        const { ids: candidatoIds, elegido: deudorId, porConvenio: elegidoPorConvenio } = candidatos;
 
         // La referencia se guarda tal como normalizó, aunque la clave todavía no esté cargada en
         // esta empresa (R13: cuando se cargue, la consolidación siguiente cancela sola) o sea de
@@ -387,21 +410,36 @@ export class PagosProcessor implements ICategoryProcessor {
             (await ctx.prisma.pago.findFirst({
                 where: { deudorId, ...claimBase },
                 orderBy: { fecha: 'asc' },
-                select: { id: true },
+                select: { id: true, deudorId: true },
             })) ??
             // Si no, cualquiera de los otros casos del mismo trámite.
             (candidatoIds.length > 1
                 ? await ctx.prisma.pago.findFirst({
                     where: { deudorId: { in: candidatoIds.filter((id) => id !== deudorId) }, ...claimBase },
                     orderBy: { fecha: 'asc' },
-                    select: { id: true },
+                    select: { id: true, deudorId: true },
                 })
                 : null);
 
         if (claim) {
+            // Pago a mano en OTRO caso del trámite. Si el caso elegido tiene el convenio de clave, el
+            // cobro es de ese caso: se mueve ahí, porque la consolidación cancela mirando los pagos del
+            // propio caso y, dejado en el otro, el caso del convenio no se cancelaba nunca (hallazgo
+            // de la auditoría del 2026-09-25). Si no hay convenio se deja donde lo cargó el gestor. En
+            // los dos casos el caso de origen también se re-consolida.
+            const claimEnOtroCaso = claim.deudorId !== deudorId ? claim.deudorId : null;
+            const mover = claimEnOtroCaso != null && !!elegidoPorConvenio;
+            if (claimEnOtroCaso != null) {
+                this.processedDeudorIds.add(claimEnOtroCaso);
+                this.logger.log(
+                    `Pago manual ${claim.id} confirmado desde el caso ${claimEnOtroCaso}` +
+                    (mover ? ` y movido al caso ${deudorId}, que tiene el convenio de la clave` : ` (el elegido era ${deudorId})`),
+                );
+            }
             await ctx.prisma.pago.update({
                 where: { id: claim.id },
                 data: {
+                    ...(mover ? { deudorId } : {}),
                     confirmadoImport: true,
                     confirmadoEn: new Date(),
                     origenArchivo: `PAGOS_REMESA_${ctx.remesaId}`,

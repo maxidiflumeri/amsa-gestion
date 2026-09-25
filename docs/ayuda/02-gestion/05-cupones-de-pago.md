@@ -58,10 +58,17 @@ dos). Ahí la tabla trae una sola fila, "Saldo total": no hay quita para ofrecer
 - **El saldo no coincide.** Si el saldo del caso difiere del que informó Telecom para este trámite,
   aparece un aviso — puede ser que el caso tenga pagos o ajustes que Telecom todavía no vio, o al
   revés. No bloquea nada, es para que lo mires antes de ofrecer el cupón.
+- **Las claves se gestionan desde otro caso.** Las claves son del trámite, no de la remesa: si el
+  trámite estaba en la remesa de agosto y vuelve en la de septiembre, los dos casos ven las mismas
+  claves. Se gestionan desde **un solo caso**: el que ya tiene un cupón de clave emitido y, si ninguno
+  lo tiene, el de la remesa más reciente que no esté cancelado. En los demás las claves aparecen
+  solo para consulta y **Generar cupón** queda deshabilitado; el aviso dice desde qué remesa se
+  gestionan. Para pasar al otro cupón (saldo total ↔ quita), hacelo desde el caso que tiene el
+  emitido: no hace falta anular nada a mano.
 - **Este trámite está en otro caso.** El mismo número de trámite puede aparecer en más de una remesa
-  (una reasignación, una carga duplicada). Si hay otro caso abierto con el mismo trámite, el pago de
-  la clave puede terminar cancelando *ese* caso y no este. Avisá al supervisor si ves esto.
-
+  (una reasignación, una carga duplicada). Cuando entra el pago de una clave, va al caso que tiene un
+  cupón de clave emitido, esté en la remesa que esté. Si ninguno lo tiene, va al de la remesa más
+  reciente entre las que elegiste al cargar los pagos.
 ---
 
 ## Generar el cupón

@@ -32,6 +32,7 @@ import { centavosDeTexto } from './utils/clave-pago';
 import { importeEnLetras } from './utils/importe-en-letras';
 import { mensajeCuponDefault, renderVariables, variablesPropiasCupon } from './utils/cupon-mail';
 import { ConfigMulticlaves, resolverConfigMulticlaves } from './utils/config-multiclaves';
+import { casoQueGestionaElTramite, motivoGestionEnOtroCaso } from './utils/caso-del-tramite';
 import { GenerarCuponDto } from './dto/generar-cupon.dto';
 
 /** Lo que el guard de permisos ya adjuntó al request (`request['usuario']`, ver `PermisosGuard`). */
@@ -250,6 +251,21 @@ export class CuponService {
         });
     }
 
+    /**
+     * Si el cupón de esta clave se tiene que sacar desde OTRO caso del trámite (ver
+     * `utils/caso-del-tramite.ts`), ese caso y el motivo; si no, `null`. Desde un caso que no gestiona
+     * solo se puede volver a sacar el cupón de un convenio que ya tiene con esta misma clave.
+     */
+    private async gestionEnOtroCaso(clave: ClaveConEmpresa, deudor: DeudorParaCupon) {
+        const caso = await casoQueGestionaElTramite(
+            this.prisma, clave.empresaId, clave.nroTramite, (sit) => this.bloqueo.estaBloqueado(sit),
+        );
+        if (!caso || caso.deudorId === deudor.id) return null;
+        const convenioDeEstaClave = await this.convenioActivoDeClave(clave.id);
+        if (convenioDeEstaClave?.deudorId === deudor.id) return null;
+        return { ...caso, motivo: motivoGestionEnOtroCaso(caso) };
+    }
+
     /** Las seis variables propias del cupón (§8.4), listas para pisar a las automáticas del mapeo
      * general de `email-sender` o para el mensaje por defecto. Usado por `preview()` y por
      * `prepararEnvio()` — una sola fuente de verdad para no calcular el importe/vto dos veces con
@@ -309,8 +325,11 @@ export class CuponService {
         // avisaba — el operador se enteraba recién al confirmar (hallazgo de la auditoría, §11.2.5).
         const claveEnOtroCaso = !!convenioDeEstaClave && convenioDeEstaClave.deudorId !== deudorId;
 
+        const gestionEnOtroCaso = await this.gestionEnOtroCaso(clave, deudor);
+
         const avisos: string[] = [];
         if (cancelada) avisos.push('La cuenta está cancelada: no se puede generar ni reimprimir un cupón.');
+        if (gestionEnOtroCaso) avisos.push(gestionEnOtroCaso.motivo);
         if (vencida) avisos.push('La clave está vencida: no se puede generar el cupón.');
         if (reemplazadaSinConvenio) avisos.push('Esta clave fue reemplazada por una carga posterior y no tiene convenio: no se puede generar.');
         if (claveEnOtroCaso) {
@@ -326,7 +345,7 @@ export class CuponService {
             avisos.push('Hay un convenio de clave activo de este trámite en otro caso.');
         }
 
-        const puedeGenerar = !cancelada && !vencida && !reemplazadaSinConvenio && !claveEnOtroCaso;
+        const puedeGenerar = !cancelada && !vencida && !reemplazadaSinConvenio && !claveEnOtroCaso && !gestionEnOtroCaso;
 
         const destinatariosDisponibles = await this.destinatariosDelCaso(deudor.id);
 
@@ -548,6 +567,19 @@ export class CuponService {
         this.asegurarCorrespondencia(clave, deudor);
 
         await this.bloqueo.assertNoBloqueado(deudor.id, 'generar cupón de pago');
+
+        const gestionEnOtroCaso = await this.gestionEnOtroCaso(clave, deudor);
+        if (gestionEnOtroCaso) {
+            this.logger.warn(
+                `CLAVE_DE_OTRO_CASO claveId=${claveId} deudorId=${deudor.id}: el trámite se gestiona desde ` +
+                `el caso ${gestionEnOtroCaso.deudorId} (remesa ${gestionEnOtroCaso.numeroRemesa})`,
+            );
+            throw new BadRequestException({
+                code: 'CLAVE_DE_OTRO_CASO',
+                message: gestionEnOtroCaso.motivo,
+                deudorId: gestionEnOtroCaso.deudorId,
+            });
+        }
 
         if (esClaveVencida(clave.fechaVencimiento)) {
             this.logger.warn(`CLAVE_VENCIDA claveId=${claveId} deudorId=${deudor.id} vencimiento=${clave.fechaVencimiento.toISOString().slice(0, 10)}`);

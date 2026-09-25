@@ -96,9 +96,14 @@ const ClavesPagoCard: React.FC<Props> = ({
     if (!data || data.claves.length === 0) return null;
 
     const cuentaCancelada = data.avisos.cuentaCancelada;
+    const gestionarDesde = data.avisos.gestionarDesde;
 
     const motivoDeshabilitado = (clave: ClaveDelCaso): string | null => {
         if (cuentaCancelada) return 'La cuenta está cancelada: no se puede generar un cupón.';
+        // Desde el caso viejo solo se puede volver a sacar el cupón de un convenio que ya tiene.
+        if (gestionarDesde && !clave.convenioActivo?.esEsteCaso) {
+            return gestionarDesde.motivo;
+        }
         if (clave.vencida) return 'Esta clave está vencida: no se puede generar el cupón.';
         if (clave.estado === 'REEMPLAZADA' && !clave.convenioActivo) {
             return 'Esta clave fue reemplazada por una carga posterior y no tiene convenio: no se puede generar.';
@@ -128,11 +133,15 @@ const ClavesPagoCard: React.FC<Props> = ({
                         ($ {fmtMonto(data.avisos.saldoDistinto.saldoTramite)}).
                     </Alert>
                 )}
-                {data.avisos.otrosCasosDelTramite.length > 0 && (
+                {gestionarDesde ? (
+                    <Alert severity="info" variant="outlined">
+                        {gestionarDesde.motivo} Acá quedan solo para consulta.
+                    </Alert>
+                ) : data.avisos.otrosCasosDelTramite.length > 0 && (
                     <Alert severity="warning" variant="outlined">
                         Este trámite también está en {data.avisos.otrosCasosDelTramite.length === 1 ? 'otro caso' : 'otros casos'}{' '}
-                        ({data.avisos.otrosCasosDelTramite.map((c) => `remesa ${c.numeroRemesa}`).join(', ')}). El pago puede entrar ahí y
-                        no cancelar el convenio de este caso.
+                        ({data.avisos.otrosCasosDelTramite.map((c) => `remesa ${c.numeroRemesa}`).join(', ')}). Un pago hecho con una clave
+                        va al caso que tiene el cupón emitido.
                     </Alert>
                 )}
                 {data.avisos.canceladoConQuita && (

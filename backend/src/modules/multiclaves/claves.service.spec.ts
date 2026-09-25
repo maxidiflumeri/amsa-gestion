@@ -215,7 +215,7 @@ describe('ClavesService.clavesDelCaso', () => {
                 findMany: jest.fn().mockResolvedValue(otrosCasos),
             },
             clave_pago: { findMany: jest.fn().mockResolvedValue(claves) },
-            convenio: { findMany: jest.fn().mockResolvedValue(convenios) },
+            convenio: { findMany: jest.fn().mockResolvedValue(convenios), findFirst: jest.fn().mockResolvedValue(null) },
             // Fase 4a (§9.1): pagos de este caso con `referenciaClave` = alguna de sus claves. Vacío
             // por default — la mayoría de los tests de este describe no tienen pagos con clave.
             pago: { findMany: jest.fn().mockResolvedValue(opts.pagos ?? []) },
@@ -239,7 +239,7 @@ describe('ClavesService.clavesDelCaso', () => {
         expect(res).toEqual({
             nroTramite: null,
             claves: [],
-            avisos: { cuentaCancelada: false, saldoDistinto: null, otrosCasosDelTramite: [], plantillaCuponConfigurada: false, canceladoConQuita: null },
+            avisos: { cuentaCancelada: false, saldoDistinto: null, otrosCasosDelTramite: [], gestionarDesde: null, plantillaCuponConfigurada: false, canceladoConQuita: null },
         });
         expect(prisma.clave_pago.findMany).not.toHaveBeenCalled();
     });
@@ -301,6 +301,60 @@ describe('ClavesService.clavesDelCaso', () => {
         });
         const res = await service.clavesDelCaso(500);
         expect(res.avisos.saldoDistinto).toBeNull();
+    });
+
+    it('si el trámite está en una remesa más nueva, indica desde qué caso se gestiona', async () => {
+        const { service, prisma } = armar({
+            otrosCasos: [{ id: 42, remesa: { numeroRemesa: '201', createdAt: new Date('2026-09-01') }, estadoSituacion: { clave: 'SIT-010' }, estadoGestion: { clave: 'GES-020' } }],
+        });
+        // Primera llamada: `elegirCasoQueGestiona` (este caso + el hermano); segunda: los datos del aviso.
+        prisma.deudor.findMany
+            .mockResolvedValueOnce([
+                { id: 500, remesa: { numeroRemesa: '200', createdAt: new Date('2026-08-01') } },
+                { id: 42, remesa: { numeroRemesa: '201', createdAt: new Date('2026-09-01') } },
+            ]);
+        const res = await service.clavesDelCaso(500);
+        expect(res.avisos.gestionarDesde).toMatchObject({ deudorId: 42, numeroRemesa: '201', porConvenio: false });
+        expect(res.avisos.gestionarDesde?.motivo).toContain('remesa 201');
+    });
+
+    it('el caso con el convenio de clave activo gestiona, aunque su remesa sea la vieja', async () => {
+        const { service, prisma } = armar({
+            otrosCasos: [{ id: 42, remesa: { numeroRemesa: '201', createdAt: new Date('2026-09-01') }, estadoSituacion: { clave: 'SIT-010' }, estadoGestion: { clave: 'GES-020' } }],
+        });
+        prisma.deudor.findMany.mockResolvedValueOnce([
+            { id: 500, remesa: { numeroRemesa: '200', createdAt: new Date('2026-08-01') } },
+            { id: 42, remesa: { numeroRemesa: '201', createdAt: new Date('2026-09-01') } },
+        ]);
+        prisma.convenio.findFirst.mockResolvedValueOnce({ deudorId: 500 });
+        const res = await service.clavesDelCaso(500);
+        expect(res.avisos.gestionarDesde).toBeNull();
+    });
+
+    it('un caso más nuevo pero cancelado no se lleva la gestión', async () => {
+        const { service, prisma, bloqueo } = armar({
+            otrosCasos: [{ id: 42, remesa: { numeroRemesa: '201', createdAt: new Date('2026-09-01') }, estadoSituacion: { clave: 'SIT-051' }, estadoGestion: { clave: 'GES-020' } }],
+        });
+        prisma.deudor.findMany.mockResolvedValueOnce([
+            { id: 500, estadoSituacionId: 1, remesa: { numeroRemesa: '200', createdAt: new Date('2026-08-01') } },
+            { id: 42, estadoSituacionId: 51, remesa: { numeroRemesa: '201', createdAt: new Date('2026-09-01') } },
+        ]);
+        bloqueo.estaBloqueado.mockImplementation((sit: number | null) => sit === 51);
+        const res = await service.clavesDelCaso(500);
+        expect(res.avisos.gestionarDesde).toBeNull();
+    });
+
+    it('el caso de la remesa más nueva gestiona sus claves (gestionarDesde null)', async () => {
+        const { service, prisma } = armar({
+            otrosCasos: [{ id: 42, remesa: { numeroRemesa: '200', createdAt: new Date('2026-08-01') }, estadoSituacion: { clave: 'SIT-010' }, estadoGestion: { clave: 'GES-020' } }],
+        });
+        prisma.deudor.findMany
+            .mockResolvedValueOnce([
+                { id: 500, remesa: { numeroRemesa: '201', createdAt: new Date('2026-09-01') } },
+                { id: 42, remesa: { numeroRemesa: '200', createdAt: new Date('2026-08-01') } },
+            ]);
+        const res = await service.clavesDelCaso(500);
+        expect(res.avisos.gestionarDesde).toBeNull();
     });
 
     it('lista otros casos del mismo trámite (no cancelados)', async () => {

@@ -108,6 +108,10 @@ export interface ClavesDelCasoRespuesta {
         cuentaCancelada: boolean;
         saldoDistinto: null | { saldoCaso: number; saldoTramite: string };
         otrosCasosDelTramite: Array<{ deudorId: number; numeroRemesa: string; situacion: string | null; enGestion: boolean }>;
+        /** Las claves del trámite se gestionan desde OTRO caso (el que tiene el convenio de clave activo
+         * o, si no hay, el de la remesa más reciente no cancelado) y en este quedan en solo lectura.
+         * `null` si este es el caso que las gestiona. */
+        gestionarDesde: null | { deudorId: number; numeroRemesa: string; porConvenio: boolean; motivo: string };
         plantillaCuponConfigurada: boolean;
         /** Fase 4a: el caso está cancelado con quita por el pago de esta clave. */
         canceladoConQuita: null | { claveId: number; nroConvenio: string; pagado: string; importeClave: string; quita: string };

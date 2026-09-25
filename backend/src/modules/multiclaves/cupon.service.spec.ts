@@ -75,6 +75,8 @@ function armar(opts: {
     };
 
     const prisma: any = {
+        // Casos del trámite (regla "se gestiona desde la remesa más nueva"): ninguno por default.
+        $queryRaw: jest.fn().mockResolvedValue([]),
         clave_pago: { findUnique: jest.fn().mockResolvedValue(opts.clave ?? CLAVE_QUITA) },
         deudor: { findUnique: jest.fn().mockResolvedValue(opts.deudor ?? DEUDOR) },
         empresa: { findUnique: jest.fn().mockResolvedValue({ configuracion: null }) },
@@ -126,6 +128,41 @@ function armar(opts: {
 }
 
 describe('CuponService.generar', () => {
+    describe('trámite en varias remesas: se gestiona desde la más nueva', () => {
+        /** El caso 500 (DEUDOR) está en la remesa de agosto y el 600 en la de septiembre. */
+        function conCasoMasNuevo(armado: ReturnType<typeof armar>) {
+            armado.prisma.$queryRaw.mockResolvedValue([{ id: 500 }, { id: 600 }]);
+            armado.prisma.deudor.findMany = jest.fn().mockResolvedValue([
+                { id: 500, remesa: { createdAt: new Date('2026-08-01'), numeroRemesa: '200' } },
+                { id: 600, remesa: { createdAt: new Date('2026-09-01'), numeroRemesa: '201' } },
+            ]);
+            return armado;
+        }
+
+        it('desde el caso de la remesa vieja no se genera el cupón (400 CLAVE_DE_OTRO_CASO)', async () => {
+            const { service, tx, cuponPdf } = conCasoMasNuevo(armar());
+            await expect(service.generar(CLAVE_QUITA.id, dtoDescargar(), USUARIO)).rejects.toMatchObject({
+                response: { code: 'CLAVE_DE_OTRO_CASO', deudorId: 600 },
+            });
+            expect(cuponPdf.generar).not.toHaveBeenCalled();
+            expect(tx.convenio.create).not.toHaveBeenCalled();
+        });
+
+        it('si el caso viejo ya tiene el convenio de ESTA clave, puede volver a sacar el cupón', async () => {
+            const { service } = conCasoMasNuevo(armar({ otroConvenioDeEstaClave: { id: 70, deudorId: 500, createdAt: new Date() } }));
+            // Puede fallar más adelante por otro motivo del flujo de reuso; lo que importa es que no
+            // lo frene esta regla.
+            const err = await service.generar(CLAVE_QUITA.id, dtoDescargar(), USUARIO).then(() => null, (e) => e);
+            expect(err?.response?.code).not.toBe('CLAVE_DE_OTRO_CASO');
+        });
+
+        it('desde el caso de la remesa más nueva se genera normalmente', async () => {
+            const armado = conCasoMasNuevo(armar({ deudor: { ...DEUDOR, id: 600 } }));
+            const res = await armado.service.generar(CLAVE_QUITA.id, dtoDescargar({ deudorId: 600 }), USUARIO);
+            expect(res.convenioId).toBeDefined();
+        });
+    });
+
     it('flujo feliz DESCARGAR: crea el convenio con montoOriginal/importeQuita/clavePagoId, usuarioId del JWT, cambia la gestión y comenta', async () => {
         const { service, prisma, tx, consolidacion } = armar();
 
@@ -680,6 +717,8 @@ describe('CuponService.generar', () => {
         };
 
         const prisma: any = {
+            // Casos del trámite (regla "se gestiona desde la remesa más nueva"): ninguno por default.
+            $queryRaw: jest.fn().mockResolvedValue([]),
             clave_pago: { findUnique: jest.fn().mockResolvedValue(CLAVE_QUITA) },
             deudor: { findUnique: jest.fn().mockResolvedValue(DEUDOR) },
             empresa: { findUnique: jest.fn().mockResolvedValue({ configuracion: null }) },
@@ -723,6 +762,8 @@ describe('CuponService.preview', () => {
     } = {}) {
         const findFirstCalls: any[] = [];
         const prisma: any = {
+            // Casos del trámite (regla "se gestiona desde la remesa más nueva"): ninguno por default.
+            $queryRaw: jest.fn().mockResolvedValue([]),
             clave_pago: { findUnique: jest.fn().mockResolvedValue(opts.clave ?? CLAVE_QUITA) },
             deudor: { findUnique: jest.fn().mockResolvedValue(opts.deudor ?? DEUDOR) },
             empresa: { findUnique: jest.fn().mockResolvedValue({ configuracion: null }) },
@@ -751,6 +792,18 @@ describe('CuponService.preview', () => {
         };
         return { service: new CuponService(prisma, bloqueo, cuponPdf, consolidacion, emailSender), prisma, emailSender };
     }
+
+    it('desde el caso de la remesa vieja la vista previa ya dice que no se puede (no recién al confirmar)', async () => {
+        const { service, prisma } = armarPreview();
+        prisma.$queryRaw.mockResolvedValue([{ id: 500 }, { id: 600 }]);
+        prisma.deudor.findMany = jest.fn().mockResolvedValue([
+            { id: 500, estadoSituacionId: 1, remesa: { createdAt: new Date('2026-08-01'), numeroRemesa: '200' } },
+            { id: 600, estadoSituacionId: 1, remesa: { createdAt: new Date('2026-09-01'), numeroRemesa: '201' } },
+        ]);
+        const res = await service.preview(CLAVE_QUITA.id, DEUDOR.id);
+        expect(res.puedeGenerar).toBe(false);
+        expect(res.avisos.join(' ')).toContain('remesa 201');
+    });
 
     it('NUNCA devuelve la clave de 22 dígitos ni el código de barras completos (D6, hallazgo de la auditoría)', async () => {
         const { service } = armarPreview();
@@ -888,6 +941,8 @@ describe('CuponService.preview', () => {
 describe('CuponService.obtenerPdfDeConvenio (reimpresión, §8.2)', () => {
     function armarReimpresion(convenio: any) {
         const prisma: any = {
+            // Casos del trámite (regla "se gestiona desde la remesa más nueva"): ninguno por default.
+            $queryRaw: jest.fn().mockResolvedValue([]),
             convenio: { findUnique: jest.fn().mockResolvedValue(convenio) },
             empresa: { findUnique: jest.fn().mockResolvedValue({ configuracion: null }) },
         };

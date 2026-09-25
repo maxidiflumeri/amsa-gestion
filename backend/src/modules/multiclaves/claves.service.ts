@@ -3,6 +3,7 @@ import { PrismaService } from 'src/prisma/prisma.service';
 import { DeudorBloqueoService } from '../deudores/utils/deudor-bloqueo';
 import { calcularVtoImpreso, esClaveVencida } from './cupon-pdf.service';
 import { leerModoClave, leerToleranciaClaveCentavos } from '../consolidacion/utils/config-clave-env';
+import { elegirCasoQueGestiona, motivoGestionEnOtroCaso } from './utils/caso-del-tramite';
 
 /** Tolerancia (en pesos) para avisar que el saldo del caso difiere del saldo que informó Telecom. */
 const TOLERANCIA_SALDO_DISTINTO = 1;
@@ -178,7 +179,7 @@ export class ClavesService {
             return {
                 nroTramite: null,
                 claves: [],
-                avisos: { cuentaCancelada, saldoDistinto: null, otrosCasosDelTramite: [], plantillaCuponConfigurada: false, canceladoConQuita: null },
+                avisos: { cuentaCancelada, saldoDistinto: null, otrosCasosDelTramite: [], gestionarDesde: null, plantillaCuponConfigurada: false, canceladoConQuita: null },
             };
         }
 
@@ -202,6 +203,20 @@ export class ClavesService {
                 SELECT id FROM deudor WHERE empresaId = ${deudor.empresaId} AND TRIM(nroCliente) = ${nroTramite} AND id <> ${deudorId}
             `,
         ]);
+
+        // Si el trámite está en otro caso de una remesa más nueva, las claves se gestionan desde ese:
+        // este las ve en solo lectura (no se saca cupón ni convenio desde acá).
+        const casoQueGestiona = otrosCasosIds.length
+            ? await elegirCasoQueGestiona(
+                this.prisma,
+                [deudorId, ...otrosCasosIds.map((o) => o.id)],
+                nroTramite,
+                (sit) => this.bloqueo.estaBloqueado(sit),
+            )
+            : null;
+        const gestionarDesde = casoQueGestiona && casoQueGestiona.deudorId !== deudorId
+            ? { ...casoQueGestiona, motivo: motivoGestionEnOtroCaso(casoQueGestiona) }
+            : null;
 
         const otrosCasos = otrosCasosIds.length
             ? await this.prisma.deudor.findMany({
@@ -334,6 +349,7 @@ export class ClavesService {
                     situacion: o.estadoSituacion?.clave ?? null,
                     enGestion: o.estadoGestion?.clave !== 'GES-094',
                 })),
+                gestionarDesde,
                 // Fase 3: se completa cuando exista `configuracion.multiclaves.templateCuponId`.
                 plantillaCuponConfigurada: false,
             },

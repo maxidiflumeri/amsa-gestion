@@ -6,6 +6,63 @@
 
 ---
 
+## [2026-09-25] — Multiclaves: las claves de un trámite se gestionan desde un solo caso
+
+Las claves van por (empresa, trámite), no por remesa. Si el trámite 1234567 estaba en la remesa 200
+(agosto) y vuelve en la 201 (septiembre), las claves de agosto quedan reemplazadas y los dos casos
+ven las de septiembre. Eso dejaba dos huecos: se podía sacar el cupón desde cualquiera de los dos
+casos, y un pago con clave podía no cancelar el caso que tenía el convenio (si al cargar los pagos se
+elegía solo la remesa nueva).
+
+### Backend
+
+- Nuevo [multiclaves/utils/caso-del-tramite.ts](backend/src/modules/multiclaves/utils/caso-del-tramite.ts):
+  el caso que gestiona un trámite es (1) el que tiene un convenio CLAVE_PAGO activo, si no (2) el de
+  la remesa más reciente entre los no cancelados, y si están todos cancelados (3) el más reciente.
+  "Más reciente" es el desempate de pagos (`elegirPorRemesaMasRecienteYId`).
+- [claves.service.ts](backend/src/modules/multiclaves/claves.service.ts): `clavesDelCaso` devuelve
+  `avisos.gestionarDesde` (`null` si este es el caso que gestiona), con el `motivo` a mostrar.
+- [cupon.service.ts](backend/src/modules/multiclaves/cupon.service.ts): `generar` rechaza con 400
+  `CLAVE_DE_OTRO_CASO` desde un caso que no gestiona, y `preview` lo avisa (`puedeGenerar: false`).
+  Se permite reusar un convenio que el caso ya tiene con esa misma clave.
+- [pagos.processor.ts](backend/src/modules/imports/processors/pagos.processor.ts), `candidatosPorClave`:
+  - los criterios de convenio (1: de esta clave exacta; 2: cualquier convenio de clave del trámite)
+    se buscan entre **todos los casos del trámite en la empresa**, no solo en las remesas elegidas.
+    El desempate por remesa sigue acotado a las elegidas;
+  - el anti-duplicados mira **siempre todos los casos del trámite en la empresa**. Bloqueante de la
+    auditoría: con la primera versión, anular el convenio entre dos cargas del mismo archivo hacía
+    que la recarga duplicara el pago en el otro caso;
+  - el criterio 1 ya no toma un convenio cuyo caso dejó de ser del trámite (cambió su `nroCliente`).
+  - un pago MANUAL sin confirmar en otro caso del trámite, cuando el caso elegido tiene el convenio
+    de la clave, se **mueve** a ese caso al confirmarlo (si no, el caso del convenio no se cancelaba:
+    la consolidación mira los pagos del propio caso). Sin convenio queda donde lo cargó el gestor. En
+    los dos casos se re-consolida también el caso de origen.
+- Tests en `pagos.processor.spec.ts` (incluido el escenario del bloqueante), `claves.service.spec.ts`
+  y `cupon.service.spec.ts`.
+
+### Frontend
+
+- [ClavesPagoCard.tsx](frontend/src/components/deudores/ficha/ClavesPagoCard.tsx): con
+  `gestionarDesde`, aviso con el motivo y **Generar cupón** deshabilitado (salvo reuso del propio
+  convenio). Se corrigió el texto del aviso "este trámite está en otro caso".
+
+### Auditoría
+
+1 bloqueante (duplicación al recargar tras anular el convenio) y 3 importantes: no se podía pasar de
+QUITA a TOTAL desde ningún caso, `gestionarDesde` podía apuntar a un caso cancelado, y la vista
+previa no conocía la regla. Todos corregidos. La re-auditoría encontró el pago MANUAL confirmado en el caso equivocado
+(corregido, ver arriba) y dejó dos menores abiertos: sin convenio, la ficha (más reciente no
+cancelado, en todas las remesas) y los pagos (más reciente entre las remesas elegidas, sin mirar
+situación) pueden elegir casos distintos; y con datos viejos, dos convenios de clave activos del mismo
+trámite en casos distintos. Pendiente: medir en prod cuántos convenios CLAVE_PAGO
+activos están hoy en un caso que no es el más nuevo de su trámite (la consulta no se pudo correr).
+
+### Docs
+
+- `docs/multiclaves-spec.md` (§10.3c y changelog del spec) y ayuda `02-gestion/05-cupones-de-pago.md`.
+
+---
+
 ## [2026-09-25] — Contactos y Enriquecimiento aceptan varias remesas origen
 
 Pagos y Facturas ya dejaban elegir varias remesas origen (el archivo del cedente cubre varias

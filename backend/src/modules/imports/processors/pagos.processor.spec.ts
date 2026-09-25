@@ -452,8 +452,13 @@ function makeCtxConClaves(opts: {
             },
             convenio: {
                 findFirst: jest.fn().mockImplementation(({ where }: any) => {
-                    const ids: number[] = where.deudorId?.in ?? [];
-                    const match = conveniosActivos.find((c) => ids.includes(c.deudorId) && (where.origen === undefined || c.origen === where.origen));
+                    // El criterio 1 busca por `clavePagoId` en toda la empresa (sin `deudorId`); el
+                    // criterio 2, por origen dentro de los candidatos.
+                    const ids: number[] | undefined = where.deudorId?.in;
+                    const match = conveniosActivos.find((c) =>
+                        (ids === undefined || ids.includes(c.deudorId)) &&
+                        (where.clavePagoId === undefined || c.clavePagoId === where.clavePagoId) &&
+                        (where.origen === undefined || c.origen === where.origen));
                     return Promise.resolve(match ? { deudorId: match.deudorId } : null);
                 }),
             },
@@ -583,6 +588,71 @@ describe('PagosProcessor — pago con clave de pago (multiclaves, §10.3)', () =
             await p.processRow({ nro_cliente: '1981517609', importe: 15500, fecha: '2026-09-10', nroConvenio: '96234420' } as any, ctx);
             expect(pagos[0].deudorId).toBe(20);
         }
+    });
+
+    // Trámite en la remesa vieja (caso 30) y en la nueva (caso 40); se eligió solo la nueva. La
+    // secuencia de respuestas es: casos dentro de las remesas de origen, después todos los del trámite.
+    const TRAMITE_EN_DOS_REMESAS = { '1981517609': [[40], [30, 40]] };
+    const FILA_CON_CLAVE = { nro_cliente: '1981517609', importe: 15500, fecha: '2026-09-10', nroConvenio: '96234420' };
+
+    it('el convenio de la clave está en un caso FUERA de las remesas elegidas: el pago va a ese caso', async () => {
+        // Antes el pago caía en 40 y el caso del convenio no se cancelaba.
+        const { ctx, pagos } = makeCtxConClaves({
+            claves: [{ nroConvenio: '96234420', empresaId: 19, nroTramite: '1981517609' }],
+            candidatosPorTramite: TRAMITE_EN_DOS_REMESAS,
+            conveniosActivos: [{ deudorId: 30, clavePagoId: 1000, origen: 'CLAVE_PAGO' }],
+        });
+        const p = new PagosProcessor();
+
+        await p.processRow({ ...FILA_CON_CLAVE } as any, ctx);
+        await p.processRow({ ...FILA_CON_CLAVE } as any, ctx); // recargar no duplica
+
+        expect(pagos).toHaveLength(1);
+        expect(pagos[0].deudorId).toBe(30);
+    });
+
+    it('el convenio de OTRA clave del trámite fuera de las remesas elegidas también se lleva el pago', async () => {
+        // Es el caso desde el que se gestionan las claves del trámite (criterio 2, toda la empresa).
+        const { ctx, pagos } = makeCtxConClaves({
+            claves: [{ nroConvenio: '96234420', empresaId: 19, nroTramite: '1981517609' }],
+            candidatosPorTramite: TRAMITE_EN_DOS_REMESAS,
+            conveniosActivos: [{ deudorId: 30, clavePagoId: 999, origen: 'CLAVE_PAGO' }],
+        });
+        const p = new PagosProcessor();
+
+        await p.processRow({ ...FILA_CON_CLAVE } as any, ctx);
+
+        expect(pagos[0].deudorId).toBe(30);
+    });
+
+    it('sin convenio, el pago queda en las remesas elegidas aunque el trámite esté en otra', async () => {
+        const { ctx, pagos } = makeCtxConClaves({
+            claves: [{ nroConvenio: '96234420', empresaId: 19, nroTramite: '1981517609' }],
+            candidatosPorTramite: TRAMITE_EN_DOS_REMESAS,
+        });
+        const p = new PagosProcessor();
+
+        await p.processRow({ ...FILA_CON_CLAVE } as any, ctx);
+
+        expect(pagos[0].deudorId).toBe(40);
+    });
+
+    it('BLOQUEANTE de la auditoría: anular el convenio entre dos cargas NO duplica el pago en el otro caso', async () => {
+        const conveniosActivos = [{ deudorId: 30, clavePagoId: 1000, origen: 'CLAVE_PAGO' }];
+        const { ctx, pagos } = makeCtxConClaves({
+            claves: [{ nroConvenio: '96234420', empresaId: 19, nroTramite: '1981517609' }],
+            candidatosPorTramite: { '1981517609': [[40], [30, 40], [40], [30, 40]] },
+            conveniosActivos,
+        });
+        const p = new PagosProcessor();
+
+        await p.processRow({ ...FILA_CON_CLAVE } as any, ctx);
+        expect(pagos[0].deudorId).toBe(30);
+
+        conveniosActivos.length = 0; // el operador anula el convenio
+        await p.processRow({ ...FILA_CON_CLAVE } as any, ctx); // y se recarga el mismo archivo
+
+        expect(pagos).toHaveLength(1);
     });
 
     it('sin candidatos en la remesa origen pero sí fuera: usa ese caso (aviso, no error)', async () => {
@@ -738,6 +808,29 @@ describe('PagosProcessor — BLOQUEANTE: recargar con trámite en varios casos N
         expect(pagos[0].deudorId).toBe(20);
     });
 
+    it('el pago MANUAL de otro caso se mueve al caso del convenio de la clave, y se consolidan los dos', async () => {
+        // Hallazgo de la auditoría del 2026-09-25: confirmado en el caso 30, el caso del convenio (40)
+        // no se cancelaba nunca, porque la consolidación mira los pagos del propio caso.
+        const { ctx, pagos } = makeCtxConClaves({
+            claves: [{ nroConvenio: '96234420', empresaId: 19, nroTramite: '1981517609' }],
+            candidatosPorTramite: { '1981517609': [[40], [30, 40]] },
+            conveniosActivos: [{ deudorId: 40, clavePagoId: 1000, origen: 'CLAVE_PAGO' }],
+        });
+        pagos.push({
+            id: 777, deudorId: 30, origen: 'MANUAL', confirmadoImport: false,
+            importe: 15500, fecha: new Date('2026-09-09'),
+        });
+        const p = new PagosProcessor();
+
+        await p.processRow({ nro_cliente: '1981517609', importe: 15500, fecha: '2026-09-10', nroConvenio: '96234420' } as any, ctx);
+
+        expect(ctx.prisma.pago.create).not.toHaveBeenCalled();
+        expect(ctx.prisma.pago.update).toHaveBeenCalledWith(
+            expect.objectContaining({ where: { id: 777 }, data: expect.objectContaining({ deudorId: 40, confirmadoImport: true }) }),
+        );
+        expect([...(p as any).processedDeudorIds].sort()).toEqual([30, 40]);
+    });
+
     it('el pago MANUAL del OTRO caso del trámite se confirma, no se duplica', async () => {
         // Hallazgo de la re-auditoría: el claim miraba solo el caso elegido. El gestor registra el
         // pago a mano en el caso que tiene abierto (10) y el desempate elige el otro (20): el import
@@ -770,6 +863,9 @@ describe('PagosProcessor — BLOQUEANTE: recargar con trámite en varios casos N
                 data: expect.objectContaining({ confirmadoImport: true, referenciaClave: '96234420' }),
             }),
         );
+        // Sin convenio no se mueve: queda en el caso donde lo cargó el gestor, y ese se consolida.
+        expect(ctx.prisma.pago.update.mock.calls[0][0].data.deudorId).toBeUndefined();
+        expect((p as any).processedDeudorIds.has(10)).toBe(true);
     });
 
     it('con el pago MANUAL en el caso elegido se confirma ese, no el del gemelo', async () => {
