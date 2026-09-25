@@ -1,9 +1,8 @@
 # Certificado TLS de `neotel.anamayasa.com` — renovación y estrategia
 
-> Estado al **2026-09-24**: **vencido**. Venció ese día a las 17:53 UTC y todavía no se renovó.
-> Este documento se escribió desde la PC del trabajo. En esta máquina **no hay rastros** de cómo se
-> generó el certificado original. La renovación y la decisión de estrategia se retoman desde la
-> notebook personal, donde probablemente se generó el certificado anterior.
+> Estado al **2026-09-25**: **renovado en la notebook, falta que Neotel lo instale.** El anterior venció
+> el 2026-09-24 a las 17:53 UTC. El nuevo vence el **2026-12-24 14:17 UTC**. Renovarlo antes del
+> **2026-11-24**.
 
 ---
 
@@ -52,67 +51,56 @@ $ dig +short neotel.anamayasa.com
 200.5.98.203          ← IP de Neotel (sip.anamayasa.com también apunta ahí, sin uso)
 ```
 
-### Lo que NO sabemos (a resolver en la notebook)
+### Cómo se generó (resuelto el 2026-09-25, desde la notebook)
 
-- **Con qué herramienta se generó**: certbot, certbot en Docker, acme.sh o lego. ¿Validación
-  automática por Route 53 con credenciales de AWS, o manual (`--manual`, cargando el TXT a mano)?
-- **Dónde quedaron los archivos**: el directorio `letsencrypt/` o equivalente, con la cuenta ACME y la
-  configuración de renovación. Si existe, `certbot renew` puede alcanzar.
-- **Cómo se le entregaron a Neotel**: mail, SFTP, WhatsApp. En qué formato (PEM separado, PKCS#12) y
-  quién los instaló de su lado.
-- **Qué software sirve el 8443** en su servidor: Tomcat, nginx, IIS, el propio Asterisk. Define qué
-  formato necesitan y si pueden correr certbot ahí.
-
-**Primera tarea en la notebook:** buscar en el historial de la shell (`~/.bash_history`,
-`~/.zsh_history`), en la memoria/sesiones de Claude Code y en el disco (`find ~ -name "*fullchain*"
--o -name "*.pfx"`, `~/letsencrypt`, `~/.acme.sh`, `/etc/letsencrypt`) y completar esta sección.
+- **Herramienta:** `certbot` + plugin `certbot-dns-route53`, instalado en un venv de Python. Validación
+  **DNS-01 automática** contra la zona Route 53 `anamayasa.com` (`Z0703008GHG4KW4WNMNP`), con las
+  credenciales del perfil AWS `amsa-gestion`. Clave ECDSA P-256 (el default de certbot).
+- **Archivos:** en la notebook, `~/certs-neotel/`: `neotel.anamayasa.com.crt`, `.key`, `-chain.crt`,
+  `-fullchain.crt`, `.pfx` y un `.zip` con todo. La contraseña del `.pfx` está en `PFX_PASSWORD.txt`
+  del mismo directorio (es la misma de junio). Los vencidos quedaron en `vencidos-2026-09-24/`.
+- **Config de certbot:** en junio vivía en un directorio temporal y se perdió. Desde el 2026-09-25 está
+  en `~/certs-neotel/letsencrypt/` (cuenta ACME, `renewal/`, `live/`), así que alcanza con
+  `certbot renew`.
+- **Qué sirve el 8443:** **IIS 10** (`Server: Microsoft-IIS/10.0`) en WEB1 (`90.0.0.8`). El Meraki
+  reenvía `8443` público → `90.0.0.8:443`, y el **puerto 80 público ya llega al mismo IIS**
+  (`http://neotel.anamayasa.com/.well-known/acme-challenge/x` responde un 404 de IIS). Verificado el
+  2026-09-25.
+- **Todavía sin confirmar:** cómo se entregó en junio y quién lo instaló del lado de Neotel.
 
 ---
 
-## 2. Renovación inmediata (manual)
+## 2. Renovación manual (la receta que funciona)
 
-Mientras se define la estrategia de largo plazo, hay que sacar un certificado nuevo **ya**. El dominio
-apunta a la IP de Neotel, así que **la validación por HTTP no se puede hacer desde nuestro lado**: se
-valida por DNS (DNS-01), con un registro TXT `_acme-challenge.neotel.anamayasa.com` en Route 53.
-
-### Opción A — automática con credenciales de AWS
+El dominio apunta a la IP de Neotel, así que **no se puede validar por HTTP desde nuestro lado**: se
+valida por DNS (DNS-01) y certbot crea y borra solo el TXT `_acme-challenge.neotel.anamayasa.com` en
+Route 53. Desde la notebook:
 
 ```bash
-mkdir -p ~/certs/neotel && cd ~/certs/neotel
-docker run --rm -it \
-  -v "$PWD/le:/etc/letsencrypt" \
-  -e AWS_ACCESS_KEY_ID=... -e AWS_SECRET_ACCESS_KEY=... \
-  certbot/dns-route53 certonly --dns-route53 \
-  -d neotel.anamayasa.com \
-  -m maxidiflumeri@gmail.com --agree-tos -n
+# 1. certbot (una vez; el venv puede estar en cualquier lado)
+python3 -m venv ~/certbot-venv && ~/certbot-venv/bin/pip install certbot certbot-dns-route53
+
+# 2. credenciales de AWS del perfil amsa-gestion
+eval "$(aws configure export-credentials --profile amsa-gestion --format env)"
+
+# 3. renovar (usa la config guardada en ~/certs-neotel/letsencrypt)
+D=~/certs-neotel/letsencrypt
+~/certbot-venv/bin/certbot renew --config-dir $D/config --work-dir $D/work --logs-dir $D/logs
+#    si ese directorio se perdió, emitir de cero:
+#    certbot certonly --dns-route53 -d neotel.anamayasa.com -m maxidiflumeri@gmail.com \
+#      --agree-tos -n --config-dir $D/config --work-dir $D/work --logs-dir $D/logs
+
+# 4. exportar en los formatos que se le entregan a Neotel
+cd ~/certs-neotel && L=letsencrypt/config/live/neotel.anamayasa.com && N=neotel.anamayasa.com
+cp -L $L/cert.pem $N.crt; cp -L $L/chain.pem $N-chain.crt; cp -L $L/fullchain.pem $N-fullchain.crt
+install -m 600 "$(readlink -f $L/privkey.pem)" $N.key
+openssl pkcs12 -export -in $N.crt -certfile $N-chain.crt -inkey $N.key -name $N \
+  -out $N.pfx -passout file:PFX_PASSWORD.txt
 ```
-
-Si ya existe el directorio `le/` de la vez anterior, montarlo y usar `renew` en lugar de `certonly`.
-
-### Opción B — manual, sin credenciales de AWS
-
-```bash
-docker run --rm -it -v "$PWD/le:/etc/letsencrypt" certbot/certbot certonly \
-  --manual --preferred-challenges dns -d neotel.anamayasa.com \
-  -m maxidiflumeri@gmail.com --agree-tos
-```
-
-certbot muestra un valor. Crear en la consola de Route 53 el TXT
-`_acme-challenge.neotel.anamayasa.com` con ese valor (TTL 60), esperar a que propague
-(`dig +short TXT _acme-challenge.neotel.anamayasa.com`) y recién ahí dar Enter.
 
 ### Resultado y entrega
 
-```
-le/live/neotel.anamayasa.com/fullchain.pem   ← certificado + intermedio
-le/live/neotel.anamayasa.com/privkey.pem     ← clave privada (secreta)
-```
-
-Si piden PKCS#12 (típico en Tomcat/IIS):
-
-```bash
-openssl pkcs12 -export -in fullchain.pem -inkey privkey.pem -out neotel.pfx -name neotel
-```
+Se entregan `.crt`, `.key`, `-chain.crt`, `-fullchain.crt` y `.pfx`, los mismos que en junio.
 
 - **La clave privada no va por mail común.** Usar un canal cifrado, o un `.zip`/`.pfx` con contraseña
   y la contraseña por otro medio.
@@ -149,6 +137,12 @@ solución de fondo es que **quien sirve el certificado lo renueve solo**.
 ### 3.3 Opciones
 
 #### Opción 1 — Neotel renueva solo, validación por HTTP en su servidor ⭐ la más simple
+
+> **Actualización 2026-09-25:** es viable **sin tocar nada de red**. El servidor es IIS 10 y el puerto
+> 80 público ya le llega. En Windows/IIS el cliente estándar es **[win-acme](https://www.win-acme.com/)**
+> (`wacs.exe`): valida por HTTP-01 contra el sitio de IIS, instala el certificado, actualiza el binding
+> del 443 y crea una tarea programada que lo renueva sola. Es un solo trabajo de instalación de su
+> lado, unos 15 minutos.
 
 `neotel.anamayasa.com` ya apunta a su IP. Si abren el **puerto 80** hacia ese servidor, corren `certbot`
 (o el cliente ACME que soporte su stack) con validación HTTP-01, y se renueva solo cada ~60 días con
@@ -264,9 +258,10 @@ mail de alarmas. Es secundario a lo de CloudWatch.
 > Venció el 24/09 y queremos que no vuelva a pasar, así que les proponemos que se renueve
 > automáticamente en su servidor:
 >
-> 1. **Opción preferida:** que corran `certbot` (u otro cliente ACME) en el servidor, con validación
->    HTTP. El dominio ya apunta a su IP (200.5.98.203); solo necesitaría el **puerto 80** abierto hacia
->    ese servidor y un hook que recargue el servicio del 8443 al renovar.
+> 1. **Opción preferida:** instalar [win-acme](https://www.win-acme.com/) en el servidor IIS que sirve
+>    `neotel.anamayasa.com` y emitir el certificado con validación HTTP. El dominio ya apunta a su IP
+>    (200.5.98.203) y el puerto 80 ya llega a ese IIS, así que no hay que cambiar nada de red. win-acme
+>    instala el certificado en el binding HTTPS y deja una tarea programada que lo renueva sola.
 > 2. **Si no pueden abrir el 80:** validación DNS delegada. Creamos en nuestro DNS un CNAME de
 >    `_acme-challenge.neotel.anamayasa.com` hacia un DNS de ustedes (por ejemplo, acme-dns), y renuevan
 >    sin depender de nosotros.
@@ -274,7 +269,6 @@ mail de alarmas. Es secundario a lo de CloudWatch.
 >    validación, para que usen `certbot --dns-route53`.
 >
 > Para avanzar nos ayudaría saber:
-> - Qué software sirve el puerto 8443 y en qué formato necesita el certificado (PEM / PKCS#12).
 > - Cuál de las tres opciones les resulta más viable.
 > - Quién de su lado sería el contacto técnico.
 >
@@ -286,10 +280,9 @@ mail de alarmas. Es secundario a lo de CloudWatch.
 
 ## 6. Plan de acción
 
-- [ ] **Notebook:** averiguar cómo se generó el certificado anterior y completar la sección 1
-      ("Lo que NO sabemos").
-- [ ] **Hoy:** renovar a mano (sección 2), entregarlo a Neotel por canal seguro, verificar con
-      `openssl s_client` y anotar el nuevo vencimiento acá.
+- [x] **Notebook:** averiguar cómo se generó el certificado anterior (sección 1).
+- [x] Renovar a mano (sección 2). Emitido el 2026-09-25, vence el **2026-12-24**.
+- [ ] Entregárselo a Neotel por canal seguro y verificar con `openssl s_client` que el 8443 lo sirve.
 - [ ] Revisar y afinar el borrador del mail (sección 5) con lo que se sepa de la notebook, y enviarlo.
 - [ ] Implementar la alarma de vencimiento (sección 4) en `infra/terraform/`.
 - [ ] Cuando Neotel responda: implementar la opción elegida (y, si es la 2 o la 3, el registro/usuario
