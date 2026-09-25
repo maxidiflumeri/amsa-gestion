@@ -130,7 +130,9 @@ de ejecutar.
 
 ## Contactos
 
-Teléfonos, mails y domicilios de casos ya cargados. Pide remesa origen.
+Teléfonos, mails y domicilios de casos ya cargados. Pide remesa origen, y podés elegir varias: si
+la persona está en más de una de las elegidas, el contacto se carga en todos sus casos. Enriquecimiento
+funciona igual.
 
 Los teléfonos se **normalizan** a formato internacional. Un número al que no se le puede deducir la
 característica **se descarta en silencio**: no aparece como error. Si el cedente manda números locales

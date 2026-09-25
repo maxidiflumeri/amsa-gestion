@@ -32,9 +32,9 @@ export interface ProcessContext {
     /** ID de la remesa de deudores a la que se vincula (para FACTURAS, CONTACTOS, PAGOS) */
     remesaOrigenId?: number;
     /**
-     * PAGOS: varias remesas de deudores origen para una sola corrida. Permite que un archivo
-     * de pagos que abarca toda la empresa (N remesas) se procese una sola vez en vez de N.
-     * Si viene con elementos, el deudor se busca por nroCliente en cualquiera de esas remesas.
+     * PAGOS, FACTURAS, CONTACTOS y ENRIQUECIMIENTO: varias remesas de deudores origen para una
+     * sola corrida. Permite que un archivo que abarca toda la empresa (N remesas) se procese una
+     * sola vez en vez de N. Si viene con elementos, el caso se busca en cualquiera de esas remesas.
      * Si está vacío/ausente, se usa `remesaOrigenId` (comportamiento clásico de una sola remesa).
      */
     remesaOrigenIds?: number[];

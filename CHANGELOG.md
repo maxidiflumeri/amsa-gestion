@@ -6,6 +6,48 @@
 
 ---
 
+## [2026-09-25] — Contactos y Enriquecimiento aceptan varias remesas origen
+
+Pagos y Facturas ya dejaban elegir varias remesas origen (el archivo del cedente cubre varias
+asignaciones, o una carga se dividió en N remesas). Contactos y Enriquecimiento seguían con una sola y
+había que correr el mismo archivo una vez por remesa.
+
+### Backend
+
+- Nuevo [utils/deudores-del-contacto.ts](backend/src/modules/imports/utils/deudores-del-contacto.ts):
+  `deudoresDelContacto` busca el caso en cualquiera de las remesas elegidas (documento primero, Nº de
+  cliente como fallback, igual que antes) y devuelve **todos** los que coinciden. A diferencia de
+  facturas —que van al caso de la remesa más reciente—, un contacto es de la persona: si está en dos de
+  las remesas elegidas, se carga en los dos casos. Con una sola remesa origen el resultado es el de
+  siempre.
+- [contactos.processor.ts](backend/src/modules/imports/processors/contactos.processor.ts) y
+  [enriquecimiento.processor.ts](backend/src/modules/imports/processors/enriquecimiento.processor.ts)
+  lo usan: bloques repetitivos y contacto principal van a cada caso encontrado; la normalización
+  (Georef incluido) se hace una sola vez por fila. Se reemplazaron los `$queryRaw ... LIMIT 1`.
+- No hizo falta tocar controller/service/worker: `remesaOrigenIds` ya viajaba hasta el `ProcessContext`
+  para cualquier categoría.
+- Test: `deudores-del-contacto.spec.ts`.
+
+### Frontend
+
+- [ImportWizard.tsx](frontend/src/pages/ImportWizard.tsx): `multiOrigen` incluye `CONTACTOS` y
+  `ENRIQUECIMIENTO`, así que muestran el selector múltiple (con "Seleccionar todas" / "Limpiar").
+
+### Decisiones
+
+- **Actualizaciones queda con una sola remesa.** La remesa origen es "la cartera": ahí crea los casos
+  nuevos y sobre ella calcula los ausentes (desasignación GES-094 / "pagó todo"). Con varias no hay
+  destino obvio para las altas y el radio de una desasignación equivocada crece. Si hace falta, se
+  diseña aparte.
+- Acciones masivas sigue con remesa opcional única (sin elegir = toda la empresa).
+- Multiclaves no pide remesa origen: la clave se guarda por (empresa, trámite).
+
+### Docs
+
+- Ayuda: `03-importacion/01-como-funciona.md`, `02-categorias.md` y `05-importar-un-archivo.md`.
+
+---
+
 ## [2026-09-16] — Multiclaves: despliegue de las fases 3 y 4a, cierre de la 4b y limpieza de TELECOM
 
 Operación sobre producción, sin cambios de código salvo este registro y el spec.

@@ -66,11 +66,16 @@ ahí**.
 > al menos un caso vivo (ni cancelado ni desasignado). Si necesitás una cartera ya cerrada, apagá el
 > switch.
 
-> **En Pagos y en Facturas podés elegir varias remesas origen a la vez.** Sirve cuando el archivo
-> del cedente cubre varias asignaciones, y cuando una carga se dividió en varias remesas sobre el
-> mismo archivo: una sola corrida las cubre todas, en vez de correr el mismo archivo una vez por
-> remesa. Con **Seleccionar todas** marcás de una las que están en gestión, y con **Limpiar** las
-> destildás todas.
+> **En Pagos, Facturas, Contactos y Enriquecimiento podés elegir varias remesas origen a la vez.**
+> Sirve cuando el archivo del cedente cubre varias asignaciones, y cuando una carga se dividió en
+> varias remesas sobre el mismo archivo: una sola corrida las cubre todas, en vez de correr el mismo
+> archivo una vez por remesa. Con **Seleccionar todas** marcás de una las que están en gestión, y con
+> **Limpiar** las destildás todas. Si la misma persona está en dos de las remesas elegidas, una
+> factura o un pago van a un solo caso, pero un contacto se carga en **todos** sus casos.
+>
+> **Actualizaciones admite una sola remesa**: la toma como la cartera, así que ahí crea los casos
+> nuevos y sobre ella decide a quién desasignar. Si el archivo cubre varias, se corre una vez por
+> remesa (ver Actualizaciones).
 
 > **Acciones masivas sin remesa elegida actúa sobre toda la empresa.** Es deliberado y es potente:
 > tenelo presente antes de confirmar.

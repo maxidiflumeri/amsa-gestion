@@ -1,6 +1,6 @@
 // processors/enriquecimiento.processor.ts
 import { ICategoryProcessor, MappedRow, ProcessContext, RowValidationResult } from './processor.interface';
-import { Prisma } from '@prisma/client';
+import { deudoresDelContacto } from '../utils/deudores-del-contacto';
 import { clearContactoImportCaches, prepararContactoImport } from '../utils/contacto-import';
 import { procesarBloquesDeudor } from '../utils/procesar-bloques';
 
@@ -34,45 +34,19 @@ export class EnriquecimientoProcessor implements ICategoryProcessor {
         const nroCliente = String(row.nro_cliente ?? '').trim();
         const documento = String(row.documento ?? '').trim();
 
-        const targetRemesaId = ctx.remesaOrigenId ?? ctx.remesaId;
+        // Puede haber varias remesas origen y la persona estar en más de una: el contacto va a
+        // todos sus casos (ver `deudoresDelContacto`).
+        const deudorIds = await deudoresDelContacto(documento, nroCliente, ctx);
 
-        let deudorRows: { id: number }[] = [];
-
-        if (documento) {
-            deudorRows = await ctx.prisma.$queryRaw<{ id: number }[]>(
-                Prisma.sql`
-                    SELECT id
-                    FROM deudor
-                    WHERE empresaId = ${ctx.empresaId}
-                      AND remesaId = ${targetRemesaId}
-                      AND documento = ${documento}
-                    LIMIT 1
-                `,
-            );
-        }
-
-        if (!deudorRows.length && nroCliente) {
-            deudorRows = await ctx.prisma.$queryRaw<{ id: number }[]>(
-                Prisma.sql`
-                    SELECT id
-                    FROM deudor
-                    WHERE empresaId = ${ctx.empresaId}
-                      AND remesaId = ${targetRemesaId}
-                      AND nroCliente = ${nroCliente}
-                    LIMIT 1
-                `,
-            );
-        }
-
-        if (!deudorRows.length) {
+        if (!deudorIds.length) {
             const usingStr = documento ? `documento=${documento}` : `nro_cliente=${nroCliente}`;
-            throw new Error(`Deudor no encontrado para enriquecimiento (${usingStr}) en la remesa destino`);
+            throw new Error(`Deudor no encontrado para enriquecimiento (${usingStr}) en las remesas elegidas`);
         }
 
-        const deudor = deudorRows[0];
-
-        // Bloques repetitivos del archivo → al deudor encontrado (aunque no haya contacto principal).
-        await procesarBloquesDeudor(deudor.id, row._blocks, ctx);
+        // Bloques repetitivos del archivo → a cada caso encontrado (aunque no haya contacto principal).
+        for (const deudorId of deudorIds) {
+            await procesarBloquesDeudor(deudorId, row._blocks, ctx);
+        }
 
         const prep = await prepararContactoImport({
             tipo: row.tipo,
@@ -86,26 +60,28 @@ export class EnriquecimientoProcessor implements ICategoryProcessor {
 
         if (!prep) return;
 
-        await ctx.prisma.contacto.upsert({
-            where: {
-                deudorId_tipo_valor: {
-                    deudorId: deudor.id,
+        for (const deudorId of deudorIds) {
+            await ctx.prisma.contacto.upsert({
+                where: {
+                    deudorId_tipo_valor: {
+                        deudorId,
+                        tipo: prep.tipo,
+                        valor: prep.valor,
+                    },
+                },
+                create: {
+                    deudorId,
                     tipo: prep.tipo,
                     valor: prep.valor,
+                    validado: prep.validado,
+                    subtipo: row.subtipo ? String(row.subtipo) : null,
                 },
-            },
-            create: {
-                deudorId: deudor.id,
-                tipo: prep.tipo,
-                valor: prep.valor,
-                validado: prep.validado,
-                subtipo: row.subtipo ? String(row.subtipo) : null,
-            },
-            update: {
-                validado: prep.validado,
-                ...(row.subtipo ? { subtipo: String(row.subtipo) } : {}),
-            },
-        });
+                update: {
+                    validado: prep.validado,
+                    ...(row.subtipo ? { subtipo: String(row.subtipo) } : {}),
+                },
+            });
+        }
     }
 
     async afterAll(_ctx: ProcessContext): Promise<void> {

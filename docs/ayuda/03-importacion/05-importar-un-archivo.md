@@ -57,7 +57,7 @@ Actualizaciones). Es contra qué cartera se van a buscar los casos.
 > Viene activado el switch **"Solo remesas en gestión"**: se listan las que todavía tienen al menos
 > un caso vivo (ni cancelado ni desasignado). Apagalo si necesitás una cartera ya cerrada.
 
-> En **Pagos** y en **Facturas** podés marcar **varias** remesas a la vez: el archivo del cedente
+> En **Pagos**, **Facturas**, **Contactos** y **Enriquecimiento** podés marcar **varias** remesas a la vez: el archivo del cedente
 > suele cubrir varias asignaciones —y una carga dividida deja varias remesas sobre el mismo
 > archivo—, así que se cargan todas en una sola corrida en vez de subir el archivo una vez por
 > remesa. Con **Seleccionar todas** marcás de una todas las que estén en gestión, que es lo habitual

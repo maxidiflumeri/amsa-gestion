@@ -129,8 +129,9 @@ export default function ImportWizard() {
     // gestionan hoy, que es a las que se les aplica un archivo de cobros.
     const [soloEnGestion, setSoloEnGestion] = useState(true);
     const [remesaOrigenId, setRemesaOrigenId] = useState<number | null>(null);
-    // PAGOS y FACTURAS: se pueden elegir VARIAS remesas origen (el archivo del cedente cubre varias
-    // asignaciones), así una sola corrida cubre las N remesas en vez de correr el archivo por cada una.
+    // PAGOS, FACTURAS, CONTACTOS y ENRIQUECIMIENTO: se pueden elegir VARIAS remesas origen (el
+    // archivo del cedente cubre varias asignaciones), así una sola corrida cubre las N remesas en
+    // vez de correr el archivo por cada una.
     const [remesaOrigenIds, setRemesaOrigenIds] = useState<number[]>([]);
     // ACCIONES: la remesa origen es OPCIONAL (sin elegir = toda la base de la empresa).
     const esAcciones = categoria === "ACCIONES";
@@ -147,9 +148,10 @@ export default function ImportWizard() {
     // Patrones de nombre de archivo de la plantilla elegida, para reconocer qué archivo es cuál.
     const patronesArchivos = plantillas.find((p) => p.id === selectedPlantilla)
         ?.mappingJson?.multiarchivo?.archivos as Record<string, string> | undefined;
-    // PAGOS y FACTURAS: el archivo del cedente cubre varias asignaciones, así que se pueden elegir
-    // varias remesas origen y cargarlo una sola vez. Las demás categorías siguen con una sola.
-    const multiOrigen = categoria === "PAGOS" || categoria === "FACTURAS";
+    // El archivo del cedente cubre varias asignaciones, así que se pueden elegir varias remesas
+    // origen y cargarlo una sola vez. ACTUALIZACIONES sigue con una sola: toma la remesa como "la
+    // cartera" (ahí crea los casos nuevos y sobre ella calcula los ausentes). ACCIONES también.
+    const multiOrigen = ["PAGOS", "FACTURAS", "CONTACTOS", "ENRIQUECIMIENTO"].includes(categoria);
     const needsOrigen =
         categoria !== "" &&
         categoria !== "DEUDORES" &&
@@ -707,7 +709,7 @@ export default function ImportWizard() {
                             </Box>
                         )}
 
-                        {/* PAGOS y FACTURAS: selector MÚLTIPLE de remesas origen */}
+                        {/* PAGOS, FACTURAS, CONTACTOS y ENRIQUECIMIENTO: selector MÚLTIPLE de remesas origen */}
                         {multiOrigen && (
                             <FormControl fullWidth>
                                 <InputLabel id="remesa-origen-multi-label">
