@@ -1,5 +1,5 @@
 import { ProcessContext } from '../processors/processor.interface';
-import { ContextoCaso, prepararContactoImport } from './contacto-import';
+import { ContextoCaso, normalizarTipoContacto, prepararContactoImport } from './contacto-import';
 
 /**
  * Procesamiento común de "bloques repetitivos" (mapping.blocks → row._blocks).
@@ -182,8 +182,7 @@ function contextoDeBloques(blocks: Bloque[]): ContextoCaso {
 
     for (const b of blocks) {
         if (b?.entity !== 'CONTACTO' || !b.data) continue;
-        const tipo = String(b.data.tipo ?? '').toLowerCase();
-        if ((tipo === 'telefono' || tipo === 'celular' || tipo === 'whatsapp') && b.data.valor) {
+        if (normalizarTipoContacto(b.data.tipo) === 'telefono' && b.data.valor) {
             telefonos.push(String(b.data.valor));
         }
         // Del domicilio alcanza con el primero que traiga CP: los dos de un mismo caso (servicio y

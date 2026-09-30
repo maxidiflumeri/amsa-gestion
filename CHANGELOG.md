@@ -6,6 +6,55 @@
 
 ---
 
+## [2026-09-30] — Tipo de contacto: se normaliza y un valor desconocido ya no carga basura
+
+La plantilla 87 "Enriquecimiento Personal Pay_Tel-mail" (TELECOM_PERSONAL) tenía el tipo fijo del
+teléfono tipeado a mano como `Teléfono`. El backend lo pasaba a minúsculas, no matcheaba `telefono`
+y caía en el passthrough de "red_social u otros": los contactos se guardaban con tipo `teléfono`,
+sin normalizar, y la ficha (que filtra por telefono/email/direccion) no los mostraba. La carga daba
+3296 ok / 0 errores. Los mails del bloque salieron bien porque el bloque usa un desplegable; los
+campos principales tenían un campo de texto libre.
+
+En prod había 5 plantillas así (84, 86, 87 de la empresa 10; 19 de la 15; 24 de la 16: `Teléfono` y
+`Mail`) y 6622 contactos invisibles (3875 `teléfono` + 2028 `mail` en la 10, 30 en la 15, 689 en la
+16). Ojo al buscarlos: la collation de MySQL es insensible a acentos y `tipo = 'telefono'` también
+trae los `teléfono`; hay que comparar con `BINARY`. Preview de reparación: 3565 se convierten,
+2973 son duplicados de un contacto ya bien cargado y 84 no normalizan (celulares sin
+característica, `1111-1111`).
+
+### Backend
+
+- [contacto-import.ts](backend/src/modules/imports/utils/contacto-import.ts): nuevo
+  `normalizarTipoContacto` (sin acentos, minúsculas, alias: `mail`/`e-mail`/`correo` → email,
+  `celular`/`whatsapp`/`movil` → telefono, `domicilio` → direccion). Devuelve null si no lo reconoce
+  y `prepararContactoImport` tira: la fila va a errores en lugar de guardar un contacto invisible.
+  Se acabó el passthrough de cualquier string (solo quedan `red_social` y `otro`, que ofrece el
+  desplegable).
+- Los processors de CONTACTOS y ENRIQUECIMIENTO lo usan en `validateRow` (error claro por fila) y
+  `procesar-bloques` para armar el contexto de teléfonos. ACTUALIZACIONES también, pero ahí un tipo
+  desconocido deja un warn y saltea el contacto: corre en lote y tirar voltearía filas ajenas.
+  Efecto lateral: `celular`/`whatsapp` en ACTUALIZACIONES ahora se guardan como `telefono`.
+- [imports.service.ts](backend/src/modules/imports/imports.service.ts): al crear/editar una
+  plantilla, `canonizarTiposContactoPlantilla` deja los tipos fijos como los manda el desplegable
+  (`TELEFONO`, `EMAIL`, ...) en los campos principales de CONTACTOS/ENRIQUECIMIENTO y en los bloques
+  CONTACTO; si alguno no se reconoce, 400.
+- Tests: `utils/tipo-contacto.spec.ts`.
+
+### Frontend
+
+- [MappingEditor.tsx](frontend/src/components/import/MappingEditor.tsx): el `tipo` de los campos
+  principales de CONTACTOS/ENRIQUECIMIENTO usa el mismo desplegable que los bloques (antes era texto
+  libre). Las plantillas viejas con `Teléfono`/`Mail` se muestran con la opción que corresponde.
+
+### Pendiente en prod
+
+- Corregir las 5 plantillas y reparar los 6622 contactos (scripts con preview y backup; no se
+  corrieron desde la sesión por permisos). Con el deploy las plantillas viejas ya cargan bien,
+  porque la normalización es en runtime.
+- Quedan los 20 contactos basura de CERTERO (empresa 3, tipo = número) del 08/09.
+
+---
+
 ## [2026-09-25] — Multiclaves: las claves de un trámite se gestionan desde un solo caso
 
 Las claves van por (empresa, trámite), no por remesa. Si el trámite 1234567 estaba en la remesa 200

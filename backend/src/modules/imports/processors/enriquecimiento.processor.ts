@@ -1,7 +1,7 @@
 // processors/enriquecimiento.processor.ts
 import { ICategoryProcessor, MappedRow, ProcessContext, RowValidationResult } from './processor.interface';
 import { deudoresDelContacto } from '../utils/deudores-del-contacto';
-import { clearContactoImportCaches, prepararContactoImport } from '../utils/contacto-import';
+import { clearContactoImportCaches, normalizarTipoContacto, prepararContactoImport } from '../utils/contacto-import';
 import { procesarBloquesDeudor } from '../utils/procesar-bloques';
 
 export class EnriquecimientoProcessor implements ICategoryProcessor {
@@ -15,7 +15,10 @@ export class EnriquecimientoProcessor implements ICategoryProcessor {
             return { valid: false, error: 'nro_cliente o documento es requerido para enriquecimiento' };
         }
 
-        const tipoContacto = String(row.tipo || 'telefono').trim().toLowerCase();
+        const tipoContacto = normalizarTipoContacto(row.tipo);
+        if (!tipoContacto) {
+            return { valid: false, error: `Tipo de contacto no reconocido: "${String(row.tipo).trim()}"` };
+        }
         const tieneEstructurada =
             !!(row.direccion_calle || row.direccion_numero || row.direccion_localidad || row.direccion_provincia);
 

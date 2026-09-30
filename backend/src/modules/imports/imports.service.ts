@@ -15,6 +15,7 @@ import { Prisma } from '@prisma/client';
 import { PrismaService } from 'src/prisma/prisma.service';
 import { ClonarPlantillaDto, CreatePlantillaDto, CreateRemesaDto } from './dtos/import.dto';
 import { AnchoFijoConfig, FiltroFila, MappingJson } from './mapping-types';
+import { canonizarTiposContactoPlantilla } from './utils/contacto-import';
 import { getProcessor, getSupportedCategories } from './processors/processor-registry';
 import { importeDePago } from './processors/pagos.processor';
 import { ProcessContext, MappedRow } from './processors/processor.interface';
@@ -81,9 +82,16 @@ export class ImportService {
      * Combinación prohibida: `modoActualizacion=SOLO_DATOS` + `accionAusente=PAGO_TODO`
      * (contradictorio: SOLO_DATOS no reconcilia deuda, así que no puede "marcar como pagó todo").
      */
-    private validarMappingPlantilla(mappingJson: any): void {
+    private validarMappingPlantilla(mappingJson: any, categoria?: string): void {
         const mapping = mappingJson as MappingJson | null | undefined;
         if (!mapping) return;
+        const tiposInvalidos = canonizarTiposContactoPlantilla(mapping, categoria);
+        if (tiposInvalidos.length) {
+            throw new BadRequestException(
+                `Tipo de contacto no reconocido: ${tiposInvalidos.map((t) => `"${t}"`).join(', ')}. ` +
+                'Elegilo del desplegable (Teléfono, Email, Dirección, Red social u Otro).',
+            );
+        }
         if (mapping.modoActualizacion === 'SOLO_DATOS' && mapping.accionAusente === 'PAGO_TODO') {
             throw new BadRequestException(
                 'Modo "Solo datos" es incompatible con la acción de ausentes "Marcar como pagó todo". ' +
@@ -93,7 +101,7 @@ export class ImportService {
     }
 
     async createPlantilla(dto: CreatePlantillaDto) {
-        this.validarMappingPlantilla(dto.mappingJson);
+        this.validarMappingPlantilla(dto.mappingJson, dto.categoria);
         return this.prisma.plantillaimport.create({
             data: {
                 empresaId: dto.empresaId,
@@ -206,7 +214,9 @@ export class ImportService {
         const existing = await this.prisma.plantillaimport.findUnique({ where: { id } });
         if (!existing) throw new NotFoundException('Plantilla no encontrada');
 
-        if (data.mappingJson !== undefined) this.validarMappingPlantilla(data.mappingJson);
+        if (data.mappingJson !== undefined) {
+            this.validarMappingPlantilla(data.mappingJson, data.categoria ?? existing.categoria);
+        }
 
         return this.prisma.plantillaimport.update({
             where: { id },

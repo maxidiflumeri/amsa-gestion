@@ -1,7 +1,7 @@
 // processors/contactos.processor.ts
 import { ICategoryProcessor, MappedRow, ProcessContext, RowValidationResult } from './processor.interface';
 import { deudoresDelContacto } from '../utils/deudores-del-contacto';
-import { clearContactoImportCaches, prepararContactoImport } from '../utils/contacto-import';
+import { clearContactoImportCaches, normalizarTipoContacto, prepararContactoImport } from '../utils/contacto-import';
 import { contextoDelCaso, procesarBloquesDeudor } from '../utils/procesar-bloques';
 
 export class ContactosProcessor implements ICategoryProcessor {
@@ -12,7 +12,10 @@ export class ContactosProcessor implements ICategoryProcessor {
             return { valid: false, error: 'nro_cliente o documento es requerido para contactos' };
         }
 
-        const tipoContacto = String(row.tipo || 'telefono').trim().toLowerCase();
+        const tipoContacto = normalizarTipoContacto(row.tipo);
+        if (!tipoContacto) {
+            return { valid: false, error: `Tipo de contacto no reconocido: "${String(row.tipo).trim()}"` };
+        }
         const tieneEstructurada =
             !!(row.direccion_calle || row.direccion_numero || row.direccion_localidad || row.direccion_provincia);
 
@@ -48,7 +51,7 @@ export class ContactosProcessor implements ICategoryProcessor {
         // El contacto principal usa el mismo contexto que los bloques: si es un teléfono en formato
         // local, el código de área se deduce de los otros teléfonos de la fila o del código postal.
         const contexto = contextoDelCaso(row._blocks);
-        if (row.valor && String(row.tipo ?? 'telefono').toLowerCase() !== 'direccion') {
+        if (row.valor && normalizarTipoContacto(row.tipo) === 'telefono') {
             contexto.telefonos = [...(contexto.telefonos ?? []), String(row.valor)];
         }
         if (!contexto.codigoPostal && row.direccion_cp) contexto.codigoPostal = String(row.direccion_cp);

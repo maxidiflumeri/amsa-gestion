@@ -251,13 +251,25 @@ interface TransformCellProps {
     isContactoTipo?: boolean;
 }
 
+// Plantillas viejas guardaron el tipo tipeado a mano ("Teléfono", "Mail"). Se muestran con la opción
+// del desplegable que les corresponde; al guardar, el backend las deja canónicas.
+const TIPOS_CONTACTO = ["TELEFONO", "EMAIL", "DIRECCION", "RED_SOCIAL", "OTRO"];
+function tipoContactoDelDesplegable(v?: string): string {
+    const k = (v ?? "").trim().normalize("NFD").replace(/[\u0300-\u036f]/g, "").toUpperCase();
+    if (TIPOS_CONTACTO.includes(k)) return k;
+    if (["MAIL", "E-MAIL", "CORREO"].includes(k)) return "EMAIL";
+    return "";
+}
+
 function TransformCell({ field, onChange, isContactoTipo }: TransformCellProps) {
     if (field.fromIndex === -1) {
+        // El tipo de contacto se elige SIEMPRE del desplegable: tipeado a mano, "Teléfono" con acento
+        // no lo reconocía el backend y la carga guardaba contactos que la ficha no muestra.
         if (isContactoTipo) {
             return (
                 <FormControl size="small" fullWidth>
                     <Select
-                        value={field.staticValue || ""}
+                        value={tipoContactoDelDesplegable(field.staticValue)}
                         onChange={(e) => onChange("staticValue", e.target.value)}
                         displayEmpty
                     >
@@ -498,6 +510,10 @@ export default function MappingEditor({
 
     // ─── Desktop: renderFieldRow ──────────────────────────────────────────────
 
+    // En CONTACTOS y ENRIQUECIMIENTO el `tipo` de los campos principales es el tipo de contacto.
+    const esTipoContactoPrincipal = (field: MappingField) =>
+        (categoria === "CONTACTOS" || categoria === "ENRIQUECIMIENTO") && field.destField === "tipo";
+
     const renderFieldRow = (field: MappingField, globalIdx: number) => (
         <TableRow key={globalIdx}>
             <TableCell sx={{ minWidth: 160 }}>
@@ -520,6 +536,7 @@ export default function MappingEditor({
                 <TransformCell
                     field={field}
                     onChange={(key, val) => handleFieldChange(globalIdx, key, val)}
+                    isContactoTipo={esTipoContactoPrincipal(field)}
                 />
             </TableCell>
             <TableCell>
@@ -639,6 +656,7 @@ export default function MappingEditor({
                             <TransformCell
                                 field={field}
                                 onChange={(key, val) => handleFieldChange(globalIdx, key, val)}
+                                isContactoTipo={esTipoContactoPrincipal(field)}
                             />
                         </Box>
                         <Box sx={{ display: "flex", justifyContent: "flex-end" }}>

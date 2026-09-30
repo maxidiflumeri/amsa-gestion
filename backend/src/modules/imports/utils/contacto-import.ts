@@ -41,6 +41,61 @@ function clean(v: any): string {
     return String(v ?? '').trim();
 }
 
+/** Tipos con los que se guarda un contacto. La ficha solo muestra telefono/email/direccion. */
+export type TipoContacto = 'telefono' | 'email' | 'direccion' | 'red_social' | 'otro';
+
+const ALIAS_TIPO_CONTACTO: Record<string, TipoContacto> = {
+    telefono: 'telefono', tel: 'telefono', celular: 'telefono', cel: 'telefono', movil: 'telefono',
+    fijo: 'telefono', whatsapp: 'telefono',
+    email: 'email', mail: 'email', 'e-mail': 'email', correo: 'email',
+    direccion: 'direccion', domicilio: 'direccion',
+    red_social: 'red_social', 'red social': 'red_social', redsocial: 'red_social',
+    otro: 'otro', otros: 'otro',
+};
+
+/**
+ * Lleva el tipo de contacto de una plantilla a su forma canónica: sin acentos, en minúsculas y con
+ * los alias resueltos (`Teléfono` → `telefono`, `Mail` → `email`). Vacío = `telefono`, como siempre.
+ *
+ * Devuelve null si no lo reconoce. Antes un tipo desconocido se guardaba tal cual y la carga daba
+ * "exitoso": la plantilla 87 de Personal tenía `Teléfono` tipeado a mano y dejó 3.875 teléfonos
+ * con tipo `teléfono`, invisibles en la ficha (30/09/2026).
+ */
+export function normalizarTipoContacto(raw: any): TipoContacto | null {
+    const k = clean(raw)
+        .normalize('NFD')
+        .replace(/[\u0300-\u036f]/g, '')
+        .toLowerCase();
+    if (!k) return 'telefono';
+    return ALIAS_TIPO_CONTACTO[k] ?? null;
+}
+
+/** Categorías cuyo `tipo` de los campos principales es el tipo de contacto. */
+const CATEGORIAS_CONTACTO_PRINCIPAL = new Set(['CONTACTOS', 'ENRIQUECIMIENTO']);
+
+/**
+ * Deja canónicos (`TELEFONO`, `EMAIL`, ...: lo que manda el desplegable del wizard) los tipos de
+ * contacto fijos de una plantilla, en los campos principales de CONTACTOS/ENRIQUECIMIENTO y en los
+ * bloques CONTACTO. Modifica `mapping` en el lugar.
+ *
+ * Devuelve los valores que no se reconocen, para rechazar la plantilla al guardarla: es mejor un
+ * 400 en el wizard que una carga "exitosa" que guarda contactos que la ficha no muestra.
+ */
+export function canonizarTiposContactoPlantilla(mapping: any, categoria: string | undefined): string[] {
+    const invalidos: string[] = [];
+    const canonizar = (col: any) => {
+        if (!col || col.fromIndex !== -1 || col.staticValue == null) return;
+        const tipo = normalizarTipoContacto(col.staticValue);
+        if (tipo) col.staticValue = tipo.toUpperCase();
+        else invalidos.push(String(col.staticValue));
+    };
+    if (categoria && CATEGORIAS_CONTACTO_PRINCIPAL.has(categoria)) canonizar(mapping?.columns?.tipo);
+    for (const b of mapping?.blocks ?? []) {
+        if (b?.entity === 'CONTACTO') canonizar(b.columns?.tipo);
+    }
+    return invalidos;
+}
+
 /**
  * Normaliza un contacto de import a su forma canónica.
  * - telefono/whatsapp → E.164 si valida, original si no.
@@ -55,9 +110,12 @@ export async function prepararContactoImport(
     validarDomicilios = false,
     contexto?: ContextoCaso,
 ): Promise<ContactoPreparado | null> {
-    const tipo = clean(data.tipo || 'telefono').toLowerCase();
+    const tipo = normalizarTipoContacto(data.tipo);
+    // Una plantilla con un tipo que no se reconoce no puede cargar nada con sentido: la fila va a
+    // errores en lugar de guardar un contacto que nadie ve. Guardar la plantilla ya lo rechaza.
+    if (!tipo) throw new Error(`Tipo de contacto no reconocido: "${clean(data.tipo)}". Elegilo del desplegable de la plantilla.`);
 
-    if (tipo === 'telefono' || tipo === 'whatsapp' || tipo === 'celular') {
+    if (tipo === 'telefono') {
         const raw = clean(data.valor);
         if (!raw) return null;
         // Se le pasan los otros teléfonos del caso y el CP del domicilio: muchos cedentes mandan el
@@ -138,7 +196,7 @@ export async function prepararContactoImport(
         return { tipo: 'direccion', valor: textoCrudo, validado: false };
     }
 
-    // red_social u otros: pasthrough sin validación
+    // red_social / otro: passthrough sin validación
     const raw = clean(data.valor);
     if (!raw) return null;
     return { tipo, valor: raw, validado: false };

@@ -7,6 +7,7 @@ import { reconciliarSaldo, reconciliarAusente } from '../utils/reconciliar-actua
 import { esDocumentoPlaceholder } from '../utils/documento';
 import { adicionalesEquivalentes, mergeAdicionales } from '../utils/campos-adicionales';
 import { enriquecerContactosHistoricos } from '../utils/enriquecimiento-historico';
+import { normalizarTipoContacto } from '../utils/contacto-import';
 import { AuditModulo, AuditTipo, AuditSeveridad, AuditEstado } from '../../transacciones/audit.enums';
 import { idsSituacionCancelada } from '../utils/situaciones-cerradas';
 
@@ -1052,11 +1053,17 @@ export class ActualizacionesProcessor implements ICategoryProcessor {
     }
 
     private async upsertContacto(deudorId: number, data: any, ctx: ProcessContext): Promise<void> {
-        const tipoContacto = String(data.tipo || 'telefono').trim().toLowerCase();
+        const tipoContacto = normalizarTipoContacto(data.tipo);
+        if (!tipoContacto) {
+            // No se tira: este camino corre dentro del lote y voltearía filas ajenas. Guardar la
+            // plantilla ya rechaza tipos que no se reconocen, así que acá solo llega una vieja.
+            this.logger.warn(`Contacto salteado en deudor ${deudorId}: tipo no reconocido "${String(data.tipo).trim()}"`);
+            return;
+        }
         let valorFinal = String(data.valor).trim();
         let isValidado = false;
 
-        if (['telefono', 'celular', 'whatsapp'].includes(tipoContacto)) {
+        if (tipoContacto === 'telefono') {
             const val = normalizarTelefonoArgentino(valorFinal);
             if (val.valido && val.e164) {
                 valorFinal = val.e164;
