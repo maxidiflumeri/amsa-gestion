@@ -46,11 +46,12 @@ característica, `1111-1111`).
   principales de CONTACTOS/ENRIQUECIMIENTO usa el mismo desplegable que los bloques (antes era texto
   libre). Las plantillas viejas con `Teléfono`/`Mail` se muestran con la opción que corresponde.
 
-### Pendiente en prod
+### Prod (30/09/2026)
 
-- Corregir las 5 plantillas y reparar los 6622 contactos (scripts con preview y backup; no se
-  corrieron desde la sesión por permisos). Con el deploy las plantillas viejas ya cargan bien,
-  porque la normalización es en runtime.
+- Plantillas 19, 24, 84, 86 y 87 corregidas (`TELEFONO` / `EMAIL`).
+- 6622 contactos reparados con el `prepararContactoImport` desplegado: 3565 convertidos (teléfonos a
+  E.164), 3057 borrados (2973 duplicados + 84 que no normalizan). Backup previo en
+  `/app/uploads/_backups/contactos-tipo-mal-escrito-20260930.json`. Control: 0 `teléfono`/`mail`.
 - Quedan los 20 contactos basura de CERTERO (empresa 3, tipo = número) del 08/09.
 
 ---

@@ -110,7 +110,10 @@
       "Read(//proc/sys/net/ipv4/**)",
       "Bash(lsmod)",
       "Read(//home/maxi/infra/**)",
-      "Bash(chmod +x /home/maxi/Documentos/GitHub/amsa-gestion/backend/setup-db.sh)"
+      "Bash(chmod +x /home/maxi/Documentos/GitHub/amsa-gestion/backend/setup-db.sh)",
+      "Bash(./runssm.sh *)",
+      "Bash(/tmp/claude-1000/-home-maxi-Documentos-GitHub-amsa-gestion/55e94e3f-7bd4-4220-ab71-ebad77aff681/scratchpad/runssm.sh *)",
+      "Bash(cd /tmp/claude-1000/-home-maxi-Documentos-GitHub-amsa-gestion/55e94e3f-7bd4-4220-ab71-ebad77aff681/scratchpad && ./runssm.sh *)"
     ],
     "additionalDirectories": [
       "/home/maxi/Documentos/GitHub/amsa-gestion/backend"
