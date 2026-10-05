@@ -1,36 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { RealtimeGateway } from './realtime.gateway';
-
-export interface ImImportIniciadaPayload {
-    remesaId: number;
-    tipo: string;
-    totalFilas: number;
-    usuarioId: number;
-    usuarioNombre: string;
-    startedAt: Date;
-}
-
-export interface ImportProgresoPayload {
-    remesaId: number;
-    progreso: number;
-    okFilas: number;
-    errFilas: number;
-    totalFilas: number;
-    estadoProceso: string;
-    usuarioId: number;
-    usuarioNombre: string;
-}
-
-export interface ImportFinalizadaPayload {
-    remesaId: number;
-    okFilas: number;
-    errFilas: number;
-    totalFilas: number;
-    durationMs: number;
-    estadoProceso: string;
-    usuarioId: number;
-    usuarioNombre: string;
-}
+import type { EstadoCargaDto } from '../imports/progreso/estado-carga.types';
 
 @Injectable()
 export class RealtimeService {
@@ -58,18 +28,32 @@ export class RealtimeService {
         this.emitToRoom(room, event, payload);
     }
 
-    emitImportIniciada(payload: ImImportIniciadaPayload): void {
-        this.emitToUser(payload.usuarioId, 'import:iniciada', payload);
-        this.emitToRoom('admin:importaciones', 'import:iniciada', payload);
+    /**
+     * Una sola emisión a la unión de `user:{usuarioId}` (si la carga tiene dueño) y
+     * `admin:importaciones`: Socket.IO entrega una vez a cada socket aunque esté en las dos salas,
+     * así que el admin que lanzó la carga no recibe todo duplicado. Nunca propaga: un fallo del
+     * socket no puede tumbar una carga.
+     */
+    private emitEstadoCarga(event: string, estado: EstadoCargaDto): void {
+        const salas = estado.usuarioId != null
+            ? [`user:${estado.usuarioId}`, 'admin:importaciones']
+            : ['admin:importaciones'];
+        try {
+            this.gateway.server.to(salas).emit(event, estado);
+        } catch (err: any) {
+            this.logger.warn(`Error emitiendo ${event} de la remesa ${estado.remesaId} — ${err?.message}`);
+        }
     }
 
-    emitImportProgreso(payload: ImportProgresoPayload): void {
-        this.emitToUser(payload.usuarioId, 'import:progreso', payload);
-        this.emitToRoom('admin:importaciones', 'import:progreso', payload);
+    emitImportIniciada(estado: EstadoCargaDto): void {
+        this.emitEstadoCarga('import:iniciada', estado);
     }
 
-    emitImportFinalizada(payload: ImportFinalizadaPayload): void {
-        this.emitToUser(payload.usuarioId, 'import:finalizada', payload);
-        this.emitToRoom('admin:importaciones', 'import:finalizada', payload);
+    emitImportProgreso(estado: EstadoCargaDto): void {
+        this.emitEstadoCarga('import:progreso', estado);
+    }
+
+    emitImportFinalizada(estado: EstadoCargaDto): void {
+        this.emitEstadoCarga('import:finalizada', estado);
     }
 }

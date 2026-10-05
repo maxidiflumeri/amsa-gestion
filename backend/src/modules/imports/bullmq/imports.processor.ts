@@ -1,6 +1,6 @@
 import { Processor, WorkerHost } from '@nestjs/bullmq';
 import { Job } from 'bullmq';
-import { Logger } from '@nestjs/common';
+import { HttpException, Logger } from '@nestjs/common';
 import { nanoid } from 'nanoid';
 import { ImportService } from '../imports.service';
 import { AuditoriaHelper } from '../../transacciones/auditoria.helper';
@@ -49,6 +49,13 @@ export class ImportsProcessor extends WorkerHost {
         remesaOrigenIds,
       );
 
+      // Un job ignorado por las guardas del service (la carga ya terminó, o es un borrador) no es una
+      // importación completada: no se loguea como tal ni se audita un OK.
+      if (result?.ignorado) {
+        this.logger.warn(`Job ignorado remesa=${remesaId} job=${job.id}: la carga no estaba para procesarse`);
+        return result;
+      }
+
       this.logger.log(`Importación completada remesa=${remesaId} job=${job.id}`);
 
       await this.auditoria.log({
@@ -63,7 +70,12 @@ export class ImportsProcessor extends WorkerHost {
 
       return result;
     } catch (error: any) {
-      this.logger.error(`Importación falló remesa=${remesaId} job=${job.id}: ${error?.message}`, error?.stack);
+      // El service ya logueó el stack de las fallas inesperadas: acá una sola línea, y `warn` si es de negocio.
+      if (error instanceof HttpException) {
+        this.logger.warn(`Importación rechazada remesa=${remesaId} job=${job.id}: ${error.message}`);
+      } else {
+        this.logger.error(`Importación falló remesa=${remesaId} job=${job.id}: ${error?.message}`);
+      }
       await this.auditoria.log({
         modulo: AuditModulo.IMPORT,
         entidad: 'Remesa',

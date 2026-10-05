@@ -198,9 +198,10 @@ export class ImportController {
     createRemesa(
         @Body() dto: CreateRemesaDto,
         @UploadedFiles() archivos: { file?: any[]; files?: any[] },
+        @UsuarioActual() user: UsuarioJwt,
     ) {
         const subidos = [...(archivos?.file ?? []), ...(archivos?.files ?? [])];
-        return this.service.createRemesa(dto, subidos);
+        return this.service.createRemesa(dto, subidos, user.sub);
     }
 
     @Get('remesas/empresa/:empresaId')
@@ -318,6 +319,12 @@ export class ImportController {
     @Get('remesas/:id')
     status(@Param('id', ParseIntPipe) id: number) {
         return this.service.status(id);
+    }
+
+    /** Estado liviano de una carga (EstadoCargaDto): lo que consultan los hooks del frontend al hacer polling. */
+    @Get('remesas/:id/progreso')
+    progreso(@Param('id', ParseIntPipe) id: number) {
+        return this.service.progreso(id);
     }
 
     // --- ERRORES ---

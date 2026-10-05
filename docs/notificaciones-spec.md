@@ -23,7 +23,7 @@ Sistema de notificaciones **general y extensible** con UI tipo campanita en el A
 
 ### 3.1 Modelo de datos
 
-Una tabla `notificacion` solo para **eventos discretos** (INICIADA / FINALIZADA / ERROR). El **progreso live NO se persiste** en notificaciones — se sigue leyendo de `remesa` + `jobimport`. El socket "empuja" el progreso, no escribe DB.
+Una tabla `notificacion` solo para **eventos discretos** (INICIADA / FINALIZADA / ERROR). El **progreso live NO se persiste** en notificaciones — se lee de `import_progreso` (una fila por remesa, creada junto con ella; `jobimport` ya no se usa para esto: nunca se escribe). El socket "empuja" lo que ya está escrito en esa tabla, no es la fuente del dato. Ver `docs/imports-progreso-realtime-spec.md` §8.
 
 ```prisma
 enum TipoNotificacion {
@@ -90,11 +90,13 @@ backend/src/modules/realtime/
 |---|---|---|
 | `notificacion:nueva` | `user:${id}` | `{ id, tipo, titulo, mensaje, payload, rutaAccion, creadoEn }` |
 | `notificacion:contador` | `user:${id}` | `{ noLeidas: number }` |
-| `import:iniciada` | `user:${ownerId}` + `admin:importaciones` | `{ remesaId, tipo, totalFilas, usuarioId, usuarioNombre, startedAt }` |
-| `import:progreso` | `user:${ownerId}` + `admin:importaciones` | `{ remesaId, progreso, okFilas, errFilas, totalFilas, estadoProceso, usuarioId, usuarioNombre }` |
-| `import:finalizada` | `user:${ownerId}` + `admin:importaciones` | `{ remesaId, okFilas, errFilas, totalFilas, durationMs, estadoProceso }` |
+| `import:iniciada` | `user:${ownerId}` ∪ `admin:importaciones` | `EstadoCargaDto` completo |
+| `import:progreso` | `user:${ownerId}` ∪ `admin:importaciones` | `EstadoCargaDto` completo |
+| `import:finalizada` | `user:${ownerId}` ∪ `admin:importaciones` | `EstadoCargaDto` completo |
 
-**Throttle de progreso:** 1 evento cada 2s O cada 5% (lo que ocurra primero). Siempre emitir primer y último.
+Los tres eventos de importación llevan una **foto completa** del estado de la carga (`EstadoCargaDto`, ver `backend/src/modules/imports/progreso/estado-carga.types.ts` y `docs/imports-progreso-realtime-spec.md` §8.4), nunca un delta: con cualquiera alcanza para dibujar la carga. Se emiten en **una sola llamada** a la unión de las dos salas (`server.to([...]).emit(...)`), así que un admin que además es el dueño de la carga no recibe todo duplicado. `rev` es estrictamente creciente por remesa y el estado se persiste **antes** de emitirse.
+
+**Throttle de progreso:** en la Fase A no hay throttle: se emite un evento por lote persistido (a lo sumo uno por lote). El throttle (2 s o 5 %) vuelve en la Fase B, dentro del `ProgresoTracker`, cuando haya reportes dentro del lote. `ProgressEmitter` ya no lo usa el import (sí consolidación).
 
 ### 3.3 Endpoints REST
 
@@ -104,9 +106,10 @@ backend/src/modules/realtime/
 | GET | `/notificaciones/contador` | JWT | `{ noLeidas: number }` |
 | POST | `/notificaciones/:id/leer` | JWT + ownership | |
 | POST | `/notificaciones/leer-todas` | JWT | |
-| GET | `/imports/en-curso` | JWT | Filtra por usuario o todas según permiso |
+| GET | `/import/en-curso` | JWT | `EstadoCargaDto[]` de las cargas encoladas y sin terminar (`import_progreso.encoladaAt != null && finishedAt == null`). Filtra por usuario o todas según permiso. Una remesa heredada, sin fila de progreso, nunca figura |
+| GET | `/import/remesas/:id/progreso` | JWT | `EstadoCargaDto` de una carga. Es el que consultan los hooks al hacer polling de respaldo |
 
-Validación "una por usuario" se agrega al endpoint existente que crea/encola la remesa (HTTP 409 `IMPORT_USUARIO_OCUPADO` con transacción `SELECT FOR UPDATE`).
+Validación "una por usuario" en `POST /import/ejecutar/:id`: HTTP 409 con el mensaje "Ya tenés una importación en curso. Esperá a que termine antes de iniciar otra." (sin código de error propio; el mutex es un `SELECT … FOR UPDATE` sobre la fila del usuario dentro de una transacción).
 
 ### 3.4 Permiso nuevo
 
@@ -143,10 +146,10 @@ Comportamiento:
 
 ### 3.6 Riesgos y decisiones operativas
 
-- **Socket caído**: NO polling fallback. Reconexión automática + re-hidratación REST.
+- **Socket caído**: ahora **hay polling de respaldo** (Fase A del progreso en tiempo real). El socket avisa, pero la fuente del dato es HTTP: el cliente re-hidrata al conectar, al volver a la pestaña y por polling mientras hay cargas en curso (`GET /import/en-curso`, `GET /import/remesas/:id/progreso`). Un evento perdido ya no deja la pantalla congelada.
 - **Cleanup**: cron diario que borra leídas > 30 días y no leídas > 180 días (fase 2).
 - **Multi-tab**: out-of-the-box gracias a Socket.IO.
-- **JWT expirado mid-socket**: acceptable; REST devuelve 401 → redirige a login → desconecta socket.
+- **JWT vencido y socket**: el gateway valida el JWT **solo en el handshake**; una conexión viva sobrevive al vencimiento. Si se corta la red o se reinicia el backend, el cliente reconecta con el token vencido: el server acepta la conexión, la rechaza en `handleConnection` y desconecta con motivo `io server disconnect`, ante el cual socket.io-client **no reintenta**. Por eso el polling HTTP de respaldo es obligatorio: su 401 manda a `/login` como cualquier otro pedido.
 - **Race condition crear remesa**: transacción con `SELECT FOR UPDATE` sobre la fila del usuario.
 
 ## 4. Plan de implementación
@@ -390,3 +393,20 @@ npx prisma generate
 
 **Cierre de Fase 4:**
 Con estos fixes, el paso 11 del plan (QA E2E multi-usuario, F5, permisos) queda marcado como `completed`. Sólo resta el paso 12 (cron de cleanup, Fase 2).
+
+### 2026-10-05 — Progreso en tiempo real de las importaciones, Fase A (backend)
+
+Diseño y diagnóstico: `docs/imports-progreso-realtime-spec.md` (§8). Lo que cambia en este documento:
+
+- **Fuente de verdad.** Tabla nueva `import_progreso` (PK = FK a `remesa`, `onDelete: Cascade`), una fila por carga, que escribe solo `ProgresoTracker` durante el job y `ImportService` en el alta, la vista previa y el encolado. `jobimport` no se toca (queda sin uso para el progreso).
+- **Eventos de socket.** `import:iniciada`, `import:progreso` e `import:finalizada` llevan un `EstadoCargaDto` completo (con `rev`, `fase`, `enCurso`, `terminal`, `resultado`, contadores y los alias `okFilas`/`errFilas`/`totalFilas`/`durationMs` para pestañas viejas), en una sola emisión a la unión de `user:{id}` y `admin:importaciones`. Se sacaron las tres interfaces de payload viejas de `RealtimeService`.
+- **Cómo terminó.** `resultado` ∈ OK / CON_ERRORES / CON_ADVERTENCIAS / SIN_FILAS / FALLIDA. `CON_ADVERTENCIAS` significa una sola cosa: las filas se cargaron y el post-proceso (`afterAll`) no terminó.
+- **Notificaciones.** El texto y el tipo salen de `textoNotificacion(estado)`; el resultado viaja en `payload.resultado` (no se tocó el enum `TipoNotificacion`). Una importación con todas las filas en error ya no se notifica como "fallida" sino como "sin filas cargadas"; el mensaje nunca supera los 1000 caracteres de la columna (antes un error largo de Prisma impedía crear la notificación).
+- **"En curso"** pasa a ser `encoladaAt != null && finishedAt == null`: las vistas previas abandonadas (PENDIENTE / VALIDANDO sin confirmar) dejan de figurar en la campanita. Al borrar una remesa se borran sus notificaciones (`entidadTipo = 'REMESA'`) y se re-emite el contador de no leídas de los afectados. Una carga que ya arrancó y no terminó no se puede borrar (400; si el worker la toma entre la lectura y la transacción de borrado, la transacción relee con `FOR UPDATE` y aborta; y si es el borrado el que gana, el worker lo detecta con una relectura después de `iniciar()` y corta sin procesar filas, ni emitir nada más); una encolada que no arrancó sí se puede abortar: se saca su job de la cola (por `import_progreso.jobId`, o buscándolo por `data.remesaId`) o, si el job no existe, se borra directamente; con el job activo, o si la cola no responde dentro del tope de tiempo (`IMPORTS_QUEUE_TIMEOUT_MS`), 400. El chequeo de dueño va antes de cualquier efecto sobre la cola.
+- **Endpoints.** `GET /import/remesas/:id/progreso` (nuevo); `GET /import/en-curso` y `GET /import/remesas/:id` devuelven el estado nuevo; `POST /import/ejecutar/:id` devuelve `carga` y responde 409 si ya fue confirmada, 400 si la vista previa no encontró filas y 503 si no se pudo encolar; `POST /import/validar/:id` responde 409 sobre una carga confirmada.
+- **Un processor por carga.** `getProcessor` devuelve una instancia nueva en cada llamada.
+- **Si el encolado falla**, la remesa vuelve a borrador (`encoladaAt` null, `fase` BORRADOR, el `estadoProceso` que tenía) y responde 503: reintentar "Confirmar e importar" funciona sin volver a subir el archivo. Con Redis caído `queue.add` **no tira: espera** (ioredis reintenta y encola offline, y la conexión compartida con los workers no lleva `commandTimeout` a propósito), así que el 503 normalmente sale por un **tope de tiempo** alrededor del `add` (`IMPORTS_QUEUE_TIMEOUT_MS`, default 10 s, por debajo de los 60 s del ALB); si el `add` entra tarde, el job llega con la remesa en borrador y lo ignora la guarda de `processImportJob`, y no escribe nada. El `job.id` se guarda en `import_progreso.jobId` al encolar.
+- **Guardas al tomar el job** (`processImportJob`): un job sobre una carga ya terminada (FINALIZADA/FALLIDA con `finishedAt`) o sobre un borrador (fila de progreso sin `encoladaAt`: un job fantasma) se ignora con `warn`, sin procesar ni emitir, y devuelve `ignorado: true`; el processor de BullMQ no lo audita como OK. Si la lectura inicial de la remesa falla, la carga se marca FALLIDA con el motivo (sin pisar una ya terminal).
+- **Conteo de avisos.** `advertencias` suma las advertencias de parseo, los avisos de lectura de MULTICLAVES, el fallo del post-proceso y los avisos que escriben los processors (`[aviso] …` de PAGOS y MULTICLAVES), contados después del post-proceso en `importerror` con `rowNumber = 0` y prefijo `[aviso]` / `[parseo]` / `[post-proceso]` (los errores de fila de cargas con varios archivos también empiezan con `[`, pero con el archivo y la línea). Lo que el runner ya contó no se cuenta doble, y el truncado a 500 sigue diciendo el total real.
+- **`servidorAhora`** (campo nuevo de `EstadoCargaDto`): hora del servidor (ISO 8601 UTC) al armar el DTO, en los tres eventos y en todas las respuestas HTTP, también para remesas heredadas. Permite medir la edad de `heartbeatAt` sin depender del reloj del navegador.
+- **Textos.** La notificación "con advertencias" dice "Se cargaron N filas y M dieron error, pero el post-proceso no terminó: …" (sin "y M…" si no hubo errores). Los errores de Prisma se guardan y notifican como su última línea más el código; el detalle completo queda solo en el log.

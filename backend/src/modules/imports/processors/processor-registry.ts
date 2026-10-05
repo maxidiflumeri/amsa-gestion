@@ -15,37 +15,44 @@ import { MulticlavesProcessor } from './multiclaves.processor';
 /**
  * Registro de procesadores por categoría.
  * Para agregar una nueva categoría, basta con crear un procesador
- * que implemente ICategoryProcessor y registrarlo acá.
+ * que implemente ICategoryProcessor y registrar acá su fábrica.
+ *
+ * Se guardan **fábricas** y no instancias: los processors guardan estado en campos de instancia
+ * (deudores tocados, contadores, cachés) y lo limpian con un `reset()` al final de `afterAll`. Si una
+ * carga falla o su `afterAll` tira, ese `reset()` no corre; con una instancia compartida la carga
+ * siguiente de la misma categoría arrastraba el estado de la anterior. Con una instancia nueva por
+ * carga eso no puede pasar. Los constructores no reciben argumentos ni hacen IO.
  */
-const processors: ICategoryProcessor[] = [
-    new DeudoresProcessor(),
-    new FacturasProcessor(),
-    new PagosProcessor(),
-    new ContactosProcessor(),
-    new EnriquecimientoProcessor(),
-    new DeudoresYFacturasProcessor(),
-    new ActualizacionesProcessor(),
-    new AccionesProcessor(),
-    new MultirregistroProcessor(),
-    new MultiarchivoProcessor(),
-    new MulticlavesProcessor(),
+const fabricas: Array<() => ICategoryProcessor> = [
+    () => new DeudoresProcessor(),
+    () => new FacturasProcessor(),
+    () => new PagosProcessor(),
+    () => new ContactosProcessor(),
+    () => new EnriquecimientoProcessor(),
+    () => new DeudoresYFacturasProcessor(),
+    () => new ActualizacionesProcessor(),
+    () => new AccionesProcessor(),
+    () => new MultirregistroProcessor(),
+    () => new MultiarchivoProcessor(),
+    () => new MulticlavesProcessor(),
 ];
 
-const registry = new Map<string, ICategoryProcessor>();
-for (const p of processors) {
-    registry.set(p.category, p);
+const registry = new Map<string, () => ICategoryProcessor>();
+for (const fabrica of fabricas) {
+    // Una instancia de muestra para leer la categoría; no se reusa.
+    registry.set(fabrica().category, fabrica);
 }
 
 /**
- * Obtiene el procesador para una categoría dada.
+ * Obtiene un procesador **nuevo** para una categoría dada (uno por carga).
  * @throws Error si la categoría no está soportada.
  */
 export function getProcessor(category: string): ICategoryProcessor {
-    const proc = registry.get(category);
-    if (!proc) {
+    const fabrica = registry.get(category);
+    if (!fabrica) {
         throw new Error(`Categoría de importación no soportada: ${category}`);
     }
-    return proc;
+    return fabrica();
 }
 
 /**

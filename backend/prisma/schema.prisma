@@ -203,6 +203,68 @@ model jobimport {
   @@index([remesaId], map: "JobImport_remesaId_fkey")
 }
 
+/// Estado persistido de UNA carga: una fila por remesa, creada junto con la remesa.
+/// Es la fuente de verdad del progreso de una importación — el socket solo empuja lo que ya está
+/// escrito acá. Lo escribe únicamente `ProgresoTracker` (durante el job) y `ImportService`
+/// (alta, vista previa y encolado). Ver docs/imports-progreso-realtime-spec.md §8.
+model import_progreso {
+  /// PK y FK a la vez: la relación es 1-1 sin necesitar un índice único aparte.
+  remesaId           Int       @id
+  /// Contador de escrituras. Se incrementa en la base (`{ increment: 1 }`), nunca se asigna. El
+  /// cliente descarta cualquier estado con un `rev` menor al que ya tiene.
+  rev                Int       @default(0)
+  /// BORRADOR | EN_COLA | PROCESANDO | POST_PROCESO | TERMINADA. VarChar y no enum a propósito:
+  /// la Fase B agrega fases sin tocar el schema.
+  fase               String    @default("BORRADOR") @db.VarChar(20)
+  /// Detalle de la fase ("Consolidando 120/900"). Fase B; sin poblar en la A.
+  subfase            String?   @db.VarChar(160)
+  /// 0-100. Se persiste en vez de derivarse al leer para que HTTP y socket digan lo mismo.
+  porcentaje         Int       @default(0)
+  /// Filas que el archivo tiene para procesar, según la vista previa. NUNCA se pisa con el
+  /// acumulado (ese era el bug de `remesa.totalFilas`).
+  totalEsperado      Int       @default(0)
+  procesadas         Int       @default(0)
+  ok                 Int       @default(0)
+  err                Int       @default(0)
+  /// Filas que el filtro de la plantilla (o el corte de la división) dejó afuera. No son error.
+  descartadas        Int       @default(0)
+  /// Avisos que no son filas con error: [parseo], [aviso] y el fallo del post-proceso.
+  advertencias       Int       @default(0)
+  /// Fase B.
+  nuevos             Int?
+  /// Fase B.
+  actualizados       Int?
+  /// null mientras no terminó. OK | CON_ERRORES | CON_ADVERTENCIAS | SIN_FILAS | FALLIDA
+  resultado          String?   @db.VarChar(20)
+  /// Motivo de la falla (resultado FALLIDA). Máx. 4000 caracteres, lo recorta el código.
+  error              String?   @db.Text
+  /// Por qué no terminó el post-proceso (resultado CON_ADVERTENCIAS).
+  errorPostProceso   String?   @db.Text
+  /// Resumen final por categoría (altas, actualizados, bajas…). Fase C.
+  resumen            Json?
+  /// Cuántas veces arrancó el worker sobre esta remesa. >1 = BullMQ la re-ejecutó.
+  intentos           Int       @default(0)
+  jobId              String?   @db.VarChar(64)
+  /// Carga dividida mostrada como grupo. Fase C.
+  grupoId            String?   @db.VarChar(40)
+  grupoOrden         Int?
+  grupoTotal         Int?
+  /// Cancelación pedida por el usuario; el runner la revisa en cada lote. Fase C.
+  cancelSolicitadaAt DateTime?
+  /// null = borrador. Se escribe al confirmar, en la misma transacción que manda el job a la cola.
+  encoladaAt         DateTime?
+  startedAt          DateTime?
+  /// Última señal de vida del worker. En la Fase A late una vez por lote.
+  heartbeatAt        DateTime?
+  /// null = no terminó.
+  finishedAt         DateTime?
+  // Cascade, como `accion_masiva_snapshot`: la fila no significa nada sin su remesa.
+  remesa             remesa    @relation(fields: [remesaId], references: [id], onDelete: Cascade, map: "ImportProgreso_remesaId_fkey")
+
+  @@index([finishedAt], map: "ImportProgreso_finishedAt_idx")
+  @@index([grupoId], map: "ImportProgreso_grupoId_idx")
+}
+
 model pago {
   id               Int       @id @default(autoincrement())
   deudorId         Int
@@ -358,6 +420,7 @@ model remesa {
   deudor               deudor[]
   importerror          importerror[]
   jobimport            jobimport[]
+  progreso             import_progreso?
   empresa              empresa                  @relation(fields: [empresaId], references: [id], map: "Remesa_empresaId_fkey")
   plantilla            plantillaimport?         @relation(fields: [plantillaId], references: [id], map: "Remesa_plantillaId_fkey")
   politica             politica?                @relation(fields: [politicaId], references: [id])

@@ -189,6 +189,8 @@ export const MODELOS_OCULTOS = new Set<string>([
   'plantilla_reporte',
   'ejecucion_reporte',
   'jobimport',
+  // Estado interno del progreso de una carga: plomería, igual que jobimport.
+  'import_progreso',
   'importerror',
   'formato_telefono',
   'campoextra',

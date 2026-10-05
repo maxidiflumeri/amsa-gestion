@@ -28,4 +28,11 @@ describe('processor-registry', () => {
     it('las dos carteras de Toyota usan processors distintos pese a compartir la lógica', () => {
         expect(getProcessor('MULTIRREGISTRO')).not.toBe(getProcessor('MULTIARCHIVO'));
     });
+
+    it('cada llamada devuelve una instancia nueva: el estado de una carga no pasa a la siguiente (#15)', () => {
+        const a = getProcessor('FACTURAS');
+        const b = getProcessor('FACTURAS');
+        expect(a).not.toBe(b);
+        expect(a.category).toBe(b.category);
+    });
 });

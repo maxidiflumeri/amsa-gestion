@@ -6,6 +6,205 @@
 
 ---
 
+## [2026-10-05] — Progreso de las importaciones, Fase A: el estado de la carga se persiste y la pantalla se recupera sola
+
+El 30/09 se auditó el progreso en tiempo real de las importaciones (cargas que terminaban pero cuyo
+progreso nunca se completaba en la pantalla): veredicto NO PASA, 18 hallazgos. La causa de fondo era
+que el progreso vivía **solo en el socket**: `jobimport` nunca se escribía y `remesa.totalFilas` se
+pisaba en cada lote, así que un evento perdido congelaba la UI hasta recargar. Esta entrada es la
+**Fase A** del plan (A fuente de verdad y recuperación → B fases y granularidad → C interfaz → D
+notificaciones). Todo está en [docs/imports-progreso-realtime-spec.md](docs/imports-progreso-realtime-spec.md):
+el diseño en §8 y lo que cambió después de auditar en §8.13.
+
+**Estado: implementada y auditada; sin desplegar y sin ver en un navegador.** El guion de prueba manual
+está en §8.14 del spec. Las fases B, C y D no están empezadas.
+
+La idea en tres líneas: (1) cada carga tiene una fila en `import_progreso` y todo lo que la UI muestra
+sale de ahí; (2) el socket deja de ser la fuente del dato: avisa con una foto completa del estado y, si
+un aviso se pierde, la UI lo recupera por HTTP; (3) el backend le dice a la UI **cómo terminó** la carga
+(`OK` / `CON_ERRORES` / `CON_ADVERTENCIAS` / `SIN_FILAS` / `FALLIDA`, con motivo) en vez de dejarla
+adivinar con los contadores.
+
+### Decisiones y cambios de comportamiento
+
+- **Tabla nueva `import_progreso`, sin tocar `jobimport` ni el enum de estados.** El `db push` es un
+  `CREATE TABLE` más su FK y nada más (el deploy corre sin `--accept-data-loss`). No hay BORRADOR en el
+  enum: borrador es la fila con `encoladaAt` nulo, y **en curso** es `encoladaAt` no nulo y `finishedAt`
+  nulo. Las remesas fantasma de prod (93 PENDIENTE y 98 VALIDANDO) no tienen fila, así que salen de
+  "Importaciones en curso" con solo desplegar, sin escribir en prod.
+- No se puede confirmar una vista previa con 0 filas (botón deshabilitado y 400).
+- Validar o ejecutar una remesa ya confirmada da 409.
+- Una carga **en cola que todavía no arrancó se puede borrar**: se saca su job de la cola. Una que ya
+  arrancó no.
+- Si falla el encolado, la remesa vuelve a borrador y se puede reintentar sin volver a subir el archivo.
+- Los borradores tienen creador (antes nacían sin dueño): cuentan como importaciones del usuario al
+  intentar borrarlo.
+- Un archivo cuyas filas descarta todas el filtro ya no deja una remesa FINALIZADA 0/0: queda como
+  borrador.
+- El contrato sumó un campo respecto del diseño: `servidorAhora`, para medir la edad del último latido
+  sin depender del reloj de la PC.
+
+### Backend
+
+- Nueva tabla `import_progreso` (una fila por remesa, PK = FK a `remesa`, `onDelete: Cascade`): es la
+  fuente de verdad del progreso de una carga. Solo la escriben `ProgresoTracker` (durante el job) e
+  `ImportService` (alta, vista previa y encolado). Ya trae los campos que van a usar las fases B y C
+  (`subfase`, `nuevos`, `actualizados`, `resumen`, `grupo*`, `cancelSolicitadaAt`), para que no haga
+  falta otro cambio de schema. Sin backfill: las remesas anteriores se muestran con un estado
+  sintetizado desde `remesa` (sin duración ni motivo; una FALLIDA anterior no afirma filas procesadas).
+- `ProgresoTracker` ([imports/progreso/](backend/src/modules/imports/progreso/)): un único
+  `remesa.update` con la fila de progreso anidada, `rev` incrementado en la base, persiste antes de
+  emitir y el socket nunca tira una carga. Funciones puras `calcularPorcentaje` (nunca NaN ni 100 antes
+  del estado terminal), `clasificarResultado`, `armarEstadoCarga` (con reloj inyectable),
+  `textoNotificacion` y `motivoLegible` (un error de Prisma se guarda y se muestra como su última línea
+  más el código, sin rutas ni fragmento de código; el detalle completo va solo al log).
+- `processImportJob`: `iniciar` va antes de cualquier validación, `remesa.totalFilas` ya no se pisa con
+  el acumulado por lote, y la carga termina con un `resultado` explícito. Un `afterAll` que tira ya no
+  es invisible: la carga queda FINALIZADA con CON_ADVERTENCIAS, con el motivo en `import_progreso`, una
+  fila `[post-proceso]` en los errores y la notificación; y no poder registrar la fase POST_PROCESO ya
+  no impide correrlo. Una FALLIDA conserva los contadores reales y deja el motivo (antes quedaban los de
+  la muestra de 50 filas de la vista previa y el wizard decía "exitosa"). `advertencias` cuenta los
+  avisos que escriben los processors (`[aviso]` de PAGOS y MULTICLAVES), las advertencias de parseo (con
+  una fila que dice cuántas se omitieron si pasan de 500) y el fallo del post-proceso. Guardas al tomar
+  el job: un job sobre una carga ya terminada, sobre un borrador (job fantasma de un encolado que falló)
+  o sobre una remesa que se borró mientras el worker tomaba el job se ignora sin procesar, y no se
+  audita como OK; si la lectura inicial de la remesa falla, la carga queda FALLIDA con motivo (en una
+  sola transacción, sin pisar una ya terminal) en vez de EN_COLA. Los errores de negocio se loguean como
+  `warn` y los inesperados como `error` con stack una sola vez. Cada fase del post-proceso se loguea con
+  su tiempo: es lo que faltaba para medir cuánto tarda cada `afterAll` y fijar el umbral del reaper de
+  la Fase B.
+- Eventos de socket `import:iniciada` / `import:progreso` / `import:finalizada` con una foto completa
+  (`EstadoCargaDto`) en una sola emisión a la unión de `user:{id}` y `admin:importaciones` (antes dos
+  emisiones, y el admin dueño de la carga recibía todo duplicado). Alias `okFilas`/`errFilas`/
+  `totalFilas`/`durationMs` para las pestañas viejas, y `servidorAhora` (hora del servidor al armar el
+  DTO).
+- Notificaciones según el resultado: una importación con todas las filas en error ya no se notifica
+  como "fallida", el mensaje nunca supera la columna de 1000 caracteres (antes un error largo de Prisma
+  impedía crear la notificación), "con advertencias" dice cuántas filas se cargaron y cuántas dieron
+  error, y si la falla no se pudo registrar en la base el texto lo dice. El resultado viaja en
+  `payload.resultado`.
+- Endpoints: `GET /import/remesas/:id/progreso` (nuevo); `GET /import/en-curso` lista solo cargas
+  encoladas y sin terminar; `GET /import/remesas/:id` trae `carga`; `POST /import/ejecutar/:id` devuelve
+  `carga`, es idempotente (409 si ya fue confirmada), rechaza con 400 una vista previa sin filas, usa
+  como mutex la fila del usuario y guarda el id del job; si no puede encolar, la remesa vuelve a
+  borrador y responde 503. Con Redis caído BullMQ **no falla sino que espera** (medido: 238 s para
+  rechazar, o nunca), por eso el 503 sale por un tope de tiempo alrededor del `add`:
+  `IMPORTS_QUEUE_TIMEOUT_MS`, default 10 s, que también acota las consultas a la cola del borrado.
+  `POST /import/validar/:id` responde 409 sobre una carga confirmada. `DELETE /import/remesas/:id`
+  chequea primero que el usuario pueda borrar esa remesa, rechaza una carga que ya arrancó (también si
+  el worker la toma mientras se borra, releyendo con `FOR UPDATE` dentro de la transacción), permite
+  abortar una encolada que no arrancó (se saca su job de la cola, buscándolo por `jobId` o por
+  `data.remesaId`; con el job activo o si la cola no responde, 400), borra las notificaciones de la
+  remesa y re-emite el contador de no leídas. `createRemesa` registra al usuario creador.
+- Vista previa: MULTIRREGISTRO ahora persiste su total, y la vista previa (y el preview de acciones)
+  lee la misma hoja de Excel que la ejecución (antes leía siempre la primera).
+- Un processor nuevo por carga: `getProcessor` devuelve una instancia cada vez, así el estado de una
+  carga que falla no pasa a la siguiente de su categoría.
+- `import_progreso` oculto en el catálogo de reportes.
+- Tests: suites nuevas del estado de la carga, el tracker, la secuencia de eventos del worker,
+  HTTP/alta/encolado/borrado, el controller, el processor de BullMQ y `RealtimeService`, más un caso en
+  `processor-registry.spec.ts` (único spec preexistente tocado). 824 tests en imports + realtime +
+  notificaciones (eran 679) y 1500 en la suite completa.
+
+### Frontend
+
+- La pantalla deja de adivinar con contadores: todo lo que se muestra sale del `EstadoCargaDto`
+  ([types/importProgreso.ts](frontend/src/types/importProgreso.ts), copia textual del tipo del backend;
+  [utils/estadoCarga.ts](frontend/src/utils/estadoCarga.ts); [api/imports.ts](frontend/src/api/imports.ts)).
+- `SocketContext`: `auth` como función (token vigente en cada intento), `estado`, `conexiones`,
+  `desconectadoDesde` e `inestable`, socket en `useState`. Tras `io server disconnect` verifica la
+  sesión (401 va a login; 200 reconecta enseguida, con espera creciente solo si la conexión anterior
+  rebotó). `socket` y `conectado` conservan su forma. No hay renovación de token: con el JWT vencido se
+  pide re-login. Nuevo `ConexionIndicador` en la barra superior, que no parpadea cuando el server
+  rechaza cada reconexión.
+- Hook nuevo `useEstadoCarga(remesaId, { seguirHastaTerminal })`: fusiona por `rev`, re-hidrata al
+  conectar, al volver a la pestaña y con `online`, y polléa mientras la carga no termina (cada 10 s con
+  el socket caído, cada 30 s si está callado). En el paso "Importando" sigue hasta el estado terminal
+  aunque la remesa figure todavía como borrador (el wizard además siembra el estado con la `carga` del
+  POST de ejecutar); en el detalle, solo mientras está en curso. Un 404 no da la remesa por perdida
+  hasta repetirse en 3 consultas seguidas y durante al menos 6 s. Toda consulta de fondo va con
+  `silencioso: true` (nuevo en `axios.ts` y en el interceptor): estando offline no sale un toast cada
+  pocos segundos.
+- `NotificacionesContext`: la campanita se hidrata al cambiar el token (login sin recargar), al
+  reconectar, al volver a la pestaña y por polling; solo pide `/import/en-curso` con el permiso de
+  historial y el contador no depende de esa consulta; descarta respuestas desordenadas; hace upsert de
+  las cargas que llegan por socket (antes ignoraba las que no conocía); los toasts salen como error,
+  advertencia o info según el resultado.
+- Wizard: "Importando" y "Resultado" reescritos. Fases (Enviando a la cola / En cola / Procesando /
+  Post-proceso), avisos de sin conexión, de sin novedades (edad del último latido medida con la hora del
+  servidor: avisa enseguida al abrir una carga ya colgada) y de reinicio. El resumen distingue seis
+  resultados y nunca muestra una carga fallida como exitosa; se fueron "Ver errores" (abría la API sin
+  token: 401) y "Ver remesas" (ruta inexistente), reemplazados por "Ver detalle" e "Ir al historial". En
+  una carga dividida identifica por número de remesa las que no se ejecutaron, con enlace al detalle, no
+  muestra "Descartadas" (incluye lo que queda fuera de cada corte) y no cierra en éxito si faltó alguna.
+  "Confirmar e importar" se deshabilita sin filas y contra el doble clic; ante cualquier fallo al
+  ejecutar consulta el estado real de la remesa (una que sí corrió no se informa como no ejecutada; si
+  sigue siendo borrador vuelve a la vista previa con el error); si el servidor no encuentra la remesa,
+  avisa que no se pudo seguir la importación y manda a revisar el Historial antes de volver a cargar,
+  con una alerta fija y sin reiniciar solo.
+- Texto de "con advertencias" según la categoría: qué quedó sin hacer y qué hacer. El diseño mandaba a
+  "volver a consolidar la remesa desde el Historial" para todas; eso solo sirve en PAGOS, y consolidando
+  las remesas de deudores de origen, no la de pagos (que no tiene casos propios). El resto va a soporte.
+- Detalle de la importación: estado, barra, contadores, fechas y duración salen de la carga; un
+  borrador dice "Borrador" y muestra solo el total de la vista previa (la 98 de prod decía "100%
+  completado"); alertas para fallida, con advertencias y sin filas; tabla "Avisos de la carga" cuando
+  solo hay avisos, también para las remesas anteriores al cambio; "—" solo en las filas que son avisos;
+  al cambiar de remesa no se arrastra nada de la anterior.
+- Wiki: actualizadas `01-como-funciona`, `05-importar-un-archivo`, `07-acciones-masivas` y
+  `08-historial-y-problemas`. Pasaron cuatro revisiones contra el código; la primera encontró diez
+  errores factuales.
+
+### Lo que la Fase A no arregla
+
+- Las cargas de un solo lote siguen saltando de 0 a 99% y el post-proceso es una barra indeterminada (Fase B).
+- Una carga cuyo worker muere queda en PROCESANDO: no falla sola. La pantalla dice hace cuánto no hay
+  novedades. El reaper es de la Fase B.
+- La carga dividida sigue encadenada por el navegador (Fase C).
+- El Historial sigue mostrando borradores y cargas en cola como PENDIENTE, y no distingue "con
+  advertencias" (Fase C).
+- ACCIONES que termina con advertencias o se reinicia: el botón Revertir aparece igual, con datos
+  parciales (Fase C, con el revertir como job).
+- Las remesas de origen de una carga de PAGOS no se guardan en ningún lugar visible: el remedio de "con
+  advertencias" depende de que el operador se acuerde.
+
+### Cómo se verificó
+
+- Diseño por `architect`; backend y frontend implementados en paralelo contra el contrato; tres
+  revisores independientes (backend, frontend, wiki) con tres o cuatro pasadas cada uno. Veredicto final
+  de los tres: pasa con observaciones menores (detalle en §8.13 del spec).
+- Backend contra MySQL local: concurrencia real del bloqueo por usuario, los archivos de cedente de la
+  máquina de desarrollo (incluido uno de 1.115.323 filas) con el mismo total en vista previa y worker,
+  mutaciones del código para medir la red de tests, y BullMQ 5.70.4 con Redis real en colas de prueba.
+- Frontend en un arnés con el wizard real, React en modo estricto y un servidor socket.io real.
+- **No se probó:** nada en un navegador; ninguna importación de punta a punta con la app levantada;
+  MULTIRREGISTRO y MULTIARCHIVO con archivos reales de Toyota (no están en la máquina de desarrollo).
+
+### Deploy
+
+- **Dos pushes, backend primero.** El frontend nuevo contra el backend viejo no funciona (consulta un
+  endpoint que no existe). Esperar el workflow del backend en verde antes de pushear el frontend.
+- Antes, contra prod y en solo lectura (§8.6 del spec): que `prisma migrate diff` dé vacío con la imagen
+  actual (el `db push` ejecuta también cualquier drift latente) y que no haya cargas corriendo ni en cola.
+- Volver atrás no es gratis: la imagen anterior querría borrar la tabla nueva.
+- Variable opcional `IMPORTS_QUEUE_TIMEOUT_MS` (default 10000).
+- Al hacer wipe con `TRUNCATE`, incluir `import_progreso` y las `notificacion` con
+  `entidadTipo='REMESA'`: una fila de progreso huérfana hace fallar el alta de la remesa que reuse ese id.
+
+### Pendiente
+
+- Prueba manual en el navegador (§8.14 del spec) antes de desplegar.
+- Limpieza en prod, con preview y confirmación: las remesas 93 y 98 (se pueden borrar desde el
+  Historial) y las 50 notificaciones huérfanas.
+- Decisiones de producto para las fases siguientes (§5 del spec): qué hace "cancelar" (5.4), si las
+  cargas ajenas siguen notificando con toast a todos los admins (5.5), y si en una carga dividida siguen
+  las demás cuando una falla (5.6).
+- Bugs ajenos a este cambio que aparecieron al auditar (§8.13 del spec): el gateway de `/reportes`
+  confía en un `usuarioId` que manda el cliente, sin JWT; `POST /import/remesas` solo exige
+  `importacion.ver_historial`; el socket de reportes nunca conecta porque lee la clave equivocada de
+  `localStorage`.
+
+---
+
 ## [2026-09-30] — Tipo de contacto: se normaliza y un valor desconocido ya no carga basura
 
 La plantilla 87 "Enriquecimiento Personal Pay_Tel-mail" (TELECOM_PERSONAL) tenía el tipo fijo del
