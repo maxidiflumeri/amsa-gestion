@@ -16,6 +16,12 @@ export function setupAxiosInterceptors(notifyError: NotifyErrorFn): () => void {
         (error: AxiosError) => {
             const status = error.response?.status;
 
+            // Las consultas de fondo (polling, re-hidratación) fallan en silencio: si no, estando
+            // offline saldría un toast cada pocos segundos. La promesa se rechaza igual.
+            if (error.config?.silencioso) {
+                return Promise.reject(error);
+            }
+
             // Solo notificar 5xx y network errors. Los 4xx los manejan los catch de cada página.
             if (!error.response) {
                 // Network error o timeout

@@ -1,6 +1,13 @@
 // src/api/axios.ts
 import axios from 'axios';
 
+declare module 'axios' {
+    interface AxiosRequestConfig {
+        /** Consulta de fondo (polling, re-hidratación): un fallo de red o un 5xx no muestra toast. */
+        silencioso?: boolean;
+    }
+}
+
 const api = axios.create({
     baseURL: import.meta.env.VITE_API_URL || 'http://localhost:3001/api',
 });

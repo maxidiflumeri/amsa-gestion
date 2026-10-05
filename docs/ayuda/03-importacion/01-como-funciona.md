@@ -1,7 +1,7 @@
 <!--
 seccion: Importación de datos
 resumen: Qué es una remesa, qué hace falta antes de importar y cuál es el ciclo completo.
-revisado: 2026-08-20
+revisado: 2026-10-05
 rutas: /carga
 -->
 # Cómo funciona una importación
@@ -91,8 +91,14 @@ ahí**.
    la remesa origen.
 3. **Vista previa** — el sistema lee las primeras filas y te muestra **cómo quedarían ya
    transformadas**, antes de tocar nada. Es el momento de frenar si algo no cuadra.
-4. **Importando** — corre en segundo plano. Podés cerrar la pantalla: sigue andando.
-5. **Resultado** — cuántas filas entraron, cuántas fallaron y por qué.
+4. **Importando** — corre en segundo plano, en el servidor: si cerrás la pantalla o te vas a otra, la
+   carga sigue y la podés ver en la campanita de la barra superior. **Menos en una carga dividida**:
+   la remesa siguiente la arranca esta pantalla, así que hay que dejarla abierta hasta ver el
+   resultado.
+5. **Resultado** — cómo terminó la carga: si salió bien, si hubo filas con error, si no tenía filas, si
+   terminó con advertencias o si falló. Con cuántas filas y, cuando hay un problema, el motivo.
+
+Hasta que confirmás en el paso 3 **no se carga nada**: una vista previa sin confirmar es un borrador.
 
 El paso 3 es el que más problemas evita y el que más se saltea. **Una carga mal hecha no siempre se
 puede deshacer** (ver más abajo), así que treinta segundos mirando la vista previa valen más que una
@@ -102,14 +108,18 @@ hora arreglando después.
 
 | Estado | Qué significa |
 |---|---|
-| **Pendiente** | Creada, todavía no empezó |
-| **Validando** | Leyendo el archivo y armando la vista previa |
+| **Pendiente** | Creada (subiste el archivo), o confirmada y esperando su turno en la cola |
+| **Validando** | Con la vista previa hecha y sin confirmar |
 | **Procesando** | Cargando. Está en curso |
-| **Finalizada** | Terminó. Puede haber tenido filas con error igual |
+| **Finalizada** | Terminó. Puede haber terminado con filas con error, sin filas o con advertencias |
 | **Fallida** | Se cortó |
 
-**Finalizada no quiere decir que salió todo bien**: quiere decir que terminó. Si hubo filas con error,
-el resultado las informa y se pueden ver una por una.
+En el Historial los estados aparecen en mayúsculas. En el **detalle** de una carga, una que todavía no
+se confirmó dice **Borrador** y una que espera su turno dice **En cola**.
+
+**Finalizada no quiere decir que salió todo bien**: quiere decir que terminó. El resultado (paso 5)
+dice cómo terminó de verdad: con filas con error, sin filas, o con advertencias porque las filas se
+cargaron pero el post-proceso no terminó. Los errores se pueden ver uno por uno en el detalle.
 
 ## Antes de importar, la lista corta
 
@@ -148,4 +158,4 @@ Es distinto de **Multiarchivo**, que es para archivos de formatos **distintos** 
 ## Una importación por vez
 
 No se pueden correr dos importaciones tuyas en paralelo: si intentás confirmar una mientras tenés otra
-en curso, el sistema avisa *"Ya tenés una importación en curso"*. Hay que esperar a que termine.
+en curso, el sistema avisa *"Ya tenés una importación en curso"*. Hay que esperar a que termine (o, si la otra todavía está en cola y no arrancó, borrarla desde el Historial).

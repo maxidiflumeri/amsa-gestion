@@ -1,7 +1,7 @@
 <!--
 seccion: Importación de datos
 resumen: Marcar algo en bloque sobre un listado de casos. Incluye un modo que actúa sobre toda la empresa.
-revisado: 2026-08-20
+revisado: 2026-10-05
 rutas: /carga
 -->
 # Acciones masivas
@@ -97,6 +97,10 @@ de confirmar.
 Es la única categoría con **deshacer**. En el historial de importaciones, una carga de acciones
 finalizada tiene un botón de revertir que deja los casos como estaban.
 
+> **Si la carga terminó "con advertencias", no uses Revertir sin avisar a soporte.** El botón aparece
+> igual, pero los datos para deshacer se guardan en el post-proceso, que en ese caso no terminó: pueden
+> estar parciales, y se puede una sola vez.
+
 Requiere el permiso de acciones masivas, y solo se puede revertir **una vez**: después queda marcada
 como ya revertida.
 
@@ -170,6 +174,16 @@ No. Revertir borra los comentarios que la acción creó; no hay un "revertir la 
 
 **¿Revertir respeta lo que edité a mano después?**
 No: pisa el valor con el que estaba antes de la acción. La propia pantalla lo advierte al confirmar.
+
+**¿Y una carga "finalizada con advertencias"?**
+El botón **Revertir** aparece igual (la carga figura como finalizada), pero los datos para deshacer se
+guardan en el post-proceso, que en ese caso no terminó: pueden estar **parciales**, así que revertir
+puede deshacer solo una parte, y solo se puede **una vez**. Avisá a soporte **antes** de usarlo.
+
+**¿Y si la carga muestra "Esta carga se reinició"?**
+El servidor retomó la carga desde el principio y los datos para revertir del primer
+intento se perdieron: **Revertir** no deshace lo que ese intento ya había cambiado, y los comentarios que agregó
+quedan duplicados. Avisá a soporte antes de usarlo.
 
 **¿Puedo revertir una carga que quedó fallida?**
 No. El botón solo aparece en las finalizadas, y los datos para deshacer se guardan recién al terminar

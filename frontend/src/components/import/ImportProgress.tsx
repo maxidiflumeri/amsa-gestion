@@ -1,87 +1,89 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useRef } from "react";
 import {
+    Alert,
     Box,
+    Button,
     Typography,
     LinearProgress,
     Chip,
 } from "@mui/material";
+import { useNavigate } from "react-router-dom";
 import HourglassTopIcon from "@mui/icons-material/HourglassTop";
-import api from "../../api/axios";
 import { SectionCard } from "../ui";
-import { useImportacionesEnCurso } from "../../hooks/useImportacionesEnCurso";
+import AvisosCarga from "./AvisosCarga";
+import { useSocket } from "../../context/SocketContext";
+import { useEstadoCarga } from "../../hooks/useEstadoCarga";
+import type { EstadoCargaDto } from "../../types/importProgreso";
+import { barraIndeterminada, etiquetaFase } from "../../utils/estadoCarga";
 
 interface Props {
     remesaId: number;
-    onComplete: (result: { total: number; ok: number; err: number }) => void;
+    /** Se llama UNA vez, cuando la carga terminó (con el resultado que sea, aunque todo valga 0). */
+    onComplete: (estado: EstadoCargaDto) => void;
+    /** La `carga` que devolvió el POST de ejecutar: siembra el estado sin esperar un evento ni un GET. */
+    estadoInicial?: EstadoCargaDto | null;
+    /** En una carga dividida "descartadas" incluye las filas fuera del corte de cada remesa: no se muestra. */
+    ocultarDescartadas?: boolean;
+    /** La remesa dejó de existir (alguien la borró mientras esperaba). Se llama una vez. */
+    onNoExiste?: () => void;
+    /** Se llama una vez cuando se ve la carga en curso o terminada: el pedido de ejecutar ya surtió efecto. */
+    onSeguimiento?: () => void;
+    /** "Nueva importación" de la alerta fija de remesa no encontrada. */
+    onNuevaImportacion?: () => void;
 }
 
-interface EstadoFinal {
-    total: number;
-    ok: number;
-    err: number;
-    estado: string;
-    progreso: number;
-}
+export const MENSAJE_NO_SEGUIDA =
+    "No se pudo seguir la importación: el servidor no encuentra la remesa. Revisá el Historial antes de volver a cargar el archivo, porque puede estar corriendo.";
 
-export default function ImportProgress({ remesaId, onComplete }: Props) {
-    const importsEnCurso = useImportacionesEnCurso();
-    const [estadoFinal, setEstadoFinal] = useState<EstadoFinal | null>(null);
-    const [completadoRef] = React.useState({ disparado: false });
+export default function ImportProgress({
+    remesaId,
+    onComplete,
+    estadoInicial = null,
+    ocultarDescartadas = false,
+    onNoExiste,
+    onSeguimiento,
+    onNuevaImportacion,
+}: Props) {
+    const navigate = useNavigate();
+    const { conectado } = useSocket();
+    // Sigue hasta el estado terminal: en este paso la remesa puede figurar todavía como borrador.
+    const { estado, noExiste, aplicar } = useEstadoCarga(remesaId, { seguirHastaTerminal: true });
 
-    const importActual = importsEnCurso.find((i) => i.remesaId === remesaId) ?? null;
-
-    const progreso = importActual?.progreso ?? estadoFinal?.progreso ?? 0;
-    const total = importActual?.totalFilas ?? estadoFinal?.total ?? 0;
-    const ok = importActual?.okFilas ?? estadoFinal?.ok ?? 0;
-    const err = importActual?.errFilas ?? estadoFinal?.err ?? 0;
-    const estado = importActual?.estadoProceso ?? estadoFinal?.estado ?? 'PROCESANDO';
+    // onComplete cambia de identidad en cada render del wizard: se lee por ref para no re-disparar el efecto.
+    const onCompleteRef = useRef(onComplete);
+    onCompleteRef.current = onComplete;
+    const disparadoRef = useRef(false);
+    const onNoExisteRef = useRef(onNoExiste);
+    onNoExisteRef.current = onNoExiste;
+    const noExisteAvisadoRef = useRef(false);
+    const onSeguimientoRef = useRef(onSeguimiento);
+    onSeguimientoRef.current = onSeguimiento;
+    const seguimientoAvisadoRef = useRef(false);
 
     useEffect(() => {
-        if (importActual) return;
+        if (seguimientoAvisadoRef.current || !estado || !(estado.enCurso || estado.terminal)) return;
+        seguimientoAvisadoRef.current = true;
+        onSeguimientoRef.current?.();
+    }, [estado]);
 
-        // La remesa no aparece en el contexto — buscar estado final via REST
-        let cancelado = false;
-
-        async function fetchEstadoFinal() {
-            try {
-                const res = await api.get(`/import/remesas/${remesaId}`);
-                const data = res.data;
-
-                if (cancelado) return;
-
-                const procesadas = (data.okFilas ?? 0) + (data.errFilas ?? 0);
-                const totalFilas = data.totalFilas ?? 1;
-                const porcentaje = Math.min(Math.round((procesadas / totalFilas) * 100), 100);
-
-                setEstadoFinal({
-                    total: data.totalFilas ?? 0,
-                    ok: data.okFilas ?? 0,
-                    err: data.errFilas ?? 0,
-                    estado: data.estadoProceso ?? 'PROCESANDO',
-                    progreso: porcentaje,
-                });
-            } catch {
-                // Error silencioso
-            }
-        }
-
-        fetchEstadoFinal();
-        return () => { cancelado = true; };
-    }, [remesaId, importActual]);
-
-    // Llamar onComplete cuando la remesa finaliza
     useEffect(() => {
-        if (completadoRef.disparado) return;
+        if (estadoInicial) aplicar(estadoInicial);
+    }, [estadoInicial, aplicar]);
 
-        const esTerminal = estado === 'FINALIZADA' || estado === 'FALLIDA';
-        if (!esTerminal) return;
+    useEffect(() => {
+        if (!noExiste || noExisteAvisadoRef.current) return;
+        noExisteAvisadoRef.current = true;
+        onNoExisteRef.current?.();
+    }, [noExiste]);
 
-        // Solo si ya tenemos datos consistentes
-        if (total === 0 && ok === 0 && err === 0) return;
+    useEffect(() => {
+        if (disparadoRef.current || !estado || !estado.terminal) return;
+        disparadoRef.current = true;
+        onCompleteRef.current(estado);
+    }, [estado]);
 
-        completadoRef.disparado = true;
-        onComplete({ total, ok, err });
-    }, [estado, total, ok, err, onComplete, completadoRef]);
+    const indeterminada = barraIndeterminada(estado);
+    const fase = etiquetaFase(estado, "wizard");
 
     return (
         <Box>
@@ -104,8 +106,31 @@ export default function ImportProgress({ remesaId, onComplete }: Props) {
                         alignItems: "center",
                         gap: 2,
                         py: 2,
+                        width: "100%",
                     }}
                 >
+                    {noExiste && (
+                        <Alert
+                            severity="error"
+                            sx={{ width: "100%", textAlign: "left" }}
+                            action={
+                                <Box sx={{ display: "flex", gap: 1, flexWrap: "wrap" }}>
+                                    <Button color="inherit" size="small" onClick={() => navigate("/historial-importaciones")}>
+                                        Ir al historial
+                                    </Button>
+                                    {onNuevaImportacion && (
+                                        <Button color="inherit" size="small" onClick={onNuevaImportacion}>
+                                            Nueva importación
+                                        </Button>
+                                    )}
+                                </Box>
+                            }
+                        >
+                            {MENSAJE_NO_SEGUIDA}
+                        </Alert>
+                    )}
+
+                    {!noExiste && (
                     <HourglassTopIcon
                         sx={{
                             fontSize: 48,
@@ -117,46 +142,59 @@ export default function ImportProgress({ remesaId, onComplete }: Props) {
                             },
                         }}
                     />
+                    )}
 
-                    <Typography variant="h4" fontWeight={700} color="primary.main">
-                        {progreso}%
-                    </Typography>
+                    {!indeterminada && estado && (
+                        <Typography variant="h4" fontWeight={700} color="primary.main">
+                            {estado.progreso}%
+                        </Typography>
+                    )}
 
+                    {!noExiste && (
                     <LinearProgress
-                        variant="determinate"
-                        value={progreso}
+                        variant={indeterminada ? "indeterminate" : "determinate"}
+                        value={indeterminada ? undefined : estado?.progreso ?? 0}
                         sx={{
                             width: "100%",
                             height: 8,
                             borderRadius: 4,
                         }}
                     />
+                    )}
 
-                    <Box sx={{ display: "flex", gap: 2, flexWrap: "wrap", justifyContent: "center" }}>
-                        <Chip
-                            label={`Total: ${total}`}
-                            variant="outlined"
-                            size="small"
-                        />
-                        <Chip
-                            label={`OK: ${ok}`}
-                            color="success"
-                            variant="outlined"
-                            size="small"
-                        />
-                        {err > 0 && (
-                            <Chip
-                                label={`Errores: ${err}`}
-                                color="error"
-                                variant="outlined"
-                                size="small"
-                            />
+                    {estado && (
+                        <Box sx={{ display: "flex", gap: 1, flexWrap: "wrap", justifyContent: "center" }}>
+                            {estado.totalEsperado > 0 && (
+                                <Chip label={`Total: ${estado.totalEsperado}`} variant="outlined" size="small" />
+                            )}
+                            <Chip label={`Procesadas: ${estado.procesadas}`} variant="outlined" size="small" />
+                            <Chip label={`OK: ${estado.ok}`} color="success" variant="outlined" size="small" />
+                            {estado.err > 0 && (
+                                <Chip label={`Errores: ${estado.err}`} color="error" variant="outlined" size="small" />
+                            )}
+                            {!ocultarDescartadas && estado.descartadas > 0 && (
+                                <Chip
+                                    label={`Descartadas: ${estado.descartadas}`}
+                                    color="warning"
+                                    variant="outlined"
+                                    size="small"
+                                />
+                            )}
+                        </Box>
+                    )}
+
+                    <Box>
+                        <Typography variant="body1" fontWeight={600}>
+                            {fase.principal}
+                        </Typography>
+                        {fase.secundario && (
+                            <Typography variant="body2" color="text.secondary">
+                                {fase.secundario}
+                            </Typography>
                         )}
                     </Box>
 
-                    <Typography variant="body2" color="text.secondary">
-                        Estado: {estado}
-                    </Typography>
+                    <AvisosCarga estado={estado} conectado={conectado} />
                 </Box>
             </SectionCard>
         </Box>

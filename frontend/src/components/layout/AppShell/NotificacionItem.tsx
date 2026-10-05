@@ -8,15 +8,21 @@ import WarningAmberIcon from '@mui/icons-material/WarningAmber';
 import { useNavigate } from 'react-router-dom';
 import { fechaRelativa } from '../../../utils/fechaRelativa';
 import { NotificacionDto } from '../../../api/notificaciones';
+import { resultadoEsAdvertencia } from '../../../utils/estadoCarga';
 
 interface NotificacionItemProps {
     notificacion: NotificacionDto;
     onMarcarLeida: (id: number) => void;
 }
 
-function iconoPorTipo(tipo: string): React.ReactElement {
+function iconoPorTipo(tipo: string, payload?: Record<string, unknown> | null): React.ReactElement {
     switch (tipo) {
         case 'IMPORTACION_FINALIZADA':
+            // Una carga que terminó con errores, con advertencias o sin filas no lleva el tilde verde.
+            // Las notificaciones anteriores no traen `resultado`: quedan como siempre.
+            if (resultadoEsAdvertencia(payload?.resultado)) {
+                return <WarningAmberIcon fontSize="small" color="warning" />;
+            }
             return <CheckCircleOutlineIcon fontSize="small" color="success" />;
         case 'IMPORTACION_ERROR':
             return <ErrorOutlineIcon fontSize="small" color="error" />;
@@ -65,7 +71,7 @@ const NotificacionItem: React.FC<NotificacionItemProps> = ({ notificacion, onMar
                 transition: 'background-color 0.15s',
             }}
         >
-            <Box sx={{ mt: 0.25, flexShrink: 0 }}>{iconoPorTipo(notificacion.tipo)}</Box>
+            <Box sx={{ mt: 0.25, flexShrink: 0 }}>{iconoPorTipo(notificacion.tipo, notificacion.payload)}</Box>
             <Box sx={{ flexGrow: 1, minWidth: 0 }}>
                 <Typography
                     variant="body2"

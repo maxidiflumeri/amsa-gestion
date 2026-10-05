@@ -14,6 +14,7 @@ import NotificationsOffIcon from '@mui/icons-material/NotificationsOff';
 import NotificacionItem from './NotificacionItem';
 import ImportEnCursoItem from './ImportEnCursoItem';
 import { useNotificaciones } from '../../../context/NotificacionesContext';
+import { useSocket } from '../../../context/SocketContext';
 import { listarNotificaciones, NotificacionDto } from '../../../api/notificaciones';
 
 interface NotificacionesPopoverProps {
@@ -31,6 +32,7 @@ const NotificacionesPopover: React.FC<NotificacionesPopoverProps> = ({
 }) => {
     const theme = useTheme();
     const { noLeidas, importsEnCurso, marcarLeida, marcarTodas, nonce } = useNotificaciones();
+    const { conectado } = useSocket();
 
     const [tab, setTab] = useState(0); // 0 = sin leer, 1 = leídas
     const [items, setItems] = useState<NotificacionDto[]>([]);
@@ -97,6 +99,7 @@ const NotificacionesPopover: React.FC<NotificacionesPopoverProps> = ({
             PaperProps={{
                 sx: {
                     width: 380,
+                    maxWidth: 'calc(100vw - 16px)',
                     maxHeight: 560,
                     display: 'flex',
                     flexDirection: 'column',
@@ -142,18 +145,17 @@ const NotificacionesPopover: React.FC<NotificacionesPopoverProps> = ({
                         </Typography>
                     </Box>
                     {importsEnCurso.map((imp) => (
-                        <ImportEnCursoItem
-                            key={imp.remesaId}
-                            remesaId={imp.remesaId}
-                            tipo={imp.tipo}
-                            progreso={imp.progreso}
-                            okFilas={imp.okFilas}
-                            errFilas={imp.errFilas}
-                            totalFilas={imp.totalFilas}
-                            usuarioNombre={imp.usuarioNombre}
-                            estadoProceso={imp.estadoProceso}
-                        />
+                        <ImportEnCursoItem key={imp.remesaId} carga={imp} />
                     ))}
+                    {!conectado && (
+                        <Typography
+                            variant="caption"
+                            color="text.secondary"
+                            sx={{ display: 'block', px: 2, py: 0.75 }}
+                        >
+                            Sin conexión en tiempo real — actualizando cada 15 s.
+                        </Typography>
+                    )}
                 </>
             )}
 

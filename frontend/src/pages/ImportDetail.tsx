@@ -1,8 +1,12 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { fechaDelCedente } from '../utils/fechas';
 import { useParams, useNavigate } from 'react-router-dom';
+import { isAxiosError } from 'axios';
 import {
+    Alert,
+    AlertTitle,
     Box,
+    Button,
     Chip,
     Divider,
     Grid,
@@ -27,6 +31,7 @@ import {
 import api from '../api/axios';
 import { useNotify } from '../hooks/useNotify';
 import { useSocket } from '../context/SocketContext';
+import { useEstadoCarga } from '../hooks/useEstadoCarga';
 import {
     PageHeader,
     SectionCard,
@@ -38,6 +43,8 @@ import {
 import type { StatusValue } from '../components/ui';
 import type { DataTableColumn } from '../components/ui';
 import MulticlavesLoteResumen from '../components/import/MulticlavesLoteResumen';
+import AvisosCarga from '../components/import/AvisosCarga';
+import { barraIndeterminada, esAvisoDeCarga, etiquetaFase, presentarResultado } from '../utils/estadoCarga';
 
 // ─── Tipos ───────────────────────────────────────────────────────────────────
 
@@ -53,14 +60,6 @@ interface EmpresaRef { id: number; nombre: string }
 interface PlantillaRef { id: number; nombre: string; categoria: string }
 interface UsuarioRef { id: number; nombre: string; email: string }
 interface PoliticaRef { id: number; nombre: string }
-interface JobRef {
-    id: number;
-    estado: string;
-    progreso: number;
-    createdAt: string;
-    finishedAt: string | null;
-}
-
 interface RemesaDetalle {
     id: number;
     numeroRemesa: string;
@@ -77,8 +76,6 @@ interface RemesaDetalle {
     plantilla: PlantillaRef | null;
     usuarioCreador: UsuarioRef | null;
     politica: PoliticaRef | null;
-    jobimport: JobRef | null;
-    duracionMs: number | null;
     tasaExitoPct: number | null;
 }
 
@@ -94,8 +91,6 @@ const ESTADO_TO_STATUS: Record<string, StatusValue> = {
     VALIDANDO: 'pending',
     PENDIENTE: 'pending',
 };
-
-const EN_PROGRESO = new Set(['PENDIENTE', 'VALIDANDO', 'PROCESANDO']);
 
 function formatDate(iso: string | null | undefined): string {
     if (!iso) return '—';
@@ -180,68 +175,94 @@ export default function ImportDetail() {
     const navigate = useNavigate();
     const notify = useNotify();
     const theme = useTheme();
-    const { socket } = useSocket();
+    const { conectado } = useSocket();
+    // Todo lo que se mueve (estado, contadores, fechas, resultado) sale de acá; la remesa de abajo es lo fijo.
+    const { estado: carga, cargando: cargandoCarga, noExiste } = useEstadoCarga(id ? Number(id) : null);
 
     const [remesa, setRemesa] = useState<RemesaDetalle | null>(null);
     const [errors, setErrors] = useState<ImportError[]>([]);
     const [loading, setLoading] = useState(true);
+    const [noEncontrada, setNoEncontrada] = useState(false);
 
     const notifyRef = useRef(notify);
     useEffect(() => { notifyRef.current = notify; }, [notify]);
+
+    // Para ignorar la respuesta de una remesa anterior si se cambió de `id` mientras el pedido estaba en vuelo.
+    const idActualRef = useRef(id);
+    idActualRef.current = id;
 
     const fetchAll = useCallback(async (silencioso = false) => {
         if (!id) return;
         try {
             if (!silencioso) setLoading(true);
             const { data } = await api.get<RemesaDetalle>(`/import/remesas/${id}`);
+            if (idActualRef.current !== id) return;
             setRemesa(data);
-            if (data.errFilas > 0) {
-                const res = await api.get(`/import/errores/${id}?pageSize=100`);
-                setErrors(res.data.data);
-            }
+            setNoEncontrada(false);
         } catch (err) {
-            if (!silencioso) notifyRef.current.error(err as Error);
+            // Una remesa borrada no es un error para mostrar en un toast: la pantalla lo dice.
+            if (idActualRef.current !== id) return;
+            if (isAxiosError(err) && err.response?.status === 404) setNoEncontrada(true);
+            else if (!silencioso) notifyRef.current.error(err as Error);
         } finally {
             if (!silencioso) setLoading(false);
         }
     }, [id]);
 
-    useEffect(() => { fetchAll(); }, [fetchAll]);
-
+    // Al cambiar de remesa no se arrastra nada de la anterior (ni sus totales ni un "no existe").
     useEffect(() => {
-        if (!socket || !id) return;
-        const remesaId = Number(id);
+        setRemesa(null);
+        setNoEncontrada(false);
+        void fetchAll();
+    }, [fetchAll]);
 
-        const onProgreso = (payload: { remesaId: number; progreso: number; okFilas: number; errFilas: number; totalFilas: number; estadoProceso: string }) => {
-            if (payload.remesaId !== remesaId) return;
-            setRemesa((prev) => prev ? {
-                ...prev,
-                okFilas: payload.okFilas,
-                errFilas: payload.errFilas,
-                totalFilas: payload.totalFilas ?? prev.totalFilas,
-                estadoProceso: payload.estadoProceso ?? prev.estadoProceso,
-                tasaExitoPct: (payload.totalFilas ?? prev.totalFilas) > 0
-                    ? Math.round((payload.okFilas / (payload.totalFilas ?? prev.totalFilas)) * 100)
-                    : null,
-                jobimport: prev.jobimport
-                    ? { ...prev.jobimport, progreso: payload.progreso }
-                    : prev.jobimport,
-            } : prev);
-        };
+    // Cuando la carga termina estando la pantalla abierta, se vuelve a pedir la remesa una vez.
+    const terminal = carga?.terminal ?? null;
+    const terminalPrevRef = useRef<boolean | null>(null);
+    useEffect(() => {
+        if (terminalPrevRef.current === false && terminal === true) fetchAll(true);
+        terminalPrevRef.current = terminal;
+    }, [terminal, fetchAll]);
 
-        const onFinalizada = (payload: { remesaId: number }) => {
-            if (payload.remesaId !== remesaId) return;
-            fetchAll(true);
-        };
+    // Lo que se muestra: con la carga en vivo (en curso o terminada) manda `carga`; mientras no llega,
+    // o si es un borrador, lo que dice la remesa.
+    const usarCarga = carga !== null && (carga.enCurso || carga.terminal);
+    const totalFilas = usarCarga
+        ? (carga.terminal ? carga.procesadas : carga.totalEsperado)
+        : (remesa?.totalFilas ?? 0);
+    const okFilas = usarCarga ? carga.ok : (remesa?.okFilas ?? 0);
+    const errFilas = usarCarga ? carga.err : (remesa?.errFilas ?? 0);
+    const tasaExitoPct = usarCarga
+        ? (carga.procesadas > 0 && carga.resultado !== 'FALLIDA' ? Math.round((carga.ok / carga.procesadas) * 100) : null)
+        : (remesa?.tasaExitoPct ?? null);
 
-        socket.on('import:progreso', onProgreso);
-        socket.on('import:finalizada', onFinalizada);
-
-        return () => {
-            socket.off('import:progreso', onProgreso);
-            socket.off('import:finalizada', onFinalizada);
-        };
-    }, [socket, id, fetchAll]);
+    // Errores y avisos de la carga. Un aviso ([aviso], [parseo], [post-proceso]) no es una fila con error.
+    // Una remesa terminal heredada (rev 0) no trae el contador de avisos: se piden los errores igual y la
+    // tabla se muestra si vienen filas. Los errores se piden al abrir y al terminar la carga, no en cada tick.
+    const hayAvisos = (carga?.advertencias ?? 0) > 0;
+    const enCurso = carga?.enCurso === true;
+    const cargaLista = carga !== null;
+    const heredadaTerminal = carga?.terminal === true && carga.rev === 0;
+    const pedirErrores = errFilas > 0 || hayAvisos || heredadaTerminal;
+    const mostrarErrores = errFilas > 0 || hayAvisos || (heredadaTerminal && errors.length > 0);
+    const erroresPedidosRef = useRef(false);
+    useEffect(() => { erroresPedidosRef.current = false; setErrors([]); }, [id]);
+    const cargarErrores = useCallback(async () => {
+        if (!id) return;
+        try {
+            const res = await api.get(`/import/errores/${id}?pageSize=100`);
+            setErrors(res.data.data);
+        } catch (err) {
+            notifyRef.current.error(err as Error);
+        }
+    }, [id]);
+    useEffect(() => {
+        if (!pedirErrores || !cargaLista) return;
+        // En curso: una vez al abrir (para no afirmar que no hay); después, al terminar.
+        if (enCurso && erroresPedidosRef.current) return;
+        erroresPedidosRef.current = true;
+        void cargarErrores();
+    }, [pedirErrores, enCurso, terminal, cargaLista, cargarErrores]);
 
     const esMulticlaves = remesa?.categoria === 'MULTICLAVES';
 
@@ -249,7 +270,7 @@ export default function ImportDetail() {
         {
             key: 'rowNumber',
             label: esMulticlaves ? 'Trámite #' : 'Fila #',
-            render: (row) => String(row.rowNumber),
+            render: (row) => (esAvisoDeCarga(row.errorMsg) ? '—' : String(row.rowNumber)),
         },
         {
             key: 'errorMsg',
@@ -280,33 +301,42 @@ export default function ImportDetail() {
         },
     ];
 
-    const estadoStatus: StatusValue = remesa
-        ? (ESTADO_TO_STATUS[remesa.estadoProceso] ?? 'neutral')
-        : 'neutral';
+    // Chip de estado: "Borrador" si no está en curso ni terminó; "En cola" si espera su turno; si no, el estado de siempre.
+    let chipEstado: { status: StatusValue; label: string } | null = null;
+    if (carga) {
+        if (!carga.enCurso && !carga.terminal) chipEstado = { status: 'pending', label: 'Borrador' };
+        else if (carga.fase === 'EN_COLA') chipEstado = { status: 'pending', label: 'En cola' };
+        else chipEstado = { status: ESTADO_TO_STATUS[carga.estadoProceso] ?? 'neutral', label: carga.estadoProceso };
+    } else if (remesa && !cargandoCarga) {
+        chipEstado = { status: ESTADO_TO_STATUS[remesa.estadoProceso] ?? 'neutral', label: remesa.estadoProceso };
+    }
 
-    const enProgreso = remesa ? EN_PROGRESO.has(remesa.estadoProceso) : false;
-    // Progreso calculado desde las filas (igual que el backend y las notificaciones):
-    // okFilas/errFilas/totalFilas se actualizan en cada tick del socket, mientras que
-    // jobimport puede ser null al inicio de una importación recién lanzada.
-    const progreso = remesa && remesa.totalFilas > 0
-        ? Math.min(100, Math.floor(((remesa.okFilas + remesa.errFilas) / remesa.totalFilas) * 100))
-        : (remesa?.jobimport?.progreso ?? 0);
+    const fase = carga ? etiquetaFase(carga) : null;
+    const resultadoPresentado =
+        carga?.terminal &&
+        (carga.resultado === 'FALLIDA' || carga.resultado === 'CON_ADVERTENCIAS' || carga.resultado === 'SIN_FILAS')
+            ? presentarResultado(carga)
+            : null;
+    const esBorrador = carga !== null && !carga.enCurso && !carga.terminal;
+    const indeterminada = barraIndeterminada(carga);
 
     const successColor = theme.palette.success.main;
     const errorColor = theme.palette.error.main;
     const warningColor = theme.palette.warning.main;
 
-    const pieData = remesa && remesa.totalFilas > 0
+    const pieData = totalFilas > 0
         ? [
-            { name: 'OK', value: remesa.okFilas },
-            { name: 'Error', value: remesa.errFilas },
+            { name: 'OK', value: okFilas },
+            { name: 'Error', value: errFilas },
         ]
         : null;
 
-    const finalizadaOFallida = remesa?.estadoProceso === 'FINALIZADA' || remesa?.estadoProceso === 'FALLIDA';
-    const fechaFin = finalizadaOFallida
-        ? (remesa?.jobimport?.finishedAt ?? remesa?.updatedAt ?? null)
-        : null;
+    // Una remesa heredada (sin fila de progreso) no tiene fecha de fin: se usa la última modificación.
+    const fechaInicio = carga?.startedAt ?? remesa?.createdAt ?? null;
+    const fechaFin = carga?.terminal ? (carga.finishedAt ?? remesa?.updatedAt ?? null) : null;
+    const filasDeErrores = [...errors].sort(
+        (a, b) => Number(!esAvisoDeCarga(a.errorMsg)) - Number(!esAvisoDeCarga(b.errorMsg)),
+    );
 
     return (
         <Box sx={{ px: { xs: 2, md: 3 }, py: 3 }}>
@@ -326,6 +356,20 @@ export default function ImportDetail() {
                     },
                 ]}
             />
+
+            {(noEncontrada || noExiste) && !remesa && (
+                <Alert
+                    severity="warning"
+                    sx={{ mb: 3 }}
+                    action={
+                        <Button color="inherit" size="small" onClick={() => navigate('/historial-importaciones')}>
+                            Ir al historial
+                        </Button>
+                    }
+                >
+                    La importación #{id} no existe. Puede haberse eliminado.
+                </Alert>
+            )}
 
             {loading && !remesa && (
                 <SectionCard sx={{ mb: 3 }}>
@@ -376,42 +420,79 @@ export default function ImportDetail() {
                                     )}
                                 </Box>
                             </Box>
-                            <StatusChip
-                                status={estadoStatus}
-                                label={remesa.estadoProceso}
-                                sx={{ fontSize: '0.95rem', px: 1.5, py: 0.5 }}
-                            />
+                            {chipEstado && (
+                                <StatusChip
+                                    status={chipEstado.status}
+                                    label={chipEstado.label}
+                                    sx={{ fontSize: '0.95rem', px: 1.5, py: 0.5 }}
+                                />
+                            )}
                         </Box>
-                        {enProgreso && (
+                        {esBorrador && fase?.secundario && (
+                            <Typography variant="body2" color="text.secondary" mt={2}>
+                                {fase.secundario}
+                            </Typography>
+                        )}
+                        {carga?.enCurso && fase && (
                             <Box mt={2}>
                                 <LinearProgress
-                                    variant="determinate"
-                                    value={progreso}
+                                    variant={indeterminada ? 'indeterminate' : 'determinate'}
+                                    value={indeterminada ? undefined : carga.progreso}
                                     sx={{ borderRadius: 1, height: 8 }}
                                 />
                                 <Typography variant="caption" color="text.secondary" mt={0.5} display="block">
-                                    {progreso}% completado
+                                    {fase.principal}
+                                    {!indeterminada ? ` · ${carga.progreso}% completado` : ''}
                                 </Typography>
+                                {fase.secundario && (
+                                    <Typography variant="caption" color="text.secondary" display="block">
+                                        {fase.secundario}
+                                    </Typography>
+                                )}
+                            </Box>
+                        )}
+                        {carga && (carga.enCurso || carga.intentos > 1) && (
+                            <Box mt={2}>
+                                <AvisosCarga estado={carga} conectado={conectado} />
                             </Box>
                         )}
                     </SectionCard>
 
+                    {resultadoPresentado && (
+                        <Alert severity={resultadoPresentado.severidad} sx={{ mb: 3, overflowWrap: 'anywhere' }}>
+                            <AlertTitle>{resultadoPresentado.titulo}</AlertTitle>
+                            {resultadoPresentado.detalle}
+                        </Alert>
+                    )}
+
                     {/* Claves de pago (solo MULTICLAVES) */}
                     {remesa.categoria === 'MULTICLAVES' && <MulticlavesLoteResumen remesaId={remesa.id} />}
 
-                    {/* C) Stat cards */}
+                    {/* C) Stat cards. Un borrador no cargó nada: solo se muestra el total de la vista previa. */}
+                    {esBorrador ? (
+                        <Grid container spacing={2} sx={{ mb: 3 }}>
+                            <Grid item xs={12} sm={6} md={3}>
+                                <StatCard
+                                    label={esMulticlaves ? 'Trámites en la vista previa' : 'Filas en la vista previa'}
+                                    value={totalFilas > 0 ? totalFilas : '—'}
+                                    icon={<TableRowsIcon sx={{ fontSize: 36 }} />}
+                                />
+                            </Grid>
+                        </Grid>
+                    ) : (
+                        <>
                     <Grid container spacing={2} sx={{ mb: 3 }}>
                         <Grid item xs={12} sm={6} md={3}>
                             <StatCard
                                 label={esMulticlaves ? 'Total trámites' : 'Total filas'}
-                                value={remesa.totalFilas}
+                                value={totalFilas}
                                 icon={<TableRowsIcon sx={{ fontSize: 36 }} />}
                             />
                         </Grid>
                         <Grid item xs={12} sm={6} md={3}>
                             <StatCard
                                 label={esMulticlaves ? 'Trámites OK' : 'Filas OK'}
-                                value={remesa.okFilas}
+                                value={okFilas}
                                 icon={<CheckCircleOutlineIcon sx={{ fontSize: 36 }} />}
                                 valueColor={successColor}
                             />
@@ -419,24 +500,28 @@ export default function ImportDetail() {
                         <Grid item xs={12} sm={6} md={3}>
                             <StatCard
                                 label={esMulticlaves ? 'Trámites con error' : 'Filas con error'}
-                                value={remesa.errFilas}
+                                value={errFilas}
                                 icon={<ErrorOutlineIcon sx={{ fontSize: 36 }} />}
-                                valueColor={remesa.errFilas > 0 ? errorColor : 'text.primary'}
+                                valueColor={errFilas > 0 ? errorColor : 'text.primary'}
                             />
                         </Grid>
                         <Grid item xs={12} sm={6} md={3}>
                             <StatCard
                                 label="Tasa de éxito"
-                                value={remesa.tasaExitoPct !== null ? `${remesa.tasaExitoPct}%` : '—'}
+                                value={tasaExitoPct !== null ? `${tasaExitoPct}%` : '—'}
                                 icon={<SpeedIcon sx={{ fontSize: 36 }} />}
-                                valueColor={tasaColor(remesa.tasaExitoPct, successColor, warningColor, errorColor)}
+                                valueColor={tasaColor(tasaExitoPct, successColor, warningColor, errorColor)}
                             />
                         </Grid>
                     </Grid>
 
+                        </>
+                    )}
+
                     {/* D + E) Donut + Info en fila */}
                     <Grid container spacing={2} sx={{ mb: 3 }}>
-                        {/* D) Donut chart */}
+                        {/* D) Donut chart (un borrador no tiene distribución: no cargó nada) */}
+                        {!esBorrador && (
                         <Grid item xs={12} md={5}>
                             <SectionCard title={esMulticlaves ? 'Distribución de trámites' : 'Distribución de filas'} sx={{ height: '100%' }}>
                                 {pieData ? (
@@ -469,7 +554,7 @@ export default function ImportDetail() {
                                                                         fill={theme.palette.text.primary}
                                                                         style={{ fontSize: 26, fontWeight: 700 }}
                                                                     >
-                                                                        {remesa.totalFilas}
+                                                                        {totalFilas}
                                                                     </text>
                                                                     <text
                                                                         x={vb.cx}
@@ -488,8 +573,8 @@ export default function ImportDetail() {
                                                 <Tooltip
                                                     formatter={(value) => {
                                                         const num = typeof value === 'number' ? value : 0;
-                                                        const pct = remesa.totalFilas > 0
-                                                            ? Math.round((num / remesa.totalFilas) * 100)
+                                                        const pct = totalFilas > 0
+                                                            ? Math.round((num / totalFilas) * 100)
                                                             : 0;
                                                         return `${num} (${pct}%)`;
                                                     }}
@@ -512,8 +597,10 @@ export default function ImportDetail() {
                             </SectionCard>
                         </Grid>
 
+                        )}
+
                         {/* E) Info general */}
-                        <Grid item xs={12} md={7}>
+                        <Grid item xs={12} md={esBorrador ? 12 : 7}>
                             <SectionCard title="Información general" sx={{ height: '100%' }}>
                                 <InfoRow
                                     label="Empresa"
@@ -559,7 +646,7 @@ export default function ImportDetail() {
                                     label="Fecha de inicio"
                                     value={
                                         <Typography variant="body2" fontWeight={600}>
-                                            {formatDate(remesa.createdAt)}
+                                            {formatDate(fechaInicio)}
                                         </Typography>
                                     }
                                 />
@@ -567,7 +654,7 @@ export default function ImportDetail() {
                                     label="Fecha de finalización"
                                     value={
                                         <Typography variant="body2" fontWeight={600}>
-                                            {fechaFin ? formatDate(fechaFin) : (enProgreso ? 'En curso' : '—')}
+                                            {fechaFin ? formatDate(fechaFin) : (enCurso ? 'En curso' : '—')}
                                         </Typography>
                                     }
                                 />
@@ -575,7 +662,7 @@ export default function ImportDetail() {
                                     label="Duración"
                                     value={
                                         <Typography variant="body2" fontWeight={600}>
-                                            {formatDuracion(remesa.duracionMs)}
+                                            {formatDuracion(carga?.duracionMs ?? null)}
                                         </Typography>
                                     }
                                 />
@@ -603,13 +690,24 @@ export default function ImportDetail() {
                     </Grid>
 
                     {/* F) Tabla de errores */}
-                    {remesa.errFilas > 0 && (
-                        <SectionCard title={esMulticlaves ? 'Trámites rechazados' : 'Errores de fila'} noPadding>
+                    {mostrarErrores && (
+                        <SectionCard
+                            title={
+                                errFilas > 0
+                                    ? (esMulticlaves ? 'Trámites rechazados' : 'Errores de fila')
+                                    : 'Avisos de la carga'
+                            }
+                            noPadding
+                        >
                             <DataTableResponsive<ErrorRow>
                                 columns={errorColumns}
-                                rows={errors as ErrorRow[]}
+                                rows={filasDeErrores as ErrorRow[]}
                                 rowKey={(row) => String(row.id)}
-                                emptyMessage="No hay errores registrados."
+                                emptyMessage={
+                                    enCurso
+                                        ? 'Los errores de una carga en curso se actualizan cuando termina.'
+                                        : (errFilas > 0 ? 'No hay errores registrados.' : 'No hay avisos registrados.')
+                                }
                             />
                         </SectionCard>
                     )}

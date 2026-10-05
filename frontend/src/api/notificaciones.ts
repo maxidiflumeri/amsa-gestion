@@ -15,19 +15,6 @@ export interface ContadorDto {
     noLeidas: number;
 }
 
-export interface ImportEnCursoDto {
-    remesaId: number;
-    tipo: string;
-    totalFilas: number;
-    progreso: number;
-    okFilas: number;
-    errFilas: number;
-    estadoProceso: string;
-    usuarioId: number;
-    usuarioNombre: string;
-    startedAt: string;
-}
-
 export interface ListarNotificacionesParams {
     soloNoLeidas?: boolean;
     soloLeidas?: boolean;
@@ -49,8 +36,9 @@ export async function listarNotificaciones(
     return data;
 }
 
+/** Solo la usan las consultas de fondo (hidratación, verificación de sesión): va silenciosa. */
 export async function obtenerContador(): Promise<ContadorDto> {
-    const { data } = await api.get<ContadorDto>('/notificaciones/contador');
+    const { data } = await api.get<ContadorDto>('/notificaciones/contador', { silencioso: true });
     return data;
 }
 
@@ -60,9 +48,4 @@ export async function marcarLeida(id: number): Promise<void> {
 
 export async function marcarTodas(): Promise<void> {
     await api.post('/notificaciones/leer-todas');
-}
-
-export async function obtenerImportsEnCurso(): Promise<ImportEnCursoDto[]> {
-    const { data } = await api.get<ImportEnCursoDto[]>('/import/en-curso');
-    return data;
 }

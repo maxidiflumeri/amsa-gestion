@@ -1,4 +1,5 @@
-import React, { useCallback, useEffect, useState } from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
+import { isAxiosError } from "axios";
 import {
     Alert,
     AlertTitle,
@@ -47,10 +48,14 @@ import FileDropZone from "../components/import/FileDropZone";
 import MultiarchivoDropZone, { paqueteCompleto } from "../components/import/MultiarchivoDropZone";
 import PreviewTable from "../components/import/PreviewTable";
 import ImportProgress from "../components/import/ImportProgress";
-import ImportSummary from "../components/import/ImportSummary";
+import { obtenerEstadoCarga } from "../api/imports";
+import { esEstadoCarga } from "../utils/estadoCarga";
+import { MENSAJE_NO_SEGUIDA } from "../components/import/ImportProgress";
+import ImportSummary, { type RemesaNoEjecutada } from "../components/import/ImportSummary";
 import MulticlavesResumen from "../components/import/MulticlavesResumen";
 import PagosConClaveResumen from "../components/import/PagosConClaveResumen";
 import type { MulticlavesPreview, MulticlavePagosPreview } from "../api/multiclaves";
+import type { EstadoCargaDto } from "../types/importProgreso";
 
 const steps = [
     "Categoría",
@@ -61,6 +66,15 @@ const steps = [
 ];
 
 /** Un corte del archivo con el número de remesa que le va a tocar (editable por el operador). */
+/** Texto del error de un pedido, para mostrarlo en el resumen (el mismo que sale en el toast). */
+function mensajeDeError(err: unknown): string {
+    if (isAxiosError(err)) {
+        const mensaje = (err.response?.data as { message?: string | string[] } | undefined)?.message;
+        if (mensaje) return Array.isArray(mensaje) ? mensaje[0] : mensaje;
+    }
+    return err instanceof Error ? err.message : "Error inesperado";
+}
+
 interface CorteEditable {
     valores: Record<string, string>;
     filas: number;
@@ -181,8 +195,21 @@ export default function ImportWizard() {
     const [colaRemesas, setColaRemesas] = useState<number[]>([]);
     const [indiceCola, setIndiceCola] = useState(0);
 
-    // Paso 4 – resultado final
-    const [finalResult, setFinalResult] = useState({ total: 0, ok: 0, err: 0 });
+    // Paso 4 – resultado final: el estado terminal de cada remesa que corrió, y las de la división
+    // que no llegaron a ejecutarse (con el motivo).
+    const [resultados, setResultados] = useState<EstadoCargaDto[]>([]);
+    const [noEjecutadas, setNoEjecutadas] = useState<RemesaNoEjecutada[]>([]);
+    // Evita el doble clic en "Confirmar e importar".
+    const [enviando, setEnviando] = useState(false);
+    // La `carga` que devolvió el POST de ejecutar: siembra el paso "Importando" sin esperar un evento.
+    const [cargaInicial, setCargaInicial] = useState<EstadoCargaDto | null>(null);
+    // Carga dividida: número de remesa de cada una (el backend las crea en el orden de `divisiones`).
+    const [esDivision, setEsDivision] = useState(false);
+    const [numerosRemesa, setNumerosRemesa] = useState<Record<number, string>>({});
+    // true cuando el paso "Importando" ya vio la carga en curso o terminada.
+    const seguimientoRef = useRef(false);
+    // true si la última consulta del estado real, tras un fallo de ejecutar, dijo que la remesa sigue siendo un borrador.
+    const borradorConfirmadoRef = useRef(false);
 
     // ─── Carga de plantillas ─────────────────────────────────
     useEffect(() => {
@@ -388,6 +415,12 @@ export default function ImportWizard() {
             setRemesaId(newRemesaId);
             setColaRemesas(creadas);
             setIndiceCola(0);
+            setEsDivision(!!divisiones?.length);
+            setNumerosRemesa(
+                divisiones?.length
+                    ? Object.fromEntries(creadas.map((id, i) => [id, divisiones[i]?.numeroRemesa.trim() ?? ""]))
+                    : {},
+            );
 
             // Con la carga dividida se valida la primera para mostrar el preview del mapeo; las
             // demás se validan justo antes de ejecutarse, para que cada una tenga su total y la
@@ -438,56 +471,97 @@ export default function ImportWizard() {
     };
 
     /** Dispara una remesa de la cola. La primera ya viene validada del paso 2. */
-    const ejecutarRemesa = async (id: number, yaValidada: boolean) => {
-        if (!yaValidada) await api.post(`/import/validar/${id}`);
-        await api.post(`/import/ejecutar/${id}`, {
-            remesaOrigenId: multiOrigen ? undefined : (remesaOrigenId ?? undefined),
-            remesaOrigenIds: multiOrigen && remesaOrigenIds.length ? remesaOrigenIds : undefined,
-        });
+    const ejecutarRemesa = async (id: number, yaValidada: boolean): Promise<EstadoCargaDto | null> => {
+        try {
+            if (!yaValidada) await api.post(`/import/validar/${id}`);
+            const { data } = await api.post<{ carga?: unknown }>(`/import/ejecutar/${id}`, {
+                remesaOrigenId: multiOrigen ? undefined : (remesaOrigenId ?? undefined),
+                remesaOrigenIds: multiOrigen && remesaOrigenIds.length ? remesaOrigenIds : undefined,
+            });
+            return esEstadoCarga(data?.carga) ? data.carga : null;
+        } catch (err) {
+            // Ante CUALQUIER fallo se mira el estado real de la remesa: un POST que dio timeout o cuya respuesta se
+            // perdió puede haber encolado igual (o la carga ya haber corrido). No se decide por el texto del error.
+            try {
+                const real = await obtenerEstadoCarga(id);
+                if (esEstadoCarga(real) && (real.enCurso || real.terminal)) return real;
+                if (esEstadoCarga(real)) borradorConfirmadoRef.current = true;
+            } catch {
+                // Sin poder consultar, se muestra el error original.
+            }
+            throw err;
+        }
     };
 
     // Paso 2 → 3: Confirmar y ejecutar
     const handleEjecutar = async () => {
-        if (!remesaId) return;
+        if (!remesaId || enviando) return;
 
+        setEnviando(true);
+        seguimientoRef.current = false;
+        borradorConfirmadoRef.current = false;
         setActiveStep(3);
 
         try {
-            await ejecutarRemesa(remesaId, true);
+            setCargaInicial(await ejecutarRemesa(remesaId, true));
         } catch (err: any) {
+            // Si la carga ya se está siguiendo (en curso o terminada), un fallo tardío del POST no puede volver atrás.
+            // Salvo que la consulta del estado real haya dicho que sigue siendo un borrador: esa es la verdad.
+            if (seguimientoRef.current && !borradorConfirmadoRef.current) return;
             notify.error(err);
+            setEnviando(false);
             setActiveStep(2);
         }
     };
 
-    const handleImportComplete = useCallback(
-        (result: { total: number; ok: number; err: number }) => {
-            // Carga dividida: los totales se van sumando y se arranca la remesa siguiente. Van una
-            // atrás de la otra y no en paralelo a propósito: comparten el archivo y el worker, y
-            // lanzarlas juntas solo haría que se peleen por la base sin terminar antes.
-            const siguiente = indiceCola + 1;
-            const quedan = siguiente < colaRemesas.length;
+    /** Las remesas de la cola desde `desde` no se ejecutaron: el resumen las cuenta, con su número y el motivo. */
+    const marcarNoEjecutadas = (desde: number, motivo: string, noSeguida = false) => {
+        // El motivo es el de la que falló; las que venían después ni se intentaron. Si lo que pasó es que no se
+        // pudo seguir la remesa, no se afirma que no se ejecutó ni que no arrancó: puede estar corriendo.
+        setNoEjecutadas(
+            colaRemesas.slice(desde).map((id, i) => ({
+                remesaId: id,
+                numeroRemesa: numerosRemesa[id],
+                motivo:
+                    i === 0
+                        ? motivo
+                        : noSeguida
+                            ? "No se intentó porque no se pudo seguir la remesa anterior."
+                            : "No se intentó porque la remesa anterior no arrancó.",
+                noSeguida,
+            })),
+        );
+        setActiveStep(4);
+    };
 
-            setFinalResult((prev) =>
-                colaRemesas.length > 1
-                    ? {
-                          total: prev.total + result.total,
-                          ok: prev.ok + result.ok,
-                          err: prev.err + result.err,
-                      }
-                    : result,
+    // El servidor no encontró la remesa en varias consultas seguidas. No se afirma que se eliminó: puede estar corriendo.
+    const handleRemesaInexistente = () => {
+        // En una carga común la alerta fija de `ImportProgress` (con sus botones) alcanza: no se reinicia solo.
+        if (colaRemesas.length > 1) marcarNoEjecutadas(indiceCola, MENSAJE_NO_SEGUIDA, true);
+    };
+
+    const handleImportComplete = useCallback(
+        (estado: EstadoCargaDto) => {
+            // Cada remesa que termina, con el resultado que sea (también FALLIDA o sin filas), entra al
+            // resumen. Carga dividida: se arranca la remesa siguiente aunque la anterior haya fallado.
+            // Van una atrás de la otra y no en paralelo a propósito: comparten el archivo y el worker, y
+            // lanzarlas juntas solo haría que se peleen por la base sin terminar antes.
+            setResultados((prev) =>
+                prev.some((r) => r.remesaId === estado.remesaId) ? prev : [...prev, estado],
             );
 
-            if (!quedan) {
+            const siguiente = indiceCola + 1;
+            if (siguiente >= colaRemesas.length) {
                 setActiveStep(4);
                 return;
             }
 
             const id = colaRemesas[siguiente];
             setIndiceCola(siguiente);
-            ejecutarRemesa(id, false).catch((err) => {
+            ejecutarRemesa(id, false).then(setCargaInicial).catch((err) => {
+                // La que no arrancó y todas las que quedaban en la cola no se ejecutaron: el resumen las cuenta.
                 notify.error(err);
-                setActiveStep(4);
+                marcarNoEjecutadas(siguiente, mensajeDeError(err));
             });
         },
         // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -517,7 +591,14 @@ export default function ImportWizard() {
         setCortes(null);
         setColaRemesas([]);
         setIndiceCola(0);
-        setFinalResult({ total: 0, ok: 0, err: 0 });
+        setResultados([]);
+        setNoEjecutadas([]);
+        setEnviando(false);
+        seguimientoRef.current = false;
+        borradorConfirmadoRef.current = false;
+        setCargaInicial(null);
+        setEsDivision(false);
+        setNumerosRemesa({});
     };
 
     // Números que chocan entre sí. La combinación 3G / 3GH del archivo real produce el mismo
@@ -1009,14 +1090,22 @@ export default function ImportWizard() {
                         {colaRemesas.length > 1 && (
                             <Alert severity="info" sx={{ mb: 2 }}>
                                 Procesando la remesa {indiceCola + 1} de {colaRemesas.length}. Las
-                                remesas de la división se cargan una después de la otra; no cierres
-                                la pantalla.
+                                remesas de la división se cargan una después de la otra, y la
+                                siguiente la arranca esta pantalla: no la cierres hasta ver el
+                                resultado.
                             </Alert>
                         )}
                         <ImportProgress
                             key={colaRemesas[indiceCola] ?? remesaId}
                             remesaId={colaRemesas[indiceCola] ?? remesaId}
                             onComplete={handleImportComplete}
+                            estadoInicial={
+                                cargaInicial?.remesaId === (colaRemesas[indiceCola] ?? remesaId) ? cargaInicial : null
+                            }
+                            ocultarDescartadas={esDivision}
+                            onNoExiste={handleRemesaInexistente}
+                            onSeguimiento={() => { seguimientoRef.current = true; }}
+                            onNuevaImportacion={handleNewImport}
                         />
                     </>
                 )}
@@ -1024,17 +1113,21 @@ export default function ImportWizard() {
                 {/* PASO 4 — Resumen */}
                 {activeStep === 4 && remesaId && (
                     <ImportSummary
-                        total={finalResult.total}
-                        ok={finalResult.ok}
-                        err={finalResult.err}
-                        remesaId={remesaId}
+                        resultados={resultados}
+                        noEjecutadas={noEjecutadas}
+                        dividida={esDivision}
                         onNewImport={handleNewImport}
-                        onViewRemesas={() =>
-                            (window.location.href = "/remesas")
-                        }
                     />
                 )}
             </SectionCard>
+
+            {activeStep === 2 && previewStats.total === 0 && (
+                <Alert severity="warning" sx={{ mt: 2 }}>
+                    El archivo no tiene filas para importar.
+                    {!esDivision && !!resumenArchivos?.descartadas &&
+                        ` El filtro de la plantilla descartó las ${resumenArchivos.descartadas} filas.`}
+                </Alert>
+            )}
 
             {/* Barra de navegación inferior */}
             {activeStep < 3 && (
@@ -1087,6 +1180,7 @@ export default function ImportWizard() {
                         <Button
                             variant="contained"
                             color="success"
+                            disabled={previewStats.total === 0 || enviando}
                             onClick={handleEjecutar}
                         >
                             Confirmar e importar

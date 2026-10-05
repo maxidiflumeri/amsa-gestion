@@ -1,29 +1,19 @@
 import React from 'react';
 import { Box, LinearProgress, Typography, Chip, useTheme } from '@mui/material';
 import { Link as RouterLink } from 'react-router-dom';
+import type { EstadoCargaDto } from '../../../types/importProgreso';
+import { barraIndeterminada, etiquetaFase } from '../../../utils/estadoCarga';
 
 interface ImportEnCursoItemProps {
-    remesaId: number;
-    tipo: string;
-    progreso: number;
-    okFilas: number;
-    errFilas: number;
-    totalFilas: number;
-    usuarioNombre: string;
-    estadoProceso: string;
+    carga: EstadoCargaDto;
 }
 
-const ImportEnCursoItem: React.FC<ImportEnCursoItemProps> = ({
-    remesaId,
-    tipo,
-    progreso,
-    okFilas,
-    errFilas,
-    totalFilas,
-    usuarioNombre,
-    estadoProceso,
-}) => {
+const chipSx = { height: 18, fontSize: '0.65rem' } as const;
+
+const ImportEnCursoItem: React.FC<ImportEnCursoItemProps> = ({ carga }) => {
     const theme = useTheme();
+    const indeterminada = barraIndeterminada(carga);
+    const fase = etiquetaFase(carga);
 
     return (
         <Box
@@ -35,50 +25,37 @@ const ImportEnCursoItem: React.FC<ImportEnCursoItemProps> = ({
             }}
         >
             <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 0.5 }}>
-                <Typography variant="body2" fontWeight={600} noWrap sx={{ maxWidth: 180 }}>
-                    {tipo}
+                <Typography variant="body2" fontWeight={600} noWrap sx={{ minWidth: 0 }}>
+                    {carga.tipo} · Remesa {carga.numeroRemesa}
                 </Typography>
-                <Typography variant="caption" color="text.secondary" noWrap sx={{ ml: 1 }}>
-                    {usuarioNombre}
+                <Typography variant="caption" color="text.secondary" noWrap sx={{ ml: 1, flexShrink: 0, maxWidth: 110 }}>
+                    {carga.usuarioNombre}
                 </Typography>
             </Box>
 
             <LinearProgress
-                variant="determinate"
-                value={progreso}
+                variant={indeterminada ? 'indeterminate' : 'determinate'}
+                value={indeterminada ? undefined : carga.progreso}
                 sx={{ height: 6, borderRadius: 3, mb: 0.75 }}
             />
 
             <Box sx={{ display: 'flex', gap: 1, alignItems: 'center', flexWrap: 'wrap' }}>
                 <Typography variant="caption" color="text.secondary">
-                    {progreso}%
+                    {fase.principal}
+                    {!indeterminada ? ` · ${carga.progreso}%` : ''}
                 </Typography>
-                <Chip
-                    label={`OK: ${okFilas}`}
-                    size="small"
-                    color="success"
-                    variant="outlined"
-                    sx={{ height: 18, fontSize: '0.65rem' }}
-                />
-                {errFilas > 0 && (
-                    <Chip
-                        label={`Err: ${errFilas}`}
-                        size="small"
-                        color="error"
-                        variant="outlined"
-                        sx={{ height: 18, fontSize: '0.65rem' }}
-                    />
+                <Chip label={`Procesadas: ${carga.procesadas}`} size="small" variant="outlined" sx={chipSx} />
+                <Chip label={`OK: ${carga.ok}`} size="small" color="success" variant="outlined" sx={chipSx} />
+                {carga.err > 0 && (
+                    <Chip label={`Err: ${carga.err}`} size="small" color="error" variant="outlined" sx={chipSx} />
                 )}
-                <Chip
-                    label={`Total: ${totalFilas}`}
-                    size="small"
-                    variant="outlined"
-                    sx={{ height: 18, fontSize: '0.65rem' }}
-                />
+                {carga.totalEsperado > 0 && (
+                    <Chip label={`Total: ${carga.totalEsperado}`} size="small" variant="outlined" sx={chipSx} />
+                )}
                 <Box sx={{ flexGrow: 1 }} />
                 <Typography
                     component={RouterLink}
-                    to={`/historial-importaciones/${remesaId}`}
+                    to={`/historial-importaciones/${carga.remesaId}`}
                     variant="caption"
                     color="primary.main"
                     sx={{ textDecoration: 'none', '&:hover': { textDecoration: 'underline' } }}
@@ -87,9 +64,9 @@ const ImportEnCursoItem: React.FC<ImportEnCursoItemProps> = ({
                 </Typography>
             </Box>
 
-            {estadoProceso !== 'PROCESANDO' && (
+            {fase.secundario && (
                 <Typography variant="caption" color="text.secondary" sx={{ mt: 0.25, display: 'block' }}>
-                    {estadoProceso}
+                    {fase.secundario}
                 </Typography>
             )}
         </Box>
