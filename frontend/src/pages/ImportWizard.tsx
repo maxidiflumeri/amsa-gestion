@@ -49,7 +49,13 @@ import MultiarchivoDropZone, { paqueteCompleto } from "../components/import/Mult
 import PreviewTable from "../components/import/PreviewTable";
 import ImportProgress from "../components/import/ImportProgress";
 import { obtenerEstadoCarga } from "../api/imports";
-import { esEstadoCarga } from "../utils/estadoCarga";
+import {
+    descartadasPorFiltroEnVistaPrevia,
+    esEstadoCarga,
+    formatearNumero,
+    textoSubida,
+    type ProgresoSubida,
+} from "../utils/estadoCarga";
 import { MENSAJE_NO_SEGUIDA } from "../components/import/ImportProgress";
 import ImportSummary, { type RemesaNoEjecutada } from "../components/import/ImportSummary";
 import MulticlavesResumen from "../components/import/MulticlavesResumen";
@@ -134,8 +140,13 @@ export default function ImportWizard() {
     // Qué archivos entraron en la remesa y cuántas filas descartó el filtro de la plantilla. Es lo
     // que el operador confirma antes de ejecutar cuando sube una tanda de archivos.
     const [resumenArchivos, setResumenArchivos] = useState<
-        { archivos?: string[]; descartadas?: number; filtro?: string } | null
+        { archivos?: string[]; descartadas?: number; fueraDeCorte?: number; filtro?: string } | null
     >(null);
+    // Subida de los archivos al crear el borrador (y al previsualizar una división): es un estado de la
+    // pantalla, no una fase de la carga. Se limpia en el `finally` del pedido.
+    const [subida, setSubida] = useState<ProgresoSubida | null>(null);
+    const alSubir = (e: { loaded: number; total?: number }) =>
+        setSubida({ enviados: e.loaded, total: e.total ?? 0 });
     const [remesasDeudores, setRemesasDeudores] = useState<any[]>([]);
     // El combo mostraba TODAS las remesas de la empresa —las de facturas, las de pagos, las de
     // acciones— y con 100 remesas encima elegir era imposible. Ahora se piden solo las que
@@ -319,8 +330,10 @@ export default function ImportWizard() {
             if (isExcelFile && hojaExcel.trim() !== "") formData.append("hoja", hojaExcel.trim());
             adjuntarArchivos(formData);
 
+            setSubida({ enviados: 0, total: 0 });
             const res = await api.post("/import/remesas/division-preview", formData, {
                 headers: { "Content-Type": "multipart/form-data" },
+                onUploadProgress: alSubir,
             });
 
             setCortes(
@@ -336,6 +349,7 @@ export default function ImportWizard() {
         } catch (err: any) {
             notify.error(err);
         } finally {
+            setSubida(null);
             setLoading(false);
         }
     };
@@ -406,8 +420,16 @@ export default function ImportWizard() {
 
             formData.append("validarDomicilios", String(validarDomicilios));
 
+            setSubida({ enviados: 0, total: 0 });
             const resRemesa = await api.post("/import/remesas", formData, {
                 headers: { "Content-Type": "multipart/form-data" },
+                onUploadProgress: alSubir,
+            });
+
+            // Los archivos ya llegaron (aunque el navegador no haya sabido el total): sigue la validación.
+            setSubida((prev) => {
+                const total = Math.max(prev?.total ?? 0, prev?.enviados ?? 0, 1);
+                return { enviados: total, total };
             });
 
             const creadas: number[] = resRemesa.data.remesaIds ?? [resRemesa.data.remesaId];
@@ -444,6 +466,7 @@ export default function ImportWizard() {
                     ? {
                           archivos: resValidar.data.archivos,
                           descartadas: resValidar.data.descartadas,
+                          fueraDeCorte: resValidar.data.fueraDeCorte,
                           filtro: resValidar.data.filtro,
                       }
                     : null,
@@ -466,6 +489,7 @@ export default function ImportWizard() {
         } catch (err: any) {
             notify.error(err);
         } finally {
+            setSubida(null);
             setLoading(false);
         }
     };
@@ -1021,7 +1045,7 @@ export default function ImportWizard() {
                                 )}
                             </Alert>
                         )}
-                        {resumenArchivos && (
+                        {resumenArchivos && (!!resumenArchivos.archivos || descartadasPorFiltroEnVistaPrevia(resumenArchivos) > 0) && (
                             <Alert severity="info" sx={{ mb: 2 }}>
                                 {resumenArchivos.archivos && (
                                     <>
@@ -1037,9 +1061,9 @@ export default function ImportWizard() {
                                         </Box>
                                     </>
                                 )}
-                                {!!resumenArchivos.descartadas && (
+                                {descartadasPorFiltroEnVistaPrevia(resumenArchivos) > 0 && (
                                     <Typography variant="body2" sx={{ mt: resumenArchivos.archivos ? 1 : 0 }}>
-                                        Se descartaron <strong>{resumenArchivos.descartadas} filas</strong> que no
+                                        Se descartaron <strong>{formatearNumero(descartadasPorFiltroEnVistaPrevia(resumenArchivos))} filas</strong> que no
                                         cumplen el filtro de la plantilla
                                         {resumenArchivos.filtro && ` (${resumenArchivos.filtro})`}. No se importan y
                                         no cuentan como error.
@@ -1102,7 +1126,6 @@ export default function ImportWizard() {
                             estadoInicial={
                                 cargaInicial?.remesaId === (colaRemesas[indiceCola] ?? remesaId) ? cargaInicial : null
                             }
-                            ocultarDescartadas={esDivision}
                             onNoExiste={handleRemesaInexistente}
                             onSeguimiento={() => { seguimientoRef.current = true; }}
                             onNuevaImportacion={handleNewImport}
@@ -1124,8 +1147,10 @@ export default function ImportWizard() {
             {activeStep === 2 && previewStats.total === 0 && (
                 <Alert severity="warning" sx={{ mt: 2 }}>
                     El archivo no tiene filas para importar.
-                    {!esDivision && !!resumenArchivos?.descartadas &&
-                        ` El filtro de la plantilla descartó las ${resumenArchivos.descartadas} filas.`}
+                    {!!resumenArchivos && descartadasPorFiltroEnVistaPrevia(resumenArchivos) > 0 &&
+                        ` El filtro de la plantilla descartó las ${formatearNumero(descartadasPorFiltroEnVistaPrevia(resumenArchivos))} filas.`}
+                    {!!resumenArchivos?.fueraDeCorte && resumenArchivos.fueraDeCorte > 0 &&
+                        ` ${formatearNumero(resumenArchivos.fueraDeCorte)} filas son de otros cortes de la división.`}
                 </Alert>
             )}
 
@@ -1283,7 +1308,24 @@ export default function ImportWizard() {
             </Dialog>
 
             {/* Loading inline */}
-            {loading && <LinearProgress sx={{ mt: 2, borderRadius: 1 }} />}
+            {loading && subida && (
+                <Box sx={{ mt: 2 }}>
+                    <LinearProgress
+                        variant={textoSubida(subida).porcentaje === null ? "indeterminate" : "determinate"}
+                        value={textoSubida(subida).porcentaje ?? undefined}
+                        sx={{ borderRadius: 1 }}
+                    />
+                    <Typography variant="body2" fontWeight={600} sx={{ mt: 1, overflowWrap: "anywhere" }}>
+                        {textoSubida(subida).principal}
+                    </Typography>
+                    {textoSubida(subida).secundario && (
+                        <Typography variant="caption" color="text.secondary" sx={{ overflowWrap: "anywhere" }}>
+                            {textoSubida(subida).secundario}
+                        </Typography>
+                    )}
+                </Box>
+            )}
+            {loading && !subida && <LinearProgress sx={{ mt: 2, borderRadius: 1 }} />}
         </PageContainer>
     );
 }

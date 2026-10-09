@@ -44,7 +44,18 @@ import type { StatusValue } from '../components/ui';
 import type { DataTableColumn } from '../components/ui';
 import MulticlavesLoteResumen from '../components/import/MulticlavesLoteResumen';
 import AvisosCarga from '../components/import/AvisosCarga';
-import { barraIndeterminada, esAvisoDeCarga, etiquetaFase, presentarResultado } from '../utils/estadoCarga';
+import {
+    barraIndeterminada,
+    casosActualizados,
+    casosNuevos,
+    descartadasFueraDeCorte,
+    descartadasPorFiltro,
+    esAvisoDeCarga,
+    etiquetaFase,
+    formatearNumero,
+    lineaDeRitmo,
+    presentarResultado,
+} from '../utils/estadoCarga';
 
 // ─── Tipos ───────────────────────────────────────────────────────────────────
 
@@ -319,6 +330,29 @@ export default function ImportDetail() {
             : null;
     const esBorrador = carga !== null && !carga.enCurso && !carga.terminal;
     const indeterminada = barraIndeterminada(carga);
+    const ritmo = carga?.enCurso ? lineaDeRitmo(carga) : null;
+    // Lo que no entra en las cuatro tarjetas: solo se muestra lo que corresponda. Vale para cargas en curso y terminadas.
+    const resumenCasos: string[] = [];
+    if (carga && (carga.enCurso || carga.terminal)) {
+        const nuevos = casosNuevos(carga);
+        const actualizados = casosActualizados(carga);
+        const porFiltro = descartadasPorFiltro(carga);
+        const fuera = descartadasFueraDeCorte(carga);
+        if (nuevos !== null) resumenCasos.push(`Casos nuevos: ${formatearNumero(nuevos)}`);
+        if (actualizados !== null) resumenCasos.push(`Casos actualizados: ${formatearNumero(actualizados)}`);
+        // Sin `fueraDeCorte` (la remesa no tiene corte, o es anterior a la Fase B) el número puede incluir filas de
+        // otros cortes: el rótulo es el neutro. El desglose en dos partes, solo cuando `fueraDeCorte` es un número.
+        if (porFiltro > 0) {
+            resumenCasos.push(
+                carga.fueraDeCorte == null
+                    ? `Descartadas: ${formatearNumero(porFiltro)}`
+                    : `Descartadas por el filtro de la plantilla: ${formatearNumero(porFiltro)}`,
+            );
+        }
+        if (fuera > 0) {
+            resumenCasos.push(`De otros cortes de la división: ${formatearNumero(fuera)} (no se cargan en esta remesa)`);
+        }
+    }
 
     const successColor = theme.palette.success.main;
     const errorColor = theme.palette.error.main;
@@ -445,8 +479,23 @@ export default function ImportDetail() {
                                     {!indeterminada ? ` · ${carga.progreso}% completado` : ''}
                                 </Typography>
                                 {fase.secundario && (
-                                    <Typography variant="caption" color="text.secondary" display="block">
+                                    <Typography
+                                        variant="caption"
+                                        color="text.secondary"
+                                        display="block"
+                                        sx={{ overflowWrap: 'anywhere' }}
+                                    >
                                         {fase.secundario}
+                                    </Typography>
+                                )}
+                                {ritmo && (
+                                    <Typography
+                                        variant="caption"
+                                        color="text.secondary"
+                                        display="block"
+                                        sx={{ overflowWrap: 'anywhere' }}
+                                    >
+                                        {ritmo}
                                     </Typography>
                                 )}
                             </Box>
@@ -459,7 +508,7 @@ export default function ImportDetail() {
                     </SectionCard>
 
                     {resultadoPresentado && (
-                        <Alert severity={resultadoPresentado.severidad} sx={{ mb: 3, overflowWrap: 'anywhere' }}>
+                        <Alert severity={resultadoPresentado.severidad} sx={{ mb: 3, overflowWrap: 'anywhere', whiteSpace: 'pre-line' }}>
                             <AlertTitle>{resultadoPresentado.titulo}</AlertTitle>
                             {resultadoPresentado.detalle}
                         </Alert>
@@ -474,7 +523,7 @@ export default function ImportDetail() {
                             <Grid item xs={12} sm={6} md={3}>
                                 <StatCard
                                     label={esMulticlaves ? 'Trámites en la vista previa' : 'Filas en la vista previa'}
-                                    value={totalFilas > 0 ? totalFilas : '—'}
+                                    value={totalFilas > 0 ? formatearNumero(totalFilas) : '—'}
                                     icon={<TableRowsIcon sx={{ fontSize: 36 }} />}
                                 />
                             </Grid>
@@ -485,14 +534,14 @@ export default function ImportDetail() {
                         <Grid item xs={12} sm={6} md={3}>
                             <StatCard
                                 label={esMulticlaves ? 'Total trámites' : 'Total filas'}
-                                value={totalFilas}
+                                value={formatearNumero(totalFilas)}
                                 icon={<TableRowsIcon sx={{ fontSize: 36 }} />}
                             />
                         </Grid>
                         <Grid item xs={12} sm={6} md={3}>
                             <StatCard
                                 label={esMulticlaves ? 'Trámites OK' : 'Filas OK'}
-                                value={okFilas}
+                                value={formatearNumero(okFilas)}
                                 icon={<CheckCircleOutlineIcon sx={{ fontSize: 36 }} />}
                                 valueColor={successColor}
                             />
@@ -500,7 +549,7 @@ export default function ImportDetail() {
                         <Grid item xs={12} sm={6} md={3}>
                             <StatCard
                                 label={esMulticlaves ? 'Trámites con error' : 'Filas con error'}
-                                value={errFilas}
+                                value={formatearNumero(errFilas)}
                                 icon={<ErrorOutlineIcon sx={{ fontSize: 36 }} />}
                                 valueColor={errFilas > 0 ? errorColor : 'text.primary'}
                             />
@@ -514,6 +563,11 @@ export default function ImportDetail() {
                             />
                         </Grid>
                     </Grid>
+                    {resumenCasos.length > 0 && (
+                        <Typography variant="body2" color="text.secondary" sx={{ mb: 3, overflowWrap: 'anywhere' }}>
+                            {resumenCasos.join(' · ')}
+                        </Typography>
+                    )}
 
                         </>
                     )}
@@ -554,7 +608,7 @@ export default function ImportDetail() {
                                                                         fill={theme.palette.text.primary}
                                                                         style={{ fontSize: 26, fontWeight: 700 }}
                                                                     >
-                                                                        {totalFilas}
+                                                                        {formatearNumero(totalFilas)}
                                                                     </text>
                                                                     <text
                                                                         x={vb.cx}

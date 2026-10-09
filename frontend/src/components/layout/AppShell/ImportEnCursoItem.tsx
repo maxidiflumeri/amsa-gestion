@@ -2,7 +2,7 @@ import React from 'react';
 import { Box, LinearProgress, Typography, Chip, useTheme } from '@mui/material';
 import { Link as RouterLink } from 'react-router-dom';
 import type { EstadoCargaDto } from '../../../types/importProgreso';
-import { barraIndeterminada, etiquetaFase } from '../../../utils/estadoCarga';
+import { barraIndeterminada, esperaAbreviada, etiquetaFase, formatearNumero } from '../../../utils/estadoCarga';
 
 interface ImportEnCursoItemProps {
     carga: EstadoCargaDto;
@@ -14,6 +14,7 @@ const ImportEnCursoItem: React.FC<ImportEnCursoItemProps> = ({ carga }) => {
     const theme = useTheme();
     const indeterminada = barraIndeterminada(carga);
     const fase = etiquetaFase(carga);
+    const espera = carga.fase === 'PROCESANDO' ? esperaAbreviada(carga) : null;
 
     return (
         <Box
@@ -43,14 +44,15 @@ const ImportEnCursoItem: React.FC<ImportEnCursoItemProps> = ({ carga }) => {
                 <Typography variant="caption" color="text.secondary">
                     {fase.principal}
                     {!indeterminada ? ` · ${carga.progreso}%` : ''}
+                    {espera ? ` · ${espera}` : ''}
                 </Typography>
-                <Chip label={`Procesadas: ${carga.procesadas}`} size="small" variant="outlined" sx={chipSx} />
-                <Chip label={`OK: ${carga.ok}`} size="small" color="success" variant="outlined" sx={chipSx} />
+                <Chip label={`Procesadas: ${formatearNumero(carga.procesadas)}`} size="small" variant="outlined" sx={chipSx} />
+                <Chip label={`OK: ${formatearNumero(carga.ok)}`} size="small" color="success" variant="outlined" sx={chipSx} />
                 {carga.err > 0 && (
-                    <Chip label={`Err: ${carga.err}`} size="small" color="error" variant="outlined" sx={chipSx} />
+                    <Chip label={`Err: ${formatearNumero(carga.err)}`} size="small" color="error" variant="outlined" sx={chipSx} />
                 )}
                 {carga.totalEsperado > 0 && (
-                    <Chip label={`Total: ${carga.totalEsperado}`} size="small" variant="outlined" sx={chipSx} />
+                    <Chip label={`Total: ${formatearNumero(carga.totalEsperado)}`} size="small" variant="outlined" sx={chipSx} />
                 )}
                 <Box sx={{ flexGrow: 1 }} />
                 <Typography
@@ -65,7 +67,11 @@ const ImportEnCursoItem: React.FC<ImportEnCursoItemProps> = ({ carga }) => {
             </Box>
 
             {fase.secundario && (
-                <Typography variant="caption" color="text.secondary" sx={{ mt: 0.25, display: 'block' }}>
+                <Typography
+                    variant="caption"
+                    color="text.secondary"
+                    sx={{ mt: 0.25, display: 'block', overflowWrap: 'anywhere' }}
+                >
                     {fase.secundario}
                 </Typography>
             )}

@@ -1,7 +1,7 @@
 <!--
 seccion: Importación de datos
 resumen: Marcar algo en bloque sobre un listado de casos. Incluye un modo que actúa sobre toda la empresa.
-revisado: 2026-10-05
+revisado: 2026-10-09
 rutas: /carga
 -->
 # Acciones masivas
@@ -180,10 +180,12 @@ El botón **Revertir** aparece igual (la carga figura como finalizada), pero los
 guardan en el post-proceso, que en ese caso no terminó: pueden estar **parciales**, así que revertir
 puede deshacer solo una parte, y solo se puede **una vez**. Avisá a soporte **antes** de usarlo.
 
-**¿Y si la carga muestra "Esta carga se reinició"?**
-El servidor retomó la carga desde el principio y los datos para revertir del primer
-intento se perdieron: **Revertir** no deshace lo que ese intento ya había cambiado, y los comentarios que agregó
-quedan duplicados. Avisá a soporte antes de usarlo.
+**¿Y si el servidor se reinició mientras corría la acción?**
+Una carga que se interrumpe **ya no se reinicia sola**: a los pocos minutos sin señal queda **fallida** con
+el motivo *"La importación se interrumpió: el servidor se reinició o dejó de responder mientras la
+procesaba."* Las acciones aplicadas hasta el corte quedaron hechas y **no se pueden revertir desde la
+pantalla**: los datos para deshacer se guardan recién al terminar. **No vuelvas a cargar el archivo**; avisá
+a soporte.
 
 **¿Puedo revertir una carga que quedó fallida?**
 No. El botón solo aparece en las finalizadas, y los datos para deshacer se guardan recién al terminar

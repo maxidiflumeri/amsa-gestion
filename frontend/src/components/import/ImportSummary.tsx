@@ -20,6 +20,10 @@ import VisibilityIcon from "@mui/icons-material/Visibility";
 import { useNavigate } from "react-router-dom";
 import type { EstadoCargaDto } from "../../types/importProgreso";
 import {
+    casosActualizados,
+    casosNuevos,
+    descartadasPorFiltro,
+    formatearNumero,
     peorResultado,
     presentarResultado,
     type SeveridadResultado,
@@ -39,7 +43,7 @@ interface Props {
     resultados: EstadoCargaDto[];
     /** Remesas de la división que no llegaron a ejecutarse, con el motivo. */
     noEjecutadas: RemesaNoEjecutada[];
-    /** Carga dividida: "descartadas" incluye las filas fuera del corte de cada remesa, así que no se muestra. */
+    /** Carga dividida: cada remesa lee el archivo entero, así que las descartadas no se suman. */
     dividida?: boolean;
     onNewImport: () => void;
 }
@@ -80,7 +84,7 @@ function Metrica({
             }}
         >
             <Typography variant="h4" fontWeight={700}>
-                {valor}
+                {formatearNumero(valor)}
             </Typography>
             <Typography
                 variant="caption"
@@ -97,23 +101,38 @@ export default function ImportSummary({ resultados, noEjecutadas, dividida = fal
     const navigate = useNavigate();
 
     const peor = peorResultado(resultados);
-    const suma = (campo: "procesadas" | "ok" | "err" | "descartadas" | "advertencias") =>
+    const suma = (campo: "procesadas" | "ok" | "err" | "advertencias") =>
         resultados.reduce((acc, r) => acc + r[campo], 0);
     const procesadas = suma("procesadas");
     const ok = suma("ok");
     const err = suma("err");
-    const descartadas = dividida ? 0 : suma("descartadas");
     const advertencias = suma("advertencias");
 
+    // Descartadas por el filtro de la plantilla. En una carga dividida cada remesa lee el archivo entero: sumar
+    // multiplicaría el número por la cantidad de remesas. Se muestra el valor común; si las remesas no coinciden,
+    // no hay total y cada fila de remesa lleva el suyo.
+    const descartadasDeCadaUna = resultados.map((r) => descartadasPorFiltro(r));
+    const descartadasComunes = descartadasDeCadaUna.every((d) => d === descartadasDeCadaUna[0]);
+    const descartadas = !dividida
+        ? descartadasDeCadaUna.reduce((acc, d) => acc + d, 0)
+        : descartadasComunes
+        ? (descartadasDeCadaUna[0] ?? 0)
+        : 0;
+
+    // Casos nuevos y actualizados: sumados, solo si todas las remesas del resumen los informan.
+    const todasInformanNuevos = resultados.length > 0 && resultados.every((r) => casosNuevos(r) !== null);
+    const todasInformanActualizados = resultados.length > 0 && resultados.every((r) => casosActualizados(r) !== null);
+    const nuevos = todasInformanNuevos ? resultados.reduce((acc, r) => acc + (casosNuevos(r) ?? 0), 0) : null;
+    const actualizados = todasInformanActualizados
+        ? resultados.reduce((acc, r) => acc + (casosActualizados(r) ?? 0), 0)
+        : null;
+
     // Con varias remesas, los números del texto son los de la suma, no solo los de la peor.
-    // FALLIDA y CON_ADVERTENCIAS hablan de esa remesa en particular: llevan sus propios números.
-    const sumar = peor?.resultado === "CON_ERRORES" || peor?.resultado === "SIN_FILAS";
+    // FALLIDA, CON_ADVERTENCIAS y SIN_FILAS hablan de esa remesa en particular: llevan sus propios números
+    // (en SIN_FILAS, las descartadas y las de otros cortes son las de esa remesa, no una suma).
+    const sumar = peor?.resultado === "CON_ERRORES";
     const presentadoResultados = peor
-        ? presentarResultado(
-              sumar
-                  ? { ...peor, procesadas, ok, err, descartadas }
-                  : { ...peor, descartadas: dividida ? 0 : peor.descartadas },
-          )
+        ? presentarResultado(sumar ? { ...peor, procesadas, ok, err } : peor)
         : null;
     // Con remesas sin ejecutar el encabezado no puede ser de éxito, aunque las que corrieron hayan salido bien.
     const hayNoSeguida = noEjecutadas.some((n) => n.noSeguida);
@@ -166,7 +185,7 @@ export default function ImportSummary({ resultados, noEjecutadas, dividida = fal
                             <Typography
                                 variant="body1"
                                 color="text.secondary"
-                                sx={{ maxWidth: 640, width: "100%", overflowWrap: "anywhere" }}
+                                sx={{ maxWidth: 640, width: "100%", overflowWrap: "anywhere", whiteSpace: "pre-line" }}
                             >
                                 {presentado.detalle}
                             </Typography>
@@ -222,6 +241,8 @@ export default function ImportSummary({ resultados, noEjecutadas, dividida = fal
                     <Metrica valor={ok} etiqueta="Exitosas" color="success" />
                     {err > 0 && <Metrica valor={err} etiqueta="Con error" color="error" />}
                     {descartadas > 0 && <Metrica valor={descartadas} etiqueta="Descartadas" color="warning" />}
+                    {nuevos !== null && <Metrica valor={nuevos} etiqueta="Casos nuevos" />}
+                    {actualizados !== null && <Metrica valor={actualizados} etiqueta="Casos actualizados" />}
                 </Box>
 
                 {tasaExito !== null && (
@@ -234,7 +255,7 @@ export default function ImportSummary({ resultados, noEjecutadas, dividida = fal
 
                 {advertencias > 0 && (
                     <Typography variant="body2" color="text.secondary">
-                        {advertencias} {advertencias === 1 ? "aviso" : "avisos"} del archivo — ver el detalle
+                        {formatearNumero(advertencias)} {advertencias === 1 ? "aviso" : "avisos"} del archivo — ver el detalle
                     </Typography>
                 )}
 
@@ -260,7 +281,11 @@ export default function ImportSummary({ resultados, noEjecutadas, dividida = fal
                                     </Typography>
                                     <Chip label={p.titulo} color={p.severidad} size="small" variant="outlined" />
                                     <Typography variant="caption" color="text.secondary">
-                                        {r.procesadas} procesadas · {r.ok} OK · {r.err} con error
+                                        {formatearNumero(r.procesadas)} procesadas · {formatearNumero(r.ok)} OK ·{" "}
+                                        {formatearNumero(r.err)} con error
+                                        {dividida && !descartadasComunes && descartadasPorFiltro(r) > 0
+                                            ? ` · ${formatearNumero(descartadasPorFiltro(r))} descartadas`
+                                            : ""}
                                     </Typography>
                                 </Box>
                             );

@@ -1,7 +1,7 @@
 <!--
 seccion: Importación de datos
 resumen: Cómo mirar el archivo del cedente antes de armar la plantilla, y las trampas de cada formato.
-revisado: 2026-08-20
+revisado: 2026-10-09
 rutas: /plantillas
 -->
 # Los formatos de archivo
@@ -173,7 +173,8 @@ de campos que quedaron fusionados.
 ### Faltan filas y no hay errores
 
 Tres causas: si la plantilla tiene **filtros de fila**, las descartadas no cuentan como error (la vista
-previa te dice cuántas son; en el resultado final ese número ya no aparece); si subiste varios
+previa te dice cuántas son, y después figuran como **Descartadas** mientras se importa, en el
+resultado y en el detalle de la carga); si subiste varios
 archivos, revisá que **todos** hayan entrado; y si es Multirregistro, se procesa **uno solo**.
 
 ### El sistema rechazó el paquete de archivos

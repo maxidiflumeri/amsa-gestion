@@ -14,7 +14,15 @@ import AvisosCarga from "./AvisosCarga";
 import { useSocket } from "../../context/SocketContext";
 import { useEstadoCarga } from "../../hooks/useEstadoCarga";
 import type { EstadoCargaDto } from "../../types/importProgreso";
-import { barraIndeterminada, etiquetaFase } from "../../utils/estadoCarga";
+import {
+    barraIndeterminada,
+    casosActualizados,
+    casosNuevos,
+    descartadasPorFiltro,
+    etiquetaFase,
+    formatearNumero,
+    lineaDeRitmo,
+} from "../../utils/estadoCarga";
 
 interface Props {
     remesaId: number;
@@ -22,8 +30,6 @@ interface Props {
     onComplete: (estado: EstadoCargaDto) => void;
     /** La `carga` que devolvió el POST de ejecutar: siembra el estado sin esperar un evento ni un GET. */
     estadoInicial?: EstadoCargaDto | null;
-    /** En una carga dividida "descartadas" incluye las filas fuera del corte de cada remesa: no se muestra. */
-    ocultarDescartadas?: boolean;
     /** La remesa dejó de existir (alguien la borró mientras esperaba). Se llama una vez. */
     onNoExiste?: () => void;
     /** Se llama una vez cuando se ve la carga en curso o terminada: el pedido de ejecutar ya surtió efecto. */
@@ -39,7 +45,6 @@ export default function ImportProgress({
     remesaId,
     onComplete,
     estadoInicial = null,
-    ocultarDescartadas = false,
     onNoExiste,
     onSeguimiento,
     onNuevaImportacion,
@@ -84,6 +89,7 @@ export default function ImportProgress({
 
     const indeterminada = barraIndeterminada(estado);
     const fase = etiquetaFase(estado, "wizard");
+    const ritmo = estado ? lineaDeRitmo(estado) : null;
 
     return (
         <Box>
@@ -165,17 +171,27 @@ export default function ImportProgress({
                     {estado && (
                         <Box sx={{ display: "flex", gap: 1, flexWrap: "wrap", justifyContent: "center" }}>
                             {estado.totalEsperado > 0 && (
-                                <Chip label={`Total: ${estado.totalEsperado}`} variant="outlined" size="small" />
+                                <Chip label={`Total: ${formatearNumero(estado.totalEsperado)}`} variant="outlined" size="small" />
                             )}
-                            <Chip label={`Procesadas: ${estado.procesadas}`} variant="outlined" size="small" />
-                            <Chip label={`OK: ${estado.ok}`} color="success" variant="outlined" size="small" />
+                            <Chip label={`Procesadas: ${formatearNumero(estado.procesadas)}`} variant="outlined" size="small" />
+                            <Chip label={`OK: ${formatearNumero(estado.ok)}`} color="success" variant="outlined" size="small" />
                             {estado.err > 0 && (
-                                <Chip label={`Errores: ${estado.err}`} color="error" variant="outlined" size="small" />
+                                <Chip label={`Errores: ${formatearNumero(estado.err)}`} color="error" variant="outlined" size="small" />
                             )}
-                            {!ocultarDescartadas && estado.descartadas > 0 && (
+                            {descartadasPorFiltro(estado) > 0 && (
                                 <Chip
-                                    label={`Descartadas: ${estado.descartadas}`}
+                                    label={`Descartadas: ${formatearNumero(descartadasPorFiltro(estado))}`}
                                     color="warning"
+                                    variant="outlined"
+                                    size="small"
+                                />
+                            )}
+                            {casosNuevos(estado) !== null && (
+                                <Chip label={`Nuevos: ${formatearNumero(casosNuevos(estado) as number)}`} variant="outlined" size="small" />
+                            )}
+                            {casosActualizados(estado) !== null && (
+                                <Chip
+                                    label={`Actualizados: ${formatearNumero(casosActualizados(estado) as number)}`}
                                     variant="outlined"
                                     size="small"
                                 />
@@ -183,12 +199,18 @@ export default function ImportProgress({
                         </Box>
                     )}
 
-                    <Box>
+                    {ritmo && (
+                        <Typography variant="body2" color="text.secondary" sx={{ overflowWrap: "anywhere" }}>
+                            {ritmo}
+                        </Typography>
+                    )}
+
+                    <Box sx={{ maxWidth: "100%" }}>
                         <Typography variant="body1" fontWeight={600}>
                             {fase.principal}
                         </Typography>
                         {fase.secundario && (
-                            <Typography variant="body2" color="text.secondary">
+                            <Typography variant="body2" color="text.secondary" sx={{ overflowWrap: "anywhere" }}>
                                 {fase.secundario}
                             </Typography>
                         )}

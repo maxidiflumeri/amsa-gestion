@@ -1,7 +1,7 @@
 <!--
 seccion: Importación de datos
 resumen: Qué es una remesa, qué hace falta antes de importar y cuál es el ciclo completo.
-revisado: 2026-10-05
+revisado: 2026-10-09
 rutas: /carga
 -->
 # Cómo funciona una importación
@@ -98,7 +98,10 @@ ahí**.
 5. **Resultado** — cómo terminó la carga: si salió bien, si hubo filas con error, si no tenía filas, si
    terminó con advertencias o si falló. Con cuántas filas y, cuando hay un problema, el motivo.
 
-Hasta que confirmás en el paso 3 **no se carga nada**: una vista previa sin confirmar es un borrador.
+Hasta que confirmás en el paso 3 **no se carga nada**: una vista previa sin confirmar es un borrador, y
+un borrador que nadie confirma **se borra solo**: la limpieza corre una vez por día, de madrugada, y borra
+los de más de 24 horas, así que en la práctica duran entre uno y dos días (más, si el usuario que los creó
+tiene una importación en curso en ese momento).
 
 El paso 3 es el que más problemas evita y el que más se saltea. **Una carga mal hecha no siempre se
 puede deshacer** (ver más abajo), así que treinta segundos mirando la vista previa valen más que una
@@ -112,7 +115,7 @@ hora arreglando después.
 | **Validando** | Con la vista previa hecha y sin confirmar |
 | **Procesando** | Cargando. Está en curso |
 | **Finalizada** | Terminó. Puede haber terminado con filas con error, sin filas o con advertencias |
-| **Fallida** | Se cortó |
+| **Fallida** | Se cortó. Si el servidor se reinició o dejó de responder mientras procesaba, la carga se marca sola como fallida a los pocos minutos (normalmente entre 6 y 7) y no se vuelve a ejecutar sola |
 
 En el Historial los estados aparecen en mayúsculas. En el **detalle** de una carga, una que todavía no
 se confirmó dice **Borrador** y una que espera su turno dice **En cola**.

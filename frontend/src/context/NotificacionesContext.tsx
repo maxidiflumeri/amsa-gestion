@@ -19,7 +19,9 @@ import { useNotify } from '../hooks/useNotify';
 import type { EstadoCargaDto } from '../types/importProgreso';
 import {
     POLL_LISTA_MS,
+    REFRESCO_COLA_MS,
     SILENCIO_MS,
+    crearRefrescoLimitado,
     esEstadoCarga,
     fusionarEstadoCarga,
     resultadoEsAdvertencia,
@@ -52,8 +54,6 @@ interface SocketNotificacionNueva {
 interface SocketContador {
     noLeidas: number;
 }
-
-const EVENTOS_ENCURSO = ['import:iniciada', 'import:progreso'] as const;
 
 /**
  * La lista del servidor reemplaza a la local, fusionando por `rev`, con dos excepciones:
@@ -101,8 +101,14 @@ export const NotificacionesProvider: React.FC<{ children: React.ReactNode }> = (
     conectadoRef.current = conectado;
     const hayCargasRef = useRef(false);
     hayCargasRef.current = importsEnCurso.length > 0;
+    const importsRef = useRef<EstadoCargaDto[]>([]);
+    importsRef.current = importsEnCurso;
     const conexionesPrevRef = useRef(conexiones);
     const ultimaNovedadRef = useRef(Date.now());
+    /** Hay alguna carga EN_COLA en la lista: una carga en cola no emite nada, su silencio es el que cuenta. */
+    const hayEnColaRef = useRef(false);
+    hayEnColaRef.current = importsEnCurso.some((i) => i.fase === 'EN_COLA');
+    const ultimaHidratacionRef = useRef(0);
     /** Cuándo llegó por socket el último estado de cada remesa. */
     const recibidoEnRef = useRef(new Map<number, number>());
     /** `rev` del estado terminal de las remesas que terminaron por socket. */
@@ -118,6 +124,7 @@ export const NotificacionesProvider: React.FC<{ children: React.ReactNode }> = (
         const hayToken = !!localStorage.getItem('amsa_token');
         if (!hayToken) return;
         const inicio = Date.now();
+        ultimaHidratacionRef.current = inicio;
         const pedido = ++pedidoRef.current;
         // Independientes: que falle (o no corresponda pedir) una no arrastra a la otra. El contador y la lista
         // paginada (popover) salen del backend; acá se hidratan el contador y las importaciones en curso.
@@ -180,7 +187,10 @@ export const NotificacionesProvider: React.FC<{ children: React.ReactNode }> = (
         const id = setInterval(() => {
             if (!hayCargasRef.current || document.hidden) return;
             const silencio = Date.now() - ultimaNovedadRef.current;
-            if (!conectadoRef.current || silencio >= SILENCIO_MS) void hidratar();
+            // Con una carga en cola, la lista se consulta cada 30 s aunque lleguen eventos de otras cargas: el
+            // borrado de una carga en cola no emite evento y el progreso de la que corre renueva `ultimaNovedadRef`.
+            const enColaSinConsultar = hayEnColaRef.current && Date.now() - ultimaHidratacionRef.current >= SILENCIO_MS;
+            if (!conectadoRef.current || silencio >= SILENCIO_MS || enColaSinConsultar) void hidratar();
         }, POLL_LISTA_MS);
         return () => clearInterval(id);
     }, [hidratar]);
@@ -222,8 +232,18 @@ export const NotificacionesProvider: React.FC<{ children: React.ReactNode }> = (
             });
         };
 
+        // Una carga que arranca o termina mueve la cola: si hay otra esperando, se re-hidrata la lista (con flanco de bajada).
+        const refrescoCola = crearRefrescoLimitado(() => void hidratar(), REFRESCO_COLA_MS);
+        const hayOtraEnCola = (remesaId: number) =>
+            importsRef.current.some((i) => i.fase === 'EN_COLA' && i.remesaId !== remesaId);
+        const onImportIniciada = (data: unknown) => {
+            onEstadoEnCurso(data);
+            if (esEstadoCarga(data) && hayOtraEnCola(data.remesaId)) refrescoCola.pedir();
+        };
+
         const onImportFinalizada = (data: unknown) => {
             if (!esEstadoCarga(data)) return;
+            if (hayOtraEnCola(data.remesaId)) refrescoCola.pedir();
             ultimaNovedadRef.current = Date.now();
             recibidoEnRef.current.set(data.remesaId, Date.now());
             terminadasRef.current.set(data.remesaId, data.rev);
@@ -232,14 +252,17 @@ export const NotificacionesProvider: React.FC<{ children: React.ReactNode }> = (
 
         socket.on('notificacion:nueva', onNotificacionNueva);
         socket.on('notificacion:contador', onContador);
-        EVENTOS_ENCURSO.forEach((ev) => socket.on(ev, onEstadoEnCurso));
+        socket.on('import:iniciada', onImportIniciada);
+        socket.on('import:progreso', onEstadoEnCurso);
         socket.on('import:finalizada', onImportFinalizada);
 
         return () => {
             socket.off('notificacion:nueva', onNotificacionNueva);
             socket.off('notificacion:contador', onContador);
-            EVENTOS_ENCURSO.forEach((ev) => socket.off(ev, onEstadoEnCurso));
+            socket.off('import:iniciada', onImportIniciada);
+            socket.off('import:progreso', onEstadoEnCurso);
             socket.off('import:finalizada', onImportFinalizada);
+            refrescoCola.cancelar();
         };
     }, [socket]);
 

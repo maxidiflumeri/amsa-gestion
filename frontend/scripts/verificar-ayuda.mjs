@@ -68,6 +68,15 @@ for (const p of paginas) {
     }
 }
 
+// El visor solo trata como internos los enlaces que empiezan con /ayuda/: uno relativo (con o sin .md) saca al
+// operador de la pantalla en la que estaba (por ejemplo, del asistente de carga). Se aceptan solo /..., http(s)://,
+// mailto: y #ancla.
+for (const p of paginas) {
+    for (const [, href] of p.cuerpo.matchAll(/\]\((?!\/|https?:\/\/|mailto:|#)([^)\s]+)\)/g)) {
+        errores.push(`${p.ruta}: enlace relativo (${href}); usá el formato /ayuda/<carpeta>/<pagina>`)
+    }
+}
+
 // ── 3. Exactamente una principal por ruta declarada ───────────────────────────
 const porRuta = new Map()
 for (const p of paginas) for (const r of p.rutas) (porRuta.get(r) ?? porRuta.set(r, []).get(r)).push(p)

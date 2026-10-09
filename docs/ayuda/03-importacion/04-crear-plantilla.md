@@ -1,7 +1,7 @@
 <!--
 seccion: Importación de datos
 resumen: Cómo se le enseña al sistema a leer el archivo de un cedente, campo por campo.
-revisado: 2026-08-20
+revisado: 2026-10-09
 rutas: /plantillas
 rutaPrincipal: /plantillas
 -->
@@ -352,7 +352,8 @@ Un ejemplo real: el archivo de novedades de AYSA mezcla cobros con cambios de si
 plata. De 4.552 filas, solo 1.997 traen importe. Sin el filtro `Imp. cobrado > 0`, el import genera
 **2.555 pagos de $0**.
 
-Las filas descartadas **no cuentan como error**: se informan aparte en la vista previa.
+Las filas descartadas **no cuentan como error**: se informan aparte en la vista previa y, ya con la
+carga en marcha, como **Descartadas**.
 
 > El filtro no está disponible en Multirregistro ni Multiarchivo.
 

@@ -3,7 +3,14 @@ import { isAxiosError } from 'axios';
 import { obtenerEstadoCarga } from '../api/imports';
 import { useSocket } from '../context/SocketContext';
 import type { EstadoCargaDto } from '../types/importProgreso';
-import { POLL_MS, SILENCIO_MS, esEstadoCarga, fusionarEstadoCarga } from '../utils/estadoCarga';
+import {
+    POLL_MS,
+    REFRESCO_COLA_MS,
+    SILENCIO_MS,
+    crearRefrescoLimitado,
+    esEstadoCarga,
+    fusionarEstadoCarga,
+} from '../utils/estadoCarga';
 
 /** 404 seguidos antes de dar por perdida una remesa (un solo 404 no alcanza: puede ser transitorio). */
 const CONFIRMACIONES_404 = 3;
@@ -56,8 +63,10 @@ export function useEstadoCarga(
     const conexionesPrevRef = useRef(conexiones);
     const fallos404Ref = useRef(0);
     const primer404Ref = useRef(0);
+    const estadoRef = useRef<EstadoCargaDto | null>(null);
     const timerReintentoRef = useRef<ReturnType<typeof setTimeout> | null>(null);
     conectadoRef.current = conectado;
+    estadoRef.current = estado;
 
     const refrescar = useCallback(async () => {
         const id = remesaIdRef.current;
@@ -116,16 +125,25 @@ export function useEstadoCarga(
     // Eventos de socket: cada uno es una foto completa. Lo que no pasa esEstadoCarga se ignora.
     useEffect(() => {
         if (!socket || remesaId === null) return;
+        // Otra carga se movió mientras esta espera en la cola: la posición pudo cambiar. Con flanco de bajada.
+        const refrescoCola = crearRefrescoLimitado(() => {
+            if (estadoRef.current?.fase === 'EN_COLA') void refrescar();
+        }, REFRESCO_COLA_MS);
         const onEvento = (data: unknown) => {
-            if (!esEstadoCarga(data) || data.remesaId !== remesaId) return;
+            if (!esEstadoCarga(data)) return;
+            if (data.remesaId !== remesaId) {
+                if (estadoRef.current?.fase === 'EN_COLA') refrescoCola.pedir();
+                return;
+            }
             setEstado((prev) => fusionarEstadoCarga(prev, data));
             ultimaNovedadRef.current = Date.now();
         };
         EVENTOS_IMPORT.forEach((ev) => socket.on(ev, onEvento));
         return () => {
             EVENTOS_IMPORT.forEach((ev) => socket.off(ev, onEvento));
+            refrescoCola.cancelar();
         };
-    }, [socket, remesaId]);
+    }, [socket, remesaId, refrescar]);
 
     // Cada conexión (la primera y cada reconexión) puede haber dejado eventos sin recibir.
     useEffect(() => {
