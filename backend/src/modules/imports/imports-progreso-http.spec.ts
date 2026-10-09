@@ -62,13 +62,18 @@ function armarEjecutar(o: OpcionesEjecutar = {}) {
             const sql = strings.join('?');
             sqls.push(sql);
             valores.push(vals);
+            // La compensación del encolado (Fase B, hallazgo 3) decide con la fila bloqueada.
+            if (sql.includes('p.fase AS fase')) return Promise.resolve([{ estadoProceso: fila.estadoProceso, fase: 'EN_COLA', startedAt: null }]);
             if (sql.includes('FROM usuario')) return Promise.resolve([{ id: 3 }]);
             if (sql.includes('LEFT JOIN import_progreso')) return Promise.resolve([fila]);
             if (sql.includes('JOIN remesa r')) return Promise.resolve((o.otrasEnCurso ?? []).map((remesaId) => ({ remesaId })));
             return Promise.resolve([]);
         }),
         remesa: {
-            update: jest.fn().mockImplementation(({ data }: any) => {
+            update: jest.fn().mockImplementation((args: any) => {
+                const { data } = args;
+                // La compensación corre en una transacción propia (Fase B): su `update` se registra como siempre en `prisma.remesa.update`.
+                if (data.progreso?.update) return prisma.remesa.update(args);
                 updates.push(data);
                 const c = data.progreso.upsert.create;
                 return Promise.resolve({
@@ -497,7 +502,7 @@ describe('deleteRemesa', () => {
         };
         const prisma: any = {
             remesa: { findUnique: jest.fn().mockResolvedValue({ id: 1, categoria: 'DEUDORES', estadoProceso: 'VALIDANDO', usuarioCreadorId: 3, ...remesa }) },
-            deudor: { findMany: jest.fn().mockResolvedValue([]) },
+            deudor: { findMany: jest.fn().mockResolvedValue([]), count: jest.fn().mockResolvedValue(0) }, // Fase B: chequeo previo de tamaño del borrado
             notificacion: { findMany: jest.fn().mockResolvedValue([{ usuarioId: 3 }, { usuarioId: 4 }]), deleteMany: notificacionFalla ? jest.fn().mockRejectedValue(new Error('lock')) : jest.fn().mockResolvedValue({ count: 2 }) },
             $transaction: jest.fn().mockImplementation((fn: any) => fn(tx)),
         };

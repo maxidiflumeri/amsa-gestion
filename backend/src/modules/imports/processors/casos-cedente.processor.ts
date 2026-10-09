@@ -9,6 +9,7 @@ import { prepararContactoImport } from '../utils/contacto-import';
 import { parseFechaCedente } from '../utils/fecha-cedente';
 import { AuditModulo, AuditTipo } from '../../transacciones/audit.enums';
 import { idsSituacionCancelada } from '../utils/situaciones-cerradas';
+import { consolidarConProgreso, SUBFASE } from '../utils/reporte-progreso';
 
 /**
  * Base de los procesadores de **carteras que el cedente manda como casos completos + bajas sueltas**.
@@ -308,6 +309,9 @@ export abstract class CasosCedenteProcessor implements ICategoryProcessor {
             this.contactosEnriquecidos += await enriquecerContactosHistoricos(ctx, deudorId, documento);
         }
 
+        // Por fila de caso: si el archivo repite un cliente, cuenta dos veces.
+        ctx.progreso?.contadores({ nuevos: this.altasCount, actualizados: this.actualizadosCount });
+
         await this.upsertFacturas(deudorId, row, ctx);
         await this.upsertContactos(deudorId, row, ctx);
         await this.ajustarMonto(deudorId, ctx, this.montoDeclarado(row));
@@ -462,6 +466,7 @@ export abstract class CasosCedenteProcessor implements ICategoryProcessor {
 
         // Un UPDATE por deudor (cada uno guarda un previo distinto) → chunks transaccionales.
         const CHUNK = 500;
+        ctx.progreso?.subfase(SUBFASE.DESASIGNANDO_AUSENTES, 0, paraDesasignar.length);
         for (let i = 0; i < paraDesasignar.length; i += CHUNK) {
             const chunk = paraDesasignar.slice(i, i + CHUNK);
             await ctx.prisma.$transaction(
@@ -472,6 +477,7 @@ export abstract class CasosCedenteProcessor implements ICategoryProcessor {
                     }),
                 ),
             );
+            ctx.progreso?.subfase(SUBFASE.DESASIGNANDO_AUSENTES, Math.min(i + CHUNK, paraDesasignar.length), paraDesasignar.length);
         }
 
         this.desasignadosCount = paraDesasignar.length;
@@ -871,7 +877,7 @@ export abstract class CasosCedenteProcessor implements ICategoryProcessor {
         const ids = [...this.deudoresTocados];
         if (ids.length > 0) {
             const t0 = Date.now();
-            const r = await ctx.consolidacion.consolidar({ tipo: 'DEUDORES', deudorIds: ids });
+            const r = await consolidarConProgreso(ctx, { tipo: 'DEUDORES', deudorIds: ids }, SUBFASE.CONSOLIDANDO_CASOS_TOCADOS);
             this.logger.log(
                 `Consolidación de ${ids.length} deudores tocados: ${r.aSIT050} cancelados, ` +
                 `${r.aSIT041} pago parcial en ${Date.now() - t0}ms`,
@@ -881,6 +887,7 @@ export abstract class CasosCedenteProcessor implements ICategoryProcessor {
         // Las promesas de pago que hayan quedado cumplidas por los pagos de las bajas se cierran,
         // igual que en el resto de las categorías que generan pagos.
         if (this.deudoresConPago.size > 0) {
+            ctx.progreso?.subfase(SUBFASE.CERRANDO_PROMESAS);
             await ctx.promesas.cerrarCumplidas([...this.deudoresConPago]);
         }
 

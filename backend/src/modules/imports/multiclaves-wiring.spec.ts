@@ -158,6 +158,10 @@ describe('MULTICLAVES — vista previa (validateRemesa), soloTotal', () => {
         fs.writeFileSync(archivoPath, Buffer.from(contenido, 'latin1'));
 
         const prisma: any = {
+            // La escritura del tracker relee la remesa con FOR UPDATE dentro de una transacción (Fase B, hallazgo 1): el doble
+            // la ejecuta sobre sí mismo y la fila está en curso.
+            $queryRaw: jest.fn().mockResolvedValue([{ estadoProceso: 'PROCESANDO', progresoId: 1, encoladaAt: new Date(), finishedAt: null }]),
+            $transaction: jest.fn().mockImplementation((fn: any) => fn(prisma)),
             remesa: {
                 findUnique: jest.fn().mockResolvedValue({
                     id: 42,
@@ -207,6 +211,10 @@ describe('MULTICLAVES — vista previa (validateRemesa), soloTotal', () => {
             '96311343': '1841012140', '96332206': '1841012140', '96259966': '2577727090',
         };
         const prisma: any = {
+            // La escritura del tracker relee la remesa con FOR UPDATE dentro de una transacción (Fase B, hallazgo 1): el doble
+            // la ejecuta sobre sí mismo y la fila está en curso.
+            $queryRaw: jest.fn().mockResolvedValue([{ estadoProceso: 'PROCESANDO', progresoId: 1, encoladaAt: new Date(), finishedAt: null }]),
+            $transaction: jest.fn().mockImplementation((fn: any) => fn(prisma)),
             remesa: {
                 findUnique: jest.fn().mockResolvedValue({
                     id: 42, empresaId: 1, categoria: 'MULTICLAVES', archivo: archivoPath, archivos: null,
@@ -266,6 +274,10 @@ describe('MULTICLAVES — vista previa con el archivo real completo (skip si no 
         fs.copyFileSync(RUTA, archivoPath);
 
         const prisma: any = {
+            // La escritura del tracker relee la remesa con FOR UPDATE dentro de una transacción (Fase B, hallazgo 1): el doble
+            // la ejecuta sobre sí mismo y la fila está en curso.
+            $queryRaw: jest.fn().mockResolvedValue([{ estadoProceso: 'PROCESANDO', progresoId: 1, encoladaAt: new Date(), finishedAt: null }]),
+            $transaction: jest.fn().mockImplementation((fn: any) => fn(prisma)),
             remesa: {
                 findUnique: jest.fn().mockResolvedValue({
                     id: 42, empresaId: EMPRESA_ID, categoria: 'MULTICLAVES', archivo: archivoPath, archivos: null,
@@ -316,6 +328,10 @@ describe('MULTICLAVES — processImportJob sin estados por defecto', () => {
         const clavesRows: any[] = [];
         const remesaUpdates: any[] = [];
         const prisma: any = {
+            // La escritura del tracker relee la remesa con FOR UPDATE dentro de una transacción (Fase B, hallazgo 1): el doble
+            // la ejecuta sobre sí mismo y la fila está en curso.
+            $queryRaw: jest.fn().mockResolvedValue([{ estadoProceso: 'PROCESANDO', progresoId: 1, encoladaAt: new Date(), finishedAt: null }]),
+            $transaction: jest.fn().mockImplementation((fn: any) => fn(prisma)),
             remesa: {
                 findUnique: jest.fn().mockResolvedValue({
                     id: 42,
@@ -370,7 +386,11 @@ describe('MULTICLAVES — processImportJob sin estados por defecto', () => {
             deudor: { findMany: jest.fn().mockResolvedValue([]) },
             $transaction: jest.fn().mockImplementation((fn: any) =>
                 typeof fn === 'function'
-                    ? fn({ clave_pago: prisma.clave_pago, deudor: prisma.deudor })
+                    ? fn({
+                        clave_pago: prisma.clave_pago, deudor: prisma.deudor, remesa: prisma.remesa,
+                        // La escritura del tracker relee la remesa con FOR UPDATE (Fase B, hallazgo 1).
+                        $queryRaw: jest.fn().mockResolvedValue([{ estadoProceso: 'PROCESANDO', progresoId: 1, encoladaAt: new Date(), finishedAt: null }]),
+                    })
                     : Promise.all(fn),
             ),
         };

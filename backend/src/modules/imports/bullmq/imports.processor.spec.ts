@@ -49,3 +49,75 @@ describe('ImportsProcessor', () => {
         expect(error.mock.calls[0]).toHaveLength(1); // sin stack: ya lo logueó el service
     });
 });
+
+// ── Fase B (docs/imports-progreso-realtime-spec.md §9.9.2 G) ────────────────────────────────────────
+import * as fs from 'fs';
+import * as path from 'path';
+import { OPCIONES_WORKER_IMPORT } from './imports.processor';
+
+describe('ImportsProcessor — política de BullMQ de la Fase B', () => {
+    beforeAll(() => Logger.overrideLogger(false));
+    afterEach(() => jest.restoreAllMocks());
+
+    it('OPCIONES_WORKER_IMPORT vale exactamente lo que dice el diseño', () => {
+        expect(OPCIONES_WORKER_IMPORT).toEqual({
+            concurrency: 1,
+            lockDuration: 120000,
+            stalledInterval: 30000,
+            maxStalledCount: 0,
+        });
+    });
+
+    it('el worker se declara con esas opciones (metadata de @Processor)', () => {
+        const { PROCESSOR_METADATA, WORKER_METADATA } = jest.requireActual('@nestjs/bullmq/dist/bull.constants');
+        const meta = Reflect.getMetadata(PROCESSOR_METADATA, ImportsProcessor);
+        expect(meta).toMatchObject({ name: 'import-queue' });
+        expect(Reflect.getMetadata(WORKER_METADATA, ImportsProcessor)).toEqual(OPCIONES_WORKER_IMPORT);
+    });
+
+    it('la cola se registra con attempts: 1 por defecto', () => {
+        const fuente = fs.readFileSync(path.join(__dirname, '..', 'imports.module.ts'), 'utf8');
+        expect(fuente).toMatch(/name: 'import-queue',[\s\S]*defaultJobOptions: \{ attempts: 1 \}/);
+    });
+
+    describe('listeners', () => {
+        const armar = () => {
+            const importService: any = new Proxy({}, {
+                get: (_t, prop) => { throw new Error(`no debería llamar a ImportService.${String(prop)}`); },
+            });
+            const auditoria: any = { log: jest.fn() };
+            const requestContext: any = { run: jest.fn() };
+            return { processor: new ImportsProcessor(importService, auditoria, requestContext), auditoria };
+        };
+
+        it('stalled: warn con el id del job, sin llamar a nada del service', () => {
+            const warn = jest.spyOn(Logger.prototype, 'warn');
+            const h = armar();
+            h.processor.onStalled('144');
+            expect(warn).toHaveBeenCalledTimes(1);
+            expect(String(warn.mock.calls[0][0])).toContain('144');
+            expect(h.auditoria.log).not.toHaveBeenCalled();
+        });
+
+        it('error: warn con el mensaje', () => {
+            const warn = jest.spyOn(Logger.prototype, 'warn');
+            armar().processor.onError(new Error('Missing lock for job 1. moveToFinished'));
+            expect(String(warn.mock.calls[0][0])).toContain('Missing lock for job 1');
+        });
+
+        it('failed: solo loguea si el mensaje dice stalled', () => {
+            const warn = jest.spyOn(Logger.prototype, 'warn');
+            const h = armar();
+            h.processor.onFailed({ id: '9', data: { remesaId: 7 } } as any, new Error('boom'));
+            expect(warn).not.toHaveBeenCalled();
+            h.processor.onFailed({ id: '9', data: { remesaId: 7 } } as any, new Error('job stalled more than allowable limit'));
+            expect(warn).toHaveBeenCalledTimes(1);
+            expect(String(warn.mock.calls[0][0])).toMatch(/job 9 \(remesa 7\).*reaper/);
+            // No afirma lo que no sabe: tras congelarse el proceso, la carga puede haber terminado.
+            expect(String(warn.mock.calls[0][0])).not.toMatch(/sin ejecutarse|no se ejecut/i);
+            expect(String(warn.mock.calls[0][0])).toContain('si la carga no terminó');
+            h.processor.onFailed(undefined, new Error('job stalled more than allowable limit'));
+            expect(warn).toHaveBeenCalledTimes(2);
+        });
+    });
+});

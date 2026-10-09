@@ -12,6 +12,9 @@ export class DeudoresProcessor implements ICategoryProcessor {
     private readonly logger = new Logger(DeudoresProcessor.name);
     /** Contactos copiados desde el histórico en este batch (autoenriquecimiento). */
     private contactosEnriquecidos = 0;
+    /** Casos que creó esta carga (para `nuevos`). `actualizados` no se informa: "ya existía" se mira dentro de
+     *  la propia remesa, que es siempre nueva, y daría siempre 0. */
+    private readonly creadosIds = new Set<number>();
 
     private parseFloatSafe(val: any): number | undefined {
         if (val === null || val === undefined || val === '') return undefined;
@@ -61,6 +64,9 @@ export class DeudoresProcessor implements ICategoryProcessor {
             fechaVencimiento: this.parseDateSafe(row.fechaVencimiento),
             camposAdicionales: row.camposAdicionales,
         });
+
+        if (creado) this.creadosIds.add(deudorId);
+        ctx.progreso?.contadores({ nuevos: this.creadosIds.size });
 
         // Bloques repetitivos (facturas/contactos) → se procesan en cualquier categoría.
         await procesarBloquesDeudor(deudorId, row._blocks, ctx);

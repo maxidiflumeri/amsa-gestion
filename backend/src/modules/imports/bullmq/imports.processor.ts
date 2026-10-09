@@ -1,4 +1,4 @@
-import { Processor, WorkerHost } from '@nestjs/bullmq';
+import { OnWorkerEvent, Processor, WorkerHost } from '@nestjs/bullmq';
 import { Job } from 'bullmq';
 import { HttpException, Logger } from '@nestjs/common';
 import { nanoid } from 'nanoid';
@@ -7,7 +7,22 @@ import { AuditoriaHelper } from '../../transacciones/auditoria.helper';
 import { AuditEstado, AuditModulo, AuditSeveridad, AuditTipo } from '../../transacciones/audit.enums';
 import { RequestContextService } from 'src/common/logger/request-context';
 
-@Processor('import-queue')
+/**
+ * Opciones explícitas del worker de importaciones (docs/imports-progreso-realtime-spec.md §9.5.1).
+ * Política: una carga NUNCA se re-ejecuta sola. Si el worker muere a mitad de una carga, BullMQ falla el
+ * job sin llamar al processor (`maxStalledCount: 0`) y la carga la cierra el reaper como FALLIDA con motivo.
+ */
+export const OPCIONES_WORKER_IMPORT = {
+  /** Las cargas van de a una: lo supone el registro de cargas vivas, la posición en la cola y el orden de una división. */
+  concurrency: 1,
+  /** El lock es la señal de vida que BullMQ mira; se renueva cada 30 a 60 s, así que un bloqueo del event loop de menos de un minuto no lo pierde. */
+  lockDuration: 120_000,
+  stalledInterval: 30_000,
+  /** Un job cuyo worker murió NO se vuelve a ejecutar. */
+  maxStalledCount: 0,
+} as const;
+
+@Processor('import-queue', OPCIONES_WORKER_IMPORT)
 export class ImportsProcessor extends WorkerHost {
   private readonly logger = new Logger(ImportsProcessor.name);
 
@@ -17,6 +32,28 @@ export class ImportsProcessor extends WorkerHost {
     private readonly requestContext: RequestContextService,
   ) {
     super();
+  }
+
+  // Tres listeners que solo loguean: ninguno escribe en la base. El que cierra una carga interrumpida es
+  // un solo camino, el reaper (§9.5.1).
+  @OnWorkerEvent('stalled')
+  onStalled(jobId: string): void {
+    this.logger.warn(`BullMQ dio por perdido el job ${jobId} de la cola de importaciones`);
+  }
+
+  /** Hoy BullMQ lo manda a `console.error`, sin `requestId`; acá entra la falla de renovación de lock, que es la huella de un event loop bloqueado. */
+  @OnWorkerEvent('error')
+  onError(err: Error): void {
+    this.logger.warn(`Error del worker de importaciones: ${err?.message}`);
+  }
+
+  @OnWorkerEvent('failed')
+  onFailed(job: Job | undefined, err: Error): void {
+    if (!/stalled/i.test(err?.message ?? '')) return;
+    // No afirma que no se ejecutó: tras congelarse el proceso, BullMQ puede marcar failed un job cuya carga terminó.
+    this.logger.warn(
+      `BullMQ dio por perdido el job ${job?.id} (remesa ${job?.data?.remesaId}); si la carga no terminó, la cierra el reaper`,
+    );
   }
 
   async process(job: Job<any, any, string>): Promise<any> {

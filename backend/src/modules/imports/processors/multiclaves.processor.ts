@@ -6,6 +6,7 @@ import {
 } from './processor.interface';
 import { TramiteClaves } from '../utils/multiclaves-parser';
 import { formatoImporteCupon } from '../../multiclaves/utils/clave-pago';
+import { consolidarConProgreso, SUBFASE } from '../utils/reporte-progreso';
 
 /** Filas/ids por `createMany`/`updateMany`. Acota el tamaño del statement, no la cantidad de queries. */
 const CHUNK_ESCRITURA = 1000;
@@ -351,6 +352,7 @@ export class MulticlavesProcessor implements ICategoryProcessor {
             // `MULTI_*` completo trae ~15.000 convenios, y un solo `IN (...)` con todos adentro es
             // justo el tipo de query gigante que este módulo ya evita en el resto de sus consultas.
             const deudorIdsSet = new Set<number>();
+            ctx.progreso?.subfase(SUBFASE.BUSCANDO_PAGOS_DE_CLAVES, 0, nroConvenios.length);
             for (let i = 0; i < nroConvenios.length; i += 1000) {
                 const chunk = nroConvenios.slice(i, i + 1000);
                 const pagosHuerfanos = await ctx.prisma.pago.findMany({
@@ -359,10 +361,11 @@ export class MulticlavesProcessor implements ICategoryProcessor {
                     distinct: ['deudorId'],
                 });
                 for (const p of pagosHuerfanos) deudorIdsSet.add(p.deudorId);
+                ctx.progreso?.subfase(SUBFASE.BUSCANDO_PAGOS_DE_CLAVES, Math.min(i + 1000, nroConvenios.length), nroConvenios.length);
             }
             if (deudorIdsSet.size > 0) {
                 const deudorIds = [...deudorIdsSet];
-                await ctx.consolidacion.consolidar({ tipo: 'DEUDORES', deudorIds });
+                await consolidarConProgreso(ctx, { tipo: 'DEUDORES', deudorIds }, SUBFASE.CONSOLIDANDO_CASOS_CON_PAGOS);
                 this.logger.log(
                     `Multiclaves remesa=${ctx.remesaId}: ${deudorIds.length} caso(s) con pagos que ya ` +
                     'referenciaban estas claves fueron re-consolidados.',

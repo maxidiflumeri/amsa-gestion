@@ -11,11 +11,15 @@ import { NotificacionesModule } from '../notificaciones/notificaciones.module';
 import { TransaccionesModule } from '../transacciones/transacciones.module';
 import { ConsolidacionModule } from '../consolidacion/consolidacion.module';
 import { PromesasModule } from '../promesas/promesas.module';
+import { ReaperCargasService } from './progreso/reaper-cargas.service';
+import { ReaperCargasScheduler } from './progreso/reaper-cargas.scheduler';
 
 @Module({
   imports: [
     BullModule.registerQueue({
       name: 'import-queue',
+      // Un job que tira no se reintenta (es el default; queda escrito, §9.5.1).
+      defaultJobOptions: { attempts: 1 },
     }),
     RealtimeModule,
     NotificacionesModule,
@@ -24,6 +28,6 @@ import { PromesasModule } from '../promesas/promesas.module';
     PromesasModule,
   ],
   controllers: [ImportController],
-  providers: [ImportService, PrismaService, FileStorageService, ImportsProcessor],
+  providers: [ImportService, PrismaService, FileStorageService, ImportsProcessor, ReaperCargasService, ReaperCargasScheduler],
 })
 export class ImportModule {}

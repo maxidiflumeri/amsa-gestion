@@ -156,7 +156,14 @@ function armar(o: Opciones = {}) {
 
     // Las dos escrituras de la compensación sin tracker van juntas, en una transacción.
     const tx: any = {
-        remesa: { updateMany: jest.fn().mockResolvedValue({ count: o.remesa?.estadoProceso === 'FINALIZADA' ? 0 : 1 }) },
+        // Fase B (hallazgo 1): la escritura del tracker relee la remesa con FOR UPDATE y escribe en la misma transacción.
+        $queryRaw: jest.fn().mockImplementation(() => Promise.resolve([{
+            estadoProceso: remesaRow.estadoProceso, progresoId: fila ? 1 : null, encoladaAt: fila?.encoladaAt ?? null, finishedAt: fila?.finishedAt ?? null,
+        }])),
+        remesa: {
+            updateMany: jest.fn().mockResolvedValue({ count: o.remesa?.estadoProceso === 'FINALIZADA' ? 0 : 1 }),
+            update: (...a: any[]) => prisma.remesa.update(...a),
+        },
         import_progreso: { upsert: jest.fn().mockResolvedValue({}) },
     };
     prisma.$transaction = jest.fn().mockImplementation((fn: any) => fn(tx));
@@ -347,27 +354,6 @@ describe('processImportJob — secuencia de eventos y estado', () => {
         expect(textoNotificacion(notif).toLowerCase()).not.toContain('fallida');
     });
 
-    it('B-8: una re-ejecución reinicia los contadores, suma el intento, sigue creciendo rev y deja un warn', async () => {
-        const warn = jest.spyOn(Logger.prototype, 'warn');
-        const h = armar({
-            filas: 10,
-            previa: {
-                fase: 'PROCESANDO', rev: 7, intentos: 1, procesadas: 1000, ok: 1000, totalEsperado: 10,
-                encoladaAt: new Date('2026-10-05T14:00:00Z'), startedAt: new Date('2026-10-05T14:00:01Z'),
-            },
-        });
-
-        await h.service.processImportJob(h.job, 1);
-
-        const iniciada = h.eventos[0];
-        expect(iniciada.evento).toBe('iniciada');
-        expect(iniciada.estado).toMatchObject({ intentos: 2, procesadas: 0, ok: 0 });
-        expect(iniciada.estado.rev).toBeGreaterThan(7);
-        expect(warn.mock.calls.some(([m]) => String(m).includes('Re-ejecución'))).toBe(true);
-        // `encoladaAt` solo se escribe si estaba en null: el de la fila previa se conserva.
-        expect(h.fila().encoladaAt).toEqual(new Date('2026-10-05T14:00:00Z'));
-    });
-
     it('B-9: sin fila previa (job del código viejo) la crea y termina normal', async () => {
         const h = armar({ filas: 10, previa: null });
         expect(h.fila()).toBeNull();
@@ -555,8 +541,16 @@ describe('processImportJob — correcciones de la auditoría', () => {
         expect(warn.mock.calls.some(([m]) => String(m).includes('ya terminó'))).toBe(true);
     });
 
-    it('F4: la guarda es en negativo: una FINALIZADA sin fila de progreso (fixture vieja) se procesa como siempre', async () => {
-        const h = armar({ filas: 3, remesa: { estadoProceso: 'FINALIZADA' }, previa: null });
+    it('F4: de un estado terminal no se sale aunque falte la fila de progreso (FINALIZADA o FALLIDA sin fila → ignorado, sin procesar ni emitir); una no terminal sin fila sí se procesa', async () => {
+        for (const estadoProceso of ['FINALIZADA', 'FALLIDA']) {
+            const h = armar({ filas: 3, remesa: { estadoProceso }, previa: null });
+            await expect(h.service.processImportJob(h.job, 1)).resolves.toMatchObject({ ignorado: true, ok: 0 });
+            expect(h.processor.processRow).not.toHaveBeenCalled();
+            expect(h.eventos).toHaveLength(0);
+            expect(h.notificaciones.crear).not.toHaveBeenCalled();
+            expect(h.remesaRow.estadoProceso).toBe(estadoProceso);
+        }
+        const h = armar({ filas: 3, remesa: { estadoProceso: 'PENDIENTE' }, previa: null });
         await expect(h.service.processImportJob(h.job, 1)).resolves.toEqual({ total: 3, ok: 3, err: 0 });
     });
 
@@ -703,7 +697,8 @@ describe('processImportJob — correcciones de la auditoría', () => {
 
             await h.service.processImportJob(h.job, 1);
 
-            const progresos = h.eventos.filter((e) => e.evento === 'progreso');
+            // El aviso de LEYENDO sale antes del parseo (Fase B, §9.5.3): todavía no hay total que fijar.
+            const progresos = h.eventos.filter((e) => e.evento === 'progreso' && e.estado.fase !== 'LEYENDO');
             expect(progresos.length).toBeGreaterThan(0);
             progresos.forEach((e) => expect(e.estado.totalEsperado).toBe(3));
             expect(h.eventos[h.eventos.length - 1].estado).toMatchObject({ totalEsperado: 3, advertencias: 2, ok: 3 });

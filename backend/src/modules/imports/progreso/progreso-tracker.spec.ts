@@ -10,6 +10,10 @@ function armar(opts: { updateFalla?: (data: any) => boolean; emitFalla?: boolean
     const orden: string[] = [];
     let rev = 0;
     const prisma: any = {
+        // La escritura del tracker relee la remesa con FOR UPDATE dentro de una transacción (Fase B, hallazgo 1):
+        // el doble la ejecuta sobre sí mismo y la fila está en curso.
+        $queryRaw: jest.fn().mockResolvedValue([{ estadoProceso: 'PROCESANDO', progresoId: 1, encoladaAt: new Date(), finishedAt: null }]),
+        $transaction: jest.fn().mockImplementation((fn: any) => fn(prisma)),
         remesa: {
             update: jest.fn().mockImplementation(({ data }: any) => {
                 if (opts.updateFalla?.(data)) { orden.push('update!'); return Promise.reject(new Error('base caída')); }

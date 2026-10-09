@@ -25,6 +25,17 @@ export interface RemesaParaEstado {
     errFilas: number;
 }
 
+/** Lo que no está en la fila de progreso y se calcula aparte (§9.5.9). */
+export interface ExtrasEstado {
+    /** Cargas en curso confirmadas antes que esta. Solo se usa si la fase es EN_COLA. */
+    enColaDelante?: number | null;
+}
+
+/** Una ETA de más de esto no informa nada. */
+const MAX_ETA_SEGUNDOS = 172_800;
+/** Antes de tantos segundos de proceso no hay base para estimar la velocidad. */
+const MIN_SEGUNDOS_PARA_RITMO = 5;
+
 export function esEstadoTerminal(estadoProceso: string): boolean {
     return estadoProceso === 'FINALIZADA' || estadoProceso === 'FALLIDA';
 }
@@ -65,6 +76,32 @@ export function clasificarResultado(e: EntradaClasificacion): ResultadoCarga {
     return 'OK';
 }
 
+/**
+ * Velocidad (filas/s, un decimal) y ETA de las FILAS (no incluye el post-proceso). Promedio desde que
+ * arrancó: sale de un solo DTO, así que funciona apenas se recarga la página. Nunca NaN ni Infinity.
+ */
+export function calcularRitmo(
+    fase: string,
+    terminal: boolean,
+    startedAt: Date | null,
+    procesadas: number,
+    totalEsperado: number,
+    ahora: Date,
+): { velocidad: number | null; etaSegundos: number | null } {
+    const nulo = { velocidad: null, etaSegundos: null };
+    if (fase !== 'PROCESANDO' || terminal || !startedAt) return nulo;
+    const transcurrido = (ahora.getTime() - startedAt.getTime()) / 1000;
+    if (!Number.isFinite(transcurrido) || transcurrido < MIN_SEGUNDOS_PARA_RITMO) return nulo;
+    if (!Number.isFinite(procesadas) || procesadas <= 0) return nulo;
+    const velocidad = Math.max(0.1, Math.round((procesadas / transcurrido) * 10) / 10);
+    let etaSegundos: number | null = null;
+    if (Number.isFinite(totalEsperado) && totalEsperado > procesadas) {
+        const eta = Math.ceil(((totalEsperado - procesadas) * transcurrido) / procesadas);
+        etaSegundos = Number.isFinite(eta) && eta <= MAX_ETA_SEGUNDOS ? eta : null;
+    }
+    return { velocidad, etaSegundos };
+}
+
 function iso(d: Date | null | undefined): string | null {
     return d ? d.toISOString() : null;
 }
@@ -83,6 +120,7 @@ export function armarEstadoCarga(
     r: RemesaParaEstado,
     fila: import_progreso | null,
     ahora: Date = new Date(),
+    extras: ExtrasEstado = {},
 ): EstadoCargaDto {
     const estadoProceso = r.estadoProceso as EstadoProcesoRemesa;
     const terminal = esEstadoTerminal(estadoProceso);
@@ -127,9 +165,14 @@ export function armarEstadoCarga(
             ok,
             err,
             descartadas: 0,
+            fueraDeCorte: null,
+            descartadasPorFiltro: 0,
             advertencias: 0,
             nuevos: null,
             actualizados: null,
+            enColaDelante: null,
+            velocidad: null,
+            etaSegundos: null,
             error: null,
             errorPostProceso: null,
             intentos: 0,
@@ -153,6 +196,8 @@ export function armarEstadoCarga(
     const progreso = terminal
         ? estadoProceso === 'FINALIZADA' ? 100 : Math.min(99, fila.porcentaje)
         : Math.min(99, fila.porcentaje);
+    const fueraDeCorte = fila.fueraDeCorte ?? null;
+    const ritmo = calcularRitmo(fila.fase, terminal, fila.startedAt, fila.procesadas, fila.totalEsperado, ahora);
     const duracionMs =
         fila.finishedAt && fila.startedAt ? Math.max(0, fila.finishedAt.getTime() - fila.startedAt.getTime()) : null;
     return {
@@ -169,9 +214,14 @@ export function armarEstadoCarga(
         ok: fila.ok,
         err: fila.err,
         descartadas: fila.descartadas,
+        fueraDeCorte,
+        descartadasPorFiltro: Math.max(0, fila.descartadas - (fueraDeCorte ?? 0)),
         advertencias: fila.advertencias,
-        nuevos: fila.nuevos,
-        actualizados: fila.actualizados,
+        nuevos: fila.nuevos ?? null,
+        actualizados: fila.actualizados ?? null,
+        enColaDelante: fila.fase === 'EN_COLA' && !terminal ? (extras.enColaDelante ?? null) : null,
+        velocidad: ritmo.velocidad,
+        etaSegundos: ritmo.etaSegundos,
         error: fila.error,
         errorPostProceso: fila.errorPostProceso,
         intentos: fila.intentos,
@@ -218,6 +268,11 @@ export function motivoLegible(error: unknown): string {
         /^PrismaClient/.test(nombre) ||
         (typeof code === 'string' && /^P\d{4}$/.test(code));
     if (!esPrisma) return recortarMotivo(msg);
+    // Errores de conexión / transacción de Prisma: el texto original ("Transaction API error: Unable to start a
+    // transaction in the given time.") no le dice nada a un operador.
+    if (code === 'P2010' && /1205|lock wait timeout/i.test(msg)) return 'La base de datos tardó demasiado en liberar un bloqueo (1205).';
+    if (code === 'P2028') return 'La base de datos no respondió a tiempo (P2028).';
+    if (code === 'P1017') return 'La base de datos cerró la conexión (P1017).';
     const ultima =
         msg.split(/\r?\n/).map((l) => l.trim()).filter((l) => l.length > 0).pop() ?? 'Error de base de datos';
     const conCodigo = typeof code === 'string' && !ultima.includes(code) ? `${ultima} (${code})` : ultima;
@@ -232,6 +287,78 @@ export interface TextoNotificacion {
     tipo: 'IMPORTACION_FINALIZADA' | 'IMPORTACION_ERROR';
     titulo: string;
     mensaje: string;
+}
+
+/** `SIN_FILAS`: separa lo que tiró el filtro de la plantilla de lo que es de otros cortes (§9.8.2). */
+function mensajeSinFilas(e: EstadoCargaDto): string {
+    // Se deriva de `descartadas` y `fueraDeCorte` (que es exactamente como el backend arma
+    // `descartadasPorFiltro`) y no se lee el campo: un DTO armado a mano a partir de uno heredado, que
+    // trae `descartadasPorFiltro: 0`, tiene que dar el mismo texto que antes (estado-carga.spec.ts).
+    const deOtroCorte = e.fueraDeCorte ?? 0;
+    const porFiltro = Math.max(0, e.descartadas - deOtroCorte);
+    return (
+        'El archivo no tenía filas para procesar.' +
+        (porFiltro > 0 ? ` El filtro de la plantilla descartó las ${porFiltro} filas.` : '') +
+        (deOtroCorte > 0 ? ` ${deOtroCorte} filas son de otros cortes de la división.` : '')
+    );
+}
+
+export type MotivoInterrupcion = 'SIN_LATIDO' | 'SIN_JOB' | 'REENTREGA';
+
+const ORACION_INTERRUMPIDA =
+    'La importación se interrumpió: el servidor se reinició o dejó de responder mientras la procesaba.';
+
+const ORACION_SIN_JOB =
+    'La importación no llegó a empezar: quedó en la cola sin un trabajo que la procese (el servidor se ' +
+    'reinició justo al confirmarla, o la cola perdió el trabajo).';
+
+/**
+ * Qué hacer con una carga interrumpida, por categoría. Un remedio solo se escribe si está verificado
+ * contra el processor y contra `deleteRemesa` (§9.5.5): DEUDORES y DEUDORES_Y_FACTURAS solo escriben en
+ * su propia remesa (casos, facturas, contactos, campos extra) y `deleteRemesa` lo borra todo si ningún
+ * caso tiene gestión; ACCIONES guarda los datos para revertir recién en el `afterAll`. El resto
+ * escribe sobre casos de otras remesas: no se afirma ningún remedio.
+ */
+const AVISO_CORTE =
+    ' Esta remesa es un corte de un archivo dividido: al volver a cargarlo, tildá solo los cortes que no se cargaron. ' +
+    'Si tildás uno que ya está cargado, sus casos quedan duplicados.';
+
+function remedioDeInterrupcion(categoria: string | null | undefined, conCorte: boolean): string {
+    switch (categoria) {
+        case 'DEUDORES':
+        case 'DEUDORES_Y_FACTURAS':
+            return (
+                'Lo procesado hasta el corte quedó cargado en esta remesa. Eliminá esta importación desde el ' +
+                'Historial y volvé a cargar el archivo. Si no se puede eliminar (porque algún caso ya tiene gestión ' +
+                'o porque la remesa es muy grande), avisá a soporte antes de volver a cargarlo.' +
+                // Al resubir el archivo vienen todos los cortes tildados y no hay ninguna guarda: las nóminas ya
+                // cargadas se duplicarían.
+                (conCorte ? AVISO_CORTE : '')
+            );
+        case 'ACCIONES':
+            return (
+                'Las acciones aplicadas hasta el corte quedaron hechas y no se pueden revertir desde la pantalla: ' +
+                'los datos para deshacer se guardan recién al terminar. No vuelvas a cargar el archivo; avisá a soporte.'
+            );
+        default:
+            return 'Lo procesado hasta el corte quedó aplicado. Antes de volver a cargar el archivo, avisá a soporte.';
+    }
+}
+
+/**
+ * Texto de `import_progreso.error` de una carga cerrada por interrupción (§9.5.5). La primera línea es
+ * la oración fija —es la que viaja en la notificación—; el qué hacer va en un párrafo aparte.
+ */
+export function textoInterrupcion(
+    motivo: MotivoInterrupcion,
+    categoria: string | null | undefined,
+    opciones: { conCorte?: boolean } = {},
+): string {
+    if (motivo === 'SIN_JOB') {
+        // Con corte propio, resubir con todos los cortes tildados duplicaría los que ya se cargaron (cualquier categoría).
+        return `${ORACION_SIN_JOB}\n\nNo se cargó ninguna fila: volvé a importar el archivo.${opciones.conCorte === true ? AVISO_CORTE : ''}`;
+    }
+    return `${ORACION_INTERRUMPIDA}\n\n${remedioDeInterrupcion(categoria, opciones.conCorte === true)}`;
 }
 
 /** Título, mensaje y tipo de la notificación según cómo terminó la carga (§8.5.5). */
@@ -262,9 +389,7 @@ export function textoNotificacion(e: EstadoCargaDto, opciones: { sinRegistrar?: 
             r = {
                 tipo: 'IMPORTACION_FINALIZADA',
                 titulo: 'Importación sin filas',
-                mensaje:
-                    'El archivo no tenía filas para procesar.' +
-                    (e.descartadas > 0 ? ` El filtro de la plantilla descartó las ${e.descartadas} filas.` : ''),
+                mensaje: mensajeSinFilas(e),
             };
             break;
         case 'CON_ADVERTENCIAS':

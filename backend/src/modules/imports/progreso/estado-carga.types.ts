@@ -1,9 +1,9 @@
-// Contrato del estado de una carga (docs/imports-progreso-realtime-spec.md §8.4.1).
+// Contrato del estado de una carga (docs/imports-progreso-realtime-spec.md §8.4.1 y §9.4.1).
 // Se copia TAL CUAL en frontend/src/types/importProgreso.ts: no cambiar un nombre acá sin cambiarlo allá.
 
-/** Fases que existen en la Fase A. La Fase B agrega valores: el cliente trata cualquier otro
- *  string como "en curso, fase que no conozco" y muestra el texto tal cual. */
-export type FaseCarga = 'BORRADOR' | 'EN_COLA' | 'PROCESANDO' | 'POST_PROCESO' | 'TERMINADA';
+/** La Fase B agrega LEYENDO. El cliente sigue tratando cualquier otro string como
+ *  "en curso, fase que no conozco" y muestra el texto tal cual. */
+export type FaseCarga = 'BORRADOR' | 'EN_COLA' | 'LEYENDO' | 'PROCESANDO' | 'POST_PROCESO' | 'TERMINADA';
 
 export type ResultadoCarga = 'OK' | 'CON_ERRORES' | 'CON_ADVERTENCIAS' | 'SIN_FILAS' | 'FALLIDA';
 
@@ -26,6 +26,8 @@ export interface EstadoCargaDto {
 
     estadoProceso: EstadoProcesoRemesa;
     fase: FaseCarga | string;
+    /** Texto del paso del post-proceso, ya armado para mostrar ("Consolidando casos: 1.500 de 8.875").
+     *  null fuera de POST_PROCESO o si el processor no informa. */
     subfase: string | null;
     /** Encolada y sin terminar. Lo calcula el backend; el cliente no lo deduce de `fase`. */
     enCurso: boolean;
@@ -41,11 +43,30 @@ export interface EstadoCargaDto {
     procesadas: number;
     ok: number;
     err: number;
+    /** Filas del archivo que no entraron en esta remesa y no son error: el TOTAL (filtro de la
+     *  plantilla + otros cortes de la división). */
     descartadas: number;
+    /** De las `descartadas`, las que eran de otro corte de la división. null = la remesa no tiene
+     *  corte propio, o la carga es anterior a la Fase B. */
+    fueraDeCorte: number | null;
+    /** `descartadas − (fueraDeCorte ?? 0)`: las que descartó el filtro de la plantilla. Es el número
+     *  que se muestra como "Descartadas". Lo calcula el backend. */
+    descartadasPorFiltro: number;
     advertencias: number;
-    /** Fase B. null en la A. */
+    /** Casos que esta carga creó. null si la categoría no lo informa. */
     nuevos: number | null;
+    /** Casos que ya existían y esta carga tocó. null si la categoría no lo informa. */
     actualizados: number | null;
+
+    /** Solo en EN_COLA: cuántas cargas en curso se confirmaron antes que esta, contando la que
+     *  está corriendo. 0 = es la próxima. null si no aplica o no se pudo calcular. */
+    enColaDelante: number | null;
+    /** Solo en PROCESANDO: filas por segundo, promedio desde que arrancó, con un decimal.
+     *  null si no aplica o todavía no hay con qué calcularla. */
+    velocidad: number | null;
+    /** Solo en PROCESANDO: segundos que faltan para terminar las FILAS a esa velocidad. No incluye
+     *  el post-proceso. null si no aplica. */
+    etaSegundos: number | null;
 
     /** Motivo, cuando `resultado` es FALLIDA. */
     error: string | null;

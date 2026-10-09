@@ -102,6 +102,28 @@ export interface ProcessContext {
      * necesita para saber qué `CODIGO_GESTOR` acepta como propios.
      */
     multiclavesConfig?: MulticlavesConfig;
+    /**
+     * Canal por el que el processor le cuenta su avance al runner (docs/imports-progreso-realtime-spec.md
+     * §9.4.4). OPCIONAL: los specs que arman el contexto a mano no lo traen, y todo processor lo usa
+     * con `ctx.progreso?.…`.
+     */
+    progreso?: ReporteProgreso;
+}
+
+/**
+ * Los tres métodos son sincrónicos y devuelven `void`: no hacen IO, anotan en la memoria del tracker
+ * y vuelven. Nunca tiran (cada uno va en `try/catch` del lado del runner). El throttle no es problema
+ * del processor: puede llamar en cada vuelta de un bucle; cuándo se escribe lo decide el reloj.
+ */
+export interface ReporteProgreso {
+    /** Solo en `processBatch`: cuántas filas del lote en curso ya están resueltas (acumulado
+     *  dentro del lote, de 0 a `rows.length`). */
+    filasDelLote(n: number): void;
+    /** Solo en `afterAll`: en qué paso está y cuánto lleva. Sin `total` (o con 0) es un paso sin
+     *  medida. Llamarla con otro `nombre` es pasar al paso siguiente. */
+    subfase(nombre: string, hecho?: number, total?: number): void;
+    /** Casos nuevos y actualizados de la carga hasta ahora: valores ABSOLUTOS, no incrementos. */
+    contadores(c: { nuevos?: number; actualizados?: number }): void;
 }
 
 /**

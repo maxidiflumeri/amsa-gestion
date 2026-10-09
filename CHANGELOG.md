@@ -6,6 +6,211 @@
 
 ---
 
+## [2026-10-09] — Progreso de las importaciones, Fase B: avance por segundo, cargas que no se re-ejecutan y cierre automático de las colgadas
+
+**Fase B** del plan de [docs/imports-progreso-realtime-spec.md](docs/imports-progreso-realtime-spec.md)
+(A fuente de verdad → **B fases y granularidad** → C interfaz → D notificaciones). El diseño está en §9
+y lo que cambió después de auditar en §9.15: donde se contradicen, vale §9.15.
+
+**Estado: implementada y auditada; sin desplegar y sin ver en un navegador.** Las fases C y D no están
+empezadas. Las decisiones de producto de esta fase se tomaron por defecto y **esperan la confirmación
+del usuario** (§9.14 del spec; resumidas abajo).
+
+La idea en cinco líneas: (1) el `ProgresoTracker` tiene un reloj propio: late cada 15 s aunque no avance
+ninguna fila y vuelca a la base, a lo sumo una vez por segundo, lo que el runner y los processors le
+fueron contando en memoria; (2) una carga nunca se re-ejecuta sola: si su worker murió, falla con motivo
+y decide una persona; (3) un reaper la cierra a los 6 o 7 minutos sin latido, y solo si el registro de
+cargas vivas, el latido y el lock de BullMQ coinciden en que nadie la procesa; (4) el post-proceso deja
+de ser una caja negra: cada processor dice en qué paso está y cuánto lleva; (5) una vista previa sin
+confirmar de más de 24 horas se borra sola.
+
+Antes de diseñar se leyeron los logs de prod (181 corridas, 25/06 al 30/09), y dos supuestos del
+diagnóstico resultaron falsos: la consolidación nunca pasó de 633 ms, y el "0 % durante minutos" de
+MULTIARCHIVO no era el parseo (53 a 110 ms) sino unas 850 filas procesadas de a una dentro de un único
+lote. También apareció una re-ejecución real: la remesa 102, el 10/08, se volvió a ejecutar sola un
+minuto después de un deploy y falló porque los archivos ya no estaban.
+
+### Decisiones y cambios de comportamiento
+
+- **Una carga interrumpida no se re-ejecuta sola: queda FALLIDA con motivo.** Antes, tras un deploy a
+  mitad de carga, BullMQ la re-ejecutaba desde cero una vez (en ACCIONES eso duplica comentarios y pierde
+  los datos para revertir). Lo que se paga: hay que volver a subir el archivo a mano, y hasta la Fase C
+  no hay botón de reintentar. *Pendiente de confirmación del usuario.*
+- **Cierre automático de una carga colgada:** entre 6 y 7 minutos después del último latido con el
+  umbral por defecto (`IMPORTS_LATIDO_UMBRAL_MIN`, 5). Libera el bloqueo "una importación por usuario",
+  notifica y audita. *El número, pendiente de confirmación.*
+- **Los borradores se borran solos:** una vista previa sin confirmar de más de 24 horas y sin casos, una
+  vez por día a las 04:30 de Argentina; en la práctica duran entre uno y dos días. No se borran las de un
+  usuario que en ese momento tiene una carga en curso, ni las remesas anteriores al 05/10 (sin fila de
+  progreso). `IMPORTS_REAPER_DESACTIVADO` apaga los dos controles. *Que arranque activo, pendiente de
+  confirmación.*
+- **Una columna nueva**, `import_progreso.fueraDeCorte` (nullable): de las filas descartadas, cuántas
+  eran de otro corte de la división. El `db push` es un único `ADD COLUMN … NULL`; sin backfill.
+- **Deudores y Deudores y Facturas muestran Nuevos pero no Actualizados**: "ya existía" se mira dentro de
+  una remesa que siempre es nueva y daba siempre 0. Si Nuevos es menor que OK, la diferencia son filas
+  que cayeron sobre un caso creado por la misma carga (identidades repetidas).
+- **Eliminar una remesa de más de 60.000 casos** responde "demasiado grande, avisá a soporte" en vez de
+  intentar y fallar con un error genérico (antes una remesa real de 60.020 casos ya fallaba por timeout,
+  y a partir de 65.536 por un límite de MySQL).
+- Una carga ya terminada no se vuelve a procesar aunque le falte la fila de progreso.
+- Lo que queda afuera: no hay fase "Finalizando"; el parseo de Excel sigue en el hilo principal (no hay
+  evidencia de que bloquee, y ahora queda medido en el log); PAGOS no muestra nuevos ni actualizados.
+
+### Backend
+
+- **`ProgresoTracker`** ([imports/progreso/](backend/src/modules/imports/progreso/)): reloj único
+  (`IMPORTS_PROGRESO_INTERVALO_MS`, 1 s) con reportes sincrónicos que solo tocan memoria (`avance`,
+  `avanceDelLote`, `subfase`, `contadores`), una sola escritura en vuelo, y la memoria no se pisa con la
+  foto que se escribe. El volcado del reloj va **solo a `import_progreso`**, en una sentencia
+  condicionada (`finishedAt IS NULL`, con chequeo de filas afectadas); el latido, cuando no hay nada que
+  contar, escribe solo `heartbeatAt` cada 15 s y no emite. Una deriva del reloj de 5 s o más queda en el
+  log ("Event loop bloqueado"). Nada se escribe ni se emite después del estado terminal.
+- **Un estado terminal no se pisa, y ahora es cierto contra la base.** Las escrituras del tracker que
+  tocan `remesa` (`iniciar`, `lote`, `finalizar`, `fallar`…) relean la remesa y su fila con
+  `SELECT … FOR UPDATE` y recién entonces escriben (`TX_TRACKER`: 10 s de espera, 60 s de transacción).
+  El `update` condicionado de Prisma **no es atómico** —hace un `SELECT` y después un `UPDATE`, que si no
+  encuentra la fila afecta 0 filas sin tirar `P2025`, y el update anidado corre igual—: con él, 84 de 150
+  rondas contra el reaper terminaban con el terminal pisado. Una carga que otro cerró se corta en el lote
+  siguiente, no entra al `afterAll` y no toca su estado.
+- **Fases y contadores:** fase nueva `LEYENDO` (Excel y categorías pre-parseadas). `descartadas` sigue
+  siendo el total y se separa en `descartadasPorFiltro` y `fueraDeCorte`; `nuevos` y `actualizados` según
+  la categoría; `velocidad`, `etaSegundos` y `enColaDelante` se calculan al armar el DTO (HTTP y socket
+  dicen lo mismo). `procesadas` puede ir adelantada dentro de un lote en ACTUALIZACIONES y FACTURAS.
+- **Processors:** ocho informan subfases del post-proceso con "N de M" y, los de por lote, las filas ya
+  resueltas (`ctx.progreso`, opcional; nombres en [utils/reporte-progreso.ts](backend/src/modules/imports/utils/reporte-progreso.ts)).
+  Toda consolidación pasa por `consolidarConProgreso`. Ningún cambio de lógica: el estado de la base es
+  idéntico con y sin el canal de reporte, y los specs que ya tenían no se tocaron.
+- **BullMQ explícito:** `maxStalledCount: 0`, `lockDuration: 120000`, `concurrency: 1`, `attempts: 1`.
+  Un job cuyo worker murió falla sin volver a ejecutarse, y si igual se entregara, `processImportJob`
+  cierra la carga como interrumpida sin procesar ninguna fila. Tres listeners (`stalled`, `error`,
+  `failed`) que solo loguean.
+- **Reaper de cargas colgadas** ([reaper-cargas.service.ts](backend/src/modules/imports/progreso/reaper-cargas.service.ts),
+  cron cada minuto): cierra con `cerrarCargaInterrumpida` una carga arrancada y sin latido, o en cola sin
+  job (a los ~3 minutos de confirmada). Nunca una carga viva en este proceso, nunca en una sola pasada,
+  nunca con la cola sin responder, y nunca una carga en cola que tiene su job esperando. El texto del
+  motivo dice qué hacer según la categoría, y avisa si la remesa es un corte de un archivo dividido
+  (volver a cargar con todos los cortes tildados duplica las nóminas ya cargadas).
+- **Reaper de borradores** (cron diario): el predicado de §5.2 del spec, una transacción por remesa con
+  relectura bajo `FOR UPDATE`, tope de 500 por corrida.
+- **Carreras:** confirmar y borrar la misma remesa a la vez ya no responde OK a las dos (404 o 409 según
+  quién gane); la compensación del encolado decide con la fila bloqueada y ya no devuelve a borrador una
+  carga que el worker tomó (antes, 23 de 150 rondas respondían 503 con la carga FINALIZADA).
+  `sacarJobDeLaCola` ya no puede sacar el job de otra carga si Redis reutilizó el `jobId`.
+- **`deleteRemesa`:** tope previo por cantidad de casos (`IMPORTS_BORRADO_MAX_CASOS`, 60.000; el límite
+  real son 65.535, donde `comentario.count` con `IN (…)` tira "too many placeholders") y transacción de
+  120 s (antes 5 s: una remesa real de 60.020 casos no se podía eliminar; ahora tarda entre 4,6 y
+  10,3 s). Si falla por tiempo o por conexión, el 400 dice "la base de datos no respondió a tiempo,
+  probá de nuevo" en vez de un 500.
+- **Una transacción de Prisma que vence contamina la operación siguiente.** El `timeout` de una
+  transacción interactiva no corta la sentencia en curso y, al vencer con la sentencia en vuelo, la
+  operación siguiente de ese cliente da error (`P1017`) o, en 5 de 80 casos medidos, **vacío sin error
+  sobre una fila que existe**. Con un borrado vencido a mitad de una carga, el reloj recibió "0 filas",
+  el tracker lo tomó por "otro cerró la carga" y cortó una carga sana en 1.300 de 2.500 filas. Por eso
+  el borrado ya no debería vencer (120 s; las sentencias las acota el lock wait de MySQL, 50 s) y el
+  tracker no cree en un solo resultado vacío: lo confirma con una lectura nueva o reintentando la
+  transacción. **El riesgo es anterior a esta fase y sigue para el resto de las lecturas del módulo**
+  (backlog).
+- **Vista previa:** `descartadas` total, `fueraDeCorte`, y `filtro` describe solo el de la plantilla.
+- Logs con tiempo por paso (`Filas remesa=…`, `Post-proceso remesa=… «paso» en Xms`): con la primera
+  carga real se va a saber cuánto tarda cada paso de cada categoría.
+- **Tests:** 49 suites / 1.069 tests en imports + realtime + notificaciones (eran 43 / 824) y 1.745 en la
+  suite completa (eran 1.500). De la Fase A se borró el caso B-8 (la re-ejecución ya no existe), se
+  corrigió F4 (afirmaba que una carga terminal sin fila se procesaba) y un assert pasó a excluir el
+  evento de `LEYENDO`.
+
+### Frontend
+
+- Lo que se muestra lo manda el backend; la pantalla solo formatea ([utils/estadoCarga.ts](frontend/src/utils/estadoCarga.ts)).
+  Todo campo nuevo se lee tolerando que falte.
+- **Wizard:** barra de subida con porcentaje y MB, y después "Armando la vista previa…". En "Importando":
+  posición en la cola, "Leyendo el archivo", la subfase del post-proceso, la línea de ritmo ("≈ 34
+  filas/s · faltan ~4 min para terminar las filas") y los contadores Nuevos, Actualizados y Descartadas
+  (por el filtro de la plantilla). La vista previa y el resultado separan las descartadas por el filtro
+  de las de otros cortes; en una carga dividida Descartadas vuelve a mostrarse, sin sumar.
+- **Avisos:** "sin señal" baja de 5 a 2 minutos y cubre lectura y post-proceso; a los 15 minutos deja de
+  prometer el cierre automático y manda a avisar a soporte; una remesa anterior al seguimiento tiene su
+  propio texto. Nuevos: "en cola y nadie la toma" (contado desde que la pantalla la vio como la próxima)
+  y "sin cambios" (10 minutos, medido en el navegador).
+- **Motivo de una carga fallida:** en párrafos, y "Antes del corte se cargaron **al menos** N filas" (en
+  ACTUALIZACIONES y FACTURAS el contador avanza de a un lote).
+- **Detalle:** línea con casos nuevos, actualizados y descartadas. **Campanita:** posición en la cola,
+  paso y "faltan ~N min"; la lista se refresca cuando otra carga arranca o termina, y cada 30 s mientras
+  haya cargas en cola.
+- Separador de miles en los contadores, y los formateadores ya no tiran con un valor ausente.
+
+### Documentación
+
+- Wiki de importación ([docs/ayuda/03-importacion/](docs/ayuda/03-importacion/)): `05` (subida, fases,
+  avisos, qué hacer cuando una carga se interrumpe, también en una carga dividida), `08` (carga colgada
+  que falla sola, borradores que se borran, por qué no deja eliminar una remesa), `07` (una carga
+  interrumpida ya no se reinicia), `01`, `03` y `04`.
+- **Ocho enlaces de la wiki estaban rotos en la aplicación** (siete de antes): eran relativos a un `.md`
+  y el visor solo resuelve los que empiezan con `/ayuda/`. Desde el "?" de la pantalla de carga sacaban
+  al operador del asistente, y en una carga dividida eso corta la cadena de remesas. `verificar-ayuda`
+  ahora los marca como error.
+- [docs/notificaciones-spec.md](docs/notificaciones-spec.md) y `backend/.env.example` (cinco variables
+  nuevas, todas con default en el código).
+
+### Lo que la Fase B no arregla
+
+- Una carga viva que no avanza no se cierra sola: se avisa en la pantalla y en el log (Fase C, con
+  "cancelar"). Tampoco una carga en cola cuyo job nadie toma.
+- No hay cómo reintentar una fallida ni retomar un corte de una división: es volver a subir el archivo
+  (Fase C).
+- Las remesas de más de 60.000 casos no se pueden eliminar desde la pantalla (backlog: borrar por tandas
+  o en un job).
+- El componente único de progreso, el Historial en vivo y el resumen por categoría siguen en la Fase C.
+
+### Cómo se verificó
+
+- Diseño por `architect`; backend y frontend implementados en paralelo contra el contrato; tres
+  auditores independientes (backend, frontend y wiki), tres pasadas cada uno (detalle en §9.15 del spec).
+  Veredictos finales: frontend y wiki PASA; backend PASA CON OBSERVACIONES, y esas observaciones se
+  arreglaron en una cuarta ronda que **no** volvió a pasar por el auditor (build, suite y sus arneses).
+- **Por primera vez, de punta a punta con la aplicación levantada en local** (HTTP, socket, BullMQ, crons
+  y MySQL juntos): carga de 60.000 filas con un evento por segundo y 0 diferencias entre 357 eventos y la
+  base; `kill -9` a mitad de carga, sin re-ejecución y con el cierre por el reaper; proceso congelado
+  200 s sin que el reaper lo cierre; cargas en cola; carga dividida con filtro.
+- Backend contra MySQL y Redis locales: las cuatro sondas de BullMQ y de Prisma antes de escribir código,
+  concurrencia real del tracker contra el reaper, el borrado y la compensación (320 rondas, 0 anomalías),
+  medición de locks, y unas 80 mutaciones del código para medir la red de tests.
+- Frontend en un arnés con los módulos reales, React en modo estricto y un servidor socket.io real (149
+  pruebas).
+- **No se probó:** nada en un navegador; el cron de las 04:30 disparando solo; DEUDORES_Y_FACTURAS,
+  MULTIRREGISTRO y MULTIARCHIVO contra la base (solo leídos); el pool de conexiones y las latencias de
+  RDS.
+
+### Deploy
+
+- **Dos pushes, backend primero**, como en la Fase A: el frontend nuevo contra el backend viejo no se
+  rompe, pero promete un cierre automático que el backend viejo no hace.
+- Antes, contra prod y en solo lectura (§9.6 del spec): que `prisma migrate diff` dé vacío con la imagen
+  actual; que no haya cargas en curso (el deploy las mata, y ahora quedan fallidas en vez de
+  re-ejecutarse); y qué borraría el reaper de borradores en su primera corrida.
+- Variables opcionales: `IMPORTS_PROGRESO_INTERVALO_MS` (1000), `IMPORTS_LATIDO_UMBRAL_MIN` (5),
+  `IMPORTS_BORRADOR_TTL_HORAS` (24), `IMPORTS_BORRADO_MAX_CASOS` (60000) e `IMPORTS_REAPER_DESACTIVADO`
+  (lo apagan `1`, `true`, `si`, `yes`, `on`). No hace falta definir ninguna.
+- Después: en CloudWatch, "Reaper de importaciones activo: sin latido a los 5 min, borradores a las
+  24 h"; y con la primera carga real, que `heartbeatAt` se mueva y los logs con tiempo por paso.
+- Volver atrás no es gratis: la imagen anterior querría borrar la columna nueva y restaura la
+  re-ejecución automática. Ante un problema con los reapers, la salida rápida es
+  `IMPORTS_REAPER_DESACTIVADO`.
+- El diseño supone **un solo proceso de backend**: si alguna vez se escala, releer §9.5.6 del spec.
+
+### Pendiente
+
+- Confirmación del usuario de las decisiones tomadas por defecto (§9.14 del spec).
+- Prueba manual en el navegador (§9.9.5 del spec).
+- Lo que ya venía de la Fase A: limpiar en prod las remesas 93 y 98 y las notificaciones huérfanas, y
+  las decisiones de las fases C y D (§5.4 a §5.6).
+- Backlog, ajeno a este cambio: revisar los timeouts de transacción de todo el backend (el riesgo de
+  arriba); `deleteRemesa` no cuenta ni borra `promesa_pago` (un caso con promesa y sin otra gestión daría
+  un error de base en vez del mensaje de "tiene gestión"; leído, no ejecutado).
+- **Hasta desplegar esta fase**, conviene no eliminar remesas grandes mientras corre una importación:
+  en la versión desplegada el borrado vence a los 5 s y puede contaminar la carga en curso.
+
+---
+
 ## [2026-10-05] — Progreso de las importaciones, Fase A: el estado de la carga se persiste y la pantalla se recupera sola
 
 El 30/09 se auditó el progreso en tiempo real de las importaciones (cargas que terminaban pero cuyo

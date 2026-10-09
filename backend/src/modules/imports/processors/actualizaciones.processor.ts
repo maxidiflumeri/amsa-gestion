@@ -10,6 +10,7 @@ import { enriquecerContactosHistoricos } from '../utils/enriquecimiento-historic
 import { normalizarTipoContacto } from '../utils/contacto-import';
 import { AuditModulo, AuditTipo, AuditSeveridad, AuditEstado } from '../../transacciones/audit.enums';
 import { idsSituacionCancelada } from '../utils/situaciones-cerradas';
+import { consolidarConProgreso, SUBFASE } from '../utils/reporte-progreso';
 
 /**
  * Procesador ACTUALIZACIONES — tres escenarios:
@@ -69,6 +70,8 @@ export class ActualizacionesProcessor implements ICategoryProcessor {
      * casos nuevos dados de alta en esa misma remesa origen (escenario B).
      */
     private processedDeudorIds = new Set<number>();
+    /** Altas en la remesa origen de esta carga (escenario B): son los `nuevos`; el resto de `processedDeudorIds`, los `actualizados`. */
+    private altasIds = new Set<number>();
     /**
      * Cantidad de filas que matchearon un deudor EXISTENTE de la remesa origen. Se usa como
      * guard de seguridad de la desasignación: si ninguna fila del archivo matcheó la cartera
@@ -105,6 +108,7 @@ export class ActualizacionesProcessor implements ICategoryProcessor {
     /** Limpia el estado acumulado del batch. */
     private reset(): void {
         this.processedDeudorIds.clear();
+        this.altasIds.clear();
         this.matchedExistingCount = 0;
         this.pagosDeudorIds.clear();
         this.sawReconciliationData = false;
@@ -215,6 +219,7 @@ export class ActualizacionesProcessor implements ICategoryProcessor {
 
         const idsCancelado = await this.resolverSituacionesCanceladas(ctx);
 
+        ctx.progreso?.subfase(SUBFASE.DESASIGNANDO_AUSENTES);
         const deudores = await ctx.prisma.deudor.findMany({
             where: { remesaId: ctx.remesaOrigenId, empresaId: ctx.empresaId },
             select: { id: true, estadoGestionId: true, estadoSituacionId: true },
@@ -235,6 +240,7 @@ export class ActualizacionesProcessor implements ICategoryProcessor {
 
         // Un UPDATE por deudor (cada uno guarda un previo distinto) → chunks transaccionales de 500.
         const CHUNK = 500;
+        ctx.progreso?.subfase(SUBFASE.DESASIGNANDO_AUSENTES, 0, paraDesasignar.length);
         for (let i = 0; i < paraDesasignar.length; i += CHUNK) {
             const chunk = paraDesasignar.slice(i, i + CHUNK);
             await ctx.prisma.$transaction(
@@ -245,6 +251,7 @@ export class ActualizacionesProcessor implements ICategoryProcessor {
                     }),
                 ),
             );
+            ctx.progreso?.subfase(SUBFASE.DESASIGNANDO_AUSENTES, Math.min(i + CHUNK, paraDesasignar.length), paraDesasignar.length);
         }
 
         this.logger.log(
@@ -418,7 +425,12 @@ export class ActualizacionesProcessor implements ICategoryProcessor {
         /** Existentes que además necesitan reconciliación de deuda (modo RECONCILIAR). */
         const aReconciliar: Array<{ deudorId: number; row: MappedRow; idx: number }> = [];
 
+        // Avance dentro del lote: en RECONCILIAR la mitad del trabajo está en la reconciliación de deuda (paso 4).
+        const pesoResolucion = soloDatos ? 1 : 0.5;
+        let resueltas = 0;
         for (const { row, idx } of rows) {
+            if (resueltas > 0 && resueltas % 100 === 0) ctx.progreso?.filasDelLote(Math.floor(resueltas * pesoResolucion));
+            resueltas++;
             try {
                 const doc = row.documento ? String(row.documento).trim() : '';
                 let deudor = doc ? porDocumento.get(doc) : undefined;
@@ -503,7 +515,12 @@ export class ActualizacionesProcessor implements ICategoryProcessor {
         // porque lee y escribe facturas/pagos de cada uno. Se saltean las filas que ya
         // fallaron antes: su estado quedó a medias y ya están contadas como error.
         const yaFallaron = new Set(errores.map((e) => e.idx));
+        let reconciliadas = 0;
         for (const { deudorId, row, idx } of aReconciliar) {
+            if (reconciliadas > 0 && reconciliadas % 100 === 0) {
+                ctx.progreso?.filasDelLote(Math.floor((rows.length + (reconciliadas * rows.length) / aReconciliar.length) / 2));
+            }
+            reconciliadas++;
             if (yaFallaron.has(idx)) continue;
             try {
                 await this.reconciliarDeudor(deudorId, row, ctx);
@@ -511,6 +528,12 @@ export class ActualizacionesProcessor implements ICategoryProcessor {
                 errores.push({ idx, error: e?.message ?? 'Error desconocido' });
             }
         }
+
+        // Casos de la remesa origen: altas de esta carga y existentes que vinieron en el archivo.
+        ctx.progreso?.contadores({
+            nuevos: this.altasIds.size,
+            actualizados: this.processedDeudorIds.size - this.altasIds.size,
+        });
 
         // Un error por fila: el runner cuenta `err` por elemento devuelto, así que dos
         // errores del mismo idx descuadrarían el total (ok + err ≠ filas del lote).
@@ -636,6 +659,7 @@ export class ActualizacionesProcessor implements ICategoryProcessor {
         // el archivo de hoy: el afterAll no debe tomarlo ni para desasignar (DESASIGNAR) ni para
         // marcarlo "pagó todo" (PAGO_TODO), que lo cancelaría (SIT-050) en la misma corrida.
         this.processedDeudorIds.add(deudor.id);
+        this.altasIds.add(deudor.id);
 
         // Autoenriquecimiento de contactos desde la propia base (histórico por DNI).
         this.contactosEnriquecidos += await enriquecerContactosHistoricos(ctx, deudor.id, documentoStr);
@@ -934,11 +958,12 @@ export class ActualizacionesProcessor implements ICategoryProcessor {
             }
 
             if (!skipReconciliacionDeuda) {
-                await ctx.consolidacion.consolidar({ tipo: 'REMESA', remesaId: ctx.remesaOrigenId });
+                await consolidarConProgreso(ctx, { tipo: 'REMESA', remesaId: ctx.remesaOrigenId }, SUBFASE.CONSOLIDANDO_REMESA_ORIGEN);
                 if (ctx.remesaId !== ctx.remesaOrigenId) {
-                    await ctx.consolidacion.consolidar({ tipo: 'REMESA', remesaId: ctx.remesaId });
+                    await consolidarConProgreso(ctx, { tipo: 'REMESA', remesaId: ctx.remesaId }, SUBFASE.CONSOLIDANDO_REMESA_CARGA);
                 }
                 if (this.pagosDeudorIds.size > 0) {
+                    ctx.progreso?.subfase(SUBFASE.CERRANDO_PROMESAS);
                     await ctx.promesas.cerrarCumplidas([...this.pagosDeudorIds]);
                 }
             }
@@ -999,7 +1024,10 @@ export class ActualizacionesProcessor implements ICategoryProcessor {
             select: { id: true, montoTotal: true },
         });
 
+        let recorridos = 0;
         for (const { id: deudorId, montoTotal } of deudoresConMonto) {
+            if (recorridos % 200 === 0) ctx.progreso?.subfase(SUBFASE.CERRANDO_AUSENTES, recorridos, deudoresConMonto.length);
+            recorridos++;
             if (this.processedDeudorIds.has(deudorId)) continue;  // ya fue procesado en el archivo
 
             // Este deudor no vino en el archivo → pagó todo. Reconciliar contra Σpagos.
@@ -1036,17 +1064,18 @@ export class ActualizacionesProcessor implements ICategoryProcessor {
         }
 
         // Consolidar deudores de la remesa origen (escenario C + deudores del archivo que estaban en esa remesa)
-        await ctx.consolidacion.consolidar({ tipo: 'REMESA', remesaId: ctx.remesaOrigenId });
+        await consolidarConProgreso(ctx, { tipo: 'REMESA', remesaId: ctx.remesaOrigenId }, SUBFASE.CONSOLIDANDO_REMESA_ORIGEN);
 
         // Los casos nuevos ya caen en la remesa origen, así que la de arriba los cubre. Esta segunda
         // consolidación queda como red para remesas de imports viejos (previos a este cambio) que sí
         // tienen deudores propios; si está vacía es un no-op.
         if (ctx.remesaId !== ctx.remesaOrigenId) {
-            await ctx.consolidacion.consolidar({ tipo: 'REMESA', remesaId: ctx.remesaId });
+            await consolidarConProgreso(ctx, { tipo: 'REMESA', remesaId: ctx.remesaId }, SUBFASE.CONSOLIDANDO_REMESA_CARGA);
         }
 
         // Cerrar promesas VIGENTE que hayan quedado cumplidas por los pagos generados (spec §5.5)
         if (this.pagosDeudorIds.size > 0) {
+            ctx.progreso?.subfase(SUBFASE.CERRANDO_PROMESAS);
             await ctx.promesas.cerrarCumplidas([...this.pagosDeudorIds]);
         }
         this.reset();

@@ -12,6 +12,7 @@ import { mergeAdicionales } from '../utils/campos-adicionales';
 import { normalizarTelefonoArgentino } from '../../../common/utils/phone-utils';
 import { AuditEstado, AuditModulo, AuditSeveridad, AuditTipo } from '../../transacciones/audit.enums';
 import { idsSituacionCancelada } from '../utils/situaciones-cerradas';
+import { SUBFASE } from '../utils/reporte-progreso';
 
 type SnapshotRow = {
     remesaId: number;
@@ -279,6 +280,7 @@ export class AccionesProcessor implements ICategoryProcessor {
     async afterAll(ctx: ProcessContext): Promise<void> {
         // Flush de snapshots (para el undo).
         const CHUNK = 500;
+        ctx.progreso?.subfase(SUBFASE.GUARDANDO_DATOS_PARA_REVERTIR, 0, this.snapshots.length);
         for (let i = 0; i < this.snapshots.length; i += CHUNK) {
             const chunk = this.snapshots.slice(i, i + CHUNK);
             await ctx.prisma.accion_masiva_snapshot.createMany({
@@ -290,6 +292,7 @@ export class AccionesProcessor implements ICategoryProcessor {
                     datosPrevios: s.datosPrevios === undefined ? Prisma.JsonNull : (s.datosPrevios as Prisma.InputJsonValue),
                 })),
             });
+            ctx.progreso?.subfase(SUBFASE.GUARDANDO_DATOS_PARA_REVERTIR, Math.min(i + CHUNK, this.snapshots.length), this.snapshots.length);
         }
 
         await ctx.auditoria.log({

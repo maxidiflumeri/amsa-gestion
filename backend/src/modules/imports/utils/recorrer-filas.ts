@@ -70,7 +70,7 @@ export interface OpcionesRecorrido {
 /** Callback por fila. Si devuelve una promesa, el stream se pausa hasta que resuelva. */
 export type OnFila = (fila: FilaLeida) => void | Promise<void>;
 
-const esExcel = (p: string): boolean => /\.(xls|xlsx)$/i.test(p);
+export const esExcel = (p: string): boolean => /\.(xls|xlsx)$/i.test(p);
 
 const esPromesa = (x: unknown): x is Promise<unknown> =>
     !!x && typeof (x as Promise<unknown>).then === 'function';

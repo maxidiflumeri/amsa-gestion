@@ -157,6 +157,10 @@ export class FacturasProcessor implements ICategoryProcessor {
                     }
                 }
             }
+            // Filas del lote ya resueltas: todas menos las completas y parciales que faltan escribir.
+            ctx.progreso?.filasDelLote(
+                Math.max(0, rows.length - (completas.length - Math.min(i + CHUNK_UPSERT, completas.length)) - parciales.length),
+            );
         }
 
         for (const c of parciales) {

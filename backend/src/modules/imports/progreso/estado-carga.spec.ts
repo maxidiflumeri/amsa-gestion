@@ -36,6 +36,7 @@ const filaBase = (o: Partial<import_progreso> = {}): import_progreso => ({
     ok: 0,
     err: 0,
     descartadas: 0,
+    fueraDeCorte: null,
     advertencias: 0,
     nuevos: null,
     actualizados: null,
@@ -328,5 +329,281 @@ describe('servidorAhora', () => {
         const t = Date.parse(armarEstadoCarga(remesaBase(), null).servidorAhora);
         expect(t).toBeGreaterThanOrEqual(antes);
         expect(t).toBeLessThanOrEqual(Date.now());
+    });
+});
+
+// ── Fase B (docs/imports-progreso-realtime-spec.md §9.9.2 A) ────────────────────────────────────────
+import { textoInterrupcion } from './estado-carga';
+
+describe('armarEstadoCarga — Fase B', () => {
+    const AHORA = new Date('2026-10-09T12:00:00.000Z');
+    const haceSegundos = (s: number) => new Date(AHORA.getTime() - s * 1000);
+    const enCurso = (o: Partial<import_progreso> = {}) =>
+        filaBase({ fase: 'PROCESANDO', encoladaAt: haceSegundos(100), startedAt: haceSegundos(90), ...o });
+
+    it('fueraDeCorte es null en una fila que no trae el campo (fixtures viejas)', () => {
+        const fila: any = { ...filaBase({ descartadas: 5 }) };
+        delete fila.fueraDeCorte;
+        const s = armarEstadoCarga(remesaBase({ estadoProceso: 'PROCESANDO' }), fila, AHORA);
+        expect(s.fueraDeCorte).toBeNull();
+        expect(s.descartadasPorFiltro).toBe(5);
+    });
+
+    it('descartadasPorFiltro = descartadas − fueraDeCorte (7 − 4 = 3) y descartadas sigue siendo el total', () => {
+        const s = armarEstadoCarga(
+            remesaBase({ estadoProceso: 'PROCESANDO' }),
+            enCurso({ descartadas: 7, fueraDeCorte: 4 } as Partial<import_progreso>),
+            AHORA,
+        );
+        expect(s.descartadas).toBe(7);
+        expect(s.fueraDeCorte).toBe(4);
+        expect(s.descartadasPorFiltro).toBe(3);
+    });
+
+    it('descartadasPorFiltro nunca es negativo', () => {
+        const s = armarEstadoCarga(
+            remesaBase({ estadoProceso: 'PROCESANDO' }),
+            enCurso({ descartadas: 2, fueraDeCorte: 9 } as Partial<import_progreso>),
+            AHORA,
+        );
+        expect(s.descartadasPorFiltro).toBe(0);
+    });
+
+    it('una remesa heredada (sin fila) trae fueraDeCorte null, descartadasPorFiltro 0 y el resto en null', () => {
+        const s = armarEstadoCarga(remesaBase({ estadoProceso: 'FINALIZADA', totalFilas: 10 }), null, AHORA);
+        expect(s).toMatchObject({
+            fueraDeCorte: null, descartadasPorFiltro: 0, enColaDelante: null, velocidad: null, etaSegundos: null,
+        });
+    });
+
+    describe('velocidad y ETA', () => {
+        it('3.000 de 14.466 a los 90 s → 33,3 filas/s y 344 s', () => {
+            const s = armarEstadoCarga(
+                remesaBase({ estadoProceso: 'PROCESANDO' }),
+                enCurso({ procesadas: 3000, totalEsperado: 14466 }),
+                AHORA,
+            );
+            expect(s.velocidad).toBe(33.3);
+            expect(s.etaSegundos).toBe(344);
+        });
+
+        it('a los 4 s no hay base para estimar', () => {
+            const s = armarEstadoCarga(
+                remesaBase({ estadoProceso: 'PROCESANDO' }),
+                enCurso({ startedAt: haceSegundos(4), procesadas: 400, totalEsperado: 1000 }),
+                AHORA,
+            );
+            expect(s.velocidad).toBeNull();
+            expect(s.etaSegundos).toBeNull();
+        });
+
+        it('con procesadas 0 no hay división por cero', () => {
+            const s = armarEstadoCarga(
+                remesaBase({ estadoProceso: 'PROCESANDO' }),
+                enCurso({ procesadas: 0, totalEsperado: 1000 }),
+                AHORA,
+            );
+            expect(s.velocidad).toBeNull();
+            expect(s.etaSegundos).toBeNull();
+        });
+
+        it.each(['EN_COLA', 'LEYENDO', 'POST_PROCESO', 'TERMINADA', 'BORRADOR'])('fuera de PROCESANDO (%s) son null', (fase) => {
+            const s = armarEstadoCarga(
+                remesaBase({ estadoProceso: 'PROCESANDO' }),
+                enCurso({ fase, procesadas: 3000, totalEsperado: 14466 }),
+                AHORA,
+            );
+            expect(s.velocidad).toBeNull();
+            expect(s.etaSegundos).toBeNull();
+        });
+
+        it('una carga terminada no tiene ritmo aunque su fase siga diciendo PROCESANDO', () => {
+            const s = armarEstadoCarga(
+                remesaBase({ estadoProceso: 'FALLIDA' }),
+                enCurso({ procesadas: 3000, totalEsperado: 14466, finishedAt: haceSegundos(1) }),
+                AHORA,
+            );
+            expect(s.velocidad).toBeNull();
+        });
+
+        it('con procesadas >= totalEsperado hay velocidad y la ETA es null', () => {
+            const s = armarEstadoCarga(
+                remesaBase({ estadoProceso: 'PROCESANDO' }),
+                enCurso({ procesadas: 900, totalEsperado: 900 }),
+                AHORA,
+            );
+            expect(s.velocidad).toBe(10);
+            expect(s.etaSegundos).toBeNull();
+        });
+
+        it('una ETA de más de 48 h es null', () => {
+            const s = armarEstadoCarga(
+                remesaBase({ estadoProceso: 'PROCESANDO' }),
+                enCurso({ procesadas: 1, totalEsperado: 10_000_000 }),
+                AHORA,
+            );
+            expect(s.velocidad).toBe(0.1);
+            expect(s.etaSegundos).toBeNull();
+        });
+
+        it('ningún caso da NaN ni Infinity', () => {
+            const casos: Array<Partial<import_progreso>> = [
+                { procesadas: 0, totalEsperado: 0 },
+                { procesadas: 5, totalEsperado: 0 },
+                { procesadas: 1, totalEsperado: 1 },
+                { procesadas: 1, totalEsperado: 999_999_999 },
+                { startedAt: null, procesadas: 10, totalEsperado: 100 },
+                { startedAt: AHORA, procesadas: 10, totalEsperado: 100 },
+                { startedAt: new Date(AHORA.getTime() + 60_000), procesadas: 10, totalEsperado: 100 },
+            ];
+            for (const c of casos) {
+                const s = armarEstadoCarga(remesaBase({ estadoProceso: 'PROCESANDO' }), enCurso(c), AHORA);
+                for (const v of [s.velocidad, s.etaSegundos]) {
+                    expect(v === null || Number.isFinite(v)).toBe(true);
+                }
+            }
+        });
+    });
+
+    describe('enColaDelante', () => {
+        const enCola = filaBase({ fase: 'EN_COLA', encoladaAt: haceSegundos(10) });
+
+        it('sale solo en EN_COLA', () => {
+            const s = armarEstadoCarga(remesaBase({ estadoProceso: 'PENDIENTE' }), enCola, AHORA, { enColaDelante: 2 });
+            expect(s.enColaDelante).toBe(2);
+        });
+
+        it('en otra fase, aunque venga en extras, es null', () => {
+            const s = armarEstadoCarga(
+                remesaBase({ estadoProceso: 'PROCESANDO' }),
+                enCurso({ procesadas: 5 }),
+                AHORA,
+                { enColaDelante: 2 },
+            );
+            expect(s.enColaDelante).toBeNull();
+        });
+
+        it('sin extras es null (la consulta falló o no se pidió)', () => {
+            expect(armarEstadoCarga(remesaBase({ estadoProceso: 'PENDIENTE' }), enCola, AHORA).enColaDelante).toBeNull();
+        });
+    });
+});
+
+describe('textoNotificacion — SIN_FILAS con cortes', () => {
+    const estado = (o: Partial<EstadoCargaDto>): EstadoCargaDto =>
+        ({ ...armarEstadoCarga(remesaBase({ estadoProceso: 'FINALIZADA' }), null), resultado: 'SIN_FILAS', ...o });
+
+    it('solo filtro de la plantilla', () => {
+        expect(textoNotificacion(estado({ descartadas: 50, fueraDeCorte: null })).mensaje).toBe(
+            'El archivo no tenía filas para procesar. El filtro de la plantilla descartó las 50 filas.',
+        );
+    });
+
+    it('solo otro corte', () => {
+        expect(textoNotificacion(estado({ descartadas: 30, fueraDeCorte: 30 })).mensaje).toBe(
+            'El archivo no tenía filas para procesar. 30 filas son de otros cortes de la división.',
+        );
+    });
+
+    it('los dos juntos', () => {
+        expect(textoNotificacion(estado({ descartadas: 7, fueraDeCorte: 4 })).mensaje).toBe(
+            'El archivo no tenía filas para procesar. El filtro de la plantilla descartó las 3 filas. ' +
+            '4 filas son de otros cortes de la división.',
+        );
+    });
+});
+
+describe('textoInterrupcion', () => {
+    const FIJA = 'La importación se interrumpió: el servidor se reinició o dejó de responder mientras la procesaba.';
+
+    it.each(['DEUDORES', 'DEUDORES_Y_FACTURAS', 'ACCIONES', 'PAGOS', 'ACTUALIZACIONES', 'FACTURAS', 'MULTICLAVES', null])(
+        'SIN_LATIDO y REENTREGA (%s) empiezan siempre con la oración fija',
+        (categoria) => {
+            for (const m of ['SIN_LATIDO', 'REENTREGA'] as const) {
+                expect(textoInterrupcion(m, categoria).startsWith(FIJA)).toBe(true);
+            }
+        },
+    );
+
+    it('DEUDORES y DEUDORES_Y_FACTURAS mandan a eliminar desde el Historial y volver a cargar', () => {
+        for (const c of ['DEUDORES', 'DEUDORES_Y_FACTURAS']) {
+            const t = textoInterrupcion('SIN_LATIDO', c);
+            expect(t).toContain(
+                'Lo procesado hasta el corte quedó cargado en esta remesa. Eliminá esta importación desde el Historial y volvé a cargar el archivo. ' +
+                'Si no se puede eliminar (porque algún caso ya tiene gestión o porque la remesa es muy grande), avisá a soporte antes de volver a cargarlo.',
+            );
+            expect(t).not.toContain('corte de un archivo dividido');
+            expect(textoInterrupcion('SIN_LATIDO', c, { conCorte: true })).toBe(
+                t + ' Esta remesa es un corte de un archivo dividido: al volver a cargarlo, tildá solo los cortes que no se cargaron. ' +
+                'Si tildás uno que ya está cargado, sus casos quedan duplicados.',
+            );
+        }
+        // El aviso del corte es solo de estas dos categorías.
+        expect(textoInterrupcion('SIN_LATIDO', 'PAGOS', { conCorte: true })).not.toContain('corte de un archivo dividido');
+        expect(textoInterrupcion('SIN_LATIDO', 'ACCIONES', { conCorte: true })).not.toContain('corte de un archivo dividido');
+    });
+
+    it('ACCIONES dice que no se puede revertir y que no se vuelva a cargar', () => {
+        const t = textoInterrupcion('SIN_LATIDO', 'ACCIONES');
+        expect(t).toContain('no se pueden revertir desde la pantalla');
+        expect(t).toContain('No vuelvas a cargar el archivo; avisá a soporte.');
+    });
+
+    it('el resto no afirma ningún remedio: avisar a soporte antes de volver a cargar', () => {
+        for (const c of ['PAGOS', 'ACTUALIZACIONES', 'FACTURAS', 'MULTICLAVES', 'CONTACTOS', 'ENRIQUECIMIENTO', 'MULTIRREGISTRO', 'MULTIARCHIVO', null]) {
+            const t = textoInterrupcion('REENTREGA', c);
+            expect(t).toContain('Antes de volver a cargar el archivo, avisá a soporte.');
+            expect(t).not.toContain('Eliminá');
+        }
+    });
+
+    it('SIN_JOB dice que no llegó a empezar y que no se cargó ninguna fila', () => {
+        const t = textoInterrupcion('SIN_JOB', 'DEUDORES');
+        expect(t.startsWith('La importación no llegó a empezar')).toBe(true);
+        expect(t).toContain('No se cargó ninguna fila: volvé a importar el archivo.');
+    });
+
+    it('la primera línea entra en los 300 caracteres de la notificación y el total en 4.000', () => {
+        for (const m of ['SIN_LATIDO', 'SIN_JOB', 'REENTREGA'] as const) {
+            for (const c of ['DEUDORES', 'ACCIONES', 'PAGOS', null]) {
+                const t = textoInterrupcion(m, c);
+                expect(t.length).toBeLessThanOrEqual(4000);
+                expect(primeraLineaDelMotivo(t)).not.toMatch(/…$/);
+                expect(primeraLineaDelMotivo(t).length).toBeLessThanOrEqual(300);
+            }
+        }
+    });
+
+    it('en la notificación viaja solo la primera oración, no el qué hacer', () => {
+        const e = armarEstadoCarga(
+            remesaBase({ estadoProceso: 'FALLIDA' }),
+            filaBase({ fase: 'TERMINADA', resultado: 'FALLIDA', error: textoInterrupcion('SIN_LATIDO', 'DEUDORES'), procesadas: 40, encoladaAt: new Date(), finishedAt: new Date() }),
+        );
+        expect(textoNotificacion(e).mensaje).toBe(`${FIJA} Se habían procesado 40 filas.`);
+    });
+});
+
+describe('Fase B, ronda final', () => {
+    it('motivoLegible traduce P2028 y P1017 a algo que un operador entiende', () => {
+        const p2028 = Object.assign(new Error('Transaction API error: Unable to start a transaction in the given time.'), { code: 'P2028' });
+        expect(motivoLegible(p2028)).toBe('La base de datos no respondió a tiempo (P2028).');
+        const p1017 = Object.assign(new Error('Server has closed the connection.'), { code: 'P1017' });
+        expect(motivoLegible(p1017)).toBe('La base de datos cerró la conexión (P1017).');
+        const p2010 = Object.assign(new Error('Raw query failed. Code: `1205`. Message: `Lock wait timeout exceeded; try restarting transaction`'), { code: 'P2010' });
+        expect(motivoLegible(p2010)).toBe('La base de datos tardó demasiado en liberar un bloqueo (1205).');
+        // Un P2010 que no es un lock wait queda como siempre.
+        expect(motivoLegible(Object.assign(new Error('Raw query failed. Code: `1064`.'), { code: 'P2010' }))).toBe('Raw query failed. Code: `1064`. (P2010)');
+        // Los demás siguen igual.
+        expect(motivoLegible(Object.assign(new Error('Invalid `x` invocation\n\nUnique constraint failed'), { code: 'P2002' }))).toBe('Unique constraint failed (P2002)');
+    });
+
+    it('SIN_JOB con corte propio avisa que se tilden solo los cortes que no se cargaron (cualquier categoría); sin corte, no', () => {
+        const aviso = ' Esta remesa es un corte de un archivo dividido: al volver a cargarlo, tildá solo los cortes que no se cargaron. Si tildás uno que ya está cargado, sus casos quedan duplicados.';
+        for (const c of ['DEUDORES', 'PAGOS', 'ACCIONES', 'FACTURAS', null]) {
+            const sin = textoInterrupcion('SIN_JOB', c);
+            expect(sin).not.toContain('corte de un archivo dividido');
+            expect(textoInterrupcion('SIN_JOB', c, { conCorte: true })).toBe(sin + aviso);
+        }
+        expect(textoInterrupcion('SIN_JOB', 'DEUDORES', { conCorte: true })).toContain('No se cargó ninguna fila: volvé a importar el archivo. Esta remesa es un corte');
     });
 });

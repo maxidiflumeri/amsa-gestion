@@ -226,8 +226,13 @@ model import_progreso {
   procesadas         Int       @default(0)
   ok                 Int       @default(0)
   err                Int       @default(0)
-  /// Filas que el filtro de la plantilla (o el corte de la división) dejó afuera. No son error.
+  /// Filas del archivo que no entraron en esta remesa y no son error: las que descartó el filtro de
+  /// la plantilla **más** las de otros cortes (`fueraDeCorte`).
   descartadas        Int       @default(0)
+  /// Fase B. De las `descartadas`, cuántas pasaban el filtro de la plantilla pero pertenecen a otro
+  /// corte de la división (`remesa.filtroFilas`). Siempre es <= `descartadas`.
+  /// null = la remesa no tiene corte propio, o la carga es anterior a la Fase B.
+  fueraDeCorte       Int?
   /// Avisos que no son filas con error: [parseo], [aviso] y el fallo del post-proceso.
   advertencias       Int       @default(0)
   /// Fase B.

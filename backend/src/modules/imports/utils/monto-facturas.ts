@@ -1,6 +1,7 @@
 // utils/monto-facturas.ts
 import { Prisma } from '@prisma/client';
 import { ProcessContext } from '../processors/processor.interface';
+import { consolidarConProgreso, SUBFASE } from './reporte-progreso';
 
 const CHUNK = 500;
 
@@ -29,6 +30,7 @@ export async function recalcularMontoTotalDesdeFacturas(
             ? Prisma.sql`AND (d.montoTotal IS NULL OR d.montoTotal = 0)`
             : Prisma.empty;
 
+    ctx.progreso?.subfase(SUBFASE.RECALCULANDO_IMPORTES, 0, deudorIds.length);
     for (let i = 0; i < deudorIds.length; i += CHUNK) {
         const chunk = deudorIds.slice(i, i + CHUNK);
         await ctx.prisma.$executeRaw(Prisma.sql`
@@ -42,11 +44,12 @@ export async function recalcularMontoTotalDesdeFacturas(
               AND EXISTS (SELECT 1 FROM factura f2 WHERE f2.deudorId = d.id)
               ${soloVacio}
         `);
+        ctx.progreso?.subfase(SUBFASE.RECALCULANDO_IMPORTES, Math.min(i + CHUNK, deudorIds.length), deudorIds.length);
     }
 
     // Reconciliar saldo/situación (por si ya existían pagos previos para estos deudores).
     // Si Σpagos == 0 el consolidador hace skip, así que en la carga inicial es un no-op barato.
-    await ctx.consolidacion.consolidar({ tipo: 'DEUDORES', deudorIds });
+    await consolidarConProgreso(ctx, { tipo: 'DEUDORES', deudorIds }, SUBFASE.CONSOLIDANDO_CASOS);
 }
 
 /**
@@ -64,6 +67,7 @@ export async function mergeCamposAdicionalesEnDeudores(
     if (extrasPorDeudor.size === 0) return;
 
     const ids = [...extrasPorDeudor.keys()];
+    ctx.progreso?.subfase(SUBFASE.UNIENDO_DATOS_ADICIONALES, 0, ids.length);
     for (let i = 0; i < ids.length; i += CHUNK) {
         const chunk = ids.slice(i, i + CHUNK);
         const existentes = await ctx.prisma.deudor.findMany({
@@ -87,5 +91,6 @@ export async function mergeCamposAdicionalesEnDeudores(
                 data: { camposAdicionales: { ...base, ...nuevos } },
             });
         }
+        ctx.progreso?.subfase(SUBFASE.UNIENDO_DATOS_ADICIONALES, Math.min(i + CHUNK, ids.length), ids.length);
     }
 }

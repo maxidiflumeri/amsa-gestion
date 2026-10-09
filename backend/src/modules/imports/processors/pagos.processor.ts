@@ -4,6 +4,7 @@ import { Prisma } from '@prisma/client';
 import { Logger } from '@nestjs/common';
 import { procesarBloquesDeudor } from '../utils/procesar-bloques';
 import { normalizarReferenciaClave } from '../../multiclaves/utils/clave-pago';
+import { consolidarConProgreso, SUBFASE } from '../utils/reporte-progreso';
 
 /**
  * Importe del pago como número.
@@ -629,15 +630,16 @@ export class PagosProcessor implements ICategoryProcessor {
 
         if (this.processedDeudorIds.size > 0) {
             const deudorIds = [...this.processedDeudorIds];
-            await ctx.consolidacion.consolidar({ tipo: 'DEUDORES', deudorIds });
+            await consolidarConProgreso(ctx, { tipo: 'DEUDORES', deudorIds }, SUBFASE.CONSOLIDANDO_CASOS_CON_PAGOS);
             // Cerrar promesas VIGENTE que hayan quedado cumplidas por estos pagos (spec §5.5)
+            ctx.progreso?.subfase(SUBFASE.CERRANDO_PROMESAS);
             await ctx.promesas.cerrarCumplidas(deudorIds);
         } else {
             // Fallback: consolidar la remesa origen (o la propia si no hay origen)
-            await ctx.consolidacion.consolidar({
+            await consolidarConProgreso(ctx, {
                 tipo: 'REMESA',
                 remesaId: ctx.remesaOrigenId ?? ctx.remesaId,
-            });
+            }, SUBFASE.CONSOLIDANDO_CASOS_CON_PAGOS);
         }
         this.processedDeudorIds.clear();
     }

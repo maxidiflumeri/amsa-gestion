@@ -1,18 +1,28 @@
 # Progreso en tiempo real de las importaciones — diagnóstico y plan
 
-> Estado: **diagnóstico cerrado (30/09/2026) · Fase A diseñada, implementada y auditada (05/10/2026),
-> sin desplegar y sin probar en un navegador · fases B, C y D sin empezar.** Para retomar: lo que quedó
-> distinto del diseño está en [§8.13](#813-lo-que-cambió-después-de-la-auditoría-05102026) y el guion de
-> prueba manual previo al deploy en [§8.14](#814-guion-de-prueba-manual-antes-del-deploy).
+> Estado: **diagnóstico cerrado (30/09/2026) · Fase A implementada, auditada y desplegada en prod el
+> 05/10/2026 (imagen `a5ed9c4`) · Fase B diseñada, implementada y auditada el 09/10/2026
+> ([§9](#9-diseño-de-la-fase-b)), sin desplegar y sin ver en un navegador · fases C y D sin empezar.**
+> Al 09/10 la Fase A no corrió ni una vez con una carga real en prod: `import_progreso` tiene 0 filas (la
+> última remesa es la 149, del 30/09). En local sí: la auditoría de la Fase B levantó la aplicación
+> completa y corrió importaciones de punta a punta por primera vez (HTTP, socket, BullMQ, crons y MySQL
+> juntos). Lo que cada fase dejó distinto de su diseño está en
+> [§8.13](#813-lo-que-cambió-después-de-la-auditoría-05102026) y en
+> [§9.15](#915-lo-que-cambió-después-de-la-auditoría-09102026): **donde §9.1 a §9.12 y §9.15 se
+> contradicen, vale §9.15.** Las decisiones de producto de la Fase B que se tomaron por defecto y esperan
+> la confirmación del usuario están en [§9.14](#914-lo-que-necesita-el-ok-del-usuario-antes-de-implementar).
 > Origen: el usuario reportó cargas que terminan (remesa FINALIZADA) pero cuyo progreso nunca se
 > completa en la UI, en la página de progreso y en el panel de notificaciones. Se auditó de punta a
 > punta (agente `auditor`, veredicto **NO PASA**). Este documento es el punto de partida para
 > implementar: leerlo entero antes de tocar código, y releer [notificaciones-spec.md](notificaciones-spec.md)
 > (§ progreso de imports) porque varias cosas que ese spec promete el código no las hace.
 >
-> **Para implementar la Fase A: ir directo a [§8](#8-diseño-de-la-fase-a).** Las decisiones de §5.1 y
-> §5.2 están cerradas. El architect verificó contra el código (HEAD `a0675dc`) cada referencia en la
-> que se apoya el diseño; lo que encontró inexacto o nuevo está en [§3.6](#36-correcciones-y-hallazgos-nuevos-del-architect-05102026).
+> **Para retomar:** antes de desplegar la Fase B, el chequeo previo de [§9.6](#96-deploy) y, si se
+> puede, el guion manual de §9.9.5 en un navegador. La fase siguiente es la C (§4), que necesita las
+> decisiones abiertas de §5.4 y §5.6. Las decisiones de §5.1, §5.2 y §5.3 están cerradas. El diseño de la
+> Fase A está en [§8](#8-diseño-de-la-fase-a); el architect verificó contra el código (HEAD `a0675dc`
+> para la A, `a5ed9c4` para la B) cada referencia en la que se apoya, y lo que encontró inexacto o nuevo
+> está en [§3.6](#36-correcciones-y-hallazgos-nuevos-del-architect-05102026) y en §9.1.
 
 ---
 
@@ -115,6 +125,13 @@ Severidad del auditor. "Prod" = confirmado con datos reales (solo SELECT); "cód
 - Si un XLSX grande bloquea el event loop >45 s (`xlsx.readFile`, `parseMultiarchivo` son síncronos) y eso tira el socket.
 - Cómo se ve todo en mobile y dark/light.
 
+> **Actualización 09/10/2026 (architect, al diseñar la Fase B).** Los tres primeros puntos se pudieron
+> medir sin esperar a la Fase B, leyendo CloudWatch (solo lectura, 181 corridas entre el 25/06 y el
+> 30/09): la consolidación nunca pasó de 633 ms, hubo **una** re-ejecución por *stalled* (remesa 102, el
+> 10/08, 60 s después de un deploy) y no hay ni una falla de renovación de lock, que es la huella que
+> dejaría un bloqueo del event loop de más de 15-30 s. Los números y lo que cambian están en
+> [§9.1](#91-alcance-impacto-y-riesgos).
+
 ### 3.6 Correcciones y hallazgos nuevos del architect (05/10/2026)
 
 Salen de leer el código de punta a punta para diseñar la Fase A. Todo es **por lectura**, salvo donde
@@ -169,11 +186,16 @@ del estado persistido y de los eventos.
 
 ### Fase A — Fuente de verdad y recuperación (~2 días)
 
-> **Implementada y auditada el 05/10/2026; falta la prueba manual (§8.14) y el deploy (§8.6).** Diseño
-> en [§8](#8-diseño-de-la-fase-a); lo que cambió al auditar, en §8.13. La lista de abajo queda como
-> registro del plan original, con lo hecho tildado. Siguen pendientes, fuera del código: limpiar en prod
-> las remesas 93/98 y las 50 notificaciones huérfanas (preview y confirmación del usuario). Cambios de
-> alcance que decidió el architect (justificados en §8.1):
+> **Implementada y auditada el 05/10/2026, y desplegada en prod ese mismo día** (commits `51f5a2c`
+> backend y `a5ed9c4` frontend + wiki; imagen del backend `a5ed9c4` desde las 21:42 UTC). **La prueba
+> manual de §8.14 no se hizo:** se desplegó sin ella. Al 09/10/2026 tampoco hubo ninguna carga real
+> encima (`import_progreso` con 0 filas en prod; última remesa, la 149 del 30/09), así que la Fase A
+> todavía no corrió de punta a punta con la app real y el log `Post-proceso remesa=… terminó en …ms`
+> nunca se escribió. Diseño en [§8](#8-diseño-de-la-fase-a); lo que cambió al auditar, en §8.13. La
+> lista de abajo queda como registro del plan original, con lo hecho tildado. Siguen pendientes, fuera
+> del código: limpiar en prod las remesas 93/98 y las notificaciones huérfanas (288 filas sobre 50
+> remesas que ya no existen; preview y confirmación del usuario). Cambios de alcance que decidió el
+> architect (justificados en §8.1):
 >
 > - **Salen de A:** el reaper de borradores (pasa a B, con TTL y predicado ya decididos en §5.2) y la
 >   limpieza de datos en prod — 93/98 y las 50 notificaciones huérfanas (fuera de alcance: preview y
@@ -212,14 +234,29 @@ del estado persistido y de los eventos.
 
 ### Fase B — Fases y granularidad (~2 días)
 
-- [ ] **[BUG #2]** Progreso **dentro** del lote: `ctx.reportar(n)` (o similar) cada ~200 filas o 1 s, también en processors por fila y en los pre-parseados (MULTIARCHIVO/MULTIRREGISTRO). Throttle real de 2 s / 5% como dice el spec de notificaciones, pero **sin comerse nunca el evento final**.
-- [ ] **[MEJORA]** Fases visibles: SUBIENDO (axios `onUploadProgress`) → EN_COLA (posición) → LEYENDO/PARSEANDO → PROCESANDO → POST_PROCESO (subfases con su %: reconciliación, consolidación N/M, bajas, recálculo de montos) → FINALIZANDO. La fase va en el estado persistido y en cada evento.
-- [ ] **[MEJORA]** `afterAll` reporta progreso propio por subfase (ACTUALIZACIONES, PAGOS, MULTI*, FACTURAS, MULTICLAVES). Logs intent/done con tiempo por fase (política de logging del CLAUDE.md) → así se mide lo de §3.5.
-- [ ] **[MEJORA]** Contadores en vivo: ok, errores, descartadas por filtro, nuevos, actualizados (los processors ya cuentan altas/actualizados internamente: exponerlos). Velocidad (filas/s, promedio móvil) y ETA.
-- [ ] **[BUG #14]** Heartbeat (`heartbeatAt` por lote/subfase) + reaper (cron) que marca FALLIDA si no hay heartbeat en N minutos y libera el bloqueo "una importación por usuario". Configurar BullMQ explícito (`attempts`, `lockDuration`, `maxStalledCount`) y decidir qué pasa si un job se re-ejecuta (no reiniciar el progreso en silencio). La Fase A ya deja `heartbeatAt` escrito por lote y `intentos` contado; el reaper tiene que cubrir también una carga que quedó `EN_COLA` sin job (proceso muerto entre el commit y el `queue.add`).
-- [ ] **[BUG #6]** Reaper de **borradores** (viene de la Fase A). TTL y predicado ya decididos en §5.2: no reabrir.
+> **Diseñada, implementada y auditada el 09/10/2026; sin desplegar.** Diseño en
+> [§9](#9-diseño-de-la-fase-b); lo que cambió al auditar, en §9.15. La lista de abajo es el plan
+> original, con lo hecho tildado; lo que el diseño cambió respecto de ella (justificado en §9.1):
+>
+> - **No se crea la fase FINALIZANDO** (duraría milisegundos) y **LEYENDO solo existe donde hay una
+>   lectura que bloquea** (Excel y las tres categorías pre-parseadas). SUBIENDO es del navegador.
+> - **El throttle es de 1 segundo, sin la regla del 5 %**, y persistir y emitir van siempre juntos.
+> - **El latido deja de depender del avance**: lo da un reloj del tracker, cada 15 s.
+> - **Una carga interrumpida no se re-ejecuta**: falla con motivo. Hoy BullMQ la re-ejecuta una vez
+>   (pasó con la remesa 102 el 10/08).
+> - **El umbral del reaper baja de 10 a 5 minutos** (§5.3).
+> - **El parseo síncrono no se saca del event loop**: no hay evidencia de que haga falta (§9.5.12).
+> - **Entra un cambio de schema**: una columna nullable, `import_progreso.fueraDeCorte` (§9.2).
+> - **La estimación sube**: unos 4 días de backend y 2 de frontend, no 2 en total.
+
+- [x] **[BUG #2]** Progreso **dentro** del lote: `ctx.reportar(n)` (o similar) cada ~200 filas o 1 s, también en processors por fila y en los pre-parseados (MULTIARCHIVO/MULTIRREGISTRO). Throttle real de 2 s / 5% como dice el spec de notificaciones, pero **sin comerse nunca el evento final**.
+- [x] **[MEJORA]** Fases visibles: SUBIENDO (axios `onUploadProgress`) → EN_COLA (posición) → LEYENDO/PARSEANDO → PROCESANDO → POST_PROCESO (subfases con su %: reconciliación, consolidación N/M, bajas, recálculo de montos) → FINALIZANDO. La fase va en el estado persistido y en cada evento.
+- [x] **[MEJORA]** `afterAll` reporta progreso propio por subfase (ACTUALIZACIONES, PAGOS, MULTI*, FACTURAS, MULTICLAVES). Logs intent/done con tiempo por fase (política de logging del CLAUDE.md) → así se mide lo de §3.5.
+- [x] **[MEJORA]** Contadores en vivo: ok, errores, descartadas por filtro, nuevos, actualizados (los processors ya cuentan altas/actualizados internamente: exponerlos). Velocidad (filas/s, promedio móvil) y ETA.
+- [x] **[BUG #14]** Heartbeat (`heartbeatAt` por lote/subfase) + reaper (cron) que marca FALLIDA si no hay heartbeat en N minutos y libera el bloqueo "una importación por usuario". Configurar BullMQ explícito (`attempts`, `lockDuration`, `maxStalledCount`) y decidir qué pasa si un job se re-ejecuta (no reiniciar el progreso en silencio). La Fase A ya deja `heartbeatAt` escrito por lote y `intentos` contado; el reaper tiene que cubrir también una carga que quedó `EN_COLA` sin job (proceso muerto entre el commit y el `queue.add`).
+- [x] **[BUG #6]** Reaper de **borradores** (viene de la Fase A). TTL y predicado ya decididos en §5.2: no reabrir.
 - [x] ~~**[BUG #15]** `reset()` de los processors singleton al **inicio** de cada carga (o processors por carga)~~ → **movido a la Fase A** como "processor por carga" (§8.5.6).
-- [ ] Evaluar sacar el parseo síncrono de XLSX/MULTIARCHIVO del event loop (worker thread o streaming) si se confirma el bloqueo >45 s.
+- [x] ~~Evaluar sacar el parseo síncrono de XLSX/MULTIARCHIVO del event loop (worker thread o streaming) si se confirma el bloqueo >45 s.~~ → **evaluado y diferido** (§9.5.12): no hay evidencia de bloqueo; la deriva del reloj del tracker lo deja medido en el log.
 
 **Criterios de aceptación B**
 - Una carga de 900 filas muestra avance intermedio; MULTIARCHIVO deja de estar en 0% durante minutos.
@@ -265,7 +302,7 @@ del estado persistido y de los eventos.
 |---|---|---|
 | 5.1 | `jobimport` vs tabla nueva | **Cerrada** (architect, 05/10/2026): tabla nueva `import_progreso` |
 | 5.2 | Cómo se distingue un borrador de una carga en curso; TTL del reaper | **Cerrada** (architect, 05/10/2026): sin tocar el enum; TTL 24 h; reaper en la Fase B |
-| 5.3 | Minutos sin heartbeat para declarar FALLIDA | Abierta — recomendación abajo; es de la Fase B |
+| 5.3 | Minutos sin heartbeat para declarar FALLIDA | **Cerrada** (architect, 09/10/2026): 5 minutos, por variable de entorno. Falta el OK del usuario al número (§9.14) |
 | 5.4 | Cancelar: ¿deja lo procesado o revierte? | Abierta — **necesita OK del usuario**; es de la Fase C |
 | 5.5 | Notificar las cargas ajenas a todos los admins | Abierta — **necesita OK del usuario**; es de la Fase D |
 | 5.6 | Carga dividida: job padre o FlowProducer | Abierta — recomendación abajo; es de la Fase C |
@@ -343,13 +380,31 @@ calcula en un solo lugar (§8.3).
   heartbeat—, que comparte scheduler, patrón y tests. Hasta entonces los borradores se acumulan igual
   que hoy: no hay regresión.
 
-### 5.3 a 5.6 — Recomendaciones (no bloquean la Fase A)
+### 5.3 — Cinco minutos sin latido, y el latido no depende del avance. (cerrada)
 
-- **5.3 Minutos sin heartbeat → FALLIDA.** No se puede fijar hasta medir, y medir es lo primero de la
-  Fase B. Recomendación: 10 minutos, **a condición de** que el post-proceso lata por dentro (un
-  heartbeat por tanda de consolidación). Sin eso el umbral tendría que superar al `afterAll` más largo
-  y no serviría de nada. La Fase A ya deja en el log cuánto tarda cada `afterAll` (§8.5.4), así que el
-  dato va a estar. No necesita OK del usuario, salvo el número final.
+**Decisión (architect, 09/10/2026).** Una carga que ya arrancó se da por interrumpida cuando lleva **5
+minutos sin latido** (`IMPORTS_LATIDO_UMBRAL_MIN`, default 5, acotado a [3, 120]) y además se cumplen
+las tres condiciones de §9.5.6. El número necesita el OK del usuario (§9.14); el mecanismo, no.
+
+**Por qué cambia la recomendación anterior** (10 minutos "a condición de que el post-proceso lata por
+dentro"). Esa recomendación suponía un latido atado al avance: uno por lote o por tanda de
+consolidación. Con ese latido el umbral tiene que superar al paso silencioso más largo, y ese paso no
+se conoce: al 09/10 la Fase A lleva cuatro días en prod sin una sola carga, así que el log de
+duración del post-proceso todavía no existe. La Fase B corta el problema de raíz en vez de adivinar el
+número: **el latido lo da un reloj del tracker, cada 15 segundos, haga lo que haga la carga** (§9.5.2).
+Mientras el proceso esté vivo, late; el umbral deja de depender de cuánto tarda un `afterAll`.
+
+**Por qué 5 y no 10.** Con el latido por reloj, 5 minutos son 20 latidos seguidos perdidos. Lo único
+que puede producir eso con la carga viva es un bloqueo del event loop de 5 minutos o una base que no
+acepta escrituras durante 5 minutos, y en los dos casos el reaper no la mata igual, porque antes de
+cerrar nada comprueba otras dos cosas que no dependen del latido (§9.5.6). El umbral ya no protege
+contra un falso positivo: solo decide cuánto espera el usuario bloqueado. **Por qué no menos:** tiene
+que superar con margen al lock de BullMQ (2 minutos, §9.5.1), que es una de esas dos comprobaciones.
+
+Lo que sí se midió, y no hacía falta esperar a la Fase B para medirlo, está en §9.1.
+
+### 5.4 a 5.6 — Recomendaciones (no bloquean la Fase B)
+
 - **5.4 Cancelar.** Recomendación: deja lo ya procesado y lo informa con el número exacto ("se
   cargaron 3.000 de 14.466 filas"); no intenta revertir. Solo ACCIONES tiene con qué deshacer (los
   snapshots). **Necesita OK del usuario**: es una decisión de producto. El campo `cancelSolicitadaAt`
@@ -1872,6 +1927,11 @@ errores de conexión de Prisma.
 | La compensación del encolado puede devolver a borrador una carga que el worker ya tomó (construido a mano; termina bien: una sola pasada de filas) | B |
 | El detalle de una remesa de una división muestra su `descartadas` inflado en el texto de SIN_FILAS | B, con la separación de arriba |
 
+Las seis filas marcadas **B** están diseñadas en [§9](#9-diseño-de-la-fase-b); el mapa de cuál va en
+qué sección está en §9.1. Además, la fila de ACCIONES re-ejecutada por BullMQ (marcada C) deja de
+poder ocurrir con la política de §9.5.1: una carga interrumpida ya no se re-ejecuta. Lo que sigue
+para la C es qué hace el botón Revertir en una carga interrumpida o con advertencias.
+
 **Bugs del sistema encontrados de paso, ajenos a este cambio** (sin arreglar; van al backlog):
 
 - **Seguridad:** el gateway de `/reportes` confía en un `usuarioId` que manda el cliente, sin JWT
@@ -1918,7 +1978,2043 @@ MULTIRREGISTRO, mirando que el total de la vista previa sea el que procesa la ca
 muestre "Avisos de la carga" con las filas `[parseo]`.
 
 ---
+
+## 9. Diseño de la Fase B
+
+> Architect, 09/10/2026, sobre HEAD `a5ed9c4` (árbol limpio). Es lo que ejecutan dos `implementer` en
+> paralelo (backend y frontend) y lo que tres `auditor` intentan romper. Las referencias
+> `archivo:línea` de esta sección se verificaron una por una contra el código. Qué se verificó
+> **ejecutando**, qué **leyendo** y qué es **suposición** está en [§9.13](#913-qué-se-verificó-y-qué-es-suposición).
+>
+> **La idea en cinco líneas.** (1) El tracker gana un reloj propio: late cada 15 segundos aunque no
+> avance ninguna fila, y vuelca a la base —a lo sumo una vez por segundo— lo que el runner y los
+> processors le fueron contando en memoria. (2) Una carga nunca se re-ejecuta sola: si su worker
+> murió, falla con motivo y decide una persona. (3) Un reaper la cierra a los 5 minutos sin latido, y
+> solo si tres comprobaciones independientes dicen que nadie la está procesando. (4) El post-proceso
+> deja de ser una caja negra: cada processor dice en qué paso está y cuánto lleva. (5) Un borrador de
+> más de 24 horas se borra solo.
+
+### 9.1 Alcance, impacto y riesgos
+
+**Qué entra** (ítem de §4 "Fase B" o fila "B" de §8.13 → dónde está diseñado):
+
+| Ítem | Sección |
+|---|---|
+| #2 progreso dentro del lote y throttle | §9.5.2, §9.5.3, §9.5.4 |
+| Fases visibles (subiendo, posición en la cola, leyendo, subfases del post-proceso) | §9.3, §9.5.9, §9.8 |
+| `afterAll` con progreso propio y logs con tiempo por paso | §9.4.4, §9.5.4, §9.5.11 |
+| Contadores en vivo: nuevos, actualizados, descartadas por filtro; velocidad y ETA | §9.4.1, §9.5.4, §9.5.9 |
+| #14 latido, reaper de cargas colgadas, BullMQ explícito, política de re-ejecución | §9.5.1, §9.5.2, §9.5.5, §9.5.6 |
+| La carga `EN_COLA` sin job (proceso muerto entre el commit y el `queue.add`) | §9.5.6 (caso R2) |
+| #6 reaper de borradores (predicado y TTL de §5.2) | §9.5.7 |
+| Parseo síncrono fuera del event loop ("evaluar") | §9.5.12 — **se difiere**, con el motivo |
+| §8.13: `descartadas` no distingue "filtro de la plantilla" de "fuera del corte" (y el texto inflado de SIN_FILAS en el detalle) | §9.2, §9.5.3, §9.5.10, §9.8 |
+| §8.13: "sin novedades" no cubre Post-proceso ni En cola; el latido es uno por lote | §9.5.2, §9.8.3 |
+| §8.13: una carga que ya arrancó y queda colgada no tiene salida por la aplicación | §9.5.5, §9.5.6 |
+| §8.13: confirmar y borrar la misma remesa a la vez puede dar OK a las dos | §9.5.8 |
+| §8.13: la compensación del encolado puede devolver a borrador una carga que el worker ya tomó | §9.5.8 |
+| Tests de la secuencia de eventos por categoría | §9.9 |
+
+**Mediciones nuevas.** §3.5 daba por no medible, hasta la Fase B, cuánto tarda cada `afterAll`, si
+hubo jobs re-ejecutados y si un archivo grande bloquea el event loop. Tres de esas cosas ya estaban en
+los logs de prod. Lectura de CloudWatch (`/amsa-gestion/backend`, Logs Insights, solo lectura; el grupo
+no tiene vencimiento), del 25/06 al 30/09/2026: **181 corridas** de `processImportJob`.
+
+| Qué | Medido | Qué cambia |
+|---|---|---|
+| Duración total de una corrida | 78 de hasta 10 s · 27 de hasta 30 s · 18 de hasta 1 min · 14 de hasta 2 min · 18 de hasta 5 min · 17 de hasta 10 min · 6 de hasta 30 min · **2 de más de una hora** (remesas 52 y 49, 5.494 s y 5.092 s, las dos del 21/07, antes de la optimización por lote del 27/07) | El latido no puede depender de que la carga sea corta |
+| Parseo síncrono de las categorías pre-parseadas | MULTIRREGISTRO **18 a 22 ms** (1.570 a 1.790 líneas) · MULTIARCHIVO **53 a 110 ms** (unos 850 casos) · MULTICLAVES **1.123 ms** (16.535 líneas) | El "0 % durante 102-314 s" de MULTIARCHIVO (§3.1) **no era el parseo**: eran ~850 filas procesadas de a una, a 0,12-0,37 s cada una, dentro de un único lote. Lo arregla el progreso por fila, no un worker thread |
+| `consolidar` (la parte del `afterAll` que se suponía pesada) | 68 llamadas registradas, la más lenta **633 ms**; 17.358 deudores en 238 ms; 8.875 en 130 ms | La consolidación no es el paso lento. Lo son los bucles por deudor: la desasignación (342.792 deudores en la remesa 50, corrida de 1.347 s) y el cierre de ausentes de ACTUALIZACIONES |
+| Re-ejecución por *stalled* | **Una**: remesa 102 (job 144), el 10/08. Arrancó 17:52:45; el contenedor nuevo levantó 18:00:52; BullMQ la volvió a entregar **18:01:52**, y falló porque los archivos ya no estaban | Con la configuración de hoy un deploy a mitad de carga **sí re-ejecuta** la carga, un minuto después de levantar. Es el comportamiento que §9.5.1 cambia |
+| `could not renew lock` / `Missing lock` | **0 líneas** sobre unos 2,1 millones de eventos | Es lo que deja BullMQ cuando el event loop se bloquea más de 15-30 s con un job activo. No pasó ni una vez |
+
+Y una medición local, sintética (máquina de desarrollo, `xlsx.readFile` + `sheet_to_json` con las
+mismas opciones que `recorrer-filas.ts:104-110`, 20 columnas): 5.000 filas, 0,17 s · 20.000, 0,77 s ·
+60.000, 2,4 s · 150.000, **5,9 s y 1,4 GB de heap**. Un Excel no llega a bloquear 45 s: antes se queda
+sin memoria. Y un proceso que muere por memoria es, justamente, el caso del reaper.
+
+**Qué no entra, y se va a seguir viendo después de la Fase B:**
+
+- El componente único `ImportProgressCard`, el stepper de fases, los últimos errores en vivo, el
+  Historial que distingue borradores y "con advertencias" (Fase C).
+- La carga dividida orquestada en el backend, cancelar y reintentar una FALLIDA (Fase C). Una carga
+  interrumpida queda FALLIDA con el motivo; volver a cargarla es volver a subir el archivo.
+- El resumen final por categoría. PAGOS no informa `nuevos` / `actualizados` (sus números son otros:
+  aplicados, ya cargados, negativos) y eso va en el `resumen` de la Fase C.
+- **Una carga viva que no avanza** (un `await` que nunca vuelve) no se cierra sola: el proceso está
+  vivo y late. Se ve —en el log del reaper y en la pantalla— pero cerrarla desde afuera con el
+  worker todavía ocupado dejaría la cola trabada sin que nadie lo sepa. Sale con un reinicio.
+- El cierre ordenado al recibir `SIGTERM` (marcar la carga como interrumpida en el momento del
+  deploy, en vez de 5 a 7 minutos después): necesita el mismo mecanismo que "cancelar". Fase C.
+- Los archivos de los borradores que el reaper borra quedan en el disco (decisión de §5.2: tampoco los
+  borra `deleteRemesa`). Es deuda conocida: se acumulan en el volumen `uploads`.
+- 93, 98 y las notificaciones huérfanas siguen en la base de prod. Fuera de alcance.
+
+**Ítems que cambian respecto del plan de §4**
+
+| Ítem | Cambio | Por qué |
+|---|---|---|
+| Fase FINALIZANDO | **No se crea** | Entre el fin del post-proceso y el estado terminal hay un `count`, un `updateProgress` y una escritura: milisegundos. Sería una escritura y un evento más por carga, y una palabra en mayúsculas en las pestañas viejas, para un estado que nadie llega a ver |
+| Fase LEYENDO | Solo en Excel y en las tres categorías pre-parseadas | Un CSV o un TXT se leen por *stream*, intercalados con el procesamiento: no hay una fase de lectura que mostrar |
+| Throttle "2 s o 5 %" | **1 segundo, sin la regla del 5 %** | Persistir y emitir van juntos (si no, un `GET` devuelve algo más viejo que el último evento y la barra retrocede). Con una sola cadencia fija no hay ráfagas, y un `UPDATE` por segundo es ruido al lado de lo que hace cada fila. La regla del 5 % solo agregaba hasta 20 escrituras en cargas que duran segundos |
+| Progreso dentro del lote en los processors por lote | En ACTUALIZACIONES y FACTURAS; MULTICLAVES no | MULTICLAVES resuelve el lote en una transacción: no hay un "adentro" que informar |
+| `nuevos` / `actualizados` | Cinco categorías; las otras seis quedan en `null` | Solo se expone lo que el processor sabe con certeza (§9.5.4) |
+| Umbral del reaper | 10 → **5 minutos** | §5.3 |
+| Parseo síncrono | **Se difiere** | §9.5.12 |
+| Schema | **Una columna nueva** | §9.2. Contradice lo que decía §8.2 ("no necesita otro cambio de schema en toda la evolución"): separar las descartadas no se había previsto |
+| Carreras de §8.13 | Entran las dos | §9.5.8 |
+
+**Supuesto que sostiene el diseño: hay un solo proceso de backend.** Prod es una EC2 con un contenedor
+de backend y uno de Redis; el deploy recrea el contenedor (para el viejo y levanta el nuevo: no hay
+dos procesos de la app a la vez). La garantía más fuerte del reaper —"esta carga la estoy procesando
+yo"— es un registro en memoria, por proceso. Con dos procesos el diseño no se rompe (siguen
+protegiendo el latido y el lock de BullMQ), pero esa garantía ya no cubriría las cargas del otro
+proceso y habría que llevar el registro a Redis. **Si alguna vez se escala el backend, releer §9.5.6.**
+
+**Impacto.** Backend: `ProgresoTracker`, `ImportService` (worker, encolado, borrado, vista previa,
+lecturas), `ImportsProcessor` e `ImportModule` (opciones de BullMQ), el contrato de los processors y
+ocho archivos de processors, que cubren nueve de las once categorías (solo agregan llamadas de
+reporte: no cambia ninguna regla de negocio),
+`utils/monto-facturas.ts`, y dos crons nuevos —los primeros del módulo de imports—. Frontend: el
+wizard (subida, "Importando", resultado), `AvisosCarga`, el detalle y el ítem de la campanita. No
+cambian `SocketContext`, `NotificacionesContext`, `useImportacionesEnCurso` ni `ImportHistory`.
+Schema: una columna nullable. Ningún permiso nuevo.
+
+**Qué se rompe si sale mal:**
+
+1. *El reaper mata una carga viva.* Es el peor desenlace: el usuario ve "falló", vuelve a cargar, y la
+   primera sigue corriendo. Mitigado con tres comprobaciones independientes, dos pasadas seguidas y
+   una relectura bajo `FOR UPDATE` (§9.5.6); y si igual pasara, el tracker de la carga viva se detiene
+   solo en su próxima escritura (§9.5.2), no la deja seguir a ciegas.
+2. *El reloj del tracker tumba el proceso.* Una promesa rechazada sin manejar dentro de un
+   `setInterval` mata a Node. Todo lo que corre en el reloj va en `try/catch` y hay un test que lo
+   prueba (§9.9).
+3. *El reaper de borradores borra lo que no debe.* Es el primer job del sistema que borra remesas
+   solo. Su predicado está fijado en §5.2, se relee bajo `FOR UPDATE` por remesa, y no toca nada que
+   tenga un caso ni nada que el código nuevo no haya creado como borrador (§9.5.7).
+4. *Un reporte de progreso cambia lo que hace un processor.* Los ocho archivos tocados son el camino
+   de toda la cartera, y dos de ellos (ACTUALIZACIONES, PAGOS) son destructivos. Los reportes son
+   sincrónicos, no hacen IO, no pueden tirar, y el campo del contexto es opcional: los specs de los
+   processors pasan sin tocarlos (§9.4.4, §9.9).
+5. *El deploy.* El `db push` agrega una columna; si pidiera confirmación, el backend no levanta.
+   Mitigado: el diff verificado es un único `ADD COLUMN … NULL` (§9.2).
+
+**Datos ya cargados.** Ninguna fila existente se modifica. **No hay backfill:** `fueraDeCorte` queda en
+`null` en las cargas anteriores, y `null` significa exactamente eso ("la remesa no tiene corte, o es
+anterior a la Fase B"). En prod, hoy, `import_progreso` no tiene filas.
+
+### 9.2 Datos
+
+**Un campo nuevo** en `model import_progreso` (`backend/prisma/schema.prisma`), a continuación de
+`descartadas`:
+
+```prisma
+  /// Fase B. De las `descartadas`, cuántas pasaban el filtro de la plantilla pero pertenecen a otro
+  /// corte de la división (`remesa.filtroFilas`). Siempre es <= `descartadas`.
+  /// null = la remesa no tiene corte propio, o la carga es anterior a la Fase B.
+  fueraDeCorte       Int?
+```
+
+Y se corrige el comentario de `descartadas`, que hoy dice "(o el corte de la división)" sin separar:
+"Filas del archivo que no entraron en esta remesa y no son error: las que descartó el filtro de la
+plantilla **más** las de otros cortes (`fueraDeCorte`)."
+
+**Por qué una columna y no otra cosa:**
+
+- *No se cambia el significado de `descartadas`.* Sigue siendo el total, como en la Fase A, y
+  `fueraDeCorte` es un subconjunto. Las pestañas viejas siguen viendo lo mismo que hoy, y el único
+  assert existente que mira ese número (`imports-progreso-eventos.spec.ts:277-279`, caso B-3, que
+  filtra justamente con `remesa.filtroFilas`) pasa sin tocarlo. Lo que el usuario quiere ver —las
+  descartadas por el filtro de la plantilla— es la resta, y la hace el backend
+  (`descartadasPorFiltro`, §9.4.1).
+- *No va en `resumen` (JSON).* Es un contador en vivo, que se escribe en cada escritura junto con
+  `descartadas`; `resumen` es el resumen final por categoría de la Fase C. Meterlo ahí obligaría a
+  leer y reescribir un JSON una vez por segundo y le condicionaría el formato a la Fase C.
+- *Es la única.* La posición en la cola, la velocidad y la ETA **no se persisten**: se calculan al
+  armar el DTO (§9.5.9). La subfase usa la columna `subfase` que ya existe, como texto ya armado
+  ("Consolidando casos: 1.500 de 8.875"): no se agregan columnas para sus números.
+
+**El `db push`.** SQL que genera, verificado con `prisma migrate diff` (solo lectura) contra la base
+local —MySQL 8.0, sincronizada con el schema de HEAD (el diff de HEAD contra sí misma da `This is an
+empty migration`)—:
+
+```sql
+ALTER TABLE `import_progreso` ADD COLUMN `fueraDeCorte` INTEGER NULL;
+```
+
+- Una sola sentencia, sobre una tabla que en prod tiene 0 filas. Sin `@@unique`, sin enum, sin columna
+  obligatoria, sin cambio de tipo: ninguna de las condiciones por las que Prisma pide
+  `--accept-data-loss`. **No verificado ejecutando el push** (está fuera de lo que el architect puede
+  correr): lo verifica el paso BE-1, con orden de parar si Prisma lo pide.
+- Si el push se corta, o la columna está o no está: no hay estado intermedio.
+
+**Lo que se puebla en la Fase B:** `subfase`, `nuevos`, `actualizados`, `fueraDeCorte`, y el valor
+`LEYENDO` en `fase`. Siguen para la Fase C: `resumen`, `grupo*`, `cancelSolicitadaAt`. `intentos` deja
+de pasar de 1 (§9.3).
+
+**Procedimientos de wipe.** Sin cambios: la columna vive en una tabla que las listas ya incluyen.
+
+### 9.3 Máquina de estados: lo que cambia
+
+La tabla de §8.3 sigue valiendo. Se agregan cuatro filas y cambian dos reglas.
+
+| Momento | Quién | `estadoProceso` | `fase` | `finishedAt` | `resultado` |
+|---|---|---|---|---|---|
+| Antes de leer un Excel o de parsear un paquete | `tracker.entrarEnLectura` | PROCESANDO | **LEYENDO** | null | null |
+| Llega la primera fila | `tracker.avance` (memoria; lo persiste el reloj o el primer lote) | PROCESANDO | PROCESANDO | null | null |
+| El worker murió y nadie la procesa | `cerrarCargaInterrumpida` (reaper, o el worker si BullMQ se la vuelve a entregar) | FALLIDA | TERMINADA | ahora | FALLIDA |
+| Quedó en la cola sin job | `cerrarCargaInterrumpida` (reaper) | FALLIDA | TERMINADA | ahora | FALLIDA |
+
+**Fases.** El valor de `fase` que se persiste puede ser: `BORRADOR`, `EN_COLA`, `LEYENDO`,
+`PROCESANDO`, `POST_PROCESO`, `TERMINADA`. Nada más.
+
+- **SUBIENDO no es una fase de la carga.** El archivo se sube al crear el borrador
+  (`POST /import/remesas`, `ImportWizard.tsx:409`), antes de la vista previa: cuando existe una carga,
+  el archivo ya está en el servidor. Es un estado de la pantalla, medido con `onUploadProgress`
+  (§9.8.4). No se persiste ni viaja por el socket.
+- **La posición en la cola no es una fase:** es un dato de `EN_COLA` (`enColaDelante`, §9.5.9).
+- **LEYENDO** va desde que el worker tomó el job hasta que hay una primera fila para procesar, y solo
+  cuando esa espera es una lectura que bloquea: un Excel (`xlsx.readFile`, síncrono) o una categoría
+  pre-parseada. `import:iniciada` se sigue emitiendo con `fase: 'PROCESANDO'` (es lo que promete
+  §8.4.2 y lo que afirma el caso B-1); LEYENDO llega enseguida, en un `import:progreso`.
+- **Las subfases** son texto libre dentro de `POST_PROCESO` (columna `subfase`), no fases.
+
+**Regla que cambia 1 — una carga no se re-ejecuta.** §8.3 decía: "Re-ejecución: el worker vuelve a
+pasar por `iniciar`, que incrementa `intentos`, pone los contadores en cero…". Pasa a ser:
+
+> Si BullMQ vuelve a entregar el job de una carga que **ya había arrancado** (la fila tiene
+> `startedAt` y no tiene `finishedAt`), el worker **no la procesa**: la cierra como FALLIDA, con el
+> motivo de interrupción, y el job termina sin haber tocado una fila. `intentos` queda en 1.
+
+Con `maxStalledCount: 0` BullMQ no debería volver a entregarla nunca (§9.5.1); la guarda en el código
+es la que **garantiza** la política aunque alguien cambie esa opción o reintente un job a mano.
+
+**Regla que cambia 2 — "un estado terminal nunca se pisa" pasa de convención a condición de la
+escritura.** En la Fase A lo sostenían una lectura previa y una bandera en memoria del tracker. Ahora
+que hay un segundo escritor del estado terminal (el reaper), cada escritura del tracker lleva la
+condición en su `where`, y la del reaper relee bajo `FOR UPDATE` (§9.5.2, §9.5.5):
+
+- El tracker solo escribe si `estadoProceso ∉ {FINALIZADA, FALLIDA}`. Si no, la escritura no afecta
+  nada, el tracker se da por **cerrado por fuera** y la carga se detiene en el próximo lote.
+- `cerrarCargaInterrumpida` no escribe si la remesa ya es terminal, si no está encolada, o si la
+  carga está viva en este proceso.
+
+`clasificarResultado` y `calcularPorcentaje` no cambian. Una carga cerrada por interrupción conserva
+el último porcentaje y los contadores **que estaban persistidos**, que pueden ir hasta un segundo
+atrás de lo realmente procesado (el intervalo del reloj).
+
+### 9.4 Contratos
+
+Igual que en §8.4: este apartado es lo que permite implementar el frontend sin esperar al backend.
+
+#### 9.4.1 Tipos (lo que se agrega a §8.4.1)
+
+`backend/src/modules/imports/progreso/estado-carga.types.ts` y, copia textual,
+`frontend/src/types/importProgreso.ts`:
+
+```ts
+/** La Fase B agrega LEYENDO. El cliente sigue tratando cualquier otro string como
+ *  "en curso, fase que no conozco". */
+export type FaseCarga = 'BORRADOR' | 'EN_COLA' | 'LEYENDO' | 'PROCESANDO' | 'POST_PROCESO' | 'TERMINADA';
+
+export interface EstadoCargaDto {
+    // … todo lo de §8.4.1, sin cambios de nombre ni de tipo, más:
+
+    /** Texto del paso del post-proceso, ya armado para mostrar ("Consolidando casos: 1.500 de 8.875").
+     *  null fuera de POST_PROCESO o si el processor no informa. (El campo ya existía; ahora se puebla.) */
+    subfase: string | null;
+
+    /** Filas del archivo que no entraron en esta remesa y no son error. Mismo significado que en la
+     *  Fase A: el TOTAL (filtro de la plantilla + otros cortes). */
+    descartadas: number;
+    /** De las `descartadas`, las que eran de otro corte de la división. null = la remesa no tiene
+     *  corte propio, o la carga es anterior a la Fase B. */
+    fueraDeCorte: number | null;
+    /** `descartadas − (fueraDeCorte ?? 0)`: las que descartó el filtro de la plantilla. Es el número
+     *  que se muestra como "Descartadas". Lo calcula el backend. */
+    descartadasPorFiltro: number;
+
+    /** Casos que esta carga creó. null si la categoría no lo informa (§9.5.4). */
+    nuevos: number | null;
+    /** Casos que ya existían y esta carga tocó. null si la categoría no lo informa. */
+    actualizados: number | null;
+
+    /** Solo en EN_COLA: cuántas cargas en curso se confirmaron antes que esta, contando la que
+     *  está corriendo. 0 = es la próxima. null si no aplica o no se pudo calcular. */
+    enColaDelante: number | null;
+    /** Solo en PROCESANDO: filas por segundo, promedio desde que arrancó, con un decimal.
+     *  null si no aplica o todavía no hay con qué calcularla. */
+    velocidad: number | null;
+    /** Solo en PROCESANDO: segundos que faltan para terminar las FILAS a esa velocidad. No incluye
+     *  el post-proceso. null si no aplica. */
+    etaSegundos: number | null;
+}
+```
+
+Cambia una precisión de un campo existente: **`procesadas` ya no es siempre `ok + err`.** En las
+categorías que procesan por lote (ACTUALIZACIONES, FACTURAS) puede ir adelantada dentro del lote en
+curso: son filas ya trabajadas que todavía no se sabe si salieron bien. En cada fin de lote, y en el
+estado terminal, vuelve a valer `ok + err`. Siempre `procesadas >= ok + err`.
+
+`intentos` deja de pasar de 1. El campo se conserva (lo leen las pestañas viejas).
+
+#### 9.4.2 Eventos de socket
+
+Los tres eventos, las salas y las cinco garantías de §8.4.2 no cambian. Cambia **cuándo** sale
+`import:progreso`:
+
+| Cuándo | Cadencia | Novedad |
+|---|---|---|
+| Al encolar (`EN_COLA`), con `enColaDelante` | Una vez | El campo |
+| Antes de una lectura que bloquea (`LEYENDO`) | Una vez, solo en Excel y pre-parseadas | Nuevo |
+| Después de cada lote persistido | Siempre, como en la Fase A | — |
+| **Dentro** de un lote, y durante el post-proceso | **A lo sumo uno por `IMPORTS_PROGRESO_INTERVALO_MS`** (default 1.000 ms), y solo si algo cambió desde la última escritura | Nuevo |
+| Al entrar al post-proceso | Una vez, como en la Fase A | — |
+
+- Sigue valiendo "se persiste **antes** de emitirse": no hay eventos sin escritura detrás.
+- **El latido no emite nada.** Cuando no hay nada que contar, el reloj escribe solo `heartbeatAt` cada
+  15 s. El cliente lo ve en el próximo evento o en su próxima consulta por HTTP (el hook ya consulta
+  cada 30 s cuando el socket está callado: `utils/estadoCarga.ts:10`, `useEstadoCarga.ts:157-164`).
+- `import:finalizada` puede salir ahora **sin que haya un worker**: la emite `cerrarCargaInterrumpida`
+  cuando el reaper cierra una carga. Mismas salas, mismo payload, `resultado: 'FALLIDA'`.
+- `rev` crece también con las escrituras del latido, que no se emiten: entre dos eventos seguidos
+  puede saltar de a más de uno. Sigue siendo estrictamente creciente, que es lo único que se promete.
+
+#### 9.4.3 HTTP
+
+Ninguna ruta nueva, ningún permiso nuevo (nada que declarar en `permisos-catalogo.ts`).
+
+| Método y ruta | Qué cambia |
+|---|---|
+| `GET /import/remesas/:id/progreso`, `GET /import/en-curso`, `GET /import/remesas/:id` (`carga`) | El DTO trae los campos de §9.4.1. `enColaDelante` se calcula en estas tres lecturas |
+| `POST /import/ejecutar/:id` | `carga.enColaDelante`. **Nuevo `404`** "La importación fue eliminada mientras se confirmaba." (§9.5.8). **`201` en vez de `503`** cuando el encolado venció por tiempo pero el worker ya tomó la carga (§9.5.8) |
+| `POST /import/validar/:id` | La respuesta agrega `fueraDeCorte?: number`. `descartadas` no cambia de significado (total). `filtro` describe solo el filtro de la plantilla (§9.5.10) |
+| `DELETE /import/remesas/:id` | **Nuevo `409`** "Esta importación se acaba de confirmar. Si igual querés eliminarla, volvé a intentarlo." (§9.5.8) |
+
+#### 9.4.4 Contrato con los processors
+
+Un campo **opcional** en `ProcessContext` (`processors/processor.interface.ts:20-105`):
+
+```ts
+/** Canal por el que el processor le cuenta su avance al runner. OPCIONAL: los specs que arman el
+ *  contexto a mano no lo traen, y todo processor lo usa con `ctx.progreso?.…`. */
+progreso?: ReporteProgreso;
+
+export interface ReporteProgreso {
+    /** Solo en `processBatch`: cuántas filas del lote en curso ya están resueltas (acumulado
+     *  dentro del lote, de 0 a `rows.length`). */
+    filasDelLote(n: number): void;
+    /** Solo en `afterAll`: en qué paso está y cuánto lleva. Sin `total` (o con 0) es un paso sin
+     *  medida. Llamarla con otro `nombre` es pasar al paso siguiente. */
+    subfase(nombre: string, hecho?: number, total?: number): void;
+    /** Casos nuevos y actualizados de la carga hasta ahora: valores ABSOLUTOS, no incrementos. */
+    contadores(c: { nuevos?: number; actualizados?: number }): void;
+}
+```
+
+Reglas, que son las que hacen que tocar ocho processors no sea un riesgo:
+
+1. **Los tres métodos son sincrónicos y devuelven `void`.** No hacen IO: anotan en la memoria del
+   tracker y vuelven. No hay nada que esperar (`await`) ni promesa que pueda quedar sin manejar.
+2. **Nunca tiran.** Cada uno va en `try/catch` del lado del tracker; un reporte roto es un `warn`.
+3. **El throttle no es problema del processor.** Puede llamar en cada vuelta de un bucle: cuándo se
+   escribe y se emite lo decide el reloj del tracker (§9.5.2).
+4. **Con `ctx.progreso` ausente no cambia ninguna llamada a un colaborador.** Esto es literal y está
+   afirmado por un test que ya existe: `facturas.processor.spec.ts:253` espera
+   `consolidar` llamado con **un solo argumento** (`toHaveBeenCalledWith({ tipo: 'DEUDORES',
+   deudorIds: [1] })`). Pasarle siempre un segundo argumento con `onProgress` lo rompería. Por eso
+   toda consolidación del post-proceso pasa por un único helper:
+
+```ts
+// backend/src/modules/imports/utils/reporte-progreso.ts (nuevo)
+export function consolidarConProgreso(ctx: ProcessContext, scope: ConsolidacionScope, nombre: string) {
+    // Sin canal de reporte, la llamada es EXACTAMENTE la de siempre (un argumento).
+    if (!ctx.progreso) return ctx.consolidacion.consolidar(scope);
+    ctx.progreso.subfase(nombre);
+    return ctx.consolidacion.consolidar(scope, {
+        onProgress: (hecho, total) => ctx.progreso?.subfase(nombre, hecho, total),
+    });
+}
+```
+
+   `consolidar` ya acepta `onProgress` y lo llama una vez por tanda de 500 deudores
+   (`consolidacion.service.ts:206-214`, `:268-269`): no se toca `ConsolidacionSituacionService`.
+5. **Los nombres de las subfases viven en un solo lugar** (`reporte-progreso.ts`, constante
+   `SUBFASE`), para que la pantalla, la wiki y los tests digan lo mismo. Lista en §9.5.4.
+
+El runner arma el canal y lo pone en el contexto que ya construye (`imports.service.ts:2147-2175`).
+`afterAll(ctx)` no cambia de firma.
+
+#### 9.4.5 Compatibilidad
+
+- **Backend nuevo con pestañas de la Fase A** (las va a haber):
+  - Campos nuevos: los ignora. `descartadas` significa lo mismo que hoy.
+  - `fase: 'LEYENDO'`: `etiquetaFase` muestra el valor tal cual y `barraIndeterminada` devuelve
+    `true` para cualquier fase en curso que no sea PROCESANDO (`utils/estadoCarga.ts:68-69`,
+    `:214-215`). Se ve la palabra "LEYENDO" con una barra sin porcentaje, unos segundos.
+  - `subfase`: el frontend de la Fase A no lo dibuja en ningún lado. Sigue mostrando su texto fijo.
+  - Un evento por segundo en vez de uno por lote: los handlers fusionan por `rev`; no cambia nada.
+  - El aviso "Sin novedades del servidor hace N min" de la Fase A (5 minutos, solo PROCESANDO) pasa a
+    ser más preciso sin tocarlo: `heartbeatAt` ahora late cada 15 s.
+  - Una carga cerrada por el reaper le llega como una `import:finalizada` FALLIDA común, con el motivo
+    en `error`: la muestra como "La importación falló" más el texto.
+- **Frontend nuevo con backend de la Fase A.** Degrada sin romperse —`enColaDelante`, `velocidad`,
+  `fueraDeCorte` y `descartadasPorFiltro` llegan `undefined` y cada lectura tiene su respaldo
+  (§9.8.1)—, pero **mentiría**: los textos nuevos prometen que una carga sin señal "se marca como
+  fallida sola", y el backend de la Fase A no lo hace. El orden de §9.6 sigue siendo obligatorio.
+- **Jobs en vuelo durante el deploy:** §9.6.
+
+### 9.5 Backend — lógica crítica
+
+#### 9.5.1 BullMQ explícito y política de re-ejecución
+
+Hoy el worker y la cola corren con los defaults (`bullmq/imports.processor.ts:10`,
+`imports.module.ts:17-19`). Pasan a declararlos, como constantes exportadas para poder afirmarlas en
+un test:
+
+```ts
+// bullmq/imports.processor.ts
+export const OPCIONES_WORKER_IMPORT = {
+    concurrency: 1,          // las cargas van de a una: es lo que supone todo el diseño
+    lockDuration: 120_000,   // BullMQ lo renueva cada 30 a 60 s
+    stalledInterval: 30_000, // el default, explícito
+    maxStalledCount: 0,      // un job cuyo worker murió NO se vuelve a ejecutar
+} as const;
+
+@Processor('import-queue', OPCIONES_WORKER_IMPORT)
+
+// imports.module.ts
+BullModule.registerQueue({ name: 'import-queue', defaultJobOptions: { attempts: 1 } })
+```
+
+**La política, en una frase: una carga nunca se re-ejecuta sola.** Si el worker muere a mitad de una
+carga —un deploy, un corte, el proceso sin memoria—, la carga **falla con motivo**, con los contadores
+de lo que llegó a procesar, y una persona decide qué hacer.
+
+Por qué no re-ejecutar desde cero, que es lo que hace hoy:
+
+1. **Está demostrado que rompe datos.** ACCIONES re-ejecutada duplica los comentarios y pierde los
+   snapshots del primer intento (§8.13): el botón Revertir deja de deshacer lo que ese intento cambió.
+2. **Del resto no hay demostración de lo contrario.** Que DEUDORES o FACTURAS sean idempotentes ante
+   un corte a mitad de camino es razonable por lectura, pero ninguna categoría se probó así. En un
+   sistema cuyo modo de falla es perder datos en silencio, "razonable" no alcanza para automatizar.
+3. **La re-ejecución corre con el código nuevo sobre una carga a medias del código viejo.** Un deploy
+   es justo el momento en que cambia el código.
+4. **Es la regla de §4:** no reiniciar el progreso en silencio.
+5. **Ya salió mal en prod.** El 10/08 la remesa 102 se re-ejecutó sola un minuto después de un deploy y
+   falló porque los archivos ya no estaban.
+
+La re-ejecución de una FALLIDA va a existir, como una acción explícita de una persona, en la Fase C
+("reintentar"), que es donde corresponde discutir la idempotencia categoría por categoría.
+
+**Qué hace cada opción:**
+
+- **`maxStalledCount: 0`.** Cuando BullMQ detecta un job activo sin lock (su worker murió), lo
+  devuelve a la cola marcado para fallar, y el worker que lo toma lo falla **sin llamar al processor**
+  (`moveStalledJobsToWait-8.lua:87-92`; `classes/worker.js:562`, `:596-599`, en
+  `backend/node_modules/bullmq/dist/cjs/`). Con el default (1) lo volvía a ejecutar una vez.
+- **`attempts: 1`.** Un job que tira no se reintenta. Es el default; queda escrito.
+- **`lockDuration: 120_000`.** El lock es la señal de vida que BullMQ mira. Se renueva por un timer
+  cada 30 a 60 s (`lock-manager.js:74`, `:83`), así que siempre le quedan al menos 60 s: un bloqueo
+  del event loop de menos de un minuto no lo pierde. Con el default (30 s) lo perdía a partir de 15 s.
+  El costo: BullMQ tarda hasta un minuto y medio más en notar un worker muerto. No importa, porque
+  el que cierra la carga es el reaper, no BullMQ.
+- **`concurrency: 1`.** Es el default. Explícito porque el registro de cargas vivas, la posición en la
+  cola y el orden de las remesas de una división lo dan por hecho.
+
+**Qué pasa en cada caso:**
+
+| Situación | Hoy (defaults) | Con la Fase B |
+|---|---|---|
+| El worker muere a mitad de una carga (deploy, corte, memoria) | BullMQ la vuelve a entregar ~60 s después de que levanta el proceso nuevo y se **re-ejecuta desde cero**. La pantalla dice "se reinició (intento 2)" | BullMQ falla el job sin ejecutarlo. La carga queda PROCESANDO hasta que el reaper la cierra como **FALLIDA, con motivo**, entre 5 y 7 minutos después del último latido (§9.5.6). Nadie la re-ejecuta |
+| El event loop se bloquea con el worker **vivo** más de lo que dura el lock | A partir de 15-30 s: BullMQ da el job por perdido, y cuando la corrida viva termina, lo vuelve a entregar (lo ignora la guarda de la Fase A: la carga ya terminó) | A partir de 60-120 s: igual, salvo que BullMQ falla el job en vez de re-entregarlo. **La carga termina bien**: su estado lo da la base, no BullMQ. El reaper no la toca (§9.5.6) |
+| BullMQ vuelve a entregar igual el job de una carga que ya arrancó (alguien cambió la opción, o reintentó a mano) | Se re-ejecuta | La guarda de §9.5.3 la cierra como interrumpida sin procesar nada |
+| El job tira | No se reintenta | Igual |
+
+**Tres listeners que solo loguean**, en `ImportsProcessor`, con `@OnWorkerEvent` (el patrón ya está en
+`consolidacion/bullmq/consolidacion.processor.ts`):
+
+| Evento | Nivel | Qué |
+|---|---|---|
+| `stalled` (jobId) | `warn` | "BullMQ dio por perdido el job N de la cola de importaciones" |
+| `error` (err) | `warn` | El mensaje. Hoy BullMQ lo manda a `console.error`, sin `requestId`; acá entra la falla de renovación de lock, que es la huella de un event loop bloqueado |
+| `failed` (job, err) | `warn`, **solo** si el mensaje dice `stalled` | "El job N (remesa X) falló sin ejecutarse: …; la carga la cierra el reaper" |
+
+**Ninguno escribe en la base.** Se evaluó usar `failed` como vía rápida para cerrar la carga en 2-3
+minutos en vez de 5-7. Se descartó: habría dos escritores del cierre por interrupción en vez de uno, y
+el segundo dependería de un comportamiento de BullMQ que se leyó en el código pero no se ejecutó
+(§9.13). Un solo camino que cierra, el reaper, se audita mejor.
+
+#### 9.5.2 El tracker: un reloj, reportes en memoria y escrituras condicionadas
+
+`ProgresoTracker` (`progreso/progreso-tracker.ts`) deja de escribir solo cuando el runner se lo pide.
+La API de la Fase A se conserva entera; se agrega:
+
+```ts
+export interface ContadoresCarga {
+    ok: number; err: number; descartadas: number;
+    /** Opcional para no romper las llamadas de hoy. undefined = no se toca lo que había. */
+    fueraDeCorte?: number | null;
+}
+
+export class ProgresoTracker {
+    // ── Fase A, sin cambio de firma ──
+    iniciar(jobId): Promise<void>;                 // ahora además arranca el reloj
+    fijarTotalEsperado(n): void;  sumarAdvertencias(n): void;
+    lote(c): Promise<void>;                        // persiste y emite SIEMPRE, como hoy
+    entrarEnPostProceso(): Promise<void>;
+    finalizar(c): Promise<EstadoCargaDto>;         // detiene el reloj antes de escribir
+    fallar(error, c): Promise<EstadoCargaDto>;     // ídem
+
+    // ── Fase B ──
+    /** Fase LEYENDO. Persiste y emite. Nunca tira (un fallo es un `warn`: una etiqueta no frena una carga). */
+    entrarEnLectura(): Promise<void>;
+    /** Contadores después de una fila. SINCRÓNICO: solo memoria. Si la fase era LEYENDO, pasa a PROCESANDO. */
+    avance(c: ContadoresCarga): void;
+    /** Filas del lote en curso ya resueltas (processors por lote). Sincrónico. */
+    avanceDelLote(n: number): void;
+    /** Paso del post-proceso. Sincrónico. Arma el texto y loguea el tiempo del paso anterior. */
+    subfase(nombre: string, hecho?: number, total?: number): void;
+    /** Casos nuevos y actualizados (absolutos). Sincrónico. */
+    contadores(c: { nuevos?: number; actualizados?: number }): void;
+    /** Detiene el reloj. Idempotente. Lo llama el `finally` del runner. */
+    cerrar(): void;
+    /** Una escritura encontró la carga ya terminal o borrada: otro la cerró. */
+    get cerradaPorFuera(): boolean;
+    /** Milisegundos desde el último reporte que cambió algo. Para el log del reaper. */
+    get sinAvanceMs(): number;
+}
+
+/** La tiran `iniciar`, `lote`, `entrarEnPostProceso` y `finalizar` cuando su escritura no afecta nada. */
+export class CargaCerradaPorFueraError extends Error {}
+```
+
+`TrackerDeps` gana dos campos opcionales, para los tests: `ahora?: () => number` (default `Date.now`)
+e `intervaloMs?: number` (default, la variable de entorno).
+
+**Los reportes no escriben.** `avance`, `avanceDelLote`, `subfase` y `contadores` cambian la memoria y
+prenden una bandera (`sucio`). Nada más. Por eso se pueden llamar en cada fila sin costo y sin `await`.
+
+**El reloj.** Un único `setInterval`, con `.unref()`, que arranca al final de `iniciar` y corre cada
+`IMPORTS_PROGRESO_INTERVALO_MS` (default 1.000; acotado a [250, 10.000]). En cada tic:
+
+```
+deriva = ahora − (tic anterior + intervalo)
+si deriva >= 5.000 ms → warn "Event loop bloqueado ~N ms durante la remesa X (fase, subfase)"
+si la carga terminó, el reloj se cerró o la carga fue cerrada por fuera → nada
+si hay una escritura en vuelo → nada                          (el tic siguiente vuelve a mirar)
+si `sucio`                                  → ESCRIBIR PROGRESO: foto completa + emitir import:progreso
+si no, y pasaron >= 15 s de la última escritura → ESCRIBIR LATIDO: solo heartbeatAt, sin emitir
+```
+
+- **Escribir progreso** —**(Cambió al auditar: §9.15.)** hoy va solo a `import_progreso`— es la misma escritura que `lote` (un `remesa.update` con la fila anidada y los
+  mismos `okFilas` / `errFilas`), seguida del `import:progreso`. `sucio` se apaga **antes** del
+  `await`; si la escritura falla, se vuelve a prender y el próximo tic reintenta.
+- **Escribir latido** es `import_progreso.updateMany({ where: { remesaId, finishedAt: null }, data: {
+  heartbeatAt, rev: { increment: 1 } } })`. Una sentencia sobre una fila que ningún processor toca: no
+  compite por locks con la carga. Si devuelve `count: 0`, la carga fue cerrada por fuera.
+- **Todo el cuerpo del tic va en `try/catch`.** Un fallo es un `warn` (a lo sumo uno por minuto) y
+  nunca una promesa rechazada sin manejar, que tumbaría el proceso entero.
+- **El latido es de vida, no de avance.** Dice "el proceso está vivo y el event loop gira". Que la
+  carga *avance* se ve en los contadores y en la subfase.
+- **La deriva del tic es el instrumento que faltaba para §3.5:** si alguna vez una lectura bloquea el
+  event loop más de 5 s, queda en el log con la remesa y la fase.
+
+**Una escritura por vez.** El tic que encuentra una escritura en vuelo no hace nada; las escrituras
+que pide el runner (`lote`, `entrarEn…`, `finalizar`, `fallar`) esperan a que termine la que esté en
+vuelo y recién ahí escriben. Dos consecuencias que hay que respetar al implementarlo:
+
+1. Después de una escritura, en memoria **solo se actualizan `rev` y `heartbeatAt`**. No se reemplaza
+   el objeto entero, como hace hoy (`this.mem = siguiente`, `:201`, `:229`, `:236`): mientras la
+   escritura del reloj estaba en vuelo, la carga siguió y los reportes cambiaron la memoria; pisarla
+   con la foto vieja haría retroceder los contadores.
+2. Lo que se emite es **la foto que se persistió**, con el `rev` que devolvió la base, no la memoria
+   del momento de emitir.
+
+**El evento final no se pierde, y después de él no sale nada.** `finalizar` y `fallar` (a) marcan que
+la carga está terminando —desde ahí el reloj no hace nada—, (b) hacen `clearInterval`, (c) esperan la
+escritura en vuelo, y (d) escriben el estado terminal **sin pasar por ningún throttle** y emiten
+`import:finalizada`. El terminal lleva `subfase: null`.
+
+**Escrituras condicionadas** (regla 2 de §9.3). **(Cambió al auditar: §9.15.)** El `where` condicionado de Prisma resultó no ser
+atómico; lo reemplazó una relectura `FOR UPDATE`. `persistir` (`:334-368`) pasa a usar:
+
+```ts
+where: { id: remesaId, estadoProceso: { notIn: ['FINALIZADA', 'FALLIDA'] } }
+```
+
+y, **solo en `iniciar`**, además: `NOT: { progreso: { is: { encoladaAt: null } } }` — la carga tiene
+que seguir encolada (cierra la carrera de §9.5.8). Escrito en negativo, para que una remesa sin fila
+(job encolado por el código viejo, caso B-9) siga entrando. Si el `where` no encuentra la fila, Prisma
+tira `P2025`; el tracker lo traduce: prende `cerradaPorFuera`, detiene el reloj y tira
+`CargaCerradaPorFueraError` (el reloj no tira: solo prende la bandera). `fallar` conserva su contrato
+de no tirar nunca: ante un `P2025` no marca "no se pudo registrar", marca cerrada por fuera.
+
+Qué escribe cada método nuevo, y qué se agrega a los de la Fase A:
+
+| Método | En `remesa` | En `import_progreso` |
+|---|---|---|
+| `iniciar` (se agrega) | — | `subfase`, `nuevos`, `actualizados`, `fueraDeCorte` en null |
+| `entrarEnLectura` | — | `fase: LEYENDO` |
+| reloj, progreso | `okFilas`, `errFilas` | `fase`, `subfase`, `procesadas`, `ok`, `err`, `descartadas`, `fueraDeCorte`, `nuevos`, `actualizados`, `porcentaje`, `advertencias`, `totalEsperado`, `heartbeatAt` |
+| reloj, latido | — | `heartbeatAt` |
+| `lote` (se agrega) | — | `fueraDeCorte`, `nuevos`, `actualizados`; `procesadas = ok + err` (el adelanto del lote vuelve a 0) |
+| `entrarEnPostProceso` (se agrega) | — | `subfase: null` |
+| `finalizar`, `fallar` (se agrega) | — | `subfase: null`; `fueraDeCorte`, `nuevos`, `actualizados` finales |
+
+`procesadas` en memoria es `ok + err + adelantoDelLote`. `avanceDelLote(n)` fija el adelanto (acotado
+a lo que le falta al total); `lote` lo pone en 0; `avance` no lo toca.
+
+**El texto de la subfase** lo arma el tracker: `nombre` si no hay total; si lo hay,
+`"{nombre}: {hecho} de {total}"`, con punto de miles (función propia, sin `toLocaleString`: no se
+depende del ICU del contenedor), recortado a 160 caracteres. Cuando cambia el `nombre`, el tracker
+loguea el paso que terminó: `Post-proceso remesa=N «Consolidando casos» en 1234ms` (§9.5.11).
+
+#### 9.5.3 El runner: `processImportJob` (`imports.service.ts:2009-2539`)
+
+Cambia el manejo del estado alrededor del recorrido; el recorrido de filas, no.
+
+```
+remesa = buscar                                                     (:2013-2033, igual)
+guardas de la Fase A: ya terminó → ignorado · borrador con fila → ignorado      (:2038-2054, igual)
+
+NUEVO — re-entrega de una carga que ya había arrancado (regla 1 de §9.3):
+    si remesa.progreso?.startedAt y no remesa.progreso.finishedAt:
+        si this.cargasVivas.has(remesaId) → warn; return { total: 0, ok: 0, err: 0, ignorado: true }
+        await this.cerrarCargaInterrumpida(remesaId, 'REENTREGA', { jobId: job.id })    (§9.5.5)
+        return { total: 0, ok: 0, err: 0, ignorado: true }
+
+tracker = new ProgresoTracker(…)                                    (:2060-2073, igual)
+this.cargasVivas.set(remesaId, tracker)                             ← NUEVO: registro de cargas vivas
+try:
+    try:    await tracker.iniciar(job.id)                           ← escritura condicionada
+    catch:  si es CargaCerradaPorFueraError → warn "ya no está en cola (se borró, terminó o volvió a
+            borrador)"; return { total: 0, ok: 0, err: 0, ignorado: true }.   Si no, relanzar.
+    relectura de existencia                                         (:2091-2095, igual)
+    … validaciones y armado de ctx …                                (:2097-2175, igual)
+    ctx.progreso = { filasDelLote: n => tracker.avanceDelLote(n),
+                     subfase: (nombre, hecho, total) => tracker.subfase(nombre, hecho, total),
+                     contadores: c => tracker.contadores(c) }
+
+    processBatch (el closure de :2203-2278):
+        si tracker.cerradaPorFuera → throw new CargaCerradaPorFueraError()       ← la carga se corta acá
+        por cada fila del grupo (:2210-2240):
+            … igual que hoy …
+            tracker.avance({ ok, err, descartadas, fueraDeCorte })    ← después de cada fila, sin await
+        processor.processBatch(…)                                   (:2246-2249; los processors por lote
+                                                                     informan con ctx.progreso.filasDelLote)
+        await tracker.lote({ ok, err, descartadas, fueraDeCorte })  (:2275: persiste y emite SIEMPRE)
+
+    ramas pre-parseadas:  await tracker.entrarEnLectura()  ANTES de leer y parsear
+                          (antes de :2290, :2327 y :2364)
+    rama genérica (:2404-2443):
+        si algún path es Excel:  await tracker.entrarEnLectura()
+        { dePlantilla, deCorte } = this.filtrosSeparados(remesa, mapping)
+        fueraDeCorte = deCorte.length > 0 ? 0 : null
+        por cada fila leída (:2422-2433):
+            si no pasa dePlantilla → descartadas++ ;                  tracker.avance(…) ; seguir
+            si no pasa deCorte     → descartadas++ ; fueraDeCorte++ ; tracker.avance(…) ; seguir
+            … igual que hoy …
+
+    post-proceso, conteo de avisos, finalizar, notificar            (:2447-2525, igual)
+catch (error):
+    si es CargaCerradaPorFueraError, o tracker.cerradaPorFuera:
+        warn "La remesa N fue cerrada por fuera mientras se procesaba: se corta sin tocar su estado"
+        return { total, ok, err, ignorado: true }                   ← NI fallar() NI notificar
+    … igual que hoy: fallar, notificar, throw …                     (:2527-2538)
+finally:
+    tracker.cerrar()                                                ← detiene el reloj, pase lo que pase
+    this.cargasVivas.delete(remesaId)
+```
+
+Puntos que no son obvios:
+
+- **`cargasVivas`** es un `Map<number, ProgresoTracker>` privado de `ImportService`. No se agrega nada
+  al constructor (siguen los 9 argumentos posicionales de los specs). Lo consulta el reaper por un
+  método público, `cargaVivaEnEsteProceso(remesaId)`, que devuelve `null` o `{ sinAvanceMs, fase,
+  subfase }`. El `finally` es obligatorio: una entrada que quedara en el mapa haría inmortal a esa
+  carga para el reaper.
+- **El orden de los filtros define los dos contadores.** Una fila que no pasa el filtro de la
+  plantilla es "descartada por filtro" aunque tampoco sea de este corte: la plantilla la habría
+  descartado en cualquier remesa. `fueraDeCorte` cuenta solo las que la plantilla dejaba pasar. Con
+  eso, para todas las remesas de una misma división, `descartadasPorFiltro` da **el mismo número** y
+  `procesadas + descartadas` da las filas del archivo. `filtrosSeparados` es un método nuevo al lado
+  de `filtrosDeRemesa` (`:494-498`), que no se toca porque lo usan la vista previa y el preview de
+  acciones.
+- **`processImportJob` sigue devolviendo exactamente `{ total, ok, err }`** en el camino normal: el
+  caso B-1 lo afirma con `toEqual`.
+- **Para saber si hay un Excel** se usa el mismo criterio que la lectura: `esExcel`, que hoy es
+  privada de `utils/recorrer-filas.ts:73`. Se exporta; no se copia la expresión regular.
+- **La secuencia del caso B-1 no cambia.** Un CSV no pasa por LEYENDO; el lote sigue emitiendo
+  siempre; el reloj solo agrega eventos si un lote dura más de un segundo, y en el test dura
+  milisegundos. Es deliberado: el contrato nuevo **agrega** eventos intermedios, no reordena los de la
+  Fase A.
+- **El corte por "cerrada por fuera" es por lote, no por fila.** Una carga que otro cerró termina el
+  lote que tenía empezado (hasta 1.000 filas) y corta en el siguiente. Hoy solo puede dispararlo un
+  reaper de otro proceso; es el mismo gancho que va a usar "cancelar" en la Fase C.
+
+#### 9.5.4 Los processors: qué informa cada uno
+
+Tres caminos de filas, tres formas de informar el avance:
+
+| Camino | Categorías | Quién informa dentro del lote |
+|---|---|---|
+| Por fila (`processRow`) | DEUDORES, DEUDORES_Y_FACTURAS, PAGOS, CONTACTOS, ENRIQUECIMIENTO, ACCIONES | El **runner**, después de cada fila. El processor no hace nada |
+| Pre-parseado + por fila | MULTIRREGISTRO, MULTIARCHIVO (`CasosCedenteProcessor.processRow`) | El runner, igual. Es lo que saca a MULTIARCHIVO del 0 % |
+| Por lote (`processBatch`) | ACTUALIZACIONES, FACTURAS, MULTICLAVES | El **processor**, con `ctx.progreso?.filasDelLote(n)` |
+
+`filasDelLote` en los processors por lote:
+
+- **ACTUALIZACIONES** (`actualizaciones.processor.ts:349`): dentro del bucle que resuelve cada fila
+  (`:421`), que es donde están las altas secuenciales, y en el de reconciliación de deuda. Al menos
+  una llamada cada 100 filas; el valor es el acumulado del lote y nunca supera `rows.length`.
+- **FACTURAS** (`facturas.processor.ts:59`): después de cada tanda del upsert en bloque (`:145`).
+- **MULTICLAVES**: no informa. Resuelve el lote en una transacción; el avance es por lote.
+
+**Subfases del post-proceso.** Nombre exacto, en orden, y sobre qué unidad cuenta:
+
+| Processor | Subfase (`SUBFASE.…`) | Unidad de "N de M" | Dónde |
+|---|---|---|---|
+| ACTUALIZACIONES, ausentes = desasignar | `Desasignando ausentes` | deudores, de a 500 | `:238-248` |
+| ACTUALIZACIONES, ausentes = pagó todo | `Cerrando ausentes` | deudores de la remesa de origen recorridos; informar cada 200 | bucle de `:1002-1036` |
+| ACTUALIZACIONES | `Consolidando la remesa de origen` | deudores evaluados, de a 500 | `:937`, `:1039` |
+| ACTUALIZACIONES (solo si la remesa de la carga no es la de origen) | `Consolidando la remesa de la carga` | ídem | `:939`, `:1045` |
+| ACTUALIZACIONES | `Cerrando promesas cumplidas` | sin medida | `:942`, `:1050` |
+| PAGOS | `Consolidando casos con pagos` | deudores | `:632`, `:637` |
+| PAGOS | `Cerrando promesas cumplidas` | sin medida | `:634` |
+| FACTURAS, DEUDORES_Y_FACTURAS | `Recalculando importes` | deudores, de a 500 | `utils/monto-facturas.ts:32-45` |
+| FACTURAS, DEUDORES_Y_FACTURAS | `Consolidando casos` | deudores | `monto-facturas.ts:49` |
+| FACTURAS | `Uniendo datos adicionales` | deudores, de a 500 | `monto-facturas.ts:67` |
+| MULTIRREGISTRO, MULTIARCHIVO | `Desasignando ausentes` (solo si la plantilla lo activa) | casos, de a 500 | `casos-cedente.processor.ts:465-476` |
+| MULTIRREGISTRO, MULTIARCHIVO | `Consolidando casos tocados` | deudores | `:874` |
+| MULTIRREGISTRO, MULTIARCHIVO | `Cerrando promesas cumplidas` | sin medida | `:884` |
+| MULTICLAVES | `Buscando pagos de estas claves` | convenios, de a 1.000 | bucle de `multiclaves.processor.ts:354-362` |
+| MULTICLAVES | `Consolidando casos con pagos` | deudores | `:365` |
+| ACCIONES | `Guardando datos para revertir` | snapshots, de a 500 | `acciones.processor.ts:282-292` |
+| DEUDORES, CONTACTOS, ENRIQUECIMIENTO | ninguna | — | Su `afterAll` solo limpia cachés y loguea |
+
+- Toda consolidación se llama con `consolidarConProgreso` (§9.4.4), nunca directo.
+- Un paso que no corre no se informa (por ejemplo, `Cerrando promesas cumplidas` solo si hay
+  deudores con pagos, como hoy).
+- El avance se informa **después** de cada tanda, con lo que ya se hizo.
+- **Ningún processor cambia una condición, un orden ni una consulta.** El diff de cada uno son líneas
+  `ctx.progreso?.…`, el reemplazo de `ctx.consolidacion.consolidar(…)` por el helper, y los contadores
+  de abajo.
+
+**`nuevos` y `actualizados`.** Una sola definición, en **casos**:
+
+> `nuevos` = casos que esta carga creó. `actualizados` = casos que ya existían y esta carga tocó.
+
+| Categoría | `nuevos` | `actualizados` | Lo que ya tiene el processor |
+|---|---|---|---|
+| DEUDORES | Deudores creados | ~~Deudores distintos que ya estaban **en la remesa** y una fila tocó~~ `null`: daba siempre 0 (§9.15) | `creado`, que devuelve `upsertDeudorPorIdentidad` (`deudores.processor.ts:55`). Hay que llevar dos conjuntos de ids (creados / ya existentes) |
+| DEUDORES_Y_FACTURAS | Ídem | Ídem. Las filas siguientes de un caso creado por esta misma carga **no** cuentan | `creado` (`deudores-facturas.processor.ts:91`) y `touchedDeudorIds` |
+| ACTUALIZACIONES | Altas en la remesa de origen | Casos de la remesa de origen que vinieron en el archivo | `crearNuevoDeudor` (`:595`) y `processedDeudorIds` |
+| MULTIRREGISTRO, MULTIARCHIVO | `altasCount` | `actualizadosCount` | Ya los cuenta (`casos-cedente.processor.ts:289`, `:307`). Son por fila de caso: si el archivo repite un cliente, cuenta dos veces |
+| FACTURAS | `null` | `null` | El upsert en bloque no dice cuáles insertó y cuáles actualizó |
+| PAGOS | `null` | `null` | Sus números son otros (aplicados, ya cargados, negativos, con clave): van al `resumen` de la Fase C |
+| CONTACTOS, ENRIQUECIMIENTO | `null` | `null` | `upsert` de Prisma: no distingue |
+| ACCIONES | `null` | `null` | No crea casos |
+| MULTICLAVES | `null` | `null` | Carga claves, no casos; el detalle ya tiene su propio resumen (`MulticlavesLoteResumen`) |
+
+- En DEUDORES, `ok − nuevos − actualizados` son las filas que cayeron sobre un caso **creado por esta
+  misma carga**: identidades repetidas dentro del archivo, que es el colapso de casos del catálogo de
+  fallos silenciosos. La Fase B no le pone nombre en la pantalla (va al resumen de la Fase C), pero
+  el número ya se puede deducir, y la vista previa lo sigue avisando antes de ejecutar.
+- Se informa con `ctx.progreso?.contadores({ nuevos, actualizados })`, valores absolutos, después de
+  cada fila (por fila) o al final de cada `processBatch` (por lote).
+- Donde es `null`, la pantalla no muestra el contador: no muestra un cero.
+
+#### 9.5.5 Cerrar una carga interrumpida: una sola función
+
+`ImportService.cerrarCargaInterrumpida(remesaId, motivo, detalle?)`, pública. La llaman el reaper y la
+guarda de re-entrega; nadie más. Devuelve el `EstadoCargaDto` terminal, o `null` si no cerró nada.
+
+```ts
+type MotivoInterrupcion = 'SIN_LATIDO' | 'SIN_JOB' | 'REENTREGA';
+```
+
+```
+si this.cargasVivas.has(remesaId) → warn; return null              ← nunca una carga viva en este proceso
+transacción:
+    f = SELECT r.estadoProceso, r.categoria, p.encoladaAt, p.startedAt, p.heartbeatAt, p.finishedAt,
+               p.ok, p.err, p.jobId
+        FROM remesa r JOIN import_progreso p ON p.remesaId = r.id WHERE r.id = ? FOR UPDATE
+    sin fila (se borró, o es heredada sin fila de progreso)          → return null
+    f.estadoProceso ∈ {FINALIZADA, FALLIDA}, o f.finishedAt != null   → return null    ← un terminal no se pisa
+    f.encoladaAt == null                                              → return null    ← es un borrador
+    comprobación del motivo, otra vez, ya con el lock:
+        SIN_LATIDO: f.startedAt != null y (f.heartbeatAt ?? f.startedAt) más viejo que el umbral.
+                    Si latió mientras tanto                           → return null
+        SIN_JOB:    f.startedAt == null.  Si arrancó mientras tanto   → return null
+        REENTREGA:  f.startedAt != null
+    remesa:          estadoProceso FALLIDA, okFilas = f.ok, errFilas = f.err   (los persistidos)
+    import_progreso: fase TERMINADA, resultado FALLIDA, error = texto, subfase null,
+                     finishedAt = ahora, rev + 1.   heartbeatAt NO se toca: queda el último real.
+    releer la remesa con su fila y su creador, para armar el DTO
+fuera de la transacción, cada paso en su try/catch:
+    emitir import:finalizada                      (mismas salas que el tracker)
+    notificar                                     (notificarResultadoCarga, :2571-2604, sin cambios)
+    auditar IMPORT_FAIL                           ("Importación interrumpida remesa N", con el motivo)
+    log warn con remesa, motivo, minutos sin latido y filas procesadas
+return el DTO
+```
+
+- El `SELECT … FOR UPDATE` serializa el cierre contra todo lo demás que escribe esa fila: el `iniciar`
+  del worker, el borrado, la confirmación. El que llega segundo ve el resultado del primero.
+- Notifica al dueño y a quienes tienen `importacion.ver_progreso_otros`, igual que cualquier otra
+  FALLIDA: "Importación fallida", con la primera oración del motivo y "Se habían procesado N filas".
+- **El texto va en `import_progreso.error`** y por eso lo ven también las pestañas viejas. Sale de una
+  función pura nueva en `estado-carga.ts`, `textoInterrupcion(motivo, categoria)`, con su test.
+
+Texto, cuando la carga **había arrancado** (`SIN_LATIDO`, `REENTREGA`): una primera oración fija —
+
+> La importación se interrumpió: el servidor se reinició o dejó de responder mientras la procesaba.
+
+— seguida de qué hacer, **según la categoría**:
+
+| Categoría | Qué hacer | Verificado contra |
+|---|---|---|
+| DEUDORES, DEUDORES_Y_FACTURAS | ~~"Lo procesado hasta el corte quedó cargado en esta remesa. Eliminá esta importación desde el Historial (se puede mientras sus casos no tengan gestión) y volvé a cargar el archivo."~~ Texto definitivo en §9.15 | `deleteRemesa` (`:2908-2992`): una FALLIDA se puede borrar, y borra sus casos, facturas, contactos y campos extra si ninguno tiene gestión. Estas dos categorías solo escriben en su propia remesa |
+| ACCIONES | "Las acciones aplicadas hasta el corte quedaron hechas y **no se pueden revertir desde la pantalla**: los datos para deshacer se guardan recién al terminar. No vuelvas a cargar el archivo; avisá a soporte." | Los snapshots están en memoria y se escriben en `afterAll` (`acciones.processor.ts:279-292`); Revertir solo aparece en una finalizada |
+| El resto | "Lo procesado hasta el corte quedó aplicado. Antes de volver a cargar el archivo, avisá a soporte." | No se afirma ningún remedio: estas categorías escriben sobre casos de otras remesas (pagos, bajas, contactos, facturas) y borrar la remesa no lo deshace |
+
+Cuando **no había arrancado** (`SIN_JOB`):
+
+> La importación no llegó a empezar: quedó en la cola sin un trabajo que la procese (el servidor se
+> reinició justo al confirmarla, o la cola perdió el trabajo). No se cargó ninguna fila: volvé a
+> importar el archivo.
+
+**Regla para el implementer y el auditor**, que viene de la Fase A (el remedio de "con advertencias"
+del diseño era falso para casi todas las categorías, §8.13): **un remedio solo se escribe si está
+verificado contra el processor y contra `deleteRemesa`.** Si al implementar aparece una duda sobre los
+dos primeros renglones, esa categoría pasa al texto genérico y se reporta.
+
+La pantalla agrega después lo que ya agrega hoy para cualquier FALLIDA con filas: "Antes del corte se
+cargaron N filas…; el cierre de la carga no corrió." (`utils/estadoCarga.ts:161-172`).
+
+#### 9.5.6 Reaper de cargas colgadas
+
+Dos archivos nuevos en `backend/src/modules/imports/progreso/`: `reaper-cargas.service.ts` (la lógica)
+y `reaper-cargas.scheduler.ts` (los dos `@Cron`, con el patrón de `convenios/convenios.scheduler.ts`:
+`try/catch` alrededor de todo, `error` con stack). Se registran como providers de `ImportModule`.
+**No** se vuelve a importar `ScheduleModule.forRoot()`: ya está en `reportes.module.ts:27` y descubre
+los `@Cron` de toda la aplicación (así funcionan hoy los de convenios, promesas y mora).
+
+El servicio depende de `PrismaService` y de `ImportService`. Todo lo que habla con la cola queda en
+`ImportService`, al lado de `sacarJobDeLaCola` (`:2831-2861`) y bajo el mismo tope de tiempo
+(`conTope`, `:2815-2824`), en un método público nuevo:
+
+```ts
+/** Qué dice BullMQ del job de una carga. Nunca tira. */
+estadoDelJobDeCarga(remesaId: number, jobId: string | null): Promise<
+    { estado: 'ACTIVO_CON_LOCK' | 'ACTIVO_SIN_LOCK' | 'EN_ESPERA' | 'TERMINADO' | 'NO_EXISTE' | 'DESCONOCIDO' }
+>;
+```
+
+```
+job = jobId ? getJob(jobId) : null
+si job trae data.remesaId y NO es esta remesa → job = null  ← el id ya no es de esta carga (ver abajo)
+si no hay job: buscarlo por data.remesaId entre getJobs(['waiting','active','delayed','paused','prioritized'])
+sin job                                                  → NO_EXISTE
+según job.getState():
+    active                                               → EXISTS de la clave `${queue.toKey(job.id)}:lock`
+                                                           1 → ACTIVO_CON_LOCK · 0 → ACTIVO_SIN_LOCK
+    waiting, delayed, prioritized, paused, waiting-children → EN_ESPERA
+    completed, failed                                    → TERMINADO
+cualquier excepción, tope de tiempo vencido, o una cola sin lo necesario para mirar el lock → DESCONOCIDO
+```
+
+**La pasada**, `@Cron(CronExpression.EVERY_MINUTE)`:
+
+```
+si IMPORTS_REAPER_DESACTIVADO está puesto, o hay otra pasada corriendo → return
+candidatas = import_progreso con encoladaAt != null y finishedAt == null, cuya remesa no es terminal
+             (índice ImportProgreso_finishedAt_idx; lo normal es que sean 0, 1 o 2 filas)
+por cada candidata:
+    viva = importService.cargaVivaEnEsteProceso(remesaId)
+    si viva:                                                        ← (1) la estoy procesando yo: NO SE TOCA
+        si su latido tiene más de 60 s  → warn "latido atrasado N s en una carga viva (event loop o base lentos)"
+        si viva.sinAvanceMs >= 15 min   → warn "viva y sin avance hace N min (fase, subfase)"   (uno cada 15 min)
+        seguir con la próxima
+    si startedAt != null:                                           ── R1: arrancó y no terminó
+        si ahora − (heartbeatAt ?? startedAt) < umbral → seguir     ← (2) late: alguien la está procesando
+        j = estadoDelJobDeCarga(…)
+        si j es DESCONOCIDO      → warn "no se pudo consultar la cola"; olvidar la sospecha; seguir
+        si j es ACTIVO_CON_LOCK  → warn "otro proceso la tiene viva"; olvidar; seguir     ← (3) BullMQ dice que vive
+        motivo = SIN_LATIDO
+    si no:                                                          ── R2: en cola y nunca arrancó
+        si ahora − encoladaAt < 2 min → seguir                      (la ventana normal entre el commit y el add)
+        j = estadoDelJobDeCarga(…)
+        si j es DESCONOCIDO → olvidar; seguir
+        si j es EN_ESPERA, ACTIVO_CON_LOCK o ACTIVO_SIN_LOCK → olvidar; seguir     ← tiene job: espera su turno
+            (si es EN_ESPERA, lleva más de 5 min y este proceso no tiene ninguna carga viva:
+             warn "hay un job esperando y el worker no lo toma", uno cada 15 min. No se cierra.)
+        motivo = SIN_JOB                                            (NO_EXISTE o TERMINADO)
+
+    ── DOS PASADAS SEGUIDAS ──
+    si no era sospechosa, o lo era por otro motivo → anotarla { motivo, desde: ahora }; log "sospechosa"; seguir
+    si ahora − desde < 45 s → seguir
+    estado = importService.cerrarCargaInterrumpida(remesaId, motivo, { umbralMs })
+    si cerró y j es EN_ESPERA → sacar el job de la cola             (para que no se entregue nunca)
+    olvidar la sospecha
+olvidar las sospechas de las cargas que ya no son candidatas
+```
+
+**Por qué no puede matar una carga viva.** La pregunta de fondo: el reaper vive en el mismo proceso
+que el worker, y un bloqueo largo del event loop frena por igual al reloj del tracker, al cron y a la
+renovación del lock; cuando el event loop se libera, ¿quién corre primero? **No importa**, porque
+ninguna de las barreras depende del orden:
+
+1. **El registro de cargas vivas** se consulta antes que nada, es memoria del mismo proceso y no
+   depende de ningún timer. Si el cron corre, el proceso está vivo; si el proceso está vivo y tiene la
+   carga, el registro la tiene. Es la barrera que alcanza por sí sola con un único proceso.
+2. **Dos pasadas seguidas, con al menos 45 s entre una y otra.** La primera solo anota. Para la
+   segunda, el reloj de una carga viva ya tuvo decenas de tics y `heartbeatAt` es reciente.
+3. **La relectura bajo `FOR UPDATE`** dentro de `cerrarCargaInterrumpida`, que vuelve a mirar el
+   latido con la fila bloqueada.
+4. **El lock de BullMQ**, que es una señal de vida ajena a la base y es la que protegería a una carga
+   viva en **otro** proceso, si algún día lo hay.
+5. **Ante la duda, no se cierra.** Si Redis no responde, no se decide en esa pasada y la sospecha se
+   borra: hacen falta dos pasadas seguidas *con respuesta*.
+
+Y si todas fallaran a la vez, la carga viva no sigue a ciegas: su próxima escritura encuentra el
+estado terminal, el tracker se da por cerrado por fuera y la carga corta en el lote siguiente (§9.5.2).
+
+**Lo que deliberadamente no cierra:**
+
+- **Una carga viva que no avanza.** Ver §9.1: el proceso está vivo, y marcarla FALLIDA con el worker
+  todavía ocupado dejaría las cargas siguientes esperando detrás de una "terminada". Queda en el log.
+- **Una carga en cola con su job esperando**, lleve el tiempo que lleve: puede haber una carga de 91
+  minutos adelante. La antigüedad sola nunca cierra una carga en cola.
+- **Las remesas sin fila de progreso** (93, 98 y toda heredada): la consulta parte de
+  `import_progreso`. Es estructuralmente imposible que las vea.
+- **Los borradores**: no tienen `encoladaAt`.
+
+**Qué hace con el job de BullMQ.** Nada si está activo (BullMQ lo falla solo cuando lo detecta, por
+`maxStalledCount: 0`); nada si ya terminó o no existe. Si está **en espera** —BullMQ ya lo devolvió a
+la cola—, lo saca, reusando `sacarJobDeLaCola`. Aunque no pudiera sacarlo, el job llegaría a una carga
+terminal y lo ignoraría la guarda de la Fase A (`:2038-2046`).
+
+**Un bug de la Fase A que este diseño obliga a arreglar.** `sacarJobDeLaCola` busca el job por el `id`
+guardado en `import_progreso.jobId` y **no comprueba que sea de esa remesa**. Los ids de BullMQ son un
+contador que vive en Redis: si Redis pierde sus datos, el contador vuelve a 1 y un `jobId` viejo puede
+pertenecer al job de otra carga. Borrar una carga en cola podría sacar de la cola el job de otra. Se
+arregla en el mismo lugar: si el job trae `data.remesaId` y **no** es el de esta remesa, no es el
+buscado. Escrito así, en negativo, a propósito: los jobs falsos de los specs de borrado
+(`imports-progreso-http.spec.ts:548-567`) no traen `data` y se tienen que seguir sacando.
+
+**Umbral.** `IMPORTS_LATIDO_UMBRAL_MIN`, default **5**, acotado a [3, 120]; un valor inválido es 5. El
+porqué está en §5.3. Tiempo real hasta que se cierra: ~~entre 5 y 7~~ **entre 6 y 7** minutos desde el último latido (el
+umbral, más hasta dos pasadas). La gracia de la carga en cola sin job es fija, 2 minutos: es un caso
+sin zona gris —un job que no está a los dos minutos de confirmar no va a aparecer—, y el encolado
+tiene un tope de 10 segundos (`IMPORTS_QUEUE_TIMEOUT_MS`).
+
+**La primera pasada después de un deploy no puede cerrar nada:** la memoria de sospechas arranca
+vacía y hacen falta dos pasadas. El primer cierre posible es entre uno y dos minutos después de
+levantar, y solo de una carga que ya llevaba 5 minutos sin latido.
+
+#### 9.5.7 Reaper de borradores
+
+Predicado, TTL y horario están cerrados en §5.2. Acá, lo ejecutable. Mismo servicio y mismo scheduler
+que el otro reaper.
+
+`@Cron('30 4 * * *')` — las 04:30 **del reloj del contenedor**, que en prod es **hora de Argentina** (`Dockerfile.backend:6` fija `TZ`; medido en prod, §9.15) y no UTC como se supuso acá (~~01:30 de
+Argentina~~). Queda después de los crons de promesas (2), cuotas y limpieza de reportes (3) y mora (4),
+que usan el mismo reloj.
+
+```
+si IMPORTS_REAPER_DESACTIVADO está puesto → return
+ttl   = IMPORTS_BORRADOR_TTL_HORAS (default 24; acotado a [1, 720]; inválido → 24)
+corte = ahora − ttl
+candidatas = remesa.findMany({
+    where: { estadoProceso: { in: ['PENDIENTE', 'VALIDANDO'] },
+             createdAt: { lt: corte },
+             progreso: { is: { fase: 'BORRADOR', encoladaAt: null } },     ← exige fila: una heredada no entra
+             deudor: { none: {} } },
+    select: { id, numeroRemesa, empresaId, categoria, createdAt },
+    orderBy: { id: 'asc' }, take: 500 })
+por cada candidata, en SU transacción:
+    f = SELECT r.estadoProceso, p.fase, p.encoladaAt
+        FROM remesa r JOIN import_progreso p ON p.remesaId = r.id WHERE r.id = ? FOR UPDATE
+    si no hay fila, o estadoProceso ∉ {PENDIENTE, VALIDANDO}, o fase != 'BORRADOR', o encoladaAt != null → saltar
+    si existe algún deudor con ese remesaId → saltar
+    importerror.deleteMany · jobimport.deleteMany · remesa.delete        (la fila de progreso cae por cascade)
+    un error en una remesa → warn con el id, y seguir con la siguiente
+log: "Reaper de borradores: N eliminados de más de 24 h (remesas: 00151, 00152, …)", con el tiempo
+```
+
+- **La relectura con `FOR UPDATE`** es la que evita pisarse con alguien que justo confirma: la
+  confirmación toma el mismo lock (`:1829-1834`). Si confirma primero, el reaper ve `encoladaAt` y
+  saltea; si el reaper borra primero, la confirmación no encuentra la remesa y responde 404.
+- **Una transacción por remesa**, no una para todas: la que falla no arrastra a las demás y ningún
+  lock dura más que un borrado.
+- **Ante cualquier referencia inesperada, no borra.** Un borrador no procesó nada, así que no tiene
+  casos, ni claves de pago, ni snapshots. Si igual hubiera una clave (su FK no es cascade), el
+  `delete` falla, se loguea y esa remesa queda. El reaper no borra nada más que `importerror`,
+  `jobimport` y la remesa.
+- **No borra archivos** (§5.2). No hay notificaciones que limpiar: un borrador nunca tuvo.
+- **El tope de 500 por corrida** es un freno: si hubiera más, se van en las noches siguientes, y un
+  `warn` dice que quedó cola.
+- **Queda registrado** en el log, con el número de cada remesa borrada. Es el único rastro: no hay
+  papelera.
+
+#### 9.5.8 Las dos carreras que §8.13 dejó para la B
+
+**Confirmar y borrar la misma remesa a la vez.** Hoy las dos pueden responder OK, de dos maneras.
+
+*(a) El borrado leyó la remesa cuando todavía era borrador, y la confirmación hizo commit antes de la
+transacción del borrado.* `verificarNoArrancada` (`:2869-2885`) solo aborta si la carga **arrancó**;
+una recién encolada pasa. Cambio: el `SELECT … FOR UPDATE` agrega `p.encoladaAt`, y la función recibe
+si la lectura inicial la había visto en cola:
+
+```
+si la lectura inicial NO la vio en cola, y ahora encoladaAt != null y finishedAt == null:
+    → 409 "Esta importación se acaba de confirmar. Si igual querés eliminarla, volvé a intentarlo."
+```
+
+El segundo intento entra por el camino de "en cola sin arrancar", que saca el job y borra. Las
+fixtures de los specs actuales devuelven filas sin `encoladaAt`: la guarda está escrita para que
+`undefined` no la dispare.
+
+*(b) El borrado llega en la ventana entre el commit de la confirmación y el `queue.add`.* El borrado
+busca el job, no lo encuentra (todavía no entró) y borra; el `add` entra después, sobre una remesa que
+ya no existe, y la confirmación responde 201. Cambio en `executeRemesa`: el `update` que guarda el
+`jobId` (`:1926-1935`) hoy traga cualquier error con un `warn`. Si el error es `P2025` —la remesa ya
+no está—, se saca el job recién encolado (bajo `conTope`; si no se puede, `warn`: el worker tampoco va
+a encontrar la remesa) y se responde:
+
+```
+404 "La importación fue eliminada mientras se confirmaba."
+```
+
+Con las dos partes, la fila de la remesa es el punto de serialización: gana la operación que hace
+commit primero y la otra recibe un error que dice qué pasó.
+
+**La compensación del encolado devuelve a borrador una carga que el worker ya tomó.** Pasa cuando el
+`queue.add` vence por tiempo (10 s) pero el job igual entró y el worker lo tomó: la compensación
+(`:1941-1953`) pisa una carga que está corriendo y le dice 503 al usuario. Dos cambios:
+
+1. **La compensación se vuelve condicional, en el mismo `update`.** Se conserva la llamada
+   (`this.prisma.remesa.update`, con el mismo `data`: los casos C-7, F5 y H1 la afirman tal cual) y
+   solo cambia su `where`:
+
+   ```ts
+   where: { id: remesaId,
+            estadoProceso: { in: ['PENDIENTE', 'VALIDANDO'] },
+            progreso: { is: { fase: 'EN_COLA', startedAt: null } } }
+   ```
+
+   Si no encuentra la fila (`P2025`), no era compensable. Se relee la remesa:
+   - está en curso o terminó → el job **sí** entró y el worker la tomó: `warn`, y se responde **201**
+     con el estado real. La importación está corriendo; decirle "probá de nuevo" sería mentir.
+   - no existe → 404, el mismo de arriba.
+   - cualquier otro caso → 503, como hoy.
+2. **`iniciar` no arranca una carga que volvió a borrador** (el `NOT` de §9.5.2). Cubre el orden
+   inverso: la compensación hizo commit primero, y el worker —que había leído la remesa cuando
+   todavía estaba en cola— llega a `iniciar`: su escritura no encuentra la fila y el job se ignora.
+
+Queda una ventana residual de milisegundos —los que pasan dentro del `update` condicional de Prisma
+entre su lectura y su escritura—, con el desenlace que ya está probado hoy: una sola pasada de filas.
+No se cierra con una transacción explícita porque los tres specs que afirman la compensación la
+esperan como una llamada directa a `prisma.remesa.update`.
+
+#### 9.5.9 Posición en la cola, velocidad y ETA
+
+Las tres se **calculan al armar el DTO**. No se persisten y no tocan el schema. Las calcula el
+backend, no el frontend, por una razón práctica: el frontend no tiene tests, y `armarEstadoCarga` es
+una función pura con los suyos. Además así HTTP y socket dicen lo mismo, y todos los que miran la
+misma carga ven el mismo número.
+
+`armarEstadoCarga(remesa, fila, ahora = new Date(), extras: { enColaDelante?: number | null } = {})`:
+
+```
+descartadasPorFiltro = max(0, fila.descartadas − (fila.fueraDeCorte ?? 0))
+fueraDeCorte         = fila.fueraDeCorte ?? null          (las fixtures viejas no traen el campo)
+enColaDelante        = fase == 'EN_COLA' ? (extras.enColaDelante ?? null) : null
+
+velocidad y etaSegundos: null salvo que fase == 'PROCESANDO', no sea terminal, y startedAt != null
+    transcurrido = (ahora − startedAt) en segundos
+    si transcurrido < 5 o procesadas <= 0 → null, null    (sin base para estimar; y nunca una división por cero)
+    velocidad = max(0.1, redondear a un decimal(procesadas / transcurrido))
+    si totalEsperado > procesadas:
+        etaSegundos = ceil((totalEsperado − procesadas) × transcurrido / procesadas)
+        si etaSegundos > 172.800 (48 h) → null            (un número así no informa nada)
+    si no → etaSegundos = null
+```
+
+- **Promedio desde que arrancó, no promedio móvil.** Sale de un solo DTO (`procesadas`, `startedAt`,
+  `servidorAhora`), así que funciona apenas se recarga la página, sin historia. Un promedio móvil
+  necesita estado: o vive en la memoria del tracker —y entonces el `GET` no puede darlo y HTTP y
+  socket se contradicen— o hay que persistir una ventana. Lo que se pierde: si el ritmo cambia a mitad
+  de la carga, la estimación tarda en acomodarse.
+- **La ETA es de las filas.** No sabe cuánto va a tardar el post-proceso, y la pantalla lo dice.
+- En una remesa heredada, sin fila: `fueraDeCorte: null`, `descartadasPorFiltro: 0` y lo demás `null`.
+- **La notificación de `SIN_FILAS`** (`textoNotificacion`, `estado-carga.ts`) pasa a usar las dos
+  oraciones de §9.8.2 —la del filtro con `descartadasPorFiltro`, la de los otros cortes con
+  `fueraDeCorte`—, leyendo `descartadasPorFiltro ?? descartadas` para que un DTO armado a mano sin el
+  campo nuevo (los de `estado-carga.spec.ts`) dé el mismo texto que hoy. El `payload` de toda
+  notificación de importación suma `fueraDeCorte` y `descartadasPorFiltro`.
+
+**Posición en la cola.** Número de cargas en curso confirmadas antes que esta, contando la que está
+corriendo:
+
+```sql
+SELECT COUNT(*) FROM import_progreso
+WHERE finishedAt IS NULL AND encoladaAt IS NOT NULL
+  AND (encoladaAt < :suEncoladaAt OR (encoladaAt = :suEncoladaAt AND remesaId < :suId))
+```
+
+- Se calcula donde se arma el DTO de una carga `EN_COLA`: en `executeRemesa` (respuesta y evento), en
+  `progreso(id)`, en `status(id)`, y en `listarEnCurso` (una sola consulta con todas las cargas en
+  curso, y las posiciones en memoria: el listado de quien no tiene `importacion.ver_progreso_otros`
+  trae solo las suyas, y la posición tiene que contar las de todos). Es un número; no expone de quién
+  son las cargas de adelante.
+- **Es el mejor esfuerzo.** Va en `try/catch`: si la consulta falla, `enColaDelante` es `null` y la
+  pantalla muestra el texto de la Fase A. Nunca hace fallar un encolado ni una lectura.
+- **Es aproximada.** El orden de `encoladaAt` no es exactamente el de la cola (dos confirmaciones
+  casi simultáneas pueden entrar a Redis al revés).
+- **No hay un evento cuando la posición cambia.** El cliente la refresca con la consulta que ya hace
+  cada 30 s cuando no llegan eventos, y los que reciben los eventos ajenos, enseguida (§9.8.5).
+
+#### 9.5.10 Vista previa: las descartadas, separadas igual
+
+`validateRemesa` cuenta las descartadas con los filtros combinados (`:1382-1383`, `:1434-1435`) y las
+devuelve en `descartadas` y `filtro` (`:1633-1634`). Para que la vista previa y la carga digan lo
+mismo:
+
+- Evalúa en el mismo orden que el worker (`filtrosSeparados`) y devuelve `descartadas` (el total,
+  como hoy) más `fueraDeCorte` (solo si la remesa tiene corte).
+- `filtro` pasa a describir **solo** el filtro de la plantilla. Hoy, en una remesa de una división,
+  incluye la condición del corte y el operador lee "se descartaron N filas que no cumplen col 3 EN
+  3082" como si la plantilla hubiera tirado media cartera.
+
+`previewDivision` (`:555-601`) ya cuenta solo con el filtro de la plantilla: no cambia.
+
+#### 9.5.11 Logging y variables de entorno
+
+Según la política del `CLAUDE.md`. Lo que se agrega a §8.5.8:
+
+| Dónde | Nivel | Qué |
+|---|---|---|
+| Arranque del servicio del reaper (`onModuleInit`) | `log` ×1 | "Reaper de importaciones activo: sin latido a los N min, borradores a las N h" — o `warn` "desactivado por IMPORTS_REAPER_DESACTIVADO" |
+| Fin de la lectura (primera fila después de LEYENDO) | `log` | `Lectura remesa=N terminó en Xms` |
+| Fin de las filas | `log` | `Filas remesa=N: P procesadas en Xms (V filas/s)` |
+| Cada paso del post-proceso, cuando cambia el nombre de la subfase y al terminar el `afterAll` | `log` | `Post-proceso remesa=N «Consolidando casos» en Xms` |
+| Deriva del reloj de 5 s o más | `warn` | "Event loop bloqueado ~N ms durante la remesa X (fase, subfase)" |
+| Escritura del reloj que falla | `warn`, a lo sumo uno por minuto | — |
+| Carga cerrada por fuera | `warn` | — |
+| Reaper: carga sospechosa (primera pasada) | `log` | remesa, motivo, minutos sin latido, lo que dijo la cola |
+| Reaper: carga cerrada | `warn`, intent y done con tiempo | remesa, motivo, filas procesadas, qué se hizo con el job |
+| Reaper: cola que no responde; carga viva en otro proceso; carga viva sin avance | `warn` | — |
+| Reaper: una pasada de más de 500 ms | `log` con el tiempo | — |
+| Reaper de borradores | `log`, intent y done con tiempo | cantidad y números de remesa |
+| Listeners de BullMQ | `warn` | §9.5.1 |
+| 404 y 409 nuevos de `executeRemesa` y `deleteRemesa` | `warn` | motivo de negocio |
+| Reaper o cron que tira | `error` con stack | — |
+
+Los tres logs con tiempo por paso son los que §3.5 pedía: con la primera carga real ya se puede saber
+cuánto tarda cada paso de cada categoría. No se loguea ninguna fila cruda ni ningún documento.
+
+**Variables de entorno.** Todas con un default en el código que sirve en prod sin tocar nada: el
+`docker-compose.prod.yml` no viaja con el deploy. Se documentan en `backend/.env.example`.
+
+| Variable | Default | Cotas | Para qué |
+|---|---|---|---|
+| `IMPORTS_PROGRESO_INTERVALO_MS` | 1000 | [250, 10000] | Cada cuánto el reloj vuelca el progreso |
+| `IMPORTS_LATIDO_UMBRAL_MIN` | 5 | [3, 120] | Minutos sin latido para cerrar una carga |
+| `IMPORTS_BORRADOR_TTL_HORAS` | 24 | [1, 720] | Antigüedad de un borrador para borrarlo |
+| `IMPORTS_REAPER_DESACTIVADO` | sin definir | ~~cualquier valor no vacío lo activa~~ solo `1`, `true`, `si`, `sí`, `yes`, `on`, `y`, `s` (§9.15) | Apaga los dos crons. Es la llave de emergencia de dos jobs que cierran y borran solos |
+
+Un valor que no es un número, o que queda fuera de las cotas, cae al default o a la cota, como hace
+`IMPORTS_BATCH_SIZE` (`:59-63`). El latido cada 15 s y la gracia de 2 minutos son constantes del
+código: tienen que guardar una proporción con el umbral, y hacerlos configurables es poder romperla.
+
+#### 9.5.12 El parseo síncrono se queda donde está
+
+§4 pedía "evaluar sacar el parseo síncrono del event loop si se confirma el bloqueo >45 s". **No se
+confirma, y no entra en la Fase B.**
+
+- **Lo medido en prod** (§9.1): el parseo síncrono más largo registrado es de 1,1 s. Los minutos en
+  0 % de MULTIARCHIVO eran filas, no parseo.
+- **Lo que dejaría un bloqueo de más de 15-30 s** —una falla de renovación de lock en el log— no
+  aparece ni una vez en 181 corridas.
+- **Excel**, que es la única lectura síncrona de tamaño libre: 150.000 filas son 6 s y 1,4 GB de
+  memoria en la máquina de desarrollo. Antes de bloquear 45 s, el proceso se queda sin memoria. Y eso
+  ya tiene respuesta: el proceso muere, el latido se corta, el reaper cierra la carga con motivo.
+- **El costo de hacerlo no es chico ni neutro.** Un worker thread obliga a serializar cientos de miles
+  de filas entre hilos o a mover el pipeline entero. Leer Excel por *stream* es cambiar de librería, y
+  con ella cómo salen las fechas y los números (`raw: false`, `dateNF`): justo el tipo de cambio que
+  produce valores mal convertidos, el fallo silencioso más caro de este sistema.
+- **La Fase B deja el bloqueo inofensivo y medible.** Inofensivo: el lock aguanta un minuto (§9.5.1) y
+  el reaper no mata una carga viva aunque el event loop se frene (§9.5.6). Medible: la deriva del
+  reloj lo deja en el log con la remesa y la duración (§9.5.2).
+
+**Cuándo reabrirlo:** si aparece en prod un `warn` "Event loop bloqueado" de más de 30 s. Con ese dato
+—qué categoría, qué archivo, cuánto— se decide entre un tope de tamaño para Excel y sacar la lectura
+del hilo principal.
+
+### 9.6 Deploy
+
+**Antes de desplegar** (lecturas en prod; las corre quien orquesta, el architect no las corrió):
+
+1. **Que la base esté sincronizada con el schema desplegado** (`prisma migrate diff` con la imagen
+   actual → `This is an empty migration`). Mismo motivo que en §8.6: el `db push` ejecuta todo el diff
+   pendiente, no solo la columna nueva.
+2. **Que no haya cargas en curso:**
+   `SELECT remesaId, fase, encoladaAt, startedAt, heartbeatAt FROM import_progreso WHERE encoladaAt IS NOT NULL AND finishedAt IS NULL`
+   → vacío. Si hay una procesando, esperar: el deploy la mata. La diferencia con hoy es que ya no
+   queda colgada ni se re-ejecuta: se cierra FALLIDA con motivo entre 5 y 7 minutos después.
+3. **Qué va a borrar el reaper de borradores en su primera corrida**, para que el usuario lo vea antes:
+   `SELECT r.id, r.numeroRemesa, r.categoria, r.createdAt FROM remesa r JOIN import_progreso p ON p.remesaId = r.id WHERE r.estadoProceso IN ('PENDIENTE','VALIDANDO') AND p.fase = 'BORRADOR' AND p.encoladaAt IS NULL AND r.createdAt < NOW() - INTERVAL 24 HOUR AND NOT EXISTS (SELECT 1 FROM deudor d WHERE d.remesaId = r.id)`
+   Hoy da vacío (la tabla no tiene filas). Si para el día del deploy lista algo que se quiere
+   conservar, se despliega con `IMPORTS_REAPER_DESACTIVADO` puesto y se resuelve antes de sacarlo.
+
+**Orden: primero el backend, después el frontend, en dos commits**, igual que en §8.6 y por el motivo
+de §9.4.5: el frontend nuevo contra el backend viejo no se rompe, pero promete un cierre automático
+que el backend viejo no hace.
+
+**Qué pasa con lo que ya existe:**
+
+| Situación | Después del deploy |
+|---|---|
+| Remesas 93 y 98, y toda heredada sin fila | Ningún reaper puede verlas: los dos parten de `import_progreso`. Siguen en el Historial |
+| Cargas terminadas antes del deploy | `fueraDeCorte: null`; `descartadasPorFiltro` igual a `descartadas`. Sin cambios a la vista |
+| Borradores con fila, de más de 24 h y sin casos | Se borran a las 04:30 (reloj del contenedor) de esa noche. Punto 3 de arriba |
+| Carga **en cola** cuando el contenedor se reinicia | Su job sigue en Redis: el worker nuevo la toma y corre normal. El reaper la ve con job y no la toca |
+| Carga **procesando** cuando el contenedor se reinicia | **No se re-ejecuta.** El chequeo de jobs perdidos lo hace el worker nuevo, con `maxStalledCount: 0`, así que BullMQ falla el job aunque lo haya encolado el código viejo. El reaper la cierra FALLIDA entre 5 y 7 minutos después de su último latido |
+| Pestañas abiertas con el frontend de la Fase A | §9.4.5 |
+
+**La primera corrida de cada reaper no puede hacer nada indebido:**
+
+- *Cargas colgadas:* la primera pasada después de levantar nunca cierra (hacen falta dos); la segunda
+  solo cierra lo que lleva 5 minutos sin latido, no está en el proceso y BullMQ no tiene vivo. En
+  prod, hoy, no hay ninguna fila que pueda ser candidata.
+- *Borradores:* no corre al levantar sino a las 04:30; el punto 3 muestra antes qué va a borrar; y
+  la variable de entorno lo apaga sin desplegar código.
+
+**Después de desplegar:**
+
+1. En CloudWatch, la línea `Reaper de importaciones activo: sin latido a los 5 min, borradores a las 24 h`.
+2. `prisma migrate diff` vacío, y la columna `fueraDeCorte` en `import_progreso`.
+3. Con la primera carga real: la fila de `import_progreso` (que `heartbeatAt` se mueva cada 15 s) y
+   los logs `Filas remesa=…` y `Post-proceso remesa=… «…» en …ms`. Es la primera medición real de
+   cuánto tarda cada paso, y la primera vez que las Fases A y B corren de punta a punta.
+
+**Volver atrás no es gratis**, por partida doble. La imagen anterior querría borrar la columna, y con
+valores no nulos Prisma pide `--accept-data-loss` y frena el deploy. Y con la imagen anterior vuelven
+los defaults de BullMQ: una carga interrumpida se re-ejecuta. Ante un problema con los reapers, la
+salida rápida es `IMPORTS_REAPER_DESACTIVADO`; para lo demás, corregir hacia adelante.
+
+### 9.7 Fallos silenciosos
+
+| Qué puede pasar en silencio | Cómo queda a la vista |
+|---|---|
+| El worker muere y la carga queda PROCESANDO para siempre | El reaper la cierra FALLIDA con motivo y con qué hacer; notificación roja; el bloqueo "una importación por usuario" se libera solo |
+| La carga se re-ejecuta sola y duplica (comentarios de ACCIONES) o pisa lo ya cargado | No se re-ejecuta: BullMQ no la vuelve a entregar y, si igual lo hiciera, el worker la cierra sin procesar. Test dedicado |
+| **El reaper cierra una carga que estaba viva** | Tres comprobaciones independientes y dos pasadas (§9.5.6). Si igual pasara: la carga viva corta en el lote siguiente y lo deja en el log, y la cerrada dice cuántas filas tenía |
+| Un estado terminal pisado por una escritura tardía | La condición va en el `where` de cada escritura del tracker (§9.3) |
+| El reaper de borradores borra una carga que alguien estaba por confirmar | Relee con `FOR UPDATE` el mismo lock que toma la confirmación. Y deja en el log el número de cada remesa que borró |
+| El reaper de borradores borra algo con datos | No toca nada con un caso, ni sin fila de progreso, ni fuera de PENDIENTE/VALIDANDO; y ante una referencia inesperada el `delete` falla y esa remesa queda |
+| Una carga queda en cola y nunca arranca (el job se perdió) | El reaper la cierra a los ~4 minutos con "no llegó a empezar. No se cargó ninguna fila" |
+| Una carga en cola **legítima** cerrada por vieja | No puede pasar: la antigüedad sola no cierra una carga en cola; tiene que faltar el job |
+| Una carga en cola con su job, y un worker que no lo toma | **No se cierra sola** (no hay cómo distinguirla de una espera legítima sin arriesgar la anterior). Se ve: `warn` del reaper cada 15 minutos, la pantalla avisa que es la próxima y nadie la tomó, y el operador la puede eliminar |
+| El post-proceso parece colgado y está trabajando (o al revés) | La subfase con "N de M" se mueve; el latido distingue "el servidor trabaja" de "el servidor no da señales" |
+| Una carga viva que no avanza (un `await` que no vuelve) | **No se cierra sola** (§9.1). Se ve: `warn` del reaper cada 15 minutos, y en la pantalla "no muestra avances hace N min… no se va a marcar como fallida sola" |
+| Un reporte de progreso que falla frena o tumba una carga | Los reportes son sincrónicos, sin IO y con `try/catch`; el reloj nunca deja una promesa sin manejar |
+| El reloj sigue escribiendo después de terminada la carga | `finalizar`, `fallar` y el `finally` del runner lo detienen; la escritura del latido lleva `finishedAt: null` en su condición |
+| Descartadas infladas en una carga dividida (se leían como "el filtro tiró media cartera") | `fueraDeCorte` las separa. En todas las remesas de una división, `descartadasPorFiltro` da el mismo número |
+| Filas de otros cortes que no se cargan y nadie cuenta | Se cuentan y se muestran en el detalle de cada remesa. `procesadas + descartadas` = filas del archivo |
+| Casos que colapsan por identidad repetida | La vista previa lo sigue avisando antes de ejecutar. Además, en DEUDORES, `ok − nuevos − actualizados` es esa cantidad; el nombre en pantalla llega con el resumen de la Fase C |
+| `nuevos` / `actualizados` en cero donde en realidad no se sabe | Donde la categoría no lo informa es `null`, y la pantalla no muestra el contador |
+| La ETA promete una hora que no es | Es de las filas y el texto lo dice; no hay ETA del post-proceso |
+| Un bloqueo largo del event loop | `warn` con la remesa, la fase y la duración |
+| BullMQ da por perdido un job | Los listeners lo dejan en el log con formato (hoy sale por `console.error`, sin `requestId`) |
+| Un `jobId` que ya es de otra carga (Redis perdió sus datos) hace sacar de la cola el job equivocado | Se comprueba `job.data.remesaId` antes de tocar un job (§9.5.6). Es un bug de la Fase A |
+| Confirmar y borrar a la vez, y las dos dicen OK | 409 o 404, según quién llegó primero (§9.5.8) |
+| El encolado "falla" pero la carga está corriendo | Se responde 201 con el estado real, no "probá de nuevo" (§9.5.8) |
+| Los contadores de una carga interrumpida, hasta un segundo atrasados | Es el intervalo del reloj. Lo dice la wiki; el texto del motivo no afirma un número exacto |
+| Un permiso nuevo que nadie puede asignar | No aplica: no se agrega ninguno |
+| Algo escrito al disco del contenedor que se pierde en el deploy | No aplica: el estado vive en MySQL. (Los archivos de los borradores borrados quedan en el volumen: deuda conocida, §9.1) |
+| Una variable de entorno nueva que en prod no existe | Todas tienen un default en el código (§9.5.11) |
+
+### 9.8 Frontend
+
+Sin el componente único de la Fase C: cada pantalla que ya existe muestra lo nuevo en su lugar. El
+frontend sigue sin tests ni lint; la verificación está en §9.9.4.
+
+#### 9.8.1 Tipos y utilidades
+
+- `frontend/src/types/importProgreso.ts`: los tipos de §9.4.1, copiados tal cual.
+- `frontend/src/utils/estadoCarga.ts`. Todo lo que es texto o regla vive acá, en funciones puras:
+  - `etiquetaFase(estado, contexto)`: la tabla de §9.8.2. Pasa a leer `subfase` y `enColaDelante`.
+  - `descartadasPorFiltro(estado)`: `estado.descartadasPorFiltro ?? estado.descartadas`. Es el
+    respaldo de §9.4.5; los componentes usan la función, no el campo.
+  - `lineaDeRitmo(estado)`: `null` si `velocidad` no es un número; si no, "≈ 34 filas/s" y, si hay
+    `etaSegundos`, " · faltan ~4 min para terminar las filas".
+  - `formatearEspera(segundos)`: "menos de 1 min" · "~N min" · "~H h M min".
+  - `formatearNumero(n)`: separador de miles.
+  - `minutosSinSenal(estado, recibidoEn, vistoEn, ahora)`: reemplaza a `minutosSinNovedades`
+    (`:226-244`) con la misma cuenta, pero vale para `LEYENDO`, `PROCESANDO` y `POST_PROCESO`.
+  - `minutosEnColaSinTomar(estado, recibidoEn, ahora)`: solo `EN_COLA` con `enColaDelante === 0`; es
+    la edad de `encoladaAt`, medida con `servidorAhora`. Con `enColaDelante` `null` o `undefined`
+    devuelve `null`: no se avisa de lo que no se sabe.
+  - `presentarResultado`: en `SIN_FILAS`, el detalle de §9.8.2.
+  - Constantes: `SIN_SENAL_MIN = 2` (reemplaza a `SIN_NOVEDADES_MIN = 5`, `:14`),
+    `EN_COLA_SIN_TOMAR_MIN = 2`, `SIN_CAMBIOS_MIN = 10`.
+
+Todo campo nuevo se lee tolerando `undefined`: `== null` y nunca `=== null`.
+
+#### 9.8.2 Textos
+
+Los mismos en el wizard, el detalle, la campanita y la wiki. Reemplazan a la tabla de fases de §8.8.8;
+la tabla de resultados de §8.8.8 sigue valiendo, salvo `SIN_FILAS`.
+
+| Fase | Texto | Texto secundario |
+|---|---|---|
+| *Subiendo* (solo wizard, paso 2) | Subiendo archivos… N % | X de Y MB |
+| *Archivo recibido* (solo wizard, paso 2) | Armando la vista previa… | El servidor está leyendo el archivo. |
+| `BORRADOR` (en "Importando") | Enviando a la cola… | — |
+| `BORRADOR` (en el detalle) | Borrador | Vista previa sin confirmar. No se cargó nada. |
+| `EN_COLA`, posición desconocida | En cola | Esperando que termine otra importación. |
+| `EN_COLA`, `enColaDelante = 0` | En cola | Es la próxima: empieza en instantes. |
+| `EN_COLA`, `enColaDelante = 1` | En cola | Hay 1 importación antes que esta. |
+| `EN_COLA`, `enColaDelante = n > 1` | En cola | Hay n importaciones antes que esta. |
+| `LEYENDO` | Leyendo el archivo | Todavía no se procesó ninguna fila. |
+| `PROCESANDO` | Procesando | — (debajo de los contadores, la línea de ritmo) |
+| `POST_PROCESO`, sin subfase | Post-proceso | Consolidando y cerrando la carga. Puede tardar varios minutos. |
+| `POST_PROCESO`, con subfase | Post-proceso | {subfase}, tal cual llega |
+| otra | el valor de `fase` tal cual | — |
+
+Línea de ritmo: "≈ {velocidad} filas/s · faltan {espera} para terminar las filas". Sin ETA, solo la
+primera parte. En el post-proceso no hay línea de ritmo.
+
+`SIN_FILAS`, detalle: *(si `descartadasPorFiltro > 0`)* "El filtro de la plantilla descartó las
+{descartadasPorFiltro} filas." *(si `fueraDeCorte > 0`)* "{fueraDeCorte} filas son de otros cortes de
+la división." Las dos oraciones pueden ir juntas.
+
+Una carga interrumpida no tiene texto propio en el frontend: es una `FALLIDA`, y el motivo y qué hacer
+vienen escritos en `error` (§9.5.5).
+
+#### 9.8.3 Avisos de una carga en vivo (`components/import/AvisosCarga.tsx`)
+
+Los usan el wizard y el detalle. Pasan a cubrir las fases que §8.13 dejó afuera:
+
+| Aviso | Cuándo | Severidad | Texto |
+|---|---|---|---|
+| Sin conexión | Igual que hoy | warning | Igual que hoy |
+| Sin señal del servidor | `LEYENDO`, `PROCESANDO` o `POST_PROCESO`, y `minutosSinSenal >= 2` | warning | "El servidor no da señales de esta carga hace N min. Si no se recupera, en unos minutos se marca sola como fallida y vas a poder volver a importar." |
+| En cola y nadie la toma | `EN_COLA`, `enColaDelante = 0`, y `minutosEnColaSinTomar >= 2` | warning | "Esta carga es la próxima de la cola y el servidor no la tomó hace N min. Si sigue así, avisá a soporte. Mientras no arranque, la podés eliminar desde el Historial." |
+| Sin cambios | `PROCESANDO` o `POST_PROCESO`, **con** señal, y este navegador no vio cambiar `fase`, `subfase`, `procesadas`, `ok` ni `err` en 10 minutos | info | "El servidor sigue trabajando, pero esta carga no muestra avances hace N min (contados desde que abriste esta pantalla). Puede ser un paso largo. Si sigue así, avisá a soporte: no se va a marcar como fallida sola." |
+| Reinicio | `intentos > 1` | info | Igual que hoy. Ya no debería verse (§9.3); se deja por las cargas anteriores |
+
+- **"Sin señal" baja de 5 a 2 minutos** porque el latido pasó de uno por lote a uno cada 15 segundos:
+  dos minutos son ocho latidos perdidos.
+- **Los textos no dicen "5 minutos":** el umbral es una variable del servidor y el frontend no la
+  conoce. Dicen "en unos minutos".
+- **El aviso de la cola no promete un cierre automático**, a diferencia del de "sin señal". El reaper
+  cierra una carga en cola solo si su job **no existe**; si el job está y el worker no lo toma, no la
+  cierra (§9.5.6), y la pantalla no puede distinguir un caso del otro. Lo que sí es cierto siempre:
+  una carga en cola que no arrancó se puede eliminar (Fase A).
+- **"Sin cambios" se mide en el navegador**, desde que se abrió la pantalla, y el texto lo dice. No hay
+  en la base un dato de "último avance": recargar la página reinicia la cuenta. Es una limitación
+  aceptada (§9.1): el aviso es una pista para el operador, no una decisión del sistema.
+- "Sin señal" y "sin cambios" se excluyen: sin señal no se sabe si avanza.
+
+#### 9.8.4 Wizard
+
+**Subida** (`pages/ImportWizard.tsx`). Los dos `POST` que mandan archivos —`division-preview`
+(`:322-324`) y `remesas` (`:409-411`)— agregan `onUploadProgress` y guardan `{ enviados, total }` en
+un estado. Mientras ese estado existe, la barra genérica del pie (`:1286`) se reemplaza por una barra
+con porcentaje y los textos de §9.8.2. Con `total` desconocido, barra sin porcentaje y los MB
+enviados. Cuando `enviados` llega a `total`, pasa a "Armando la vista previa…" hasta que responde la
+validación (`:428`). El estado se limpia en el `finally`. No toca el backend.
+
+**Vista previa** (paso 3). El texto de las descartadas (`:1040-1044`) usa `descartadas −
+(fueraDeCorte ?? 0)`. En la alerta de "no tiene filas" (`:1124-1130`) se va la condición
+`!esDivision`: con los dos números separados el texto es correcto también en una división, y agrega
+la oración de los otros cortes de §9.8.2.
+
+**Importando** (`components/import/ImportProgress.tsx`):
+
+- La fase, con `etiquetaFase` (`:86`, `:186-195`): posición en la cola, "Leyendo el archivo", y en el
+  post-proceso, la subfase.
+- Debajo de los contadores, la línea de ritmo.
+- Contadores (`:165-183`): Total, Procesadas, OK, Errores, **Descartadas** —que pasa a ser
+  `descartadasPorFiltro`— y, si no son `null`, **Nuevos** y **Actualizados**. Con separador de miles.
+- Se va la prop `ocultarDescartadas` (`:25-26`, `:42`, `:175`, y `ImportWizard.tsx:1105`): existía porque el
+  número mezclaba las dos cosas.
+- La barra no cambia de regla: con porcentaje solo en `PROCESANDO` con total conocido.
+
+**Resultado** (`components/import/ImportSummary.tsx`):
+
+- "Descartadas" vuelve a mostrarse en una carga dividida (`:100-105`, `:224`). En una carga simple es
+  `descartadasPorFiltro`. En una dividida **no se suma** —cada remesa lee el archivo entero, y sumar
+  multiplicaría el número por la cantidad de remesas—: se muestra el valor común, y si las remesas no
+  coinciden no se muestra total y cada fila de remesa lleva el suyo.
+- Métricas "Casos nuevos" y "Casos actualizados", sumadas, solo si todas las remesas del resumen las
+  informan.
+
+#### 9.8.5 Detalle, campanita y hook
+
+- **`pages/ImportDetail.tsx`.** El bloque de la carga en curso (`:435-452`) muestra la fase con
+  posición o subfase y la línea de ritmo. Los avisos ya están montados (`:454-458`). Debajo de las
+  cuatro tarjetas (`:477-512`), una línea con lo que no entra en ellas, mostrando solo lo que
+  corresponda: "Casos nuevos: N · Casos actualizados: M · Descartadas por el filtro de la plantilla:
+  D · De otros cortes de la división: F (no se cargan en esta remesa)". Vale para cargas en curso y
+  terminadas. Es el arreglo de la última fila "B" de §8.13.
+- **`components/layout/AppShell/ImportEnCursoItem.tsx`.** Ya dibuja el texto de fase (`:43-46`) y su
+  secundario (`:67-71`): con `etiquetaFase` nuevo aparecen solos la posición y la subfase. En `PROCESANDO`
+  agrega la espera abreviada: "Procesando · 43% · faltan ~4 min". No muestra avisos ni los contadores
+  nuevos: es una fila angosta.
+- **`hooks/useEstadoCarga.ts`.** Un solo cambio: si llega un evento de importación de **otra** remesa
+  mientras la propia está `EN_COLA`, se llama a `refrescar()` —la cola se movió—, con un mínimo de 5
+  segundos entre refrescos por esa vía. Quien no recibe eventos ajenos ve la posición actualizada por
+  la consulta de cada 30 s que ya existe.
+- **No cambian:** `NotificacionesContext`, `NotificacionesPopover`, `SocketContext`, `ImportHistory`,
+  `api/imports.ts`.
+
+Todo con `theme.palette`, sin colores escritos a mano, y probado en claro, oscuro y ancho de celular.
+
+### 9.9 Plan de pruebas
+
+**Línea de base, medida el 09/10/2026 sobre HEAD `a5ed9c4`:**
+
+- Backend: `npx jest src/modules/imports src/modules/realtime src/modules/notificaciones` → **43
+  suites, 824 tests, todos pasan.** `npx jest` completo → **93 suites y 1.500 tests pasan** (1 suite y
+  3 tests salteados, que ya lo estaban).
+- Frontend: `npx tsc --noEmit -p tsconfig.json` → **los mismos 5 errores de la Fase A**:
+  `MappingEditor.tsx:443` y `:499`, `ImportHistory.tsx:423`, `Login.tsx:104`,
+  `theme/components.ts:165`.
+
+#### 9.9.1 Qué pasa con los specs que ya existen
+
+**Los specs de los processors pasan sin tocar una línea.** El diseño se armó mirando los asserts que
+lo obligan:
+
+- `ctx.progreso` es opcional, y sin él ninguna llamada a un colaborador cambia de forma
+  (`facturas.processor.spec.ts:253`, §9.4.4).
+- `processImportJob` sigue devolviendo `{ total, ok, err }` exactos y la secuencia de eventos del caso
+  B-1 es la misma (§9.5.3).
+- `descartadas` no cambia de significado (caso B-3, §9.2).
+- La compensación del encolado sigue siendo la misma llamada con el mismo `data` (casos C-7, F5 y H1).
+- La escritura del `jobId` sigue siendo la misma llamada (caso C-1).
+- Las guardas nuevas están en negativo: las fixtures sin `estadoProceso`, sin fila o sin `encoladaAt`
+  no las disparan.
+
+**Un único caso existente cambia, y cambia porque cambia la política:** `B-8`, en
+`imports-progreso-eventos.spec.ts:350-369`, afirma que una re-ejecución reinicia los contadores y suma
+un intento. Con la regla 1 de §9.3 eso ya no es lo que tiene que pasar. **Se borra de ese archivo** y
+lo reemplaza el caso FB-4 de abajo. Es la única modificación admitida a un spec existente; cualquier
+otra es señal de que algo dejó de ser compatible: **parar y reportar**.
+
+A `progreso/estado-carga.spec.ts` y a `bullmq/imports.processor.spec.ts` se les **agregan** casos; no
+se toca ninguno de los que tienen.
+
+#### 9.9.2 Specs nuevos de backend
+
+**A. `progreso/estado-carga.spec.ts`** (casos nuevos)
+
+- `armarEstadoCarga`: `fueraDeCorte` null en una fila sin el campo; `descartadasPorFiltro` = 7 − 4 = 3;
+  nunca negativo; en una heredada, `fueraDeCorte: null` y `descartadasPorFiltro: 0`.
+- Velocidad y ETA: 3.000 de 14.466 a los 90 s → 33,3 filas/s y 344 s; a los 4 s → `null`; con
+  `procesadas: 0` → `null`; fuera de `PROCESANDO` → `null`; con `procesadas >= totalEsperado` →
+  velocidad sí, ETA `null`; una ETA de más de 48 h → `null`. Ningún caso da `NaN` ni `Infinity`.
+- `enColaDelante`: sale solo en `EN_COLA`; con `extras` en otra fase → `null`.
+- `textoNotificacion`, `SIN_FILAS`: con filtro, con corte y con los dos.
+- `textoInterrupcion`: las tres familias de categorías más `SIN_JOB`; empieza siempre con la oración
+  fija; la primera oración entra en los 300 caracteres de la notificación; el total, en 4.000.
+
+**B. `progreso/progreso-tracker-reloj.spec.ts`** (nuevo; timers falsos de jest, reloj inyectado)
+
+| # | Caso | Qué tiene que pasar |
+|---|---|---|
+| R-1 | Tras `iniciar`, 60 s sin ningún reporte | 4 escrituras de latido (a los 15, 30, 45 y 60 s); ningún evento; ninguna toca `remesa` |
+| R-2 | 500 llamadas a `avance` en un mismo tic | Cero escrituras hasta el tic; en el tic, una escritura y un `import:progreso` con los últimos contadores |
+| R-3 | `avance` continuo durante 10 s | A lo sumo 10 escrituras del reloj; `rev` creciente; el porcentaje no baja nunca |
+| R-4 | El intervalo se configura | Con `intervaloMs: 250`, hasta 4 por segundo; un valor fuera de las cotas cae a la cota |
+| R-5 | Una escritura del reloj tarda 3 s | Los tics de esos 3 s no lanzan otra: nunca hay dos escrituras en vuelo |
+| R-6 | `lote` con una escritura del reloj en vuelo | Espera a que termine y recién escribe; al final la memoria tiene los contadores de `lote` |
+| R-7 | Un reporte llega **durante** una escritura del reloj | No se pierde: la escritura siguiente lo lleva (prueba que la memoria no se pisa con la foto vieja) |
+| R-8 | `finalizar` con un tic pendiente | El último evento es `finalizada`; avanzando 60 s más no hay ni una escritura ni un evento |
+| R-9 | `fallar` y `cerrar` | Detienen el reloj; `cerrar` dos veces no tira |
+| R-10 | La escritura del reloj rechaza, diez veces seguidas | Ninguna promesa rechazada sin manejar (listener de `unhandledRejection`); `sucio` sigue prendido; un solo `warn` en ese minuto; al volver la base, escribe |
+| R-11 | La escritura no encuentra la fila (`P2025`), o el latido devuelve `count: 0` | `cerradaPorFuera` pasa a `true`; el reloj se detiene; el próximo `lote` tira `CargaCerradaPorFueraError` |
+| R-12 | `subfase('Consolidando casos', 1500, 8875)` | El texto persistido y emitido es "Consolidando casos: 1.500 de 8.875"; sin total, solo el nombre; un nombre de 300 caracteres se recorta a 160 |
+| R-13 | Cambia el nombre de la subfase | Un `log` con el nombre del paso que terminó y su tiempo |
+| R-14 | `avanceDelLote(300)` con `ok: 1000, err: 0` | `procesadas: 1300`; después de `lote({ ok: 2000, … })`, `procesadas: 2000` |
+| R-15 | `entrarEnLectura` y después el primer `avance` | Fase `LEYENDO` persistida y emitida; con el primer `avance`, la memoria pasa a `PROCESANDO` |
+| R-16 | Un tic llega 7 s tarde | `warn` "Event loop bloqueado" con la remesa y la fase |
+| R-17 | `contadores({ nuevos: 5 })` y `fueraDeCorte` | Viajan en la escritura siguiente; sin informar quedan en `null`, no en 0 |
+| R-18 | El `where` de las escrituras | Todas llevan `estadoProceso: { notIn: [...] }`; solo la de `iniciar` lleva además el `NOT` del borrador |
+
+**C. `imports-progreso-fase-b.spec.ts`** (nuevo; `ImportService` real y un arnés propio, con el mismo
+enfoque que `imports-progreso-eventos.spec.ts`: no se le importa el arnés a ese archivo para no tocarlo)
+
+| # | Caso | Qué tiene que pasar |
+|---|---|---|
+| FB-1 | 900 filas, un solo lote, cada fila tarda (timers falsos) | Entre `iniciada` y el `progreso` del lote hay eventos intermedios con porcentaje creciente, a lo sumo uno por intervalo. **Es el "0 a 99 de golpe" de #2** |
+| FB-2 | Por fila: el processor informa `contadores` y, en `afterAll`, dos subfases con "N de M" | Los eventos de `POST_PROCESO` traen `subfase` con el texto armado, en orden; el terminal trae `subfase: null`, y `nuevos` / `actualizados` |
+| FB-3 | Por lote: el processor llama `filasDelLote` a mitad del lote | Un evento intermedio con `procesadas > ok + err`; el del fin de lote, con `procesadas = ok + err` |
+| FB-4 | **Re-entrega** (reemplaza a B-8): la fila previa tiene `startedAt` y no `finishedAt` | `processRow` no se llama ni una vez. Una sola `finalizada`, `FALLIDA`, con el texto de interrupción. `intentos` no sube. Notificación. Devuelve `ignorado: true` |
+| FB-5 | Re-entrega de una carga que está viva en este proceso | No se cierra nada; `ignorado: true` |
+| FB-6 | `iniciar` no encuentra la fila (la carga volvió a borrador o ya es terminal) | Ningún evento, nada procesado, `ignorado: true` |
+| FB-7 | Cerrada por fuera en el segundo lote | El tercer lote no se procesa; **no** hay `fallar` ni notificación; `ignorado: true`; el estado que dejó el otro no se toca |
+| FB-8 | 10 filas: 3 no pasan el filtro de la plantilla, 4 son de otro corte, 3 entran | `descartadas: 7`, `fueraDeCorte: 4`, `descartadasPorFiltro: 3`, `procesadas: 3` |
+| FB-9 | Lo mismo en una remesa sin corte | `fueraDeCorte: null` |
+| FB-10 | Una fila que no pasa ni el filtro ni el corte | Cuenta en `descartadas` y **no** en `fueraDeCorte` |
+| FB-11 | Categoría pre-parseada | Hay un `progreso` con `LEYENDO` antes del primero con `PROCESANDO` |
+| FB-12 | Un CSV | Ningún evento con `LEYENDO` |
+| FB-13 | Un Excel (armado en el test) | `LEYENDO` antes de la primera fila |
+| FB-14 | El registro de cargas vivas | Durante el job, `cargaVivaEnEsteProceso(1)` no es `null`. Después de terminar bien, de fallar, de un job ignorado y de uno cerrado por fuera, es `null` |
+| FB-15 | El `ctx` que recibe el processor | Trae `progreso` con los tres métodos, y ninguno tira aunque el tracker esté cerrado |
+
+**D. `processors/progreso-reportes.spec.ts`** (nuevo: **la secuencia por categoría** que pedía §4)
+
+Processors reales, cada uno con un `prisma` falso mínimo —como en sus specs— y un `ctx.progreso` que
+graba las llamadas. Un bloque por categoría:
+
+| Categoría | Qué se afirma |
+|---|---|
+| ACTUALIZACIONES (desasignar) | Subfases, en orden: `Desasignando ausentes` (N de M creciente, de a 500) → `Consolidando la remesa de origen` → `Cerrando promesas cumplidas` solo si hubo pagos. `contadores` con altas y existentes. `filasDelLote` creciente y nunca mayor que el lote |
+| ACTUALIZACIONES (pagó todo) | `Cerrando ausentes`, N de M sobre los deudores de la remesa de origen |
+| PAGOS | `Consolidando casos con pagos` → `Cerrando promesas cumplidas`. `contadores` no se llama nunca |
+| FACTURAS | `Recalculando importes` → `Consolidando casos` → `Uniendo datos adicionales`. `filasDelLote` por tanda |
+| DEUDORES_Y_FACTURAS | `Recalculando importes` → `Consolidando casos`. Tres filas del mismo caso nuevo: `nuevos: 1`, `actualizados: 0` |
+| DEUDORES | Sin subfases. Fila que crea → `nuevos`; fila sobre un caso que ya estaba en la remesa → `actualizados`; segunda fila sobre un caso creado por esta carga → ninguno de los dos |
+| MULTIRREGISTRO, MULTIARCHIVO | `Desasignando ausentes` solo con la plantilla en desasignar; `Consolidando casos tocados`; `contadores` con altas y actualizados |
+| MULTICLAVES | `Buscando pagos de estas claves` → `Consolidando casos con pagos` solo si hay pagos. Ni `filasDelLote` ni `contadores` |
+| ACCIONES | `Guardando datos para revertir`, N de M sobre los snapshots |
+| CONTACTOS, ENRIQUECIMIENTO | Ninguna llamada a `progreso` |
+
+Y dos casos transversales: **(1)** cada processor, corrido **sin** `ctx.progreso`, llama a `consolidar`
+con un solo argumento; **(2)** un `ctx.progreso` cuyos métodos tiran no cambia el resultado del
+processor (lo ataja el tracker; acá se prueba el uso con `?.` y que el flujo no dependa del reporte).
+
+**E. `progreso/reaper-cargas.service.spec.ts`** (nuevo; `prisma` e `ImportService` falsos, reloj inyectado)
+
+| # | Caso | Qué tiene que pasar |
+|---|---|---|
+| RC-1 | Carga **viva en este proceso**, con el latido de hace 30 minutos | No se cierra ni en la primera pasada ni en la décima. `warn` de latido atrasado |
+| RC-2 | Arrancada, latido de hace 6 min, sin job | Primera pasada: no cierra, la anota. Segunda (60 s después): cierra con `SIN_LATIDO` |
+| RC-3 | Igual, pero entre las dos pasadas vuelve a latir | No cierra y olvida la sospecha |
+| RC-4 | Latido de hace 4 min | Ni siquiera consulta la cola |
+| RC-5 | Job `ACTIVO_CON_LOCK` | No cierra nunca |
+| RC-6 | Job `ACTIVO_SIN_LOCK` | Cierra a la segunda pasada; no toca el job |
+| RC-7 | Job `EN_ESPERA` con la carga arrancada | Cierra a la segunda pasada **y saca el job** |
+| RC-8 | La cola no responde (`DESCONOCIDO`) | No cierra; y una sospecha anterior se borra (hacen falta dos pasadas seguidas con respuesta) |
+| RC-9 | Dos pasadas con 20 s de diferencia | No cierra: faltan los 45 s |
+| RC-10 | En cola hace 10 horas, **con** el job esperando | No cierra. Es la carga que espera detrás de otra |
+| RC-11 | En cola hace 3 min, sin job | Cierra a la segunda pasada, con `SIN_JOB` |
+| RC-12 | En cola hace 1 min, sin job | No es candidata |
+| RC-13 | En cola, con el job activo | No cierra: el worker la está tomando |
+| RC-14 | Viva en este proceso y sin avance hace 20 min | No cierra; un `warn`, y no otro hasta 15 min después |
+| RC-15 | La consulta de candidatas | Parte de `import_progreso`, con `encoladaAt` no nulo y `finishedAt` nulo: una remesa sin fila, un borrador y una terminal no pueden aparecer |
+| RC-16 | `IMPORTS_REAPER_DESACTIVADO` | Ninguna de las dos funciones consulta nada |
+| RC-17 | Una pasada arranca con otra en curso | La segunda sale sin hacer nada |
+| RC-18 | Umbral: sin definir, `abc`, `1`, `500` | 5, 5, 3, 120 |
+| RC-19 | En cola hace 10 min, con el job esperando, y ninguna carga viva en el proceso | No cierra; un `warn` "hay un job esperando y el worker no lo toma", y no otro hasta 15 min después |
+| RB-1 | Borradores: el `where` | Exactamente el predicado de §5.2: estados, antigüedad, fila en `BORRADOR` sin `encoladaAt`, y ningún deudor |
+| RB-2 | Un borrador de 25 h | Se borran `importerror`, `jobimport` y la remesa, en ese orden, dentro de **su** transacción |
+| RB-3 | Entre el listado y el lock, alguien la confirmó | No se borra |
+| RB-4 | Entre el listado y el lock, apareció un deudor | No se borra |
+| RB-5 | El borrado de una falla | `warn` con el id; las demás se borran igual |
+| RB-6 | TTL: sin definir, `abc`, `0`, `9999` | 24, 24, 1, 720 |
+| RB-7 | Hay 600 candidatas | Procesa 500 y avisa que quedó cola |
+
+**F. `imports-progreso-http-fase-b.spec.ts`** (nuevo)
+
+| # | Caso | Qué tiene que pasar |
+|---|---|---|
+| H-1 | `cerrarCargaInterrumpida` sobre una remesa terminal, un borrador, una sin fila, y una inexistente | `null` en las cuatro; ninguna escritura |
+| H-2 | Sobre una carga viva en este proceso | `null`; ni siquiera abre la transacción |
+| H-3 | `SIN_LATIDO`, pero al releer con el lock el latido es reciente | `null` |
+| H-4 | `SIN_JOB`, pero al releer ya tiene `startedAt` | `null` |
+| H-5 | Cierre real | Remesa `FALLIDA` con `okFilas` / `errFilas` de la fila; fila `TERMINADA`, `FALLIDA`, `error` con el texto de la categoría, `subfase` null, `finishedAt`; `heartbeatAt` sin tocar. Emite `import:finalizada`, notifica y audita `IMPORT_FAIL`, en ese orden y después del commit |
+| H-6 | La notificación, el socket o la auditoría tiran | El cierre queda hecho y la función devuelve el estado |
+| H-7 | `estadoDelJobDeCarga` | Los seis resultados, con una cola falsa. Un `jobId` cuyo job es de **otra** remesa se trata como inexistente y se busca por `data.remesaId`. Una excepción o el tope vencido dan `DESCONOCIDO` |
+| H-8 | `sacarJobDeLaCola` con un `jobId` que es de otra remesa | No lo saca |
+| H-9 | Borrar: la lectura inicial la vio borrador y, con el lock, está encolada | `409`; no borra |
+| H-10 | Borrar: la vio en cola, sacó el job, y con el lock sigue en cola sin arrancar | Borra (es el camino de la Fase A) |
+| H-11 | Confirmar: el `update` del `jobId` da `P2025` | Saca el job recién encolado y responde `404`; no emite |
+| H-12 | Confirmar: el `add` falla y la compensación da `P2025`, con la carga ya arrancada | Responde `201` con el estado real; `warn` |
+| H-13 | Confirmar: lo mismo, pero la remesa ya no existe | `404` |
+| H-14 | La compensación | Su `where` lleva `fase: 'EN_COLA'` y `startedAt: null` |
+| H-15 | `enColaDelante` | En la respuesta de `executeRemesa`, en `progreso(id)`, en `status(id)` y en `listarEnCurso`; cuenta las cargas de otros usuarios aunque el listado no las traiga; si la consulta falla, es `null` y nada más cambia |
+| H-16 | Vista previa de una remesa con corte | `descartadas` (total), `fueraDeCorte`, y `filtro` sin la condición del corte |
+
+**G. `bullmq/imports.processor.spec.ts`** (casos nuevos)
+
+- `OPCIONES_WORKER_IMPORT` vale exactamente `{ concurrency: 1, lockDuration: 120000,
+  stalledInterval: 30000, maxStalledCount: 0 }`, y las opciones por defecto de la cola,
+  `{ attempts: 1 }`.
+- Los tres listeners loguean y **no llaman** a ningún método de `ImportService`.
+
+#### 9.9.3 Lo que solo se puede probar contra Redis y MySQL de verdad
+
+Los tests de arriba no levantan Redis. Lo que el diseño **leyó** en el código de BullMQ y no ejecutó
+(§9.13) se comprueba en el paso BE-0, **antes de escribir código de producción**, con colas de prueba
+(nunca `import-queue`) contra el Redis local, y lo repite el auditor:
+
+| # | Sonda | Resultado esperado | Si no da |
+|---|---|---|---|
+| S-1 | Con `maxStalledCount: 0`, un proceso toma un job y se lo mata con `kill -9`; otro proceso levanta un worker de la misma cola | El processor **no se vuelve a llamar**. El job termina `failed` con "job stalled more than allowable limit" | Reportar. La política igual se sostiene por la guarda de re-entrega (§9.5.3) |
+| S-2 | Con un job activo y su worker vivo: `EXISTS bull:<cola>:<id>:lock` | `1`. Después de matar al worker, `0` al vencer `lockDuration` | Reportar: `estadoDelJobDeCarga` no puede distinguir `ACTIVO_CON_LOCK` |
+| S-3 | Un job bloquea el event loop 150 s, con `lockDuration: 120_000` | El job termina; BullMQ lo marca fallido después; el processor se llamó **una** vez; el worker toma el job siguiente | Reportar |
+| S-4 | Contra MySQL local: `remesa.update` con `where: { id, estadoProceso: { notIn }, NOT: { progreso: { is: { encoladaAt: null } } } }` | Encuentra una remesa sin fila y una con `encoladaAt`; no encuentra una con fila y `encoladaAt` null; cuando no encuentra, tira `P2025` | Reportar: cambia cómo se escribe la condición de `iniciar` |
+
+#### 9.9.4 Frontend
+
+Sin tests. Los mismos tres controles que en §8.9.2, obligatorios:
+
+```bash
+cd frontend
+npx tsc --noEmit -p tsconfig.json   # exactamente los 5 errores de base; ninguno en archivos tocados
+npm run build
+npm run verificar-ayuda
+```
+
+#### 9.9.5 Prueba manual (la usan el auditor y los usuarios que prueban)
+
+Con la app levantada en local. Preparación: `IMPORTS_BATCH_SIZE=1000` (el default: lo que se prueba es
+justamente el lote grande), un CSV de DEUDORES de unas 900 filas y otro de unas 3.000, una plantilla
+con división de remesa y filtro de filas, y `IMPORTS_LATIDO_UMBRAL_MIN=3` para no esperar de más.
+
+| # | Qué hacer | Qué tiene que verse |
+|---|---|---|
+| MB-1 | Importar el CSV de 900 filas | El porcentaje sube varias veces antes de terminar (no 0 → 99). Debajo de los contadores, "≈ N filas/s · faltan ~…". Aparecen **Nuevos** y **Actualizados** |
+| MB-2 | Volver a importar el mismo archivo en otra remesa, y después una carga de ACTUALIZACIONES sobre una remesa de origen grande | En el post-proceso, "Post-proceso — Consolidando la remesa de origen: N de M", con N creciendo. Nunca "100 %" clavado |
+| MB-3 | A mitad de la carga de 3.000 filas, matar el backend (`kill -9`) y volver a levantarlo | El detalle dice "El servidor no da señales de esta carga hace N min…" a partir de los 2 min. Entre 3 y 5 min después del corte pasa a **FALLIDA**, con el texto de interrupción y "Antes del corte se cargaron N filas". Notificación roja. En el log **no hay** un segundo "Iniciando importación" de esa remesa. El mismo usuario puede importar de nuevo |
+| MB-4 | Con una carga larga de A corriendo, B confirma otra; esperar más que el umbral | La de B dice "En cola — Hay 1 importación antes que esta" y **no** se marca fallida. Cuando termina la de A, arranca |
+| MB-5 | Confirmar una carga y, antes de que arranque, borrar su job de Redis a mano (con el worker ocupado en otra carga) | A los ~4 min, FALLIDA: "La importación no llegó a empezar… No se cargó ninguna fila" |
+| MB-6 | Reiniciar el backend con una carga **en cola** | Después de levantar, arranca sola. El reaper no la toca |
+| MB-7 | Crear tres vistas previas sin confirmar; en la base local, poner `createdAt` de dos de ellas 25 horas atrás, y a una de esas dos agregarle un caso; disparar el reaper de borradores | Se borra una sola (la vieja sin casos), y el log dice su número. Una remesa PENDIENTE sin fila de progreso, insertada a mano, no se toca |
+| MB-8 | Carga dividida en 3 remesas, con una plantilla que además filtra filas | En "Importando" se ve **Descartadas** con el mismo número en las tres. En el detalle de cada una, "Descartadas por el filtro de la plantilla: D · De otros cortes de la división: F". `procesadas + D + F` da las filas del archivo en las tres |
+| MB-9 | Subir un archivo de más de 50 MB | "Subiendo archivos… N %" con los MB, y después "Armando la vista previa…" |
+| MB-10 | Importar un Excel de unas 100.000 filas (generado) | "Leyendo el archivo" antes de la primera fila. En el log, el `warn` de event loop bloqueado si la lectura pasó de 5 s. La carga termina bien |
+| MB-11 | Con el bundle del frontend de la Fase A (pestaña vieja) contra el backend nuevo, repetir MB-1 y MB-3 | Nada se rompe. Puede verse "LEYENDO" en mayúsculas. La carga interrumpida aparece como "La importación falló" con el texto |
+| MB-12 | Mientras corre una carga, mirar `import_progreso.heartbeatAt` | Se mueve al menos cada 15 s, también durante el post-proceso |
+| MB-13 | Paso "Importando", detalle y campanita en claro, oscuro y ancho de celular, con una subfase larga | Se lee todo, nada se desborda, ningún color fuera del tema |
+
+Un `await` que nunca vuelve (el aviso "sin cambios") y un bloqueo del event loop de más de dos minutos
+no tienen forma razonable de provocarse a mano: los cubren los casos R-16, RC-1 y RC-14.
+
+### 9.10 Documentación
+
+- **Wiki** (`docs/ayuda/03-importacion/`, paquete de frontend; cambia en el mismo commit que el flujo y
+  actualiza el `revisado` de cada página):
+  - `05-importar-un-archivo.md` — la que más cambia. El paso 2 (la subida y sus dos textos). La tabla
+    de fases de "Importando" (`:162-168`): En cola con la posición, Leyendo el archivo, Procesando con
+    la línea de ritmo y Nuevos / Actualizados, Post-proceso con la subfase. Los avisos (`:180-194`):
+    el de "sin novedades" pasa a ser "sin señal", a los 2 minutos, **también en post-proceso**; el de
+    "en cola y nadie la toma"; el de "sin cambios"; y se va la frase "una carga que se interrumpe no
+    falla sola" (`:192-193`), que deja de ser cierta, junto con "Esta carga se reinició" (`:194`). El
+    resultado de la carga dividida (`:218-221`, `:255-257`): Descartadas se vuelve a mostrar, y qué
+    son las filas de otros cortes. "La carga está En cola y no avanza" (`:310-314`). "La importación
+    falló: qué hacer": la carga interrumpida, con los tres textos de §9.5.5. "La importación quedó
+    procesando y no avanza" (`:360-365`): ahora falla sola.
+  - `08-historial-y-problemas.md` — la tabla de estados (`:27-35`), igual que la de `01`. "La carga
+    quedó procesando y no avanza" (`:263-277`) se reescribe:
+    se marca fallida sola a los ~5 minutos sin señal, libera el bloqueo, y no se re-ejecuta. La
+    excepción —el servidor trabaja pero la carga no avanza— no se cierra sola: avisar a soporte.
+    Sección nueva: **las vistas previas sin confirmar se borran solas a las 24 horas**. Y en el
+    detalle, la línea de nuevos, actualizados, descartadas por filtro y de otros cortes.
+  - `07-acciones-masivas.md` — "¿Y si la carga muestra «Esta carga se reinició»?" (`:183-186`) se
+    reemplaza: una carga interrumpida ya no se reinicia; queda fallida, lo aplicado no se puede
+    revertir desde la pantalla y **no** hay que volver a cargarla.
+  - `01-como-funciona.md` — en la tabla de estados (`:109-115`), "Fallida: se cortó" agrega que una
+    carga interrumpida se marca sola; y donde dice que una vista previa sin confirmar es un borrador
+    (`:101`, `:117-118`), que se borra sola a las 24 horas.
+  - Revisar, y tocar solo si hay algo que dejó de ser cierto: `03-formatos-de-archivo.md:175` y
+    `04-crear-plantilla.md:355` (descartadas por filtro), `09-multirregistro-y-multiarchivo.md`
+    (progreso de MULTIARCHIVO).
+  - `cd frontend && npm run verificar-ayuda`. Cada página pasa por un agente revisor antes de
+    cerrarse (memoria `auditar-documentacion-con-agentes`): en la Fase A las cuatro salieron con
+    errores en la primera revisión.
+- **`docs/notificaciones-spec.md`** (paquete de backend): la línea del throttle (`:99`) —un segundo,
+  sin regla del 5 %, dentro del `ProgresoTracker`, y el latido que no emite—; que `import:finalizada`
+  puede emitirla el reaper; y una entrada fechada en su §5.
+- **`backend/.env.example`**: las cuatro variables de §9.5.11.
+- **`CHANGELOG.md`**: lo escribe quien orquesta, al cerrar, con lo que devuelva cada implementer.
+- **Este documento**: quien orquesta actualiza el encabezado y §4, y agrega un §9.15 con lo que cambió
+  al auditar, como se hizo con §8.13.
+- **Memorias** (fuera del repo, quien orquesta): `progreso-imports-realtime` y `prod-aws-acceso-logs`,
+  cuya frase "un deploy mata las importaciones en curso… y BullMQ reintenta el job" deja de valer.
+
+### 9.11 Criterios de aceptación
+
+**Schema y deploy**
+
+- **CB-1.** El diff entre la base local previa y el schema nuevo es exactamente
+  ``ALTER TABLE `import_progreso` ADD COLUMN `fueraDeCorte` INTEGER NULL`` y nada más. `npx prisma db
+  push` termina **sin pedir `--accept-data-loss`**. Después, `prisma migrate diff` da vacío.
+- **CB-2.** El `git diff` de `schema.prisma` no toca ningún enum, ninguna otra tabla ni ningún índice.
+- **CB-3.** Sin ninguna variable de entorno nueva definida, el backend levanta y loguea `Reaper de
+  importaciones activo: sin latido a los 5 min, borradores a las 24 h`.
+
+**Backend, automáticos**
+
+- **CB-4.** `npm run build` pasa. Las 43 suites y los 824 tests de base pasan **sin que cambie ningún
+  assert, salvo el caso B-8**, que se borra. Los specs de `processors/` no tienen ni una línea de diff.
+- **CB-5.** Pasan los specs A a G de §9.9.2.
+- **CB-6.** Una carga de 900 filas en un solo lote emite eventos intermedios entre `iniciada` y el
+  fin del lote (FB-1).
+- **CB-7.** Con reportes continuos, el reloj escribe y emite a lo sumo una vez por intervalo, y sin
+  reportes escribe el latido cada 15 s sin emitir (R-1, R-3).
+- **CB-8.** Después del estado terminal no hay ninguna escritura ni ningún evento más, y el último
+  evento es siempre `import:finalizada` (R-8).
+- **CB-9.** Una escritura del reloj que falla nunca deja una promesa rechazada sin manejar (R-10).
+- **CB-10.** El job de una carga que ya había arrancado **no procesa ninguna fila**: la carga queda
+  FALLIDA con el texto de interrupción (FB-4).
+- **CB-11.** El reaper **no cierra una carga viva en el proceso**, por viejo que sea su latido (RC-1).
+- **CB-12.** El reaper no cierra nada en una sola pasada, ni cuando la cola no responde (RC-2, RC-8).
+- **CB-13.** Una carga en cola con su job esperando no se cierra aunque lleve horas (RC-10).
+- **CB-14.** Una carga cerrada por el reaper: remesa FALLIDA con los contadores reales, motivo según
+  la categoría, `import:finalizada`, notificación y auditoría (H-5).
+- **CB-15.** `cerrarCargaInterrumpida` no escribe sobre una remesa terminal, un borrador ni una
+  remesa sin fila (H-1).
+- **CB-16.** El reaper de borradores consulta exactamente el predicado de §5.2 y no borra una remesa
+  confirmada o con casos entre el listado y el lock (RB-1, RB-3, RB-4).
+- **CB-17.** Los processors informan las subfases de la tabla de §9.5.4, con esos nombres y en ese
+  orden (spec D).
+- **CB-18.** Sin `ctx.progreso`, `consolidar` se llama con un solo argumento en todos los processors
+  (spec D, caso transversal 1).
+- **CB-19.** 10 filas con 3 fuera por filtro y 4 de otro corte: `descartadas: 7`, `fueraDeCorte: 4`,
+  `descartadasPorFiltro: 3` (FB-8).
+- **CB-20.** `velocidad` y `etaSegundos` nunca son `NaN` ni `Infinity`, y son `null` fuera de
+  `PROCESANDO` (spec A).
+- **CB-21.** Confirmar y borrar a la vez nunca responde OK a las dos (H-9, H-11). Una carga que el
+  worker ya tomó no vuelve a borrador (H-12, H-14, FB-6).
+- **CB-22.** Las cuatro sondas de §9.9.3 dan el resultado esperado, o está reportado cuál no.
+
+**Frontend y manuales**
+
+- **CB-23.** `npx tsc --noEmit` da exactamente los 5 errores de base. `npm run build` y `npm run
+  verificar-ayuda` pasan.
+- **CB-24.** Una carga de 900 filas muestra avance intermedio, velocidad y ETA (MB-1).
+- **CB-25.** ACTUALIZACIONES muestra "Post-proceso — Consolidando la remesa de origen: N de M" (MB-2).
+- **CB-26.** Con el backend muerto a mitad de una carga, y `IMPORTS_LATIDO_UMBRAL_MIN=3`, la carga
+  pasa a FALLIDA con motivo en 5 minutos o menos, **no se re-ejecuta**, y el usuario puede volver a
+  importar (MB-3). Con el default, en 7 minutos o menos.
+- **CB-27.** Una carga en cola detrás de otra larga muestra su posición y no se marca fallida (MB-4).
+- **CB-28.** Una carga en cola sin job se marca "no llegó a empezar" en 5 minutos o menos (MB-5).
+- **CB-29.** En una carga dividida, las tres remesas muestran el mismo número de descartadas por
+  filtro, y el detalle separa las de otros cortes (MB-8).
+- **CB-30.** La subida de un archivo grande muestra su porcentaje (MB-9).
+- **CB-31.** Una pestaña con el frontend de la Fase A sigue funcionando contra el backend nuevo (MB-11).
+- **CB-32.** Ninguna página de la wiki dice que una carga colgada "no falla sola" ni que "se reinició",
+  y la de Historial dice que los borradores se borran a las 24 horas.
+- **CB-33.** Nada de lo nuevo usa colores fuera de `theme.palette` (MB-13).
+
+### 9.12 Paquetes de trabajo
+
+Dos paquetes con **conjuntos de archivos disjuntos**, para dos `implementer` en paralelo sobre el mismo
+working tree. El contrato de §9.4 es el único punto de contacto. Valen las cinco reglas de §8.12:
+nadie commitea, nadie toca un archivo del otro paquete ni el `CHANGELOG.md` ni este documento, nada de
+`npm run lint` / `eslint --fix` / `prisma format`, ante una duda de contrato manda §9.4, y cada
+informe trae lo hecho, los desvíos, la salida de la verificación y el texto para el CHANGELOG.
+
+#### Paquete BE — backend
+
+| Archivo | Qué |
+|---|---|
+| `backend/prisma/schema.prisma` | Campo `fueraDeCorte` y el comentario de `descartadas` (§9.2) |
+| `backend/src/modules/imports/progreso/estado-carga.types.ts` | Tipos de §9.4.1 |
+| `backend/src/modules/imports/progreso/estado-carga.ts` | `armarEstadoCarga` (campos nuevos, velocidad, ETA), `textoNotificacion` (`SIN_FILAS`), `textoInterrupcion` (nueva) |
+| `backend/src/modules/imports/progreso/estado-carga.spec.ts` | Casos nuevos (spec A) |
+| `backend/src/modules/imports/progreso/progreso-tracker.ts` | §9.5.2 |
+| `backend/src/modules/imports/progreso/progreso-tracker-reloj.spec.ts` | **Nuevo.** Spec B |
+| `backend/src/modules/imports/progreso/reaper-cargas.service.ts` | **Nuevo.** §9.5.6 y §9.5.7 |
+| `backend/src/modules/imports/progreso/reaper-cargas.scheduler.ts` | **Nuevo.** Los dos `@Cron` |
+| `backend/src/modules/imports/progreso/reaper-cargas.service.spec.ts` | **Nuevo.** Spec E |
+| `backend/src/modules/imports/utils/reporte-progreso.ts` | **Nuevo.** `SUBFASE` y `consolidarConProgreso` |
+| `backend/src/modules/imports/processors/processor.interface.ts` | `ReporteProgreso` y `ctx.progreso?` |
+| `backend/src/modules/imports/processors/{deudores,deudores-facturas,facturas,pagos,actualizaciones,casos-cedente,multiclaves,acciones}.processor.ts` | Reportes de §9.5.4. **Ningún cambio de lógica** |
+| `backend/src/modules/imports/utils/monto-facturas.ts` | Subfases de recálculo y de datos adicionales; `consolidarConProgreso` |
+| `backend/src/modules/imports/utils/recorrer-filas.ts` | **Solo** se exporta `esExcel` |
+| `backend/src/modules/imports/processors/progreso-reportes.spec.ts` | **Nuevo.** Spec D |
+| `backend/src/modules/imports/imports.service.ts` | §9.5.3, §9.5.5, `estadoDelJobDeCarga`, el arreglo de `sacarJobDeLaCola`, §9.5.8, §9.5.9, §9.5.10 |
+| `backend/src/modules/imports/imports.module.ts` | `defaultJobOptions` y los dos providers del reaper |
+| `backend/src/modules/imports/bullmq/imports.processor.ts` | `OPCIONES_WORKER_IMPORT` y los tres listeners |
+| `backend/src/modules/imports/bullmq/imports.processor.spec.ts` | Casos nuevos (spec G) |
+| `backend/src/modules/imports/imports-progreso-eventos.spec.ts` | **Solo** se borra el caso B-8 |
+| `backend/src/modules/imports/imports-progreso-fase-b.spec.ts` | **Nuevo.** Spec C |
+| `backend/src/modules/imports/imports-progreso-http-fase-b.spec.ts` | **Nuevo.** Spec F |
+| `backend/.env.example` | Las cuatro variables |
+| `docs/notificaciones-spec.md` | §9.10 |
+
+No se tocan: `multirregistro.processor.ts`, `multiarchivo.processor.ts`, `contactos.processor.ts`,
+`enriquecimiento.processor.ts`, `processor-registry.ts`, `consolidacion/`, `realtime/`,
+`utils/progress-emitter.ts`, ni ningún `*.spec.ts` de `processors/` que ya exista.
+
+Pasos:
+
+1. **BE-0 — Las cuatro sondas de §9.9.3**, antes de escribir código de producción. Si alguna no da lo
+   esperado: **parar y reportar**. Va primero porque dos decisiones del diseño descansan en lo que
+   BullMQ hace y eso solo se leyó.
+2. **BE-1 — Schema.** `npx prisma db push` **sin** `--accept-data-loss`; si Prisma lo pide, parar y
+   reportar el aviso textual. `npx prisma generate`.
+3. **BE-2 — Contrato y funciones puras**, con el spec A.
+4. **BE-3 — Tracker**, con el spec B. Es el paso con más riesgo de concurrencia: el reloj, la
+   escritura única y la memoria que no se pisa.
+5. **BE-4 — Runner** (`processImportJob`): registro, guardas, LEYENDO, `avance`, filtros separados,
+   `ctx.progreso`, `finally`. Spec C, y borrar B-8. Correr **todos** los specs de imports apenas
+   compile.
+6. **BE-5 — Processors y helper**, con el spec D. Después de cada processor, correr su spec: tiene que
+   pasar sin haberlo tocado.
+7. **BE-6 — BullMQ:** opciones, listeners, spec G.
+8. **BE-7 — Cierre por interrupción y reapers:** `cerrarCargaInterrumpida`, `estadoDelJobDeCarga`, el
+   arreglo de `sacarJobDeLaCola`, servicio, scheduler, y sus specs (E y parte del F).
+9. **BE-8 — Carreras, posición en la cola y vista previa**, con el resto del spec F.
+10. **BE-9 — `.env.example` y `docs/notificaciones-spec.md`.**
+11. **BE-10 — Verificación:**
+
+```bash
+cd backend
+npx prisma migrate diff --from-schema-datasource prisma/schema.prisma \
+    --to-schema-datamodel prisma/schema.prisma --script      # → "This is an empty migration."
+npm run build
+npx jest src/modules/imports src/modules/realtime src/modules/notificaciones
+npx jest
+git diff --stat -- 'src/modules/imports/processors/*.spec.ts'  # → vacío
+```
+
+#### Paquete FE — frontend
+
+| Archivo | Qué |
+|---|---|
+| `frontend/src/types/importProgreso.ts` | Tipos de §9.4.1 |
+| `frontend/src/utils/estadoCarga.ts` | §9.8.1 y §9.8.2 |
+| `frontend/src/components/import/AvisosCarga.tsx` | §9.8.3 |
+| `frontend/src/components/import/ImportProgress.tsx` | §9.8.4 |
+| `frontend/src/components/import/ImportSummary.tsx` | §9.8.4 |
+| `frontend/src/pages/ImportWizard.tsx` | Subida, vista previa y la prop que se va (§9.8.4) |
+| `frontend/src/pages/ImportDetail.tsx` | §9.8.5 |
+| `frontend/src/components/layout/AppShell/ImportEnCursoItem.tsx` | §9.8.5 |
+| `frontend/src/hooks/useEstadoCarga.ts` | El refresco en cola (§9.8.5) |
+| `docs/ayuda/03-importacion/01-como-funciona.md`, `05-importar-un-archivo.md`, `07-acciones-masivas.md`, `08-historial-y-problemas.md` (y `03`, `04`, `09` solo si la revisión encuentra algo) | §9.10 |
+
+No se tocan: `SocketContext.tsx`, `NotificacionesContext.tsx`, `NotificacionesPopover.tsx`,
+`ImportHistory.tsx`, `api/imports.ts`, `useImportacionesEnCurso.ts`.
+
+Pasos:
+
+1. **FE-1 — Tipos y utilidades.** Base de todo; no depende del backend.
+2. **FE-2 — `AvisosCarga`.**
+3. **FE-3 — Wizard:** subida, vista previa e `ImportProgress`.
+4. **FE-4 — `ImportSummary`.**
+5. **FE-5 — Detalle.**
+6. **FE-6 — Campanita y hook.**
+7. **FE-7 — Wiki**, con los textos de §9.8.2, §9.8.3 y §9.5.5 copiados, no parafraseados.
+8. **FE-8 — Verificación:** los tres comandos de §9.9.4.
+
+La prueba contra el backend real (§9.9.5) la hace el auditor con los dos paquetes cerrados.
+
+### 9.13 Qué se verificó y qué es suposición
+
+| Afirmación | Cómo se sabe |
+|---|---|
+| Línea de base: 43 suites / 824 tests; 93 / 1.500 en total; 5 errores de `tsc` | **Ejecutado** el 09/10/2026 sobre `a5ed9c4` |
+| La base local está sincronizada con el schema de HEAD | **Ejecutado** (`prisma migrate diff`, solo lectura) |
+| El SQL de la columna nueva es un único `ADD COLUMN … NULL` | **Ejecutado** (`prisma migrate diff` contra una copia del schema con el campo agregado, fuera del repo) |
+| El `db push` de esa columna no pide `--accept-data-loss` | **Suposición fundada**: es una columna nullable sobre una tabla sin filas en prod. No se ejecutó ningún push. Lo verifica BE-1 |
+| Duraciones, parseos, consolidaciones, la re-ejecución de la remesa 102 y la ausencia de fallas de lock (§9.1) | **Leído de prod** (CloudWatch Logs Insights, solo lectura) el 09/10/2026 |
+| Tiempos y memoria de `xlsx` | **Ejecutado** en la máquina de desarrollo, con archivos sintéticos sin comprimir. Orientativo: la EC2 es más lenta |
+| La clave del lock es `${queue.toKey(jobId)}:lock`; los jobs de la app se guardan con `attempts: 0` (sin reintentos); los jobs terminados no se borran | **Leído** en `scripts.js:360` y en el Redis local (solo lectura) |
+| Con `maxStalledCount: 0` BullMQ falla un job perdido sin llamar al processor | **Leído** en BullMQ 5.70.4 (`moveStalledJobsToWait-8.lua:87-92`, `worker.js:562`, `:596-599`). **No ejecutado.** Sonda S-1 |
+| Un bloqueo del event loop más largo que el lock no produce una doble ejecución | **Leído** (`lock-manager.js`, `worker.js`). **No ejecutado.** Sonda S-3. El diseño no depende del detalle: lo cubren la guarda de re-entrega y la de "ya terminó" |
+| El chequeo de jobs perdidos usa el `maxStalledCount` del worker que lo corre, no el del que encoló | **Leído** (`scripts.js:1001-1020`) |
+| `@Processor(nombre, opciones)` le pasa las opciones al worker; `@OnWorkerEvent` funciona en un `WorkerHost` | **Leído** en el repo: `consolidacion.processor.ts` usa las dos cosas |
+| `ScheduleModule.forRoot()` de `reportes.module.ts` alcanza para los `@Cron` de otros módulos | **Leído**: los schedulers de convenios, promesas y mora no lo importan y corren |
+| `update` de Prisma 6.18 acepta condiciones no únicas y de relación en el `where`, y tira `P2025` si no encuentra la fila | **Suposición** sobre una función documentada de Prisma. No ejecutado contra MySQL. Sonda S-4 |
+| Cada referencia `archivo:línea` de §9 | **Leído** contra `a5ed9c4` |
+| Los remedios por categoría de una carga interrumpida (§9.5.5) | DEUDORES, DEUDORES_Y_FACTURAS y ACCIONES: **leídos** contra `deleteRemesa` y los processors. El resto no afirma remedio. **Ninguno se ejecutó**: lo tiene que atacar el auditor |
+| Los specs de los processors pasan sin tocarlos | **Suposición de diseño**, sostenida en los asserts que se leyeron (el de `facturas.processor.spec.ts:253` entre ellos). Lo confirma BE-5 |
+| El caso B-1 pasa sin tocarlo | **Suposición de diseño**: depende de que un lote de filas falsas dure menos que el intervalo del reloj (1 s) |
+| Hay un solo proceso de backend en prod | **Dato del entorno** (una EC2, un contenedor; el deploy recrea), no verificado por el architect |
+| En prod `import_progreso` tiene 0 filas, y las remesas 93 y 98 siguen sin fila | **Dato de quien encargó el diseño**, consultado el 09/10/2026 |
+| El reloj del contenedor de prod es UTC | **Suposición**: el compose no define `TZ` |
+
+### 9.14 Lo que necesita el OK del usuario antes de implementar
+
+> **Estado al cierre de la implementación (09/10/2026).** Quien orquestó avanzó con los valores de este
+> diseño **por defecto**, porque todos se pueden cambiar antes del deploy (nada se commiteó ni se pusheó
+> sin que el usuario lo vea). **El usuario todavía no los confirmó.** Los puntos 1 a 5 siguen siendo
+> suyos; el 6 y el 7 ya son hechos: la columna se agregó en la base local sin que Prisma pidiera
+> `--accept-data-loss`, y la fase llevó una jornada de agentes. Dos números cambiaron al auditar: el
+> cierre automático llega entre 6 y 7 minutos (no entre 5 y 7), y el texto de Deudores es el de §9.15.
+
+Ninguna de estas cosas es técnica: son decisiones sobre qué le pasa a una carga y qué ve el operador.
+
+1. **Una carga interrumpida no se re-ejecuta: falla con motivo** (§9.5.1). Hoy, tras un deploy, se
+   re-ejecuta sola una vez. Es el cambio de comportamiento más grande de la fase. Lo que se gana: nada
+   se duplica ni se pisa en silencio. Lo que se paga: después de un corte hay que volver a cargar a
+   mano, y hasta la Fase C no hay botón de reintentar.
+2. **El número: 5 minutos sin latido** (§5.3), y que el cierre sea automático. El usuario afectado
+   queda entre 5 y 7 minutos sin poder importar; bajar el número acorta la espera, subirlo no agrega
+   seguridad.
+3. **Que el reaper de borradores arranque activo.** El predicado y las 24 horas ya estaban decididos
+   (§5.2); lo que falta confirmar es que el primer job que borra remesas solo corra desde el primer
+   día. Hay una consulta para ver antes qué borraría (§9.6) y una variable para apagarlo.
+4. **Los textos que ve el operador cuando una carga se interrumpe** (§9.5.5), en particular los dos
+   que mandan a hacer algo: "eliminá esta importación y volvé a cargar el archivo" (DEUDORES y
+   DEUDORES_Y_FACTURAS) y "no vuelvas a cargar el archivo" (ACCIONES).
+5. **Lo que queda afuera** (§9.1): no hay fase FINALIZANDO; el parseo síncrono no se toca; PAGOS no
+   muestra nuevos ni actualizados hasta la Fase C; y una carga viva que no avanza no se cierra sola.
+6. **Un cambio de schema**, que §8.2 había dicho que no iba a hacer falta: una columna nullable (§9.2).
+7. **El tamaño:** unos 4 días de backend y 2 de frontend, más las rondas de auditoría. §4 decía 2 en
+   total.
+
+No bloquean la Fase B y siguen abiertas: §5.4 (cancelar), §5.5 (cargas ajenas) y §5.6 (carga dividida).
+
+### 9.15 Lo que cambió después de la auditoría (09/10/2026)
+
+Los dos paquetes se implementaron y pasaron por tres auditorías independientes (backend, frontend y
+wiki), tres pasadas cada una; el backend tuvo además una cuarta ronda de arreglos que **no** volvió a
+pasar por el auditor (ver "Veredictos al cierre"). Esta sección registra **dónde el código se apartó del diseño de §9.1 a
+§9.12** y por qué. A diferencia de §8.13, las tablas y el pseudocódigo de arriba **no** se reescribieron
+(solo llevan una marca en los lugares más engañosos): donde se contradicen, vale lo de acá.
+
+**Lo que se vio funcionar por primera vez.** La auditoría de backend levantó la aplicación completa en
+local (`node dist/main`, MySQL y Redis reales, un cliente `socket.io` de verdad) y corrió importaciones
+de punta a punta: es la primera vez que las Fases A y B corren con HTTP, guards, socket, BullMQ y crons
+juntos. Medido:
+
+- Carga de 60.000 filas: 328 eventos del reloj separados entre 973 y 1.027 ms; 357 eventos comparados
+  contra la fila con el mismo `rev`, 0 diferencias; latido p50 1.000 ms.
+- `kill -9` a mitad de una carga: no se re-ejecutó (mismos casos antes y después, `intentos` 1); el lock
+  de BullMQ venció a los 120 s, el job quedó `failed` a los 156 s y el reaper cerró la carga a los 248 s
+  y a los 286 s del último latido (dos corridas, umbral de 3 minutos). 409 "ya tenés una importación en
+  curso" mientras figuraba en curso, 201 después.
+- Proceso congelado 200 s con `SIGSTOP` (más que el umbral y que el lock): el reaper logueó "latido
+  atrasado 200 s en una carga viva", **no la cerró**, y la carga terminó bien.
+- Una carga en cola esperó 8,8 minutos detrás de otra sin que nadie la cerrara y arrancó sola; después de
+  un reinicio, una carga en cola arrancó 1,4 s después de levantar.
+- Carga en cola con el job borrado de Redis: FALLIDA "no llegó a empezar" a los 185 s.
+- Carga dividida con filtro: en las tres remesas, 900 procesadas, 300 por filtro y 1.800 de otros cortes.
+- El estado de la base es idéntico con y sin `ctx.progreso` en DEUDORES, FACTURAS, PAGOS, ACTUALIZACIONES
+  (desasignar y pagó todo) y ACCIONES.
+
+**Backend** (primera pasada NO PASA por un hallazgo ALTO; segunda y tercera, PASA CON OBSERVACIONES).
+
+| Qué | Diseño de §9 | Cómo quedó | Por qué |
+|---|---|---|---|
+| "Un terminal nunca se pisa" | Un `where` condicionado en el `remesa.update` del tracker (`estadoProceso notIn`); un `P2025` significaba "cerrada por fuera" | **Compuerta**: cada escritura del tracker que toca `remesa` (`iniciar`, `lote`, `entrarEnLectura`, `entrarEnPostProceso`, `finalizar`, `fallar`) corre en una transacción que primero relee la remesa y su fila con `SELECT … FOR UPDATE` y recién después escribe. `TX_TRACKER = { maxWait: 10 s, timeout: 60 s }` | El `update` condicionado de Prisma **no es atómico**: hace un `SELECT` y después un `UPDATE … WHERE`; si la remesa pasó a terminal en el medio, el `UPDATE` afecta 0 filas, **no tira `P2025`**, y el `UPDATE import_progreso` anidado corre igual. Contra `cerrarCargaInterrumpida`, 84 de 150 rondas terminaban con el terminal pisado o con dos `import:finalizada`: remesa FALLIDA con la fila "en curso", y el usuario bloqueado sin salida. La sonda S-4 solo lo había probado sin concurrencia. Hoy lo tapaba el registro de cargas vivas (con un proceso no se disparaba), pero es el gancho de "cancelar" de la Fase C. Con los tiempos por defecto de Prisma (2 s / 5 s) la compuerta hacía fallar un lote si el pool estaba ocupado 3 s: por eso las opciones explícitas |
+| Escritura de progreso del reloj | La misma que `lote` (un `remesa.update`) | **Solo `import_progreso`**: `updateMany` con `where { remesaId, finishedAt: null }`, chequeo de filas afectadas y lectura del `rev`, en una transacción corta. `remesa.okFilas / errFilas` se escriben al cierre de cada lote, como en la Fase A | Es atómica en una sentencia y deja de competir por la fila de la remesa: detrás de una transacción de 12 s que insertaba hijos de la remesa, la escritura del reloj esperaba 11,8 s (y el latido con ella, y un tercer escritor, 9,1 s); ahora tarda 8 ms. §9.5.2 afirmaba que el latido "no compite por locks": recién ahora es cierto |
+| Carga cerrada por fuera al entrar al post-proceso | `entrarEnPostProceso` que falla: `warn` y sigue (decisión de §8.13) | `CargaCerradaPorFueraError` se relanza: **no corre el `afterAll`**, ni `fallar`, ni la notificación | Ejecutado: ACTUALIZACIONES con "pagó todo" cerrada desde otra instancia generó 50 pagos automáticos y 50 casos a SIT-050 sobre una carga ya FALLIDA |
+| Compensación del encolado | Un `update` condicional directo, con una "ventana residual" admitida (§9.5.8) | Transacción con `FOR UPDATE`: en cola sin arrancar → vuelve a borrador y 503; tomada o terminada → 201 con el estado real; sin fila → 404 | Misma causa que la primera fila: 23 de 150 rondas respondían 503 "probá de nuevo" con la carga FINALIZADA y sus casos cargados |
+| Carga terminal sin fila de progreso | El caso F4 de la Fase A decía que se procesaba | **Se ignora** (FINALIZADA o FALLIDA sin fila); una PENDIENTE sin fila sí se procesa | "De un terminal no se sale" (§8.3). F4 pasaba porque su doble contestaba PROCESANDO; se corrigieron el doble y el assert |
+| Evento de `LEYENDO` | — | Sale **antes** del parseo, con el total de la vista previa (que puede ser 0) | Un assert de la Fase A exigía el total del parseo en todos los `progreso`: ahora excluye ese evento |
+| `actualizados` en DEUDORES y DEUDORES_Y_FACTURAS | Casos que ya estaban en la remesa | **`null`** (siguen informando `nuevos`) | "Ya existía" se mira dentro de la propia remesa, que siempre es nueva: daba siempre 0 y el operador leía "ningún cliente existía". Lo útil es otra cosa: `ok − nuevos` son las filas que cayeron sobre un caso creado por la misma carga (identidades repetidas) |
+| `contadores()` | Entran a la memoria al llamarse | Se anotan y entran a la foto con el `avance` o el `lote` siguiente | El processor informa a mitad de fila: una carga matada quedó con `nuevos` 7.684 y `ok` 7.683. Lo que se garantiza es `nuevos <= ok + err` |
+| Texto de una carga interrumpida | Corrido | La oración fija, `\n\n`, y el qué hacer | La notificación lleva solo la primera línea del motivo |
+| Remedio de DEUDORES / DEUDORES_Y_FACTURAS | "…(se puede mientras sus casos no tengan gestión) y volvé a cargar el archivo." | "Lo procesado hasta el corte quedó cargado en esta remesa. Eliminá esta importación desde el Historial y volvé a cargar el archivo. Si no se puede eliminar (porque algún caso ya tiene gestión o porque la remesa es muy grande), avisá a soporte antes de volver a cargarlo." | El remedio no andaba con remesas grandes (ver `deleteRemesa`) |
+| Remesa que es un corte de un archivo dividido | No previsto | El motivo agrega: "Esta remesa es un corte de un archivo dividido: al volver a cargarlo, tildá solo los cortes que no se cargaron. Si tildás uno que ya está cargado, sus casos quedan duplicados." En la interrumpida de DEUDORES / DEUDORES_Y_FACTURAS y en "no llegó a empezar" de cualquier categoría | Al resubir el archivo vienen todos los cortes tildados y no hay ninguna guarda (`archivoHash` se guarda y no se compara): las nóminas ya cargadas se duplican |
+| `deleteRemesa` | No se tocaba | Tope previo `IMPORTS_BORRADO_MAX_CASOS` (60.000): más casos responde 400 "No se pudo eliminar: la remesa es demasiado grande para borrarla desde la pantalla. Avisá a soporte." sin abrir la transacción. `TX_BORRADO = { timeout: 120 s, maxWait: 5 s }`. Si la causa es de tiempo o de conexión (`P2028`, `P1017`, lock wait timeout 1205), el 400 dice "No se pudo eliminar: la base de datos no respondió a tiempo. Probá de nuevo en unos minutos; si se repite, avisá a soporte." | Con el timeout por defecto (5 s), una remesa real de 60.020 casos daba `P2028` y no se podía eliminar, justo donde el motivo manda al operador; ahora 60.000 casos con contactos se borran en 4,6 a 10,3 s. El tope está en 60.000 porque el límite real, anterior a esta fase, es 65.535: con más, `comentario.count` con `deudorId IN (…)` tira MySQL 1390 "too many placeholders". Y el timeout está en 120 s **para que no venza**: ver la fila siguiente |
+| Transacciones que vencen | No previsto | El tracker **no cree en un solo resultado vacío**: si el `updateMany` del reloj o del latido devuelve `count: 0`, lo confirma con una lectura nueva (fila viva → falla transitoria y reintento; lectura también vacía → hacen falta dos tics seguidos para darse por cerrado); la compuerta reintenta la transacción una vez si el `FOR UPDATE` no devuelve fila. Un terminal visible se sigue detectando al instante | El `timeout` de una transacción interactiva de Prisma **no corta la sentencia en curso** (con 8 s, el borrado respondió a los 18,2 s) y, cuando vence con la sentencia en vuelo, **contamina la operación siguiente de ese cliente**: de 80 casos, 75 dieron error (`P1017` / `P1001`) y 5 devolvieron vacío **sin error** sobre una fila que existe. Con un borrado vencido a mitad de una carga, el reloj recibió `count: 0`, el tracker lo tomó por "cerrada por fuera" y el runner cortó una carga sana en 1.300 de 2.500 filas, sin avisar. Es un riesgo anterior a esta fase (en `a5ed9c4` el borrado vence a los 5 s) y de cualquier lectura del módulo, no solo del tracker |
+| Reaper de borradores | El predicado de §5.2 | Además **no borra un borrador cuyo creador tiene una carga en curso** (en el predicado y en la relectura bajo el lock) | Las remesas de una carga dividida que todavía no arrancaron son borradores: con una vista previa de más de 24 h y la división corriendo a las 04:30, se borraban |
+| Hora del reaper de borradores | 04:30 UTC (01:30 de Argentina) | **04:30 de Argentina** | `Dockerfile.backend:6` fija `TZ=America/Argentina/Buenos_Aires`. Medido en prod: el cron de las 3 AM corre a las 06:00 UTC |
+| Tiempo hasta el cierre automático | Entre 5 y 7 minutos | **Entre umbral + 1 y umbral + 2 minutos** desde el último latido: 6 a 7 con el default | La pasada que supera el umbral solo anota la sospecha; cierra la siguiente |
+| `IMPORTS_REAPER_DESACTIVADO` | Cualquier valor no vacío lo apaga | Solo `1`, `true`, `si`, `sí`, `yes`, `on`, `y`, `s` | `=false` y `=0` apagaban los dos crons |
+| `sacarJobDeLaCola` con un `jobId` de otra remesa | "No es el buscado" | Lo ignora y busca el job por `data.remesaId`; el método pasó a ser público (lo usa el reaper) | — |
+| Guardado del `jobId` en `executeRemesa` | Dentro del `try` del `add` | Fuera | El 404 por `P2025` lo capturaba la compensación y salía como 503 |
+| `textoNotificacion` de `SIN_FILAS` | Lee `descartadasPorFiltro ?? descartadas` | Calcula `descartadas − (fueraDeCorte ?? 0)` | Las fixtures de la Fase A ya traen `descartadasPorFiltro: 0` y el respaldo no caía |
+| Listener `failed` | "…falló sin ejecutarse…" | "BullMQ dio por perdido el job N (remesa X); si la carga no terminó, la cierra el reaper" | Tras congelar el proceso, lo logueaba justo después de "Importación completada" |
+| `motivoLegible` | — | `P2028` → "La base de datos no respondió a tiempo (P2028)."; `P1017` → "La base de datos cerró la conexión (P1017)." | Iban crudos a la notificación |
+| API que el diseño no listaba | — | `ProgresoTracker.cerrarSubfase()` y `faseActual`; `ImportService.hayCargasVivasEnEsteProceso()`; el `warn` de "latido atrasado en una carga viva", a lo sumo uno cada 5 minutos | — |
+
+Variables de entorno al cierre: las cuatro de §9.5.11 más `IMPORTS_BORRADO_MAX_CASOS` (default 100.000,
+acotado a [1.000, 65.000]). Todas con default en el código.
+
+**Frontend** (PASA CON OBSERVACIONES en la primera y la segunda pasada, PASA en la tercera; 149 pruebas
+sobre los módulos reales con jsdom, React en modo estricto y un servidor socket.io real).
+
+| Qué | Diseño de §9 | Cómo quedó | Por qué |
+|---|---|---|---|
+| `NotificacionesContext` | No se tocaba | La lista de la campanita se re-hidrata con cada `import:iniciada` / `import:finalizada` si hay otra carga en cola, y cada 30 s mientras haya alguna en cola | La posición quedaba vieja: cada evento de la carga que corre renovaba la única marca de "última novedad" y el polling no disparaba nunca. Una carga en cola eliminada seguía listada |
+| Mínimo de 5 s entre refrescos | Sin flanco de bajada | `crearRefrescoLimitado`: un pedido dentro de la ventana se programa para cuando cierra | La posición podía quedar vieja 40 s |
+| Aviso "sin señal" | "…se marca sola como fallida y vas a poder volver a importar." | "El servidor no da señales de esta carga hace N min. Si no se recupera, en unos minutos se marca sola como fallida y vas a poder hacer otras importaciones; el motivo va a decir qué hacer con esta." | Contradecía el motivo de ACCIONES ("no vuelvas a cargar el archivo") y el genérico |
+| Segundo escalón del aviso | — | Con 15 minutos o más (`SIN_SENAL_AVISAR_MIN`): "El servidor no da señales de esta carga hace N min y todavía no se marcó como fallida. Avisá a soporte." | El cierre automático no ocurre si el servidor sigue caído, si la cola no responde o si el control está apagado |
+| "Sin señal" en una remesa heredada (`rev === 0`) | El mismo texto | "…Puede estar en un paso largo o haberse interrumpido. Es una carga anterior al seguimiento automático y no se va a marcar como fallida sola: avisá a soporte." | El reaper no puede ver una remesa sin fila |
+| "En cola y nadie la toma" | Mide la edad de `encoladaAt` | Mide desde que **esta pantalla** la vio como la próxima | Una carga que esperó 30 minutos detrás de otra avisaba "no la tomó hace 30 min" en el instante del traspaso |
+| Motivo de una FALLIDA con filas | "Antes del corte se cargaron N filas…" | "Antes del corte se cargaron **al menos** N filas…", en párrafo propio | En ACTUALIZACIONES y FACTURAS `ok` avanza de a un lote: N es un piso, con hasta 999 filas más aplicadas. §9.3 y §9.7 decían "hasta un segundo atrás": falso para los processors por lote |
+| Texto de la subida | "X de Y MB" | "X MB de Y MB"; en KB por debajo de 0,1 MB; sin cantidades antes del primer byte | "0,0 de 0,0 MB" en archivos chicos |
+| Descartadas en el detalle | Siempre el desglose | Con `fueraDeCorte == null`, el rótulo neutro "Descartadas: N"; el desglose solo si es un número | Una carga dividida anterior a la Fase B mostraba las filas de otros cortes como "por el filtro de la plantilla" |
+| `error` y `errorPostProceso` | — | Se muestran con `white-space: pre-line` | El motivo llega en párrafos |
+| Números | — | Separador de miles en todos los contadores; los formateadores no tiran con un valor ausente (devuelven "0") | Un evento malformado tiraba un `TypeError` en la campanita, y el frontend no tiene `ErrorBoundary` |
+| `ImportSummary`, `SIN_FILAS` en una división | Suma | Los números de esa remesa | Sumar repetía las descartadas una vez por remesa |
+
+**Wiki** (primera pasada NO PASA en la página `05`, por un ALTO; segunda, PASA CON OBSERVACIONES). Se
+tocaron seis páginas de `docs/ayuda/03-importacion/`: `01`, `03`, `04`, `05`, `07` y `08`. Lo más serio
+no era de redacción sino del sistema, y por eso terminó también en el código: una carga dividida
+interrumpida mandaba a "volver a cargar el archivo" sin decir que hay que destildar los cortes ya
+cargados. De paso aparecieron **ocho enlaces relativos rotos** (siete anteriores a esta fase): el visor
+solo trata como internos los que empiezan con `/ayuda/`, y desde el "?" de la pantalla de carga sacaban
+al operador del asistente, lo que en una carga dividida corta la cadena de remesas. `verificar-ayuda`
+ahora marca como error cualquier enlace que no empiece con `/`, `http://`, `https://`, `mailto:` o `#`.
+
+**Datos verificados que §9.13 daba por leídos o supuestos:**
+
+- Las cuatro sondas de §9.9.3 dieron lo esperado contra Redis y MySQL locales. Con `maxStalledCount: 0`
+  BullMQ falla el job de un worker muerto sin volver a llamar al processor, a los 120 s (`lockDuration`).
+  Tras un bloqueo del event loop más largo que el lock, emite dos `error` "Missing lock for job …
+  moveToFinished" antes de marcarlo fallido: el processor se llamó una sola vez.
+- **La conclusión de la sonda S-4 era incompleta**: el `update` de Prisma con condiciones no únicas
+  encuentra o no la fila como se esperaba, pero no es atómico (primera fila de la tabla de backend).
+- El `db push` de la columna `fueraDeCorte` no pide `--accept-data-loss` (ejecutado en local).
+- El reloj del contenedor de prod es hora de Argentina, no UTC.
+- Ningún processor escribe sobre `remesa` dentro de una transacción: no hay cómo armar un deadlock por
+  upgrade de lock (leído; 0 deadlocks y 0 `Lock wait timeout` en todas las corridas).
+
+**Deuda conocida y lo que queda para las fases siguientes:**
+
+| Qué | Dónde se resuelve |
+|---|---|
+| Nada se vio en un navegador: aspecto, tema claro y oscuro, ancho de celular, los eventos reales de subida de un archivo grande, el "?" con los enlaces arreglados | Prueba manual (§9.9.5) antes o después del deploy |
+| Una carga viva que no avanza no se cierra sola; un cierre que llega durante el `afterAll` no lo interrumpe | C, con "cancelar" |
+| Una carga en cola cuyo job nadie toma no se cierra sola, y mientras tanto no se limpian los borradores de ese usuario | C |
+| No hay cómo reintentar una FALLIDA ni retomar un corte de una división: es volver a subir el archivo destildando a mano | C (carga dividida orquestada en el backend) |
+| Remesas de más de 60.000 casos no se pueden eliminar desde la pantalla (antes tampoco: fallaban por timeout, o por el límite de 65.535, con un 500). El borrado dura lo que su sentencia más larga: una remesa con 21.000 casos y 1.050.000 facturas tardó 22,9 s en local; en RDS no se midió | Backlog: borrado por tandas o en un job |
+| Una transacción interactiva de Prisma que vence con una sentencia en vuelo contamina la operación siguiente (error o, ~6 % de las veces, vacío sin error). El tracker ya no se deja engañar y el borrado ya no debería vencer, pero **cualquier otra lectura del módulo sigue expuesta** (un `findFirst` de un processor que devuelve `null` de más). Otras transacciones con timeout: la de MULTICLAVES (30 s) y las que usan el default de 5 s | Backlog: revisar los timeouts de transacción de todo el backend |
+| Con una escritura del tracker esperando un lock, el latido puede atrasarse hasta ~100 s (menos que el umbral mínimo del reaper, 3 minutos); un lock de más de 50 s hace fallar la carga con "La base de datos tardó demasiado en liberar un bloqueo (1205)." | — |
+| `deleteRemesa` no cuenta ni borra `promesa_pago` (su FK a `deudor` no tiene `onDelete`): un caso con promesa y sin otra gestión daría un error de base en vez del mensaje de gestión. Leído, no ejecutado; anterior a esta fase | Backlog |
+| `remesa.okFilas / errFilas` van hasta un lote atrás durante la carga (como en la Fase A). Ninguna pantalla los usa como dato vivo; `GET /import/remesas/:id` los devuelve junto a `carga`, que es el dato bueno, y `multiclaves/claves.service.ts:101` los lee | — |
+| Una carga dividida corrida con el código de la Fase A (entre el 05/10 y el deploy de la B) muestra sus descartadas sin desglose | Sin backfill, a propósito |
+| "descartó las 1 filas": el singular de los textos de `SIN_FILAS` | C |
+| El globito de no leídas puede quedar uno atrás si la re-hidratación se cruza con el alta de la notificación (solo con tiempos forzados) | D |
+| El pool de conexiones y las latencias de RDS no se midieron: definen cuán probable es que una escritura del tracker espere | Primera carga real en prod |
+| DEUDORES_Y_FACTURAS, MULTIRREGISTRO y MULTIARCHIVO no corrieron contra la base en la auditoría (solo leídos); MULTICLAVES corrió con filas sintéticas | Primera carga real, o archivos de cedente en la máquina de prueba |
+| El cron de las 04:30 nunca se vio disparar solo (se llamó al método) | Primer día en prod: el log "Reaper de borradores: …" |
+
+**Veredictos al cierre (09/10/2026).** Frontend: PASA (tercera pasada). Wiki: PASA en las seis páginas
+(tercera pasada); después se aplicaron cinco ajustes menores de redacción que el revisor sugirió (T1 a
+T5), verificados solo con `verificar-ayuda`. Backend: PASA CON OBSERVACIONES en la tercera pasada; las
+observaciones (las dos filas de `deleteRemesa` y de las transacciones que vencen, el tope y los textos)
+se arreglaron en una cuarta ronda que **no volvió a pasar por el auditor**: quedó verificada con el
+build, la suite completa, mutaciones del propio implementer y los arneses del auditor corridos por el
+implementer (el tope responde 400 en 5 a 8 ms sin abrir transacción; siete rondas de carga con un
+borrado forzado a vencer, 0 anomalías). El caso del resultado vacío es probabilístico (~6 %): que no
+haya salido en siete rondas no lo prueba contra la base real; lo cubren los tests con el doble que
+devuelve vacío.
+
+Tests al cierre: 49 suites / 1.069 tests en imports + realtime + notificaciones (base: 43 / 824) y 99
+suites / 1.745 en la suite completa (base: 93 / 1.500). Frontend: `tsc --noEmit` con los 5 errores de
+base, `npm run build` y `npm run verificar-ayuda` en verde. Los arneses de las tres auditorías quedaron
+fuera del repo y no se conservan.
+
+**Dos cosas que salieron mal durante el trabajo, para no repetirlas:**
+
+- **Un arnés de auditoría borró logs locales.** Levantó el `AppModule` desde `backend/` sin redirigir
+  `LOG_DIR`, y la retención de 14 días de winston eliminó cinco archivos de `backend/logs/` de mediados
+  de septiembre. Todo arnés que levante la aplicación tiene que llevar `LOG_DIR` a un directorio temporal.
+- **Dos implementers usaron `git stash` sobre el árbol compartido** (para comparar contra la base). No se
+  perdió nada, pero durante unos segundos los archivos del otro paquete figuraron revertidos mientras
+  otros agentes trabajaban. Con varios agentes sobre el mismo árbol: `git show HEAD:ruta`, nunca `stash`.
+
+---
 ## PLAN PARA IMPLEMENTER
+
+> Este bloque es el de la **Fase A**, ya ejecutada. El de la Fase B está al final del documento.
 
 **Orden de implementación:**
 Dos paquetes en paralelo (§8.12). Dentro de cada uno:
@@ -1959,3 +4055,58 @@ Dos paquetes en paralelo (§8.12). Dentro de cada uno:
 - Un rollback del backend choca con la tabla nueva (§8.6).
 
 **Criterios de aceptación:** CA-1 a CA-22 de §8.11.
+
+---
+## PLAN PARA IMPLEMENTER — Fase B
+
+Diseño completo en [§9](#9-diseño-de-la-fase-b). Antes de empezar: el OK del usuario a los siete puntos
+de §9.14.
+
+**Orden de implementación:**
+Dos paquetes en paralelo (§9.12), con el contrato de §9.4 como único punto de contacto. Dentro de cada uno:
+- BE-0 las cuatro sondas contra Redis y MySQL locales (dos decisiones del diseño descansan en un comportamiento de BullMQ que solo se leyó: si no da, parar) → BE-1 schema y `db push` → BE-2 contrato y funciones puras → BE-3 tracker (reloj, reportes en memoria, escrituras condicionadas) → BE-4 runner → BE-5 processors y helper → BE-6 opciones y listeners de BullMQ → BE-7 cierre por interrupción y los dos reapers → BE-8 carreras, posición en la cola y vista previa → BE-9 `.env.example` y `notificaciones-spec.md` → BE-10 verificación.
+- FE-1 tipos y utilidades (no depende del backend) → FE-2 `AvisosCarga` → FE-3 wizard (subida, vista previa, "Importando") → FE-4 resumen → FE-5 detalle → FE-6 campanita y hook → FE-7 wiki → FE-8 verificación.
+
+**Archivos a crear:**
+- Backend: `backend/src/modules/imports/progreso/progreso-tracker-reloj.spec.ts`, `reaper-cargas.service.ts`, `reaper-cargas.scheduler.ts`, `reaper-cargas.service.spec.ts`; `backend/src/modules/imports/utils/reporte-progreso.ts`; `backend/src/modules/imports/processors/progreso-reportes.spec.ts`; `backend/src/modules/imports/imports-progreso-fase-b.spec.ts`, `imports-progreso-http-fase-b.spec.ts`.
+- Frontend: ninguno.
+
+**Archivos a modificar:**
+- `backend/prisma/schema.prisma` — campo `fueraDeCorte Int?` en `import_progreso` y el comentario de `descartadas`.
+- `backend/src/modules/imports/progreso/estado-carga.types.ts` — `LEYENDO` y los campos nuevos del DTO.
+- `backend/src/modules/imports/progreso/estado-carga.ts` (y su spec, con casos nuevos) — `armarEstadoCarga` con `fueraDeCorte`, `descartadasPorFiltro`, `enColaDelante`, velocidad y ETA; `textoNotificacion` de `SIN_FILAS`; `textoInterrupcion` nueva.
+- `backend/src/modules/imports/progreso/progreso-tracker.ts` — reloj único (latido cada 15 s y volcado de progreso a lo sumo cada 1 s), `entrarEnLectura`, `avance`, `avanceDelLote`, `subfase`, `contadores`, `cerrar`, escrituras condicionadas y `CargaCerradaPorFueraError`.
+- `backend/src/modules/imports/processors/processor.interface.ts` — `ReporteProgreso` y `ctx.progreso?` (opcional).
+- `backend/src/modules/imports/processors/{deudores,deudores-facturas,facturas,pagos,actualizaciones,casos-cedente,multiclaves,acciones}.processor.ts` y `utils/monto-facturas.ts` — solo llamadas de reporte y `consolidarConProgreso`; ningún cambio de lógica. `utils/recorrer-filas.ts` — solo se exporta `esExcel`.
+- `backend/src/modules/imports/imports.service.ts` — `processImportJob` (registro de cargas vivas, guarda de re-entrega, LEYENDO, `avance` por fila, filtros separados, `ctx.progreso`, `finally`); `cerrarCargaInterrumpida`, `estadoDelJobDeCarga`, `cargaVivaEnEsteProceso` (nuevos, públicos); `sacarJobDeLaCola` (comprobar `data.remesaId`); `verificarNoArrancada`, `executeRemesa` (las dos carreras, `enColaDelante`); `progreso`, `status`, `listarEnCurso` (`enColaDelante`); `validateRemesa` (`fueraDeCorte`, `filtro`).
+- `backend/src/modules/imports/imports.module.ts` — `defaultJobOptions: { attempts: 1 }` y los providers del reaper.
+- `backend/src/modules/imports/bullmq/imports.processor.ts` (y su spec, con casos nuevos) — `OPCIONES_WORKER_IMPORT` y tres listeners que solo loguean.
+- `backend/src/modules/imports/imports-progreso-eventos.spec.ts` — **solo** se borra el caso B-8.
+- `backend/.env.example`; `docs/notificaciones-spec.md`.
+- `frontend/src/types/importProgreso.ts`, `utils/estadoCarga.ts`; `components/import/AvisosCarga.tsx`, `ImportProgress.tsx`, `ImportSummary.tsx`; `pages/ImportWizard.tsx`, `ImportDetail.tsx`; `components/layout/AppShell/ImportEnCursoItem.tsx`; `hooks/useEstadoCarga.ts`.
+- No se tocan: `multirregistro`, `multiarchivo`, `contactos` y `enriquecimiento` (`.processor.ts`), `processor-registry.ts`, `consolidacion/`, `realtime/`, `utils/progress-emitter.ts`, ningún spec existente de `processors/`; `SocketContext.tsx`, `NotificacionesContext.tsx`, `NotificacionesPopover.tsx`, `ImportHistory.tsx`, `api/imports.ts`.
+
+**Cambios de schema:** una columna nullable, `import_progreso.fueraDeCorte` (`ALTER TABLE import_progreso ADD COLUMN fueraDeCorte INTEGER NULL`, verificado con `prisma migrate diff`). Sin `@@unique`, sin enums, sin tocar otra tabla. **Sin backfill:** `null` significa "sin corte propio o anterior a la Fase B". `npx prisma db push` sin `--accept-data-loss`.
+
+**Tests a escribir:** casos nuevos en `estado-carga.spec.ts` (campos nuevos, velocidad y ETA sin `NaN`, textos de interrupción); `progreso-tracker-reloj.spec.ts` (18 casos: latido sin emitir, volcado a lo sumo una vez por intervalo, una escritura por vez, la memoria no se pisa, el evento final es el último, ninguna promesa sin manejar, cerrada por fuera, subfases); `imports-progreso-fase-b.spec.ts` (15 casos: avance dentro de un lote de 900 filas, subfases y contadores en los eventos, la re-entrega que reemplaza a B-8, cerrada por fuera, descartadas separadas, LEYENDO, registro de cargas vivas); `processors/progreso-reportes.spec.ts` (la secuencia por categoría con los processors reales, y que sin `ctx.progreso` `consolidar` se llama con un solo argumento); `reaper-cargas.service.spec.ts` (19 casos del reaper de cargas y 7 del de borradores); `imports-progreso-http-fase-b.spec.ts` (16 casos: cierre por interrupción, estado del job, las dos carreras, posición en la cola, vista previa); casos nuevos en `imports.processor.spec.ts`. Detalle en §9.9.2. Más las cuatro sondas de §9.9.3.
+
+**Páginas de la wiki a tocar:** `docs/ayuda/03-importacion/05-importar-un-archivo.md`, `08-historial-y-problemas.md`, `07-acciones-masivas.md`, `01-como-funciona.md`; y `03-formatos-de-archivo.md`, `04-crear-plantilla.md`, `09-multirregistro-y-multiarchivo.md` solo si la revisión encuentra algo que dejó de ser cierto. Actualizar `revisado`, correr `cd frontend && npm run verificar-ayuda` y pasar cada página por un agente revisor.
+
+**Skills a consultar:** BE: `bullmq-worker`, `prisma-migration`, `nestjs-module`, `amsa-general`. FE: `react-component`, `amsa-general`.
+
+**Riesgos durante la implementación:**
+- El reloj del tracker corre en un `setInterval`: una promesa rechazada sin manejar tumba el proceso entero. Todo el cuerpo del tic va en `try/catch`.
+- La escritura del reloj y las del runner no pueden solaparse, y después de escribir no se reemplaza la memoria (solo `rev` y `heartbeatAt`): si no, los contadores retroceden.
+- `consolidar` con un segundo argumento rompe un assert existente (`facturas.processor.spec.ts:253`): siempre por `consolidarConProgreso`.
+- Una entrada que quede en el registro de cargas vivas hace inmortal a esa carga para el reaper: el `finally` es obligatorio.
+- El reaper nunca cierra en una sola pasada ni con la cola sin responder. Ante la duda, no cierra.
+- ACTUALIZACIONES y PAGOS son destructivos: el diff de cada processor son líneas de reporte y nada más. Si hace falta mover una condición o una consulta, parar.
+- Si hace falta tocar un assert existente que no sea B-8, parar: algo dejó de ser compatible.
+- Lo que hace BullMQ con un job perdido se leyó en su código y no se ejecutó: por eso BE-0 va primero.
+- El diseño supone un solo proceso de backend.
+- Un remedio para una carga interrumpida solo se escribe si está verificado contra el processor y contra `deleteRemesa`.
+- En el frontend, `vite build` no chequea tipos, y todo campo nuevo puede llegar `undefined` desde un backend viejo.
+- Si los dos commits se pushean juntos, el frontend llega antes que el backend.
+- Volver a la imagen anterior choca con la columna nueva y restaura la re-ejecución automática.
+
+**Criterios de aceptación:** CB-1 a CB-33 de §9.11.
