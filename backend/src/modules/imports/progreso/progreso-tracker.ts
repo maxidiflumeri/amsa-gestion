@@ -14,10 +14,13 @@ import {
     armarEstadoCarga,
     calcularPorcentaje,
     clasificarResultado,
+    conPuntoDeMiles,
+    leerResumen,
     motivoLegible,
+    RESULTADO_CANCELADA,
     recortarMotivo,
 } from './estado-carga';
-import type { EstadoCargaDto, ResultadoCarga } from './estado-carga.types';
+import type { EstadoCargaDto, ResultadoCarga, ResumenCarga } from './estado-carga.types';
 
 /** Lo que no cambia durante el job. */
 export interface CargaInfo {
@@ -64,6 +67,18 @@ export class CargaCerradaPorFueraError extends Error {
     }
 }
 
+/**
+ * La tiran `iniciar` y `entrarEnPostProceso` cuando la compuerta lee un pedido de cancelación (la carga no
+ * arranca / el `afterAll` no corre), y el runner en sus puntos de corte (§10.5.3). No es una falla.
+ */
+export class CargaCanceladaError extends Error {
+    /** Dónde cortó el runner, para el log: `lote`, `fila`, `antes del cierre`, `post-proceso`. La compuerta no lo informa. */
+    constructor(readonly donde?: string) {
+        super('La carga fue cancelada');
+        this.name = 'CargaCanceladaError';
+    }
+}
+
 /** El `SELECT … FOR UPDATE` de la compuerta no devolvió fila: puede ser una remesa borrada o un resultado vacío espurio. */
 class FilaAusenteError extends Error {}
 
@@ -97,11 +112,7 @@ export function intervaloProgresoMs(raw: number | string | undefined | null = pr
     return Math.min(INTERVALO_PROGRESO_MAX_MS, Math.max(INTERVALO_PROGRESO_MIN_MS, Math.floor(n)));
 }
 
-/** Separador de miles propio (sin `toLocaleString`: no se depende del ICU del contenedor). */
-export function conPuntoDeMiles(n: number): string {
-    const entero = Math.max(0, Math.floor(n));
-    return String(entero).replace(/\B(?=(\d{3})+(?!\d))/g, '.');
-}
+export { conPuntoDeMiles };
 
 /** "Consolidando casos: 1.500 de 8.875"; sin total (o con 0), solo el nombre. Recortado a 160. */
 export function textoSubfase(nombre: string, hecho?: number, total?: number): string {
@@ -131,9 +142,16 @@ interface Memoria {
     advertencias: number;
     /** Filas ya resueltas del lote en curso (processors por lote). No se persiste: va dentro de `procesadas`. */
     adelantoDelLote: number;
-    resultado: ResultadoCarga | null;
+    resultado: ResultadoCarga | typeof RESULTADO_CANCELADA | null;
     error: string | null;
     errorPostProceso: string | null;
+    /** Lo último que leyó la compuerta o la escritura del reloj (`import_progreso.resumen`). */
+    resumen: unknown;
+    grupoId: string | null;
+    grupoOrden: number | null;
+    grupoTotal: number | null;
+    /** Lo último que leyó la compuerta o el reloj. null = nadie pidió cancelar (o no se sabe). */
+    cancelSolicitadaAt: Date | null;
     intentos: number;
     jobId: string | null;
     encoladaAt: Date | null;
@@ -187,6 +205,10 @@ export class ProgresoTracker {
      * que existe (medido: el runner cortó una carga sana en 1.300 de 2.500). Hacen falta dos seguidas.
      */
     private vaciosSeguidos = 0;
+    /** Se supo que alguien pidió cancelar (compuerta, reloj o `avisarCancelacion`). No se apaga. */
+    private cancelacionPedidaFlag = false;
+    private cancelacionDesdeMs: number | null = null;
+    private canceladaPorNombre: string | null = null;
 
     constructor(
         deps: TrackerDeps,
@@ -217,6 +239,11 @@ export class ProgresoTracker {
             resultado: null,
             error: null,
             errorPostProceso: null,
+            resumen: previa?.resumen ?? null,
+            grupoId: previa?.grupoId ?? null,
+            grupoOrden: previa?.grupoOrden ?? null,
+            grupoTotal: previa?.grupoTotal ?? null,
+            cancelSolicitadaAt: previa?.cancelSolicitadaAt ?? null,
             intentos: previa?.intentos ?? 0,
             jobId: previa?.jobId ?? null,
             encoladaAt: previa?.encoladaAt ?? null,
@@ -237,6 +264,53 @@ export class ProgresoTracker {
     /** Una escritura encontró la carga ya terminal o borrada: otro la cerró. */
     get cerradaPorFuera(): boolean {
         return this.cerradaPorFueraFlag;
+    }
+
+    /** `true` desde que el tracker supo que alguien pidió cancelar. No se apaga. */
+    get cancelacionPedida(): boolean {
+        return this.cancelacionPedidaFlag;
+    }
+
+    /** Nombre de quien pidió cancelar, si la compuerta o el reloj lo leyeron. Para el texto. */
+    get canceladaPor(): string | null {
+        return this.canceladaPorNombre;
+    }
+
+    /** Milisegundos desde que se supo del pedido; null si no hay pedido. Para el aviso del reaper. */
+    get cancelacionPedidaHaceMs(): number | null {
+        return this.cancelacionPedidaFlag && this.cancelacionDesdeMs != null
+            ? Math.max(0, this.ahora() - this.cancelacionDesdeMs)
+            : null;
+    }
+
+    /** Atajo en memoria: lo llama `cancelarCarga` después de su commit. Idempotente; no escribe. */
+    avisarCancelacion(): void {
+        this.marcarPedido();
+    }
+
+    private marcarPedido(): void {
+        if (this.cancelacionPedidaFlag) return;
+        this.cancelacionPedidaFlag = true;
+        this.cancelacionDesdeMs = this.ahora();
+    }
+
+    /**
+     * Lo que acaba de leer la compuerta (bajo el lock) o el reloj. Solo un valor NO nulo cuenta como pedido: un
+     * resultado vacío espurio (§9.15) se lee como "nadie pidió cancelar". Deja `resumen` y el pedido al día
+     * en la memoria y en la foto que se va a emitir.
+     */
+    private registrarLectura(
+        leido: { cancelSolicitadaAt?: Date | string | null; resumen?: unknown },
+        foto?: Memoria,
+    ): void {
+        const destinos = foto ? [this.mem, foto] : [this.mem];
+        if (leido.resumen !== undefined) for (const d of destinos) d.resumen = leido.resumen;
+        if (leido.cancelSolicitadaAt == null) return;
+        const cuando = leido.cancelSolicitadaAt instanceof Date ? leido.cancelSolicitadaAt : new Date(leido.cancelSolicitadaAt);
+        for (const d of destinos) d.cancelSolicitadaAt = cuando;
+        this.marcarPedido();
+        const nombre = leerResumen(leido.resumen ?? this.mem.resumen)?.cancelacion?.nombre;
+        if (typeof nombre === 'string' && nombre) this.canceladaPorNombre = nombre;
     }
 
     /** Milisegundos desde el último reporte que cambió algo. Para el log del reaper. */
@@ -288,13 +362,13 @@ export class ProgresoTracker {
                 resultado: m.resultado,
                 error: m.error,
                 errorPostProceso: m.errorPostProceso,
-                resumen: null,
+                resumen: (m.resumen ?? null) as import_progreso['resumen'],
                 intentos: m.intentos,
                 jobId: m.jobId,
-                grupoId: null,
-                grupoOrden: null,
-                grupoTotal: null,
-                cancelSolicitadaAt: null,
+                grupoId: m.grupoId,
+                grupoOrden: m.grupoOrden,
+                grupoTotal: m.grupoTotal,
+                cancelSolicitadaAt: m.cancelSolicitadaAt,
                 encoladaAt: m.encoladaAt,
                 startedAt: m.startedAt,
                 heartbeatAt: m.heartbeatAt,
@@ -455,7 +529,7 @@ export class ProgresoTracker {
             siguiente.rev = await this.persistir(
                 { estadoProceso: 'PROCESANDO', okFilas: 0, errFilas: 0 },
                 siguiente,
-                { soloSiSigueEncolada: true },
+                { soloSiSigueEncolada: true, abortarSiCancelada: true },
             );
             this.mem = siguiente;
             this.sucio = false;
@@ -519,8 +593,13 @@ export class ProgresoTracker {
         });
     }
 
+    /**
+     * Va a empezar el `afterAll`. La compuerta relee el pedido de cancelación con la fila bloqueada: si lo hay, NO
+     * escribe y tira `CargaCanceladaError` (el cierre no corre). Es lo que serializa el pedido contra esta entrada.
+     */
     async entrarEnPostProceso(): Promise<void> {
         if (this.cerradaPorFueraFlag) throw new CargaCerradaPorFueraError(this.info.remesaId);
+        const antes = { fase: this.mem.fase, subfase: this.mem.subfase, subfaseNombre: this.subfaseNombre };
         this.mem.fase = 'POST_PROCESO';
         this.mem.subfase = null;
         this.mem.adelantoDelLote = 0;
@@ -532,9 +611,15 @@ export class ProgresoTracker {
             const foto = this.fotoParaEscribir();
             this.sucio = false;
             try {
-                foto.rev = await this.persistir({}, foto);
+                foto.rev = await this.persistir({}, foto, { abortarSiCancelada: true });
             } catch (e) {
                 this.sucio = true;
+                if (e instanceof CargaCanceladaError) {
+                    // No entró: la fase vuelve a ser la que era (la memoria se había adelantado a la escritura).
+                    this.mem.fase = antes.fase;
+                    this.mem.subfase = antes.subfase;
+                    this.subfaseNombre = antes.subfaseNombre;
+                }
                 throw e;
             }
             this.despuesDeEscribir(foto);
@@ -597,7 +682,7 @@ export class ProgresoTracker {
      * en PROCESANDO; es el caso que cubre el reaper). Devuelve igual el estado terminal que
      * correspondía, para que quien llama pueda notificar.
      */
-    async fallar(error: unknown, c: ContadoresCarga): Promise<EstadoCargaDto> {
+    async fallar(error: unknown, c: ContadoresCarga, o: { sinFilasEntregadas?: boolean } = {}): Promise<EstadoCargaDto> {
         if (this.terminado) {
             this.logger.error(
                 `fallar() sobre la remesa ${this.info.remesaId}, que ya terminó: no se pisa el estado terminal ` +
@@ -631,9 +716,11 @@ export class ProgresoTracker {
         try {
             await this.escribirExclusivo(async () => {
                 if (this.cerradaPorFueraFlag) return;
+                // La clave `resumen` entra a la escritura SOLO con el marcador: en cualquier otro caso no se toca.
                 foto.rev = await this.persistir(
                     { estadoProceso: 'FALLIDA', okFilas: c.ok, errFilas: c.err },
                     foto,
+                    o.sinFilasEntregadas === true ? { mezclarResumen: { sinFilasEntregadas: true } } : {},
                 );
                 this.mem = foto;
                 this.terminado = true;
@@ -643,6 +730,67 @@ export class ProgresoTracker {
             if (e instanceof CargaCerradaPorFueraError) return this.armar({ ...foto, rev: this.mem.rev });
             this.logger.error(
                 `No se pudo marcar la remesa ${this.info.remesaId} como FALLIDA: ${motivoLegible(e)}. ` +
+                'Queda en PROCESANDO y no se emite import:finalizada.',
+                e?.stack,
+            );
+            this.sinRegistrar = true;
+            return this.armar({ ...foto, rev: this.mem.rev });
+        }
+        return this.terminado ? this.estado : this.armar({ ...foto, rev: this.mem.rev });
+    }
+
+    /**
+     * Cierre por cancelación (§10.5.3). Mismo contrato que `fallar`: nunca tira, detiene el reloj, espera la
+     * escritura en vuelo, escribe por la compuerta y emite `import:finalizada`. Los contadores son exactos:
+     * el runner vivo los escribe, y el corte cae siempre después de una fila o de un lote completos. La
+     * columna `resultado` guarda `CANCELADA`; el DTO la traduce a `FALLIDA` + `cancelada: true`.
+     */
+    async cancelar(c: ContadoresCarga, o: { texto: string; sinFilasEntregadas: boolean }): Promise<EstadoCargaDto> {
+        if (this.terminado) {
+            this.logger.error(`cancelar() sobre la remesa ${this.info.remesaId}, que ya terminó: no se pisa el estado terminal`);
+            return this.estado;
+        }
+        this.terminando = true;
+        this.detenerReloj();
+        this.cerrarSubfase();
+        this.marcarPedido();
+        const ahora = new Date(this.ahora());
+        const procesadas = c.ok + c.err;
+        const foto: Memoria = {
+            ...this.mem,
+            estadoProceso: 'FALLIDA',
+            fase: 'TERMINADA',
+            subfase: null,
+            porcentaje: calcularPorcentaje(procesadas, this.mem.totalEsperado, 'FALLIDA'),
+            procesadas,
+            ok: c.ok,
+            err: c.err,
+            descartadas: c.descartadas,
+            fueraDeCorte: c.fueraDeCorte !== undefined ? c.fueraDeCorte : this.mem.fueraDeCorte,
+            adelantoDelLote: 0,
+            resultado: RESULTADO_CANCELADA,
+            error: recortarMotivo(o.texto),
+            heartbeatAt: ahora,
+            finishedAt: ahora,
+        };
+        if (this.cerradaPorFueraFlag) return this.armar(foto);
+        try {
+            await this.escribirExclusivo(async () => {
+                if (this.cerradaPorFueraFlag) return;
+                // Sin `abortarSiCancelada`: el pedido es justamente lo que se está honrando.
+                foto.rev = await this.persistir(
+                    { estadoProceso: 'FALLIDA', okFilas: c.ok, errFilas: c.err },
+                    foto,
+                    o.sinFilasEntregadas ? { mezclarResumen: { sinFilasEntregadas: true } } : {},
+                );
+                this.mem = foto;
+                this.terminado = true;
+                this.emitir('emitImportFinalizada', foto);
+            });
+        } catch (e: any) {
+            if (e instanceof CargaCerradaPorFueraError) return this.armar({ ...foto, rev: this.mem.rev });
+            this.logger.error(
+                `No se pudo marcar la remesa ${this.info.remesaId} como cancelada: ${motivoLegible(e)}. ` +
                 'Queda en PROCESANDO y no se emite import:finalizada.',
                 e?.stack,
             );
@@ -832,7 +980,13 @@ export class ProgresoTracker {
                     data: { ...this.camposDeProgreso(m), rev: { increment: 1 } },
                 });
                 if (count === 0) return null;
-                const r = await tx.import_progreso.findUnique({ where: { remesaId }, select: { rev: true } });
+                // Mismo `select` que antes más el pedido de cancelación: ninguna sentencia nueva. Es lo que hace llegar
+                // el pedido a una carga que corre en otro proceso.
+                const r = await tx.import_progreso.findUnique({
+                    where: { remesaId },
+                    select: { rev: true, cancelSolicitadaAt: true, resumen: true },
+                });
+                if (r) this.registrarLectura({ cancelSolicitadaAt: r.cancelSolicitadaAt, resumen: r.resumen }, m);
                 return r?.rev ?? this.mem.rev + 1;
             }, TX_TRACKER).then(async (rev) => {
                 if (rev === null) return this.resolverEscrituraVacia();
@@ -888,7 +1042,13 @@ export class ProgresoTracker {
     private async persistir(
         remesaData: Prisma.remesaUpdateInput,
         m: Memoria,
-        opciones: { soloSiSigueEncolada?: boolean } = {},
+        opciones: {
+            soloSiSigueEncolada?: boolean;
+            /** Con un pedido de cancelación en la fila NO escribe y tira `CargaCanceladaError`. */
+            abortarSiCancelada?: boolean;
+            /** Se mezcla con el `resumen` que se acaba de leer bajo el lock, nunca con una copia de memoria. */
+            mezclarResumen?: Partial<ResumenCarga>;
+        } = {},
     ): Promise<number> {
         const remesaId = this.info.remesaId;
         const campos = {
@@ -902,11 +1062,22 @@ export class ProgresoTracker {
             startedAt: m.startedAt,
             finishedAt: m.finishedAt,
         };
+        // El `resumen` mezclado solo pasa a la foto cuando la transacción confirmó.
+        let resumenEscrito: ResumenCarga | undefined;
         const una = () => this.prisma.$transaction(async (tx) => {
                 const filas = await tx.$queryRaw<
-                    Array<{ estadoProceso: string; progresoId: number | null; encoladaAt: Date | null; finishedAt: Date | null }>
+                    Array<{
+                        estadoProceso: string;
+                        progresoId: number | null;
+                        encoladaAt: Date | null;
+                        finishedAt: Date | null;
+                        // Tolerante: un doble que no las devuelve se lee como "nadie pidió cancelar".
+                        cancelSolicitadaAt?: Date | null;
+                        resumen?: unknown;
+                    }>
                 >`
-                    SELECT r.estadoProceso AS estadoProceso, p.remesaId AS progresoId, p.encoladaAt AS encoladaAt, p.finishedAt AS finishedAt
+                    SELECT r.estadoProceso AS estadoProceso, p.remesaId AS progresoId, p.encoladaAt AS encoladaAt, p.finishedAt AS finishedAt,
+                           p.cancelSolicitadaAt AS cancelSolicitadaAt, p.resumen AS resumen
                     FROM remesa r LEFT JOIN import_progreso p ON p.remesaId = r.id
                     WHERE r.id = ${remesaId}
                     FOR UPDATE
@@ -924,14 +1095,22 @@ export class ProgresoTracker {
                 ) {
                     throw new CargaCerradaPorFueraError(remesaId);
                 }
+                // Lo que dice la fila AHORA, con el lock tomado: el pedido de cancelación se serializa contra esta escritura.
+                this.registrarLectura({ cancelSolicitadaAt: f.cancelSolicitadaAt, resumen: f.resumen }, m);
+                if (opciones.abortarSiCancelada && f.cancelSolicitadaAt != null) throw new CargaCanceladaError();
+                const mezclado = opciones.mezclarResumen
+                    ? { v: 1, ...(leerResumen(f.resumen) ?? {}), ...opciones.mezclarResumen }
+                    : undefined;
+                resumenEscrito = mezclado;
+                const conResumen = mezclado ? { ...campos, resumen: mezclado as Prisma.InputJsonObject } : campos;
                 const r = await tx.remesa.update({
                     where: { id: remesaId },
                     data: {
                         ...remesaData,
                         progreso: {
                             upsert: {
-                                create: { ...campos, rev: 1 },
-                                update: { ...campos, rev: { increment: 1 } },
+                                create: { ...conResumen, rev: 1 },
+                                update: { ...conResumen, rev: { increment: 1 } },
                             },
                         },
                     },
@@ -941,11 +1120,15 @@ export class ProgresoTracker {
             }, TX_TRACKER);
         try {
             try {
-                return await una();
+                const rev = await una();
+                if (resumenEscrito) m.resumen = resumenEscrito;
+                return rev;
             } catch (e) {
                 if (!(e instanceof FilaAusenteError)) throw e;
                 this.logger.warn(`La remesa ${remesaId} no devolvió fila al bloquearla: se reintenta una vez antes de darla por cerrada`);
-                return await una();
+                const rev = await una();
+                if (resumenEscrito) m.resumen = resumenEscrito;
+                return rev;
             }
         } catch (e: any) {
             if (e instanceof FilaAusenteError) e = new CargaCerradaPorFueraError(remesaId);

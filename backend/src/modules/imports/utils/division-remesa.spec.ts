@@ -9,6 +9,9 @@ import {
     AcumuladorCortes, columnasDeDivision, digitoDeGestion, divide, normalizarDivision,
     numeroConGestion, numerosSugeridos,
 } from './division-remesa';
+import { claveDeCorte } from './division-remesa';
+import { combinarHashes, hashDeArchivos, hashDeBuffer } from './hash-archivos';
+import * as crypto from 'crypto';
 
 const NOMINA = { fromIndex: 45, etiqueta: 'Nómina' };
 const GESTION = { fromIndex: 2, etiqueta: 'Gestión' };
@@ -310,5 +313,70 @@ describe('divide / columnasDeDivision / normalizarDivision', () => {
         const nueva = acumular(ARCHIVO, CFG).cortes();
 
         expect(vieja).toEqual(nueva);
+    });
+});
+
+describe('claveDeCorte (§10.5.6)', () => {
+    const nomina = { fromIndex: 45, operador: 'IGUAL' as const, valor: '3082' };
+    const gestion = { fromIndex: 2, operador: 'EN' as const, valores: ['3GH', '3G'] };
+
+    it('no depende del orden de los filtros', () => {
+        expect(claveDeCorte([nomina, gestion])).toBe(claveDeCorte([gestion, nomina]));
+    });
+
+    it('no depende del orden de los valores de un EN', () => {
+        expect(claveDeCorte([{ fromIndex: 2, operador: 'EN', valores: ['3G', '3GH'] }]))
+            .toBe(claveDeCorte([{ fromIndex: 2, operador: 'EN', valores: ['3GH', '3G'] }]));
+    });
+
+    it('distingue IGUAL 3G de EN [3G, 3GH]', () => {
+        expect(claveDeCorte([{ fromIndex: 2, operador: 'IGUAL', valor: '3G' }]))
+            .not.toBe(claveDeCorte([{ fromIndex: 2, operador: 'EN', valores: ['3G', '3GH'] }]));
+        expect(claveDeCorte([{ fromIndex: 2, operador: 'EN', valores: ['3G'] }]))
+            .not.toBe(claveDeCorte([{ fromIndex: 2, operador: 'IGUAL', valor: '3G' }]));
+    });
+
+    it('distingue otro valor, otra columna y otro operador', () => {
+        const base = claveDeCorte([nomina]);
+        expect(claveDeCorte([{ ...nomina, valor: '3083' }])).not.toBe(base);
+        expect(claveDeCorte([{ ...nomina, fromIndex: 46 }])).not.toBe(base);
+        expect(claveDeCorte([{ ...nomina, operador: 'DISTINTO' }])).not.toBe(base);
+    });
+
+    it('acepta el JSON como texto (un $queryRaw lo trae así) y da vacío si no es una lista', () => {
+        expect(claveDeCorte(JSON.stringify([nomina, gestion]))).toBe(claveDeCorte([nomina, gestion]));
+        expect(claveDeCorte('no es json')).toBe('');
+        expect(claveDeCorte(null)).toBe('');
+        expect(claveDeCorte({})).toBe('');
+        expect(claveDeCorte([])).toBe('');
+    });
+});
+
+describe('hash de los archivos de una remesa (§10.5.6)', () => {
+    const a = Buffer.from('cod;nombre\n001;PEREZ\n', 'latin1');
+    const b = Buffer.from('cod;nombre\n002;GOMEZ\n', 'latin1');
+    const c = Buffer.from('cod;nombre\n003;RUIZ\n', 'latin1');
+    // La fórmula que ya está guardada en las remesas de hoy, escrita acá con `crypto` y no con el helper.
+    const sha = (x: Buffer | string) => crypto.createHash('sha256').update(x).digest('hex');
+
+    it('un archivo: el SHA-256 de sus bytes', () => {
+        expect(hashDeArchivos([a])).toBe(sha(a));
+        expect(hashDeBuffer(a)).toBe(sha(a));
+    });
+
+    it('varios archivos: el SHA-256 de los hashes ordenados y unidos con |, en cualquier orden', () => {
+        const esperado = sha([sha(a), sha(b), sha(c)].sort().join('|'));
+        expect(hashDeArchivos([a, b, c])).toBe(esperado);
+        expect(hashDeArchivos([c, a, b])).toBe(esperado);
+        expect(hashDeArchivos([b, c, a])).toBe(esperado);
+    });
+
+    it('combinarHashes (lo que usa el alta con el hash que ya calculó el storage) da lo mismo que hashDeArchivos', () => {
+        expect(combinarHashes([sha(a)])).toBe(hashDeArchivos([a]));
+        expect(combinarHashes([sha(c), sha(a)])).toBe(hashDeArchivos([a, c]));
+    });
+
+    it('un archivo solo y el conjunto que lo incluye son hashes distintos', () => {
+        expect(hashDeArchivos([a])).not.toBe(hashDeArchivos([a, b]));
     });
 });

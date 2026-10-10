@@ -21,8 +21,11 @@ import { importeDePago } from './processors/pagos.processor';
 import { ProcessContext, MappedRow } from './processors/processor.interface';
 import { RealtimeService } from '../realtime/realtime.service';
 import { NotificacionesService } from '../notificaciones/notificaciones.service';
-import { CargaCerradaPorFueraError, ProgresoTracker } from './progreso/progreso-tracker';
-import { armarEstadoCarga, motivoLegible, MotivoInterrupcion, textoInterrupcion, textoNotificacion } from './progreso/estado-carga';
+import { CargaCanceladaError, CargaCerradaPorFueraError, ProgresoTracker } from './progreso/progreso-tracker';
+import {
+    armarEstadoCarga, esRetomable, leerResumen, motivoLegible, MotivoInterrupcion, RESULTADO_CANCELADA, textoCancelacion, textoInterrupcion,
+    textoNotificacion,
+} from './progreso/estado-carga';
 import type { EstadoCargaDto } from './progreso/estado-carga.types';
 import { parseMultirregistro } from './utils/multirregistro-parser';
 import { ArchivosMultiarchivo, parseMultiarchivo } from './utils/multiarchivo-parser';
@@ -35,7 +38,8 @@ import {
 import { validarArchivosHomogeneos } from './utils/archivos-homogeneos';
 import { describirFiltros, pasaFiltro } from './utils/filtro-filas';
 import { numeroRemesaMulticlaves, siguienteNumeroRemesa } from './utils/numero-remesa';
-import { AcumuladorCortes, columnasDeDivision, divide, numerosSugeridos } from './utils/division-remesa';
+import { AcumuladorCortes, claveDeCorte, columnasDeDivision, divide, numerosSugeridos } from './utils/division-remesa';
+import { combinarHashes, hashDeArchivos } from './utils/hash-archivos';
 import { ContadorColisiones, resolverIdentidad } from './utils/identidad-deudor';
 import { RequestContextService } from 'src/common/logger/request-context';
 import { ConsolidacionSituacionService } from '../consolidacion/consolidacion.service';
@@ -81,6 +85,80 @@ export type EstadoJobDeCarga =
  * error de red, pero el borrado termina igual.
  */
 const TX_BORRADO = { timeout: 120_000, maxWait: 5_000 };
+
+/**
+ * Transacciones de la Fase C (encolar un lote, cancelar, retomar): pocas sentencias, ninguna larga. Todas llevan `maxWait` y
+ * `timeout` explícitos: el `timeout` de Prisma no corta la sentencia en curso (ver `TX_BORRADO`) y vencer contamina la
+ * operación siguiente, así que el tope va holgado y no se decide nada con un solo resultado vacío.
+ */
+const TX_C1 = { maxWait: 10_000, timeout: 30_000 };
+
+/** Usuario que pide cancelar o retomar (lo que trae el JWT). */
+export interface UsuarioDeCarga {
+    sub: number;
+    permisos: string[];
+}
+
+/** Una remesa y su fila de progreso, leídas con `SELECT … FOR UPDATE` (`bloquearCargas`). */
+interface FilaBloqueada {
+    id: number;
+    numeroRemesa: string;
+    estadoProceso: string;
+    totalFilas: number;
+    categoria: string | null;
+    empresaId: number;
+    plantillaId: number | null;
+    archivoHash: string | null;
+    filtroFilas: unknown;
+    usuarioCreadorId: number | null;
+    progresoId: number | null;
+    fase: string | null;
+    encoladaAt: Date | null;
+    startedAt: Date | null;
+    finishedAt: Date | null;
+    resumen: unknown;
+    cancelSolicitadaAt: Date | null;
+    jobId: string | null;
+    resultado: string | null;
+    rev: number | null;
+    createdAt: Date | null;
+}
+
+export type SituacionCorte = 'CARGADA' | 'EN_CURSO' | 'A_MEDIAS' | 'SIN_CARGAR';
+
+/** Un corte de un archivo dividido que ya tiene remesa (`yaCargado` de la vista de cortes). */
+export interface CorteYaCargado {
+    remesaId: number;
+    numeroRemesa: string;
+    situacion: SituacionCorte;
+    casos: number;
+    retomable: boolean;
+}
+
+const TEXTO_SITUACION_CORTE: Record<SituacionCorte, string> = {
+    EN_CURSO: 'se está cargando',
+    CARGADA: 'ya cargada',
+    A_MEDIAS: 'quedó a medias',
+    SIN_CARGAR: 'no llegó a cargarse',
+};
+
+/**
+ * Después de una lectura que bloquea el event loop (un Excel, o el parseo de las categorías pre-parseadas) el runner cede un
+ * momento antes de entregar la primera fila: el pedido de cancelar que llegó durante la lectura estaba esperando en la cola de
+ * eventos y recién se atiende ahora. Sin esta espera corría en paralelo con las primeras filas (hallazgo 3 de la auditoría).
+ * Un CSV no tiene esa fase y no espera.
+ */
+const PAUSA_TRAS_LECTURA_BLOQUEANTE_MS = 300;
+
+const MSG_CANCELAR_NO_EN_CURSO = 'Esta importación no está en curso: no hay nada que cancelar. Si es una vista previa que no querés, eliminala.';
+const MSG_CANCELAR_YA_TERMINO = 'Esta importación ya terminó: no hay nada que cancelar.';
+const MSG_CANCELAR_POST_PROCESO = 'La importación ya procesó todas las filas y está cerrando: en este paso no se puede cancelar. Esperá a que termine.';
+const MSG_CANCELAR_ACCIONES =
+    'Una acción masiva que ya empezó no se cancela: los datos para deshacerla se guardan recién al terminar. Esperá a que termine y usá Revertir, que la deshace completa.';
+const MSG_RETOMAR_NO_TERMINO = 'Esta importación no terminó, o terminó bien: no hay nada que retomar.';
+const MSG_RETOMAR_ANTERIOR = 'Esta importación es anterior a la función de retomar. Volvé a subir el archivo.';
+const MSG_RETOMAR_PROCESO_FILAS =
+    'Esta importación ya procesó filas: no se puede retomar. Mirá el motivo de la falla para saber qué hacer.';
 
 /** Mensaje al operador cuando la remesa no se puede borrar desde la pantalla por su tamaño. */
 const MSG_REMESA_GRANDE = 'No se pudo eliminar: la remesa es demasiado grande para borrarla desde la pantalla. Avisá a soporte.';
@@ -443,7 +521,7 @@ export class ImportService {
      * backup de la DB sin los archivos) y el mensaje tiene que decir qué falta, no reventar con un
      * ENOENT en el worker.
      */
-    private leerPaqueteMultiarchivo(remesa: { archivos: unknown }): ArchivosMultiarchivo {
+    private leerPaqueteMultiarchivo(remesa: { archivos: unknown }, soloExistencia = false): ArchivosMultiarchivo {
         const paths = (remesa.archivos ?? {}) as Record<string, string>;
         if (!paths.deudores || !paths.detalle) {
             throw new BadRequestException(
@@ -457,6 +535,7 @@ export class ImportService {
             if (!fs.existsSync(p)) {
                 throw new BadRequestException(`No se encuentra en el disco el archivo de ${rol} de la remesa (${p}).`);
             }
+            if (soloExistencia) return Buffer.alloc(0);
             return fs.readFileSync(p);
         };
         return {
@@ -673,6 +752,15 @@ export class ImportService {
                 cortes.map((c) => `${Object.values(c.valores).join('/')}=${c.filas}`).join(', '),
             );
 
+            // Cortes de este archivo que ya están cargados (§10.5.6): el hash sale de la MISMA función que usa el alta.
+            // Mejor esfuerzo: si la consulta falla la vista sale como siempre y el alta rechaza igual el corte repetido.
+            let yaCargados = new Map<string, CorteYaCargado>();
+            try {
+                yaCargados = await this.cortesYaCargados(empresaId, plantillaId, hashDeArchivos(lista.map((f) => f.buffer as Buffer)));
+            } catch (e: any) {
+                this.logger.warn(`División (plantilla ${plantillaId}): no se pudo mirar qué cortes ya están cargados: ${motivoLegible(e)}`);
+            }
+
             return {
                 columnas: columnasDeDivision(cfg).map((c) => c.etiqueta),
                 total,
@@ -685,6 +773,7 @@ export class ImportService {
                     // variantes de la misma gestión (`3G` y `3GH`) no se puede reconstruir desde
                     // `valores`, que ahí muestra las dos juntas.
                     filtros: c.filtros,
+                    ...(yaCargados.has(claveDeCorte(c.filtros)) ? { yaCargado: yaCargados.get(claveDeCorte(c.filtros)) } : {}),
                 })),
             };
         } finally {
@@ -777,7 +866,7 @@ export class ImportService {
         } else if (lista.length === 1) {
             const saved = await this.files.saveBuffer(lista[0], dto.empresaId, dto.categoria);
             archivoPrincipal = saved.path;
-            archivoHash = saved.hash;
+            archivoHash = combinarHashes([saved.hash]);
         } else {
             // Varios archivos del mismo formato: se recorren como si fueran uno solo.
             try {
@@ -804,7 +893,7 @@ export class ImportService {
             archivoPrincipal = guardados[0];
             // Hash del conjunto: determinístico para los mismos archivos, sin depender del orden en
             // que el operador los arrastró.
-            archivoHash = crypto.createHash('sha256').update([...hashes].sort().join('|')).digest('hex');
+            archivoHash = combinarHashes(hashes);
 
             this.logger.log(
                 `Remesa ${numeroRemesa} (${dto.categoria}): ${lista.length} archivos — ` +
@@ -865,8 +954,8 @@ export class ImportService {
 
             const columnasValidas = new Set(columnasDeDivision(cfg).map((c) => c.fromIndex));
 
-            const creadas: number[] = [];
-            for (const [i, division] of dto.divisiones.entries()) {
+            // Primero se validan y arman todos los cortes, después se mira cuáles ya están cargados y recién ahí se crea.
+            const plan = dto.divisiones.map((division) => {
                 // El filtro lo calculó `division-preview` y vuelve tal cual: es el único que sabe
                 // qué variantes de la gestión agrupó el corte. Se valida antes de guardarlo —el
                 // cliente no puede filtrar por una columna que la plantilla no declara.
@@ -901,7 +990,33 @@ export class ImportService {
                 const detalle = Object.entries(division.valores)
                     .map(([k, v]) => `${k} ${v}`)
                     .join(' / ');
+                return { division, filtros, detalle };
+            });
 
+            // Cortes ya cargados (§10.5.6): protege también a una pestaña que no conoce `yaCargado`. Sin salida no hay
+            // regla que dure, así que `repetir: true` (que el asistente manda solo tras una confirmación) la saltea.
+            const yaCargados = await this.cortesYaCargados(dto.empresaId, dto.plantillaId, archivoHash);
+            const repetidos409: string[] = [];
+            for (const { division, filtros, detalle } of plan) {
+                const ya = yaCargados.get(claveDeCorte(filtros));
+                if (ya && ya.situacion !== 'SIN_CARGAR' && division.repetir !== true) {
+                    repetidos409.push(`${detalle} en la remesa ${ya.numeroRemesa} (${TEXTO_SITUACION_CORTE[ya.situacion]})`);
+                }
+            }
+            if (repetidos409.length > 0) {
+                this.logger.warn(`Alta rechazada: cortes ya cargados — ${repetidos409.join('; ')}`);
+                throw new ConflictException(
+                    `Este archivo ya tiene cortes cargados: ${repetidos409.join('; ')}. ` +
+                    'Destildalos, o confirmá que querés cargarlos de nuevo: sus casos van a quedar duplicados.',
+                );
+            }
+            const conRepeticion = plan.filter((x) => x.division.repetir === true && yaCargados.has(claveDeCorte(x.filtros)));
+            if (conRepeticion.length > 0) {
+                this.logger.warn(`Se cargan de nuevo cortes que ya estaban cargados (repetir=true): ${conRepeticion.map((x) => x.detalle).join('; ')}`);
+            }
+
+            const creadas: number[] = [];
+            for (const [i, { filtros, detalle, division }] of plan.entries()) {
                 const creada = await this.prisma.remesa.create({
                     data: {
                         ...comun,
@@ -935,6 +1050,105 @@ export class ImportService {
             data: { ...comun, numeroRemesa, nombre: dto.nombre },
         });
         return { remesaId: remesa.id, remesaIds: [remesa.id] };
+    }
+
+    /**
+     * Los cortes de este archivo que ya tienen una remesa (§10.5.6), por clave de corte. Se buscan las remesas de la empresa
+     * con el mismo `archivoHash` y la misma plantilla que tengan corte propio; un borrador sin confirmar no cuenta. Si hay
+     * más de una para el mismo corte, queda la de mayor gravedad: EN_CURSO, CARGADA, A_MEDIAS, SIN_CARGAR.
+     */
+    private async cortesYaCargados(empresaId: number, plantillaId: number, archivoHash: string): Promise<Map<string, CorteYaCargado>> {
+        const remesas = await this.prisma.remesa.findMany({
+            where: { empresaId, plantillaId, archivoHash },
+            select: {
+                id: true, numeroRemesa: true, estadoProceso: true, filtroFilas: true,
+                progreso: { select: { fase: true, encoladaAt: true, startedAt: true, finishedAt: true, resumen: true } },
+                _count: { select: { deudor: true } },
+            },
+        });
+        const gravedad: SituacionCorte[] = ['EN_CURSO', 'CARGADA', 'A_MEDIAS', 'SIN_CARGAR'];
+        const porCorte = new Map<string, CorteYaCargado>();
+        for (const r of remesas ?? []) {
+            if (!this.tieneCortePropio(r.filtroFilas)) continue;
+            const casos = r._count?.deudor ?? 0;
+            const situacion = this.situacionDeCorte(r.estadoProceso, r.progreso, casos);
+            if (!situacion) continue;
+            const clave = claveDeCorte(r.filtroFilas);
+            const previo = porCorte.get(clave);
+            if (previo && gravedad.indexOf(previo.situacion) <= gravedad.indexOf(situacion)) continue;
+            porCorte.set(clave, {
+                remesaId: r.id,
+                numeroRemesa: r.numeroRemesa,
+                situacion,
+                casos,
+                retomable: esRetomable(r.estadoProceso, r.progreso),
+            });
+        }
+        return porCorte;
+    }
+
+    /** Qué pasó con un corte ya creado. `null` = un borrador sin confirmar: no cuenta. */
+    private situacionDeCorte(
+        estadoProceso: string,
+        progreso: { encoladaAt?: Date | null; startedAt?: Date | null; finishedAt?: Date | null; resumen?: unknown } | null,
+        casos: number,
+    ): SituacionCorte | null {
+        if (estadoProceso === 'FINALIZADA') return 'CARGADA';
+        if (estadoProceso === 'FALLIDA') {
+            // Una FALLIDA que arrancó sin el marcador de "no entregó filas" (o que tiene casos) cae en A_MEDIAS: ante la duda, no se vuelve a cargar.
+            const sinFilas = leerResumen(progreso?.resumen)?.sinFilasEntregadas === true;
+            const proceso = progreso?.startedAt != null && !sinFilas;
+            return casos > 0 || proceso ? 'A_MEDIAS' : 'SIN_CARGAR';
+        }
+        if (estadoProceso === 'PROCESANDO') return 'EN_CURSO';
+        if (progreso?.encoladaAt != null && progreso.finishedAt == null) return 'EN_CURSO';
+        return null;
+    }
+
+    /**
+     * Otras remesas del mismo archivo, plantilla y corte que ya figuran cargadas, en curso o a medias y que se confirmaron DESPUÉS
+     * de que esta se creó (§10.5.6, hallazgos 2 y 7 de la auditoría). Se mira al confirmar y al retomar, con la fila ya bloqueada: la
+     * guarda del alta no alcanza si dos altas del mismo archivo se arman antes de confirmar ninguna. La comparación de fechas es lo
+     * que respeta el `repetir` que el operador confirmó a propósito: lo que ya estaba cargado cuando se creó la remesa ya lo vio la
+     * guarda del alta. Devuelve los números de esas remesas.
+     */
+    private async remesasQueChocanConElCorte(
+        tx: Prisma.TransactionClient,
+        f: { id: number; empresaId: number; plantillaId: number | null; archivoHash: string | null; filtroFilas: unknown; createdAt?: Date | null },
+    ): Promise<string[]> {
+        if (!this.tieneCortePropio(f.filtroFilas) || !f.archivoHash || f.plantillaId == null || !f.createdAt) return [];
+        const otras = await tx.remesa.findMany({
+            where: { empresaId: f.empresaId, plantillaId: f.plantillaId, archivoHash: f.archivoHash, id: { not: f.id } },
+            select: {
+                id: true, numeroRemesa: true, estadoProceso: true, filtroFilas: true,
+                progreso: { select: { fase: true, encoladaAt: true, startedAt: true, finishedAt: true, resumen: true } },
+                _count: { select: { deudor: true } },
+            },
+        });
+        const clave = claveDeCorte(f.filtroFilas);
+        const desde = new Date(f.createdAt).getTime();
+        const choques: string[] = [];
+        for (const o of otras ?? []) {
+            if (!this.tieneCortePropio(o.filtroFilas) || claveDeCorte(o.filtroFilas) !== clave) continue;
+            const confirmada = o.progreso?.encoladaAt ? new Date(o.progreso.encoladaAt).getTime() : null;
+            if (confirmada == null || confirmada <= desde) continue;
+            const situacion = this.situacionDeCorte(o.estadoProceso, o.progreso, o._count?.deudor ?? 0);
+            if (situacion && situacion !== 'SIN_CARGAR') choques.push(o.numeroRemesa);
+        }
+        return choques;
+    }
+
+    private textoChoqueAlConfirmar(choques: Array<{ numero: string; otras: string[] }>): string {
+        if (choques.length === 1) {
+            return (
+                `El corte de la remesa ${choques[0].numero} ya figura en la remesa ${choques[0].otras.join(', ')}, que se confirmó ` +
+                'después de armar esta vista previa: no se puede confirmar. Eliminá esta vista previa.'
+            );
+        }
+        return (
+            `El corte de ${choques.map((c) => `la remesa ${c.numero} ya figura en la remesa ${c.otras.join(', ')}`).join('; el de ')}. ` +
+            'Esas remesas se confirmaron después de armar estas vistas previas: no se puede confirmar ninguna. Eliminá estas vistas previas.'
+        );
     }
 
     /**
@@ -1906,6 +2120,12 @@ export class ImportService {
 
         this.logger.log(`Encolando remesa=${remesaId} usuario=${usuarioId ?? 'sin-usuario'} categoria=${remesa.categoria}`);
 
+        // Las remesas de origen con las que se confirma quedan en la fila (lo necesita retomar: viajaban solo en el job).
+        const resumenConOrigen = {
+            v: 1,
+            origen: { remesaOrigenId: remesaOrigenId ?? null, remesaOrigenIds: remesaOrigenIds ?? null },
+        } as Prisma.InputJsonObject;
+
         // Todo el chequeo y el paso a EN_COLA van en una transacción: el mutex es la fila del usuario
         // (no un rango de `remesa`), así dos confirmaciones simultáneas del mismo usuario se ordenan
         // sin depender de qué gap locks toma MySQL.
@@ -1915,8 +2135,15 @@ export class ImportService {
                 await tx.$queryRaw`SELECT id FROM usuario WHERE id = ${usuarioId} FOR UPDATE`;
             }
 
-            const filas = await tx.$queryRaw<Array<{ estadoProceso: string; totalFilas: number; encoladaAt: Date | null }>>`
-                SELECT r.estadoProceso AS estadoProceso, r.totalFilas AS totalFilas, p.encoladaAt AS encoladaAt
+            const filas = await tx.$queryRaw<Array<{
+                estadoProceso: string; totalFilas: number; encoladaAt: Date | null;
+                // Tolerante: un doble que no las devuelve se lee como "sin corte propio".
+                numeroRemesa?: string; empresaId?: number; plantillaId?: number | null; archivoHash?: string | null;
+                filtroFilas?: unknown; createdAt?: Date | null;
+            }>>`
+                SELECT r.estadoProceso AS estadoProceso, r.totalFilas AS totalFilas, p.encoladaAt AS encoladaAt,
+                       r.numeroRemesa AS numeroRemesa, r.empresaId AS empresaId, r.plantillaId AS plantillaId,
+                       r.archivoHash AS archivoHash, r.filtroFilas AS filtroFilas, r.createdAt AS createdAt
                 FROM remesa r LEFT JOIN import_progreso p ON p.remesaId = r.id
                 WHERE r.id = ${remesaId}
                 FOR UPDATE
@@ -1938,6 +2165,16 @@ export class ImportService {
                 throw new BadRequestException(
                     'La vista previa no encontró filas para importar. Revisá el archivo y el filtro de la plantilla.',
                 );
+            }
+
+            // Otra remesa del mismo corte que se confirmó después de armar esta (dos altas del mismo archivo antes de confirmar ninguna).
+            const choques = await this.remesasQueChocanConElCorte(tx, {
+                id: remesaId, empresaId: Number(fila.empresaId), plantillaId: fila.plantillaId ?? null,
+                archivoHash: fila.archivoHash ?? null, filtroFilas: fila.filtroFilas, createdAt: fila.createdAt,
+            });
+            if (choques.length > 0) {
+                this.logger.warn(`Encolar rechazado: el corte de la remesa ${remesaId} ya figura en ${choques.join(', ')}`);
+                throw new ConflictException(this.textoChoqueAlConfirmar([{ numero: String(fila.numeroRemesa), otras: choques }]));
             }
 
             if (usuarioId) {
@@ -1967,7 +2204,7 @@ export class ImportService {
                     errFilas: 0,
                     progreso: {
                         upsert: {
-                            create: { fase: 'EN_COLA', encoladaAt: ahora, totalEsperado, rev: 1 },
+                            create: { fase: 'EN_COLA', encoladaAt: ahora, totalEsperado, resumen: resumenConOrigen, rev: 1 },
                             update: {
                                 fase: 'EN_COLA',
                                 subfase: null,
@@ -1983,6 +2220,8 @@ export class ImportService {
                                 error: null,
                                 errorPostProceso: null,
                                 finishedAt: null,
+                                cancelSolicitadaAt: null,
+                                resumen: resumenConOrigen,
                                 rev: { increment: 1 },
                             },
                         },
@@ -2109,6 +2348,912 @@ export class ImportService {
         return { message: 'Importación encolada correctamente', remesaId, carga };
     }
 
+    // ─── Fase C, entrega 1 (docs/imports-progreso-realtime-spec.md §10) ───────────────────────────────────────────
+    // Carga dividida encolada por el backend, cancelar, retomar lo que no cargó nada. Toda escritura condicionada va
+    // con la fila bloqueada (`FOR UPDATE`): el `update` de Prisma con un `where` no único no es atómico.
+
+    /** `SELECT … FOR UPDATE` de remesas con su fila de progreso, en orden de id (el orden de los locks). */
+    private async bloquearCargas(tx: Prisma.TransactionClient, ids: number[]): Promise<FilaBloqueada[]> {
+        const filas = await tx.$queryRaw<FilaBloqueada[]>`
+            SELECT r.id AS id, r.numeroRemesa AS numeroRemesa, r.estadoProceso AS estadoProceso, r.totalFilas AS totalFilas,
+                   r.categoria AS categoria, r.empresaId AS empresaId, r.plantillaId AS plantillaId,
+                   r.archivoHash AS archivoHash, r.filtroFilas AS filtroFilas, r.usuarioCreadorId AS usuarioCreadorId,
+                   p.remesaId AS progresoId, p.fase AS fase, p.encoladaAt AS encoladaAt, p.startedAt AS startedAt,
+                   p.finishedAt AS finishedAt, p.resumen AS resumen, p.cancelSolicitadaAt AS cancelSolicitadaAt,
+                   p.jobId AS jobId, p.resultado AS resultado, p.rev AS rev, r.createdAt AS createdAt
+            FROM remesa r LEFT JOIN import_progreso p ON p.remesaId = r.id
+            WHERE r.id IN (${Prisma.join(ids)})
+            ORDER BY r.id
+            FOR UPDATE
+        `;
+        return filas.map((f) => ({ ...f, id: Number(f.id), totalFilas: Number(f.totalFilas) }));
+    }
+
+    /** Dueño de la remesa o `importacion.ver_progreso_otros`: la misma regla que el borrado. */
+    private verificarDuenoOPermiso(duenoId: number | null, user: UsuarioDeCarga, que: string): void {
+        if (!user.permisos.includes('importacion.ver_progreso_otros') && duenoId !== user.sub) {
+            this.logger.warn(`Usuario ${user.sub} sin permiso para ${que} de otro usuario (dueño=${duenoId ?? 'n/d'})`);
+            throw new ForbiddenException(`No tenés permiso para ${que}`);
+        }
+    }
+
+    private async nombreDeUsuario(usuarioId: number): Promise<string> {
+        try {
+            const u = await this.prisma.usuario.findUnique({ where: { id: usuarioId }, select: { nombre: true } });
+            return u?.nombre ?? '';
+        } catch (e: any) {
+            this.logger.warn(`No se pudo leer el nombre del usuario ${usuarioId}: ${e?.message}`);
+            return '';
+        }
+    }
+
+    private async leerCargaConProgreso(remesaId: number) {
+        return this.prisma.remesa.findUnique({
+            where: { id: remesaId },
+            include: { progreso: true, usuarioCreador: { select: { id: true, nombre: true } } },
+        });
+    }
+
+    // --- EJECUTAR UN GRUPO (carga dividida) ---
+    /**
+     * Confirma las N remesas de una carga dividida con UN pedido: pasan juntas a EN_COLA y el backend las encola en
+     * orden (§10.5.2). No hay un job padre: el grupo es una etiqueta en N filas, y si una falla, las demás siguen.
+     */
+    async ejecutarGrupo(
+        p: { remesaIds: number[]; remesaOrigenId?: number; remesaOrigenIds?: number[] },
+        usuarioId: number,
+    ) {
+        const t0 = Date.now();
+        const remesaIds = [...new Set((p.remesaIds ?? []).map(Number))].filter((n) => Number.isInteger(n) && n > 0).sort((a, b) => a - b);
+        if (remesaIds.length < 2 || remesaIds.length > 100) {
+            this.logger.warn(`Grupo rechazado: ${remesaIds.length} remesa(s); tienen que ser entre 2 y 100`);
+            throw new BadRequestException('Una carga dividida necesita entre 2 y 100 remesas.');
+        }
+        const grupoId = crypto.randomUUID();
+        this.logger.log(`Encolando grupo ${grupoId} de ${remesaIds.length} remesas (${remesaIds.join(', ')}) usuario=${usuarioId}`);
+        const r = await this.encolarLote({
+            remesaIds,
+            modo: 'CONFIRMAR',
+            solicitanteId: usuarioId,
+            origen: { remesaOrigenId: p.remesaOrigenId, remesaOrigenIds: p.remesaOrigenIds },
+            grupoId,
+        });
+        this.logger.log(`Grupo ${grupoId} encolado: ${r.cargas.length} en curso, ${r.noEncoladas.length} sin encolar, en ${Date.now() - t0}ms`);
+        return {
+            message: 'Carga dividida encolada correctamente',
+            grupoId,
+            cargas: r.cargas,
+            ...(r.noEncoladas.length > 0 ? { noEncoladas: r.noEncoladas } : {}),
+        };
+    }
+
+    /** Las remesas de un grupo, por `grupoOrden`. `404` si no hay ninguna. `remesas` puede traer menos que `total` si alguna se eliminó. */
+    async grupo(grupoId: string) {
+        const remesas = await this.prisma.remesa.findMany({
+            where: { progreso: { is: { grupoId } } },
+            orderBy: { progreso: { grupoOrden: 'asc' } },
+            include: { progreso: true, usuarioCreador: { select: { id: true, nombre: true } } },
+        });
+        if (remesas.length === 0) {
+            this.logger.warn(`Grupo ${grupoId}: no existe`);
+            throw new NotFoundException('La carga dividida no existe.');
+        }
+        const posiciones = remesas.some((r) => r.progreso?.fase === 'EN_COLA') ? await this.posicionesEnCola() : null;
+        return {
+            grupoId,
+            total: remesas[0].progreso?.grupoTotal ?? remesas.length,
+            remesas: remesas.map((r) =>
+                armarEstadoCarga(r, r.progreso, new Date(), { enColaDelante: posiciones?.get(r.id) ?? null }),
+            ),
+        };
+    }
+
+    // --- ENCOLAR UN LOTE (confirmar un grupo / retomar) ---
+    /**
+     * Una sola función para confirmar un grupo y para retomar (§10.5.1): una transacción pasa las N a EN_COLA con
+     * `encoladaAt` escalonado de a 1 ms, un `addBulk` las manda a la cola en orden y, si el encolado falla, se
+     * COMPENSA mirando la base —lo que el worker ya hizo o no—, porque `addBulk` no es atómico.
+     */
+    private async encolarLote(p: {
+        remesaIds: number[];
+        modo: 'CONFIRMAR' | 'RETOMAR';
+        solicitanteId: number;
+        origen?: { remesaOrigenId?: number; remesaOrigenIds?: number[] };
+        grupoId?: string;
+        /** RETOMAR de un grupo: lo que no se puede retomar va a `omitidas` en vez de abortar. */
+        tolerante?: boolean;
+    }): Promise<{
+        cargas: EstadoCargaDto[];
+        noEncoladas: Array<{ remesaId: number; numeroRemesa: string }>;
+        omitidas: Array<{ remesaId: number; numeroRemesa: string; motivo: string }>;
+    }> {
+        const { modo } = p;
+        const omitidas: Array<{ remesaId: number; numeroRemesa: string; motivo: string }> = [];
+        // Los dueños se conocen sin lock; después de bloquear se comprueba que no cambiaron.
+        const duenos = modo === 'CONFIRMAR'
+            ? [p.solicitanteId]
+            : [...new Set((await this.prisma.remesa.findMany({
+                where: { id: { in: p.remesaIds } }, select: { usuarioCreadorId: true },
+            })).map((r) => r.usuarioCreadorId).filter((n): n is number => n != null))].sort((a, b) => a - b);
+
+        let encoladas: Array<NonNullable<Awaited<ReturnType<ImportService['leerCargaConProgreso']>>>>;
+        const previos = new Map<number, 'PENDIENTE' | 'VALIDANDO'>();
+        let ids = p.remesaIds;
+        let origenes = new Map<number, { remesaOrigenId: number | null; remesaOrigenIds: number[] | null }>();
+        try {
+            encoladas = await this.prisma.$transaction(async (tx) => {
+                // a. mutex: la fila de los usuarios, por id (el orden de `executeRemesa`).
+                if (duenos.length > 0) {
+                    await tx.$queryRaw`SELECT id FROM usuario WHERE id IN (${Prisma.join(duenos)}) ORDER BY id FOR UPDATE`;
+                }
+                // b. las remesas, por id, con su fila de progreso.
+                const filas = await this.bloquearCargas(tx, p.remesaIds);
+                const porId = new Map(filas.map((f) => [f.id, f]));
+                const validas: FilaBloqueada[] = [];
+                for (const id of p.remesaIds) {
+                    const f = porId.get(id);
+                    if (!f) {
+                        if (modo === 'RETOMAR' && p.tolerante) {
+                            omitidas.push({ remesaId: id, numeroRemesa: String(id), motivo: 'La remesa ya no existe.' });
+                            continue;
+                        }
+                        this.logger.warn(`Encolar lote: la remesa ${id} no existe`);
+                        throw new NotFoundException(`La remesa ${id} no existe.`);
+                    }
+                    // c. validar según el modo.
+                    if (modo === 'CONFIRMAR') this.validarParaConfirmar(f);
+                    else {
+                        const rechazo = await this.motivoNoRetomable(tx, f);
+                        if (rechazo) {
+                            if (p.tolerante) {
+                                // Solo las fallidas que no se pueden retomar son "omitidas"; una que terminó bien o sigue en curso no.
+                                if (f.estadoProceso === 'FALLIDA') omitidas.push({ remesaId: id, numeroRemesa: f.numeroRemesa, motivo: rechazo.texto });
+                                continue;
+                            }
+                            throw rechazo.excepcion;
+                        }
+                    }
+                    validas.push(f);
+                }
+                if (modo === 'CONFIRMAR') {
+                    this.validarMismoArchivo(validas);
+                    // Ninguna se encola si alguna choca con otra del mismo corte confirmada después de armarla.
+                    const choques: Array<{ numero: string; otras: string[] }> = [];
+                    for (const f of validas) {
+                        const otras = await this.remesasQueChocanConElCorte(tx, f);
+                        if (otras.length > 0) choques.push({ numero: f.numeroRemesa, otras });
+                    }
+                    if (choques.length > 0) {
+                        this.logger.warn(`Grupo rechazado: ${choques.map((c) => `${c.numero} choca con ${c.otras.join(', ')}`).join('; ')}`);
+                        throw new ConflictException(this.textoChoqueAlConfirmar(choques));
+                    }
+                }
+                if (validas.length === 0) {
+                    throw new ConflictException('Ninguna de las importaciones se puede retomar: ya procesaron filas o no terminaron.');
+                }
+                ids = validas.map((f) => f.id);
+                // El dueño no cambió entre la lectura sin lock y ahora.
+                if (modo === 'RETOMAR' && validas.some((f) => f.usuarioCreadorId != null && !duenos.includes(f.usuarioCreadorId))) {
+                    throw new ConflictException('Otra operación está tocando estas remesas. Probá de nuevo.');
+                }
+                // d. cada dueño sin otra carga en curso que no sea de este lote.
+                const duenosDelLote = modo === 'CONFIRMAR'
+                    ? [p.solicitanteId]
+                    : [...new Set(validas.map((f) => f.usuarioCreadorId).filter((n): n is number => n != null))];
+                if (duenosDelLote.length > 0) {
+                    const otras = await tx.$queryRaw<Array<{ remesaId: number; duenoId?: number | null }>>`
+                        SELECT p.remesaId AS remesaId, r.usuarioCreadorId AS duenoId
+                        FROM import_progreso p JOIN remesa r ON r.id = p.remesaId
+                        WHERE r.usuarioCreadorId IN (${Prisma.join(duenosDelLote)}) AND p.encoladaAt IS NOT NULL
+                          AND p.finishedAt IS NULL AND p.remesaId NOT IN (${Prisma.join(ids)})
+                    `;
+                    if (otras.length > 0) {
+                        this.logger.warn(`Encolar lote rechazado: ya hay una importación en curso (remesa ${otras[0].remesaId})`);
+                        // Retomar la remesa de otro usuario: el que tiene la carga en curso es su dueño, no quien la retoma.
+                        if (otras[0].duenoId != null && Number(otras[0].duenoId) !== p.solicitanteId) {
+                            throw new ConflictException(
+                                'El dueño de esta remesa ya tiene una importación en curso. Esperá a que termine antes de retomarla.',
+                            );
+                        }
+                        throw new ConflictException('Ya tenés una importación en curso. Esperá a que termine antes de iniciar otra.');
+                    }
+                }
+                // e. el paso a EN_COLA de las N, en orden, con `encoladaAt` escalonado.
+                const ahora = Date.now();
+                const resultado: typeof encoladas = [];
+                for (const [i, f] of validas.entries()) {
+                    const encoladaAt = new Date(ahora + i);
+                    previos.set(f.id, f.estadoProceso === 'VALIDANDO' ? 'VALIDANDO' : 'PENDIENTE');
+                    const include = { progreso: true, usuarioCreador: { select: { id: true, nombre: true } } } as const;
+                    if (modo === 'CONFIRMAR') {
+                        const origen = {
+                            remesaOrigenId: p.origen?.remesaOrigenId ?? null,
+                            remesaOrigenIds: p.origen?.remesaOrigenIds ?? null,
+                        };
+                        origenes.set(f.id, origen);
+                        const grupo = { grupoId: p.grupoId!, grupoOrden: i + 1, grupoTotal: validas.length };
+                        const resumen = { v: 1, origen } as Prisma.InputJsonObject;
+                        resultado.push(await tx.remesa.update({
+                            where: { id: f.id },
+                            data: {
+                                estadoProceso: 'PENDIENTE',
+                                usuarioCreadorId: p.solicitanteId,
+                                okFilas: 0,
+                                errFilas: 0,
+                                progreso: {
+                                    upsert: {
+                                        create: { fase: 'EN_COLA', encoladaAt, totalEsperado: f.totalFilas, ...grupo, resumen, rev: 1 },
+                                        update: {
+                                            fase: 'EN_COLA', subfase: null, encoladaAt, totalEsperado: f.totalFilas,
+                                            porcentaje: 0, procesadas: 0, ok: 0, err: 0, descartadas: 0, advertencias: 0,
+                                            resultado: null, error: null, errorPostProceso: null, finishedAt: null,
+                                            cancelSolicitadaAt: null, ...grupo, resumen, rev: { increment: 1 },
+                                        },
+                                    },
+                                },
+                            },
+                            include,
+                        }));
+                    } else {
+                        const previo = leerResumen(f.resumen) ?? {};
+                        const { sinFilasEntregadas: _marca, cancelacion: _cancelacion, ...resto } = previo;
+                        const resumen = { ...resto, v: 1, retomas: (previo.retomas ?? 0) + 1 } as Prisma.InputJsonObject;
+                        origenes.set(f.id, {
+                            remesaOrigenId: previo.origen?.remesaOrigenId ?? null,
+                            remesaOrigenIds: previo.origen?.remesaOrigenIds ?? null,
+                        });
+                        resultado.push(await tx.remesa.update({
+                            where: { id: f.id },
+                            data: {
+                                estadoProceso: 'PENDIENTE',
+                                okFilas: 0,
+                                errFilas: 0,
+                                progreso: {
+                                    update: {
+                                        fase: 'EN_COLA', encoladaAt, totalEsperado: f.totalFilas,
+                                        startedAt: null, heartbeatAt: null, finishedAt: null, resultado: null, error: null,
+                                        errorPostProceso: null, cancelSolicitadaAt: null, subfase: null, jobId: null,
+                                        fueraDeCorte: null, nuevos: null, actualizados: null,
+                                        porcentaje: 0, procesadas: 0, ok: 0, err: 0, descartadas: 0, advertencias: 0, intentos: 0,
+                                        resumen, rev: { increment: 1 },
+                                    },
+                                },
+                            },
+                            include,
+                        }));
+                    }
+                }
+                return resultado;
+            }, TX_C1);
+        } catch (e: any) {
+            throw this.errorDeBloqueo(e, 'Encolar lote');
+        }
+
+        // ── 2. Encolar ──
+        const ctx = this.requestContext.get();
+        const jobsAEncolar = encoladas.map((r) => {
+            const o = origenes.get(r.id);
+            return {
+                name: 'process-import',
+                data: {
+                    remesaId: r.id,
+                    remesaOrigenId: o?.remesaOrigenId ?? undefined,
+                    remesaOrigenIds: o?.remesaOrigenIds ?? undefined,
+                    usuarioId: r.usuarioCreadorId ?? p.solicitanteId,
+                    _ctx: ctx ? { requestId: ctx.requestId, usuarioId: ctx.usuarioId } : undefined,
+                },
+            };
+        });
+        let jobs: Job[] = [];
+        try {
+            // `addBulk` usa un pipeline y no un MULTI: no es atómico. Con Redis caído espera; el tope evita colgar el pedido.
+            jobs = await this.conTope(this.importQueue.addBulk(jobsAEncolar), 'encolar lote');
+        } catch (e: any) {
+            this.logger.error(`No se pudo encolar el lote de ${ids.length} remesas (${ids.join(', ')}): ${e?.message}`, e?.stack);
+            return this.compensarLote(ids, modo, previos, omitidas);
+        }
+
+        // ── 4. Emitir (antes de guardar los jobId) ──
+        // Los `import:progreso` EN_COLA salen apenas el lote entró a la cola y ANTES de las N escrituras del jobId: el worker puede tomar
+        // la primera remesa enseguida, y el evento EN_COLA llegaba después de su `import:iniciada` (hallazgo 4 de la auditoría).
+        const posiciones = await this.posicionesEnCola();
+        const cargas: EstadoCargaDto[] = [];
+        for (const r of encoladas) {
+            const carga = armarEstadoCarga(r, r.progreso, new Date(), { enColaDelante: posiciones?.get(r.id) ?? null });
+            cargas.push(carga);
+            try {
+                this.realtimeService.emitImportProgreso(carga);
+            } catch (emitErr: any) {
+                this.logger.warn(`Error emitiendo import:progreso (EN_COLA) de la remesa ${r.id}: ${emitErr?.message}`);
+            }
+        }
+
+        // ── 5. Guardar el jobId de cada una ──
+        const quedaron = new Set(ids);
+        for (const [i, r] of encoladas.entries()) {
+            const job = jobs[i];
+            if (!job?.id) continue;
+            try {
+                await this.prisma.remesa.update({
+                    where: { id: r.id },
+                    data: { progreso: { update: { jobId: String(job.id).slice(0, 64) } } },
+                });
+            } catch (e: any) {
+                if (e?.code === 'P2025') {
+                    this.logger.warn(`Encolar lote: la remesa ${r.id} fue eliminada mientras se confirmaba; se saca su job ${job.id}`);
+                    quedaron.delete(r.id);
+                    try {
+                        await this.conTope(job.remove(), 'remove');
+                    } catch (rmErr: any) {
+                        this.logger.warn(`No se pudo sacar de la cola el job ${job.id} de la remesa ${r.id}: ${rmErr?.message}`);
+                    }
+                } else {
+                    this.logger.warn(`No se pudo guardar el id del job de la remesa ${r.id}: ${e?.message}`);
+                }
+            }
+        }
+
+        const cargasFinal = cargas.filter((c) => quedaron.has(c.remesaId));
+        return { cargas: cargasFinal, noEncoladas: [], omitidas };
+    }
+
+    private validarParaConfirmar(f: FilaBloqueada): void {
+        if ((f.estadoProceso !== 'PENDIENTE' && f.estadoProceso !== 'VALIDANDO') || f.encoladaAt != null) {
+            this.logger.warn(`Grupo rechazado: la remesa ${f.id} ya fue confirmada (estado=${f.estadoProceso})`);
+            throw new ConflictException(`La remesa ${f.numeroRemesa} ya fue confirmada.`);
+        }
+        if (!f.categoria) throw new BadRequestException('La remesa no tiene categoría definida');
+        if (f.estadoProceso === 'PENDIENTE') {
+            this.logger.warn(`Grupo rechazado: la remesa ${f.id} no tiene hecha la vista previa`);
+            throw new BadRequestException(`La remesa ${f.numeroRemesa} no tiene hecha la vista previa.`);
+        }
+        if (Number(f.totalFilas) === 0) {
+            this.logger.warn(`Grupo rechazado: la vista previa de la remesa ${f.id} no encontró filas`);
+            throw new BadRequestException(
+                `La vista previa de la remesa ${f.numeroRemesa} no encontró filas para importar. Revisá el archivo y el filtro de la plantilla.`,
+            );
+        }
+    }
+
+    private validarMismoArchivo(filas: FilaBloqueada[]): void {
+        const a = filas[0];
+        const mismo = filas.every(
+            (f) =>
+                f.empresaId === a.empresaId && f.plantillaId === a.plantillaId && f.categoria === a.categoria &&
+                f.archivoHash != null && f.archivoHash === a.archivoHash && this.tieneCortePropio(f.filtroFilas),
+        );
+        if (!mismo) {
+            this.logger.warn(`Grupo rechazado: las remesas ${filas.map((f) => f.id).join(', ')} no son cortes del mismo archivo`);
+            throw new BadRequestException('Las remesas no son cortes del mismo archivo.');
+        }
+        if (['MULTIRREGISTRO', 'MULTIARCHIVO', 'MULTICLAVES'].includes(String(a.categoria))) {
+            this.logger.warn(`Grupo rechazado: la categoría ${a.categoria} no admite dividir la carga`);
+            throw new BadRequestException('Esta categoría no admite dividir la carga.');
+        }
+    }
+
+    /**
+     * Compensación cuando `addBulk` falla (§10.5.1). No se intenta saber qué entró: se decide con la base, que es lo
+     * que el worker ya hizo o no. Si la primera ya fue tomada, el lote entró y no se compensa nada.
+     */
+    private async compensarLote(
+        ids: number[],
+        modo: 'CONFIRMAR' | 'RETOMAR',
+        previos: Map<number, 'PENDIENTE' | 'VALIDANDO'>,
+        omitidas: Array<{ remesaId: number; numeroRemesa: string; motivo: string }>,
+    ) {
+        const tomada = (f: FilaBloqueada | undefined) =>
+            !!f && (f.startedAt != null || f.finishedAt != null || f.estadoProceso === 'FINALIZADA' || f.estadoProceso === 'FALLIDA' || f.estadoProceso === 'PROCESANDO');
+        let primeraTomada = false;
+        try {
+            primeraTomada = await this.prisma.$transaction(async (tx) => tomada((await this.bloquearCargas(tx, [ids[0]]))[0]), TX_C1);
+        } catch (e: any) {
+            this.logger.error(`No se pudo mirar si la primera remesa del lote (${ids[0]}) fue tomada: ${motivoLegible(e)}`, e?.stack);
+        }
+        if (primeraTomada) {
+            this.logger.warn(`El encolado del lote falló pero la primera remesa (${ids[0]}) ya fue tomada: el lote entró, no se compensa nada`);
+            const reales = await this.cargasDeLote(ids);
+            return { cargas: reales, noEncoladas: [], omitidas };
+        }
+
+        const compensadas: Array<{ remesaId: number; numeroRemesa: string }> = [];
+        for (const id of [...ids].reverse()) {
+            try {
+                const hecha = await this.prisma.$transaction(async (tx) => {
+                    const f = (await this.bloquearCargas(tx, [id]))[0];
+                    if (!f) return null;
+                    const sigueEnCola = f.progresoId != null && f.fase === 'EN_COLA' && f.startedAt == null && f.finishedAt == null &&
+                        (f.estadoProceso === 'PENDIENTE' || f.estadoProceso === 'VALIDANDO');
+                    if (!sigueEnCola) return false;
+                    if (modo === 'CONFIRMAR') {
+                        await tx.remesa.update({
+                            where: { id },
+                            data: {
+                                estadoProceso: previos.get(id) ?? 'VALIDANDO',
+                                progreso: {
+                                    update: {
+                                        fase: 'BORRADOR', encoladaAt: null, jobId: null,
+                                        grupoId: null, grupoOrden: null, grupoTotal: null, rev: { increment: 1 },
+                                    },
+                                },
+                            },
+                        });
+                    } else {
+                        const ahora = new Date();
+                        await tx.remesa.update({
+                            where: { id },
+                            data: {
+                                estadoProceso: 'FALLIDA',
+                                progreso: {
+                                    update: {
+                                        fase: 'TERMINADA', resultado: 'FALLIDA', finishedAt: ahora,
+                                        error: textoInterrupcion('SIN_JOB', f.categoria, { conCorte: this.tieneCortePropio(f.filtroFilas), retomable: true }),
+                                        rev: { increment: 1 },
+                                    },
+                                },
+                            },
+                        });
+                    }
+                    compensadas.push({ remesaId: id, numeroRemesa: f.numeroRemesa });
+                    return true;
+                }, TX_C1);
+                if (hecha) this.logger.warn(`Remesa ${id}: compensada tras el encolado fallido (${modo === 'CONFIRMAR' ? 'vuelve a borrador' : 'vuelve a quedar retomable'})`);
+                else if (hecha === false) this.logger.warn(`Remesa ${id}: la tomó el worker mientras se compensaba; se deja`);
+            } catch (e: any) {
+                this.logger.error(`No se pudo compensar la remesa ${id} tras el encolado fallido: ${motivoLegible(e)}`, e?.stack);
+            }
+        }
+
+        if (compensadas.length === ids.length) {
+            // Ninguna fue tomada: nada entró (o entra tarde y las encuentra en borrador, y las ignora).
+            throw new ServiceUnavailableException(
+                'No se pudo iniciar la importación: la cola de trabajos no responde. Probá de nuevo en unos minutos.',
+            );
+        }
+        this.logger.error(
+            `Encolado parcial: quedaron en curso las remesas ${ids.filter((i) => !compensadas.some((c) => c.remesaId === i)).join(', ')} ` +
+            `y se compensaron ${compensadas.map((c) => c.remesaId).join(', ')}`,
+        );
+        const enCurso = ids.filter((i) => !compensadas.some((c) => c.remesaId === i));
+        return { cargas: await this.cargasDeLote(enCurso), noEncoladas: compensadas.reverse(), omitidas };
+    }
+
+    private async cargasDeLote(ids: number[]): Promise<EstadoCargaDto[]> {
+        const remesas = await this.prisma.remesa.findMany({
+            where: { id: { in: ids } },
+            orderBy: { id: 'asc' },
+            include: { progreso: true, usuarioCreador: { select: { id: true, nombre: true } } },
+        });
+        const posiciones = remesas.some((r) => r.progreso?.fase === 'EN_COLA') ? await this.posicionesEnCola() : null;
+        return remesas.map((r) => armarEstadoCarga(r, r.progreso, new Date(), { enColaDelante: posiciones?.get(r.id) ?? null }));
+    }
+
+    // --- CANCELAR ---
+    /**
+     * Pide cancelar una carga (§10.5.3). Cancelar es ESCRIBIR `cancelSolicitadaAt` con la fila bloqueada: el runner lo
+     * ve en sus puntos de corte y cierra la carga él mismo, con sus contadores exactos. Una carga que todavía no
+     * arrancó y cuyo job se pudo sacar de la cola se cierra acá, en el acto. No revierte nada.
+     */
+    async cancelarCarga(remesaId: number, user: UsuarioDeCarga): Promise<{ message: string; efecto: 'CANCELADA' | 'PEDIDA'; carga: EstadoCargaDto }> {
+        const t0 = Date.now();
+        const r = await this.leerCargaConProgreso(remesaId);
+        if (!r) {
+            this.logger.warn(`Cancelar: la remesa ${remesaId} no existe`);
+            throw new NotFoundException('Remesa no encontrada');
+        }
+        // El dueño se chequea ANTES de tocar la cola: un 403 no puede sacar el job de otro.
+        this.verificarDuenoOPermiso(r.usuarioCreadorId, user, 'cancelar esta importación');
+        this.logger.log(`Cancelar remesa=${remesaId} usuario=${user.sub} fase=${r.progreso?.fase ?? 'n/d'}`);
+
+        const sinArrancar = r.progreso?.encoladaAt != null && r.progreso.startedAt == null && r.progreso.finishedAt == null;
+        const sacado = sinArrancar ? await this.sacarJobDeLaCola(remesaId, r.progreso?.jobId ?? null) : false;
+        const cancelacion = { usuarioId: user.sub, nombre: await this.nombreDeUsuario(user.sub) };
+
+        let decision: { efecto: 'CANCELADA' | 'PEDIDA'; escribio: boolean };
+        try {
+            decision = await this.prisma.$transaction(async (tx) => {
+                const f = (await this.bloquearCargas(tx, [remesaId]))[0];
+                if (!f) throw new NotFoundException('Remesa no encontrada');
+                // La memoria del tracker se lee con la fila YA bloqueada: la escritura de POST_PROCESO puede fallar y el
+                // runner sigue igual, con la fila diciendo PROCESANDO mientras el `afterAll` corre.
+                const enMemoria = this.cargasVivas.get(remesaId)?.faseActual.fase ?? null;
+                if (f.progresoId == null || f.encoladaAt == null) {
+                    this.logger.warn(`Cancelar rechazado: la remesa ${remesaId} no está en curso (borrador o heredada)`);
+                    throw new ConflictException(MSG_CANCELAR_NO_EN_CURSO);
+                }
+                if (f.finishedAt != null || f.estadoProceso === 'FINALIZADA' || f.estadoProceso === 'FALLIDA') {
+                    if (f.resultado === RESULTADO_CANCELADA) return { efecto: 'CANCELADA' as const, escribio: false };
+                    this.logger.warn(`Cancelar rechazado: la remesa ${remesaId} ya terminó`);
+                    throw new ConflictException(MSG_CANCELAR_YA_TERMINO);
+                }
+                if (f.startedAt == null) {
+                    // Todavía no arrancó.
+                    if (sacado) {
+                        await this.escribirCanceladaEnCola(tx, f, cancelacion);
+                        return { efecto: 'CANCELADA' as const, escribio: true };
+                    }
+                    // El worker la está tomando, o la cola no responde: queda el pedido, y `iniciar` lo lee con la fila bloqueada.
+                    if (f.cancelSolicitadaAt != null) return { efecto: 'PEDIDA' as const, escribio: false };
+                    await this.escribirPedidoDeCancelacion(tx, f, cancelacion);
+                    return { efecto: 'PEDIDA' as const, escribio: true };
+                }
+                // Ya arrancó.
+                if (f.cancelSolicitadaAt != null) return { efecto: 'PEDIDA' as const, escribio: false };
+                if (f.fase === 'POST_PROCESO' || enMemoria === 'POST_PROCESO') {
+                    this.logger.warn(`Cancelar rechazado: la remesa ${remesaId} está en post-proceso`);
+                    throw new ConflictException(MSG_CANCELAR_POST_PROCESO);
+                }
+                if (f.categoria === 'ACCIONES') {
+                    this.logger.warn(`Cancelar rechazado: la remesa ${remesaId} es una acción masiva que ya arrancó`);
+                    throw new ConflictException(MSG_CANCELAR_ACCIONES);
+                }
+                await this.escribirPedidoDeCancelacion(tx, f, cancelacion);
+                return { efecto: 'PEDIDA' as const, escribio: true };
+            }, TX_C1);
+        } catch (e: any) {
+            throw this.errorDeBloqueo(e, 'Cancelar');
+        }
+
+        // Fuera de la transacción, cada paso en su `try/catch`: lo escrito ya está.
+        const actual = await this.leerCargaConProgreso(remesaId);
+        const enCola = actual?.progreso?.fase === 'EN_COLA' ? await this.enColaDelanteDe(remesaId, actual.progreso.encoladaAt) : null;
+        const carga = actual ? armarEstadoCarga(actual, actual.progreso, new Date(), { enColaDelante: enCola }) : armarEstadoCarga(r, r.progreso);
+        if (decision.escribio && decision.efecto === 'PEDIDA') {
+            try {
+                this.cargasVivas.get(remesaId)?.avisarCancelacion();
+            } catch (e: any) {
+                this.logger.warn(`No se pudo avisar la cancelación al tracker de la remesa ${remesaId}: ${e?.message}`);
+            }
+            try {
+                this.realtimeService.emitImportProgreso(carga);
+            } catch (e: any) {
+                this.logger.warn(`Error emitiendo import:progreso de la remesa ${remesaId} (cancelación pedida): ${e?.message}`);
+            }
+        } else if (decision.escribio && decision.efecto === 'CANCELADA') {
+            await this.anunciarCanceladaEnCola(carga, actual?.usuarioCreadorId ?? null, cancelacion);
+        }
+        this.logger.log(`Cancelar remesa=${remesaId}: efecto=${decision.efecto}${decision.escribio ? '' : ' (ya estaba)'} en ${Date.now() - t0}ms`);
+        return {
+            message: decision.efecto === 'CANCELADA' ? 'Importación cancelada' : 'Se pidió cancelar la importación',
+            efecto: decision.efecto,
+            carga,
+        };
+    }
+
+    /** Cancela lo que falta de una carga dividida (§10.5.3): las que no empezaron primero, la que corre al final. */
+    async cancelarGrupo(grupoId: string, user: UsuarioDeCarga) {
+        const t0 = Date.now();
+        const remesas = await this.prisma.remesa.findMany({
+            where: { progreso: { is: { grupoId } } },
+            orderBy: { progreso: { grupoOrden: 'desc' } },
+            include: { progreso: true, usuarioCreador: { select: { id: true, nombre: true } } },
+        });
+        if (remesas.length === 0) {
+            this.logger.warn(`Cancelar grupo ${grupoId}: no existe`);
+            throw new NotFoundException('La carga dividida no existe.');
+        }
+        for (const r of remesas) this.verificarDuenoOPermiso(r.usuarioCreadorId, user, 'cancelar esta importación');
+        this.logger.log(`Cancelar grupo ${grupoId} usuario=${user.sub}: ${remesas.length} remesas`);
+
+        const resultados: Array<{
+            remesaId: number; numeroRemesa: string; efecto: 'CANCELADA' | 'PEDIDA' | 'YA_TERMINADA' | 'RECHAZADA'; motivo?: string; carga: EstadoCargaDto;
+        }> = [];
+        for (const r of remesas) {
+            const base = { remesaId: r.id, numeroRemesa: r.numeroRemesa };
+            if (r.progreso?.finishedAt != null || r.estadoProceso === 'FINALIZADA' || r.estadoProceso === 'FALLIDA') {
+                resultados.push({ ...base, efecto: 'YA_TERMINADA', carga: armarEstadoCarga(r, r.progreso) });
+                continue;
+            }
+            try {
+                const res = await this.cancelarCarga(r.id, user);
+                resultados.push({ ...base, efecto: res.efecto, carga: res.carga });
+            } catch (e: any) {
+                // Terminó mientras se recorría el grupo: no es un rechazo, ya está terminada.
+                if (e instanceof ConflictException && e.message === MSG_CANCELAR_YA_TERMINO) {
+                    const actual = await this.leerCargaConProgreso(r.id);
+                    resultados.push({ ...base, efecto: 'YA_TERMINADA', carga: actual ? armarEstadoCarga(actual, actual.progreso) : armarEstadoCarga(r, r.progreso) });
+                    continue;
+                }
+                // Un 409 de una (por ejemplo la que está en post-proceso) no frena a las demás.
+                if (!(e instanceof HttpException)) this.logger.error(`Cancelar grupo ${grupoId}: falló la remesa ${r.id}: ${e?.message}`, e?.stack);
+                resultados.push({
+                    ...base,
+                    efecto: 'RECHAZADA',
+                    motivo: e instanceof HttpException ? e.message : 'No se pudo cancelar por un error del servidor.',
+                    carga: armarEstadoCarga(r, r.progreso),
+                });
+            }
+        }
+        this.logger.log(`Cancelar grupo ${grupoId}: ${resultados.map((x) => `${x.remesaId}=${x.efecto}`).join(', ')} en ${Date.now() - t0}ms`);
+        return { resultados: resultados.reverse() };
+    }
+
+    /** Escribe solo el pedido (carga que ya arrancó, o que el worker está tomando). Con la fila bloqueada. */
+    private async escribirPedidoDeCancelacion(
+        tx: Prisma.TransactionClient,
+        f: FilaBloqueada,
+        cancelacion: { usuarioId: number; nombre: string },
+    ): Promise<void> {
+        const resumen = { v: 1, ...(leerResumen(f.resumen) ?? {}), cancelacion } as Prisma.InputJsonObject;
+        await tx.import_progreso.update({
+            where: { remesaId: f.id },
+            data: { cancelSolicitadaAt: new Date(), resumen, rev: { increment: 1 } },
+        });
+    }
+
+    /** Cierra como CANCELADA una carga en cola que no arrancó. Con la fila bloqueada; `startedAt` queda null. */
+    private async escribirCanceladaEnCola(
+        tx: Prisma.TransactionClient,
+        f: FilaBloqueada,
+        cancelacion: { usuarioId: number; nombre: string } | null,
+    ): Promise<void> {
+        const ahora = new Date();
+        const previo = leerResumen(f.resumen) ?? {};
+        // Si ya había un pedido (de otra persona), el nombre es el del que lo hizo primero.
+        const quien = previo.cancelacion ?? cancelacion ?? undefined;
+        const resumen = { v: 1, ...previo, ...(quien ? { cancelacion: quien } : {}) } as Prisma.InputJsonObject;
+        const texto = textoCancelacion({
+            ok: 0, err: 0, total: f.totalFilas, categoria: f.categoria, conCorte: this.tieneCortePropio(f.filtroFilas),
+            por: quien?.nombre ?? null, arranco: false, sinFilasEntregadas: true,
+        });
+        await tx.remesa.update({
+            where: { id: f.id },
+            data: {
+                estadoProceso: 'FALLIDA',
+                okFilas: 0,
+                errFilas: 0,
+                progreso: {
+                    update: {
+                        fase: 'TERMINADA',
+                        subfase: null,
+                        resultado: RESULTADO_CANCELADA,
+                        error: texto,
+                        cancelSolicitadaAt: f.cancelSolicitadaAt ?? ahora,
+                        finishedAt: ahora,
+                        resumen,
+                        rev: { increment: 1 },
+                    },
+                },
+            },
+        });
+    }
+
+    /**
+     * El worker tomó el job de una carga con la cancelación ya pedida (la compuerta de `iniciar` no escribió nada): la
+     * cierra como cancelada sin que haya arrancado. Devuelve `null` si la carga ya no está en cola.
+     */
+    private async cerrarCanceladaSinArrancar(remesaId: number): Promise<EstadoCargaDto | null> {
+        let cancelacion: { usuarioId: number; nombre: string } | null = null;
+        let cerro = false;
+        try {
+            cerro = await this.prisma.$transaction(async (tx) => {
+                const f = (await this.bloquearCargas(tx, [remesaId]))[0];
+                if (!f || f.progresoId == null || f.encoladaAt == null) return false;
+                if (f.finishedAt != null || f.estadoProceso === 'FINALIZADA' || f.estadoProceso === 'FALLIDA' || f.startedAt != null) return false;
+                cancelacion = leerResumen(f.resumen)?.cancelacion ?? null;
+                await this.escribirCanceladaEnCola(tx, f, cancelacion);
+                return true;
+            }, TX_C1);
+        } catch (e: any) {
+            // El reaper la cierra a los ~3 minutos como "no llegó a empezar" (retomable): no queda nada a medias sin dueño.
+            this.logger.error(`No se pudo cerrar como cancelada la remesa ${remesaId}, que no arrancó: ${motivoLegible(e)}`, e?.stack);
+            return null;
+        }
+        if (!cerro) return null;
+        const r = await this.leerCargaConProgreso(remesaId);
+        if (!r) return null;
+        const carga = armarEstadoCarga(r, r.progreso);
+        await this.anunciarCanceladaEnCola(carga, r.usuarioCreadorId, cancelacion);
+        return carga;
+    }
+
+    /** Lo que sigue al cierre de una carga cancelada sin arrancar: evento, notificación (solo al dueño, y solo si la pidió otro) y auditoría. */
+    private async anunciarCanceladaEnCola(
+        carga: EstadoCargaDto,
+        duenoId: number | null,
+        cancelacion: { usuarioId: number; nombre: string } | null,
+    ): Promise<void> {
+        try {
+            this.realtimeService.emitImportFinalizada(carga);
+        } catch (e: any) {
+            this.logger.warn(`Error emitiendo import:finalizada de la remesa ${carga.remesaId} (cancelada en cola): ${e?.message}`);
+        }
+        // No procesó nada y quien cancela ya lo sabe: avisar a todos los que ven importaciones de otros sería ruido.
+        if (cancelacion?.usuarioId !== duenoId) await this.notificarResultadoCarga(carga, duenoId, false, true);
+        await this.auditarCancelacion(carga, cancelacion?.usuarioId ?? duenoId, cancelacion?.nombre ?? null);
+        this.logger.warn(`Remesa ${carga.remesaId} cancelada antes de empezar${cancelacion ? ` por ${cancelacion.usuarioId}` : ''}`);
+    }
+
+    private async auditarCancelacion(carga: EstadoCargaDto, usuarioId: number | null, canceladaPor: string | null): Promise<void> {
+        try {
+            await this.auditoria.log({
+                modulo: AuditModulo.IMPORT,
+                entidad: 'Remesa',
+                tipo: AuditTipo.IMPORT_FAIL,
+                severidad: AuditSeveridad.WARN,
+                estado: AuditEstado.FALLIDO,
+                usuarioId,
+                entidadId: carga.remesaId,
+                resumen: `Importación cancelada remesa ${carga.numeroRemesa}`,
+                data: { contexto: { canceladaPor, ok: carga.ok, err: carga.err, procesadas: carga.procesadas } },
+            });
+        } catch (e: any) {
+            this.logger.warn(`No se pudo auditar la cancelación de la remesa ${carga.remesaId}: ${e?.message}`);
+        }
+    }
+
+    /** El runner vivo cierra una carga cancelada (§10.5.3): contadores exactos, sin cierre de carga. No es una falla: no relanza. */
+    private async cerrarCargaCancelada(
+        tracker: ProgresoTracker,
+        remesa: { categoria: string | null; filtroFilas: unknown },
+        c: { ok: number; err: number; descartadas: number; fueraDeCorte: number | null },
+        x: { total: number; filasEntregadas: boolean; ownerId: number | null; t0: number; remesaId: number; donde?: string },
+    ): Promise<{ total: number; ok: number; err: number; cancelada?: true; ignorado?: true }> {
+        const sinFilasEntregadas = !x.filasEntregadas;
+        let por = tracker.canceladaPor;
+        if (!por) {
+            // Mejor esfuerzo: solo para el texto. Nada se decide con esta lectura.
+            try {
+                const fila = await this.prisma.import_progreso.findUnique({ where: { remesaId: x.remesaId }, select: { resumen: true } });
+                por = leerResumen(fila?.resumen)?.cancelacion?.nombre ?? null;
+            } catch {
+                por = null;
+            }
+        }
+        const texto = textoCancelacion({
+            ok: c.ok, err: c.err, total: tracker.estado.totalEsperado, categoria: remesa.categoria,
+            conCorte: this.tieneCortePropio(remesa.filtroFilas), por, arranco: true, sinFilasEntregadas,
+        });
+        const estado = await tracker.cancelar(c, { texto, sinFilasEntregadas });
+        if (tracker.cerradaPorFuera) {
+            this.logger.warn(`La remesa ${x.remesaId} fue cerrada por fuera mientras se cancelaba: no se notifica (ok=${c.ok} err=${c.err})`);
+            return { total: x.total, ok: c.ok, err: c.err, ignorado: true };
+        }
+        await this.notificarResultadoCarga(estado, x.ownerId, tracker.noSePudoRegistrar);
+        await this.auditarCancelacion(estado, x.ownerId, por);
+        this.logger.warn(
+            `Remesa ${x.remesaId} cancelada${por ? ` por ${por}` : ''} con ok=${c.ok} err=${c.err} ` +
+            `(cortó ${x.donde ?? 'en una compuerta'}; el cierre de la carga no corrió) en ${Date.now() - x.t0}ms`,
+        );
+        return { total: x.total, ok: c.ok, err: c.err, cancelada: true };
+    }
+
+    // --- RETOMAR ---
+    /**
+     * Vuelve a encolar LA MISMA remesa —mismo id, mismo archivo, mismas remesas de origen— con el progreso en cero
+     * (§10.5.4). Solo cuando está demostrado que no cargó ninguna fila: el marcador lo escribe el runner vivo, y acá
+     * además se cuentan los casos y las claves de la base. Sin ninguna de las dos, no hay nada escrito que duplicar.
+     */
+    async retomarRemesas(
+        sel: { remesaIds: number[] } | { grupoId: string },
+        user: UsuarioDeCarga,
+    ): Promise<{
+        cargas: EstadoCargaDto[];
+        omitidas: Array<{ remesaId: number; numeroRemesa: string; motivo: string }>;
+        noEncoladas: Array<{ remesaId: number; numeroRemesa: string }>;
+    }> {
+        const t0 = Date.now();
+        const esGrupo = 'grupoId' in sel;
+        const remesas = await this.prisma.remesa.findMany({
+            where: esGrupo ? { progreso: { is: { grupoId: sel.grupoId } } } : { id: { in: sel.remesaIds } },
+            orderBy: { id: 'asc' },
+            include: { progreso: true, usuarioCreador: { select: { id: true, nombre: true } } },
+        });
+        if (remesas.length === 0 || (!esGrupo && remesas.length !== new Set(sel.remesaIds).size)) {
+            this.logger.warn(`Retomar: no existe ${esGrupo ? `el grupo ${sel.grupoId}` : `alguna de las remesas ${sel.remesaIds.join(', ')}`}`);
+            throw new NotFoundException(esGrupo ? 'La carga dividida no existe.' : 'Remesa no encontrada');
+        }
+        for (const r of remesas) this.verificarDuenoOPermiso(r.usuarioCreadorId, user, 'retomar esta importación');
+        this.logger.log(`Retomar ${esGrupo ? `grupo ${sel.grupoId}` : `remesa ${sel.remesaIds.join(', ')}`} usuario=${user.sub}`);
+
+        const omitidas: Array<{ remesaId: number; numeroRemesa: string; motivo: string }> = [];
+        const candidatas: number[] = [];
+        for (const r of remesas) {
+            // Los archivos se comprueban ANTES de la transacción, y solo su existencia.
+            const retomableSegunDto = armarEstadoCarga(r, r.progreso).retomable;
+            let problema: HttpException | null = null;
+            if (!retomableSegunDto) problema = this.excepcionNoRetomable(r.progreso, r.estadoProceso);
+            else {
+                try {
+                    this.comprobarArchivosDeRemesa(r);
+                } catch (e: any) {
+                    problema = e instanceof HttpException ? e : new BadRequestException(e?.message);
+                }
+            }
+            if (!problema) {
+                candidatas.push(r.id);
+                continue;
+            }
+            if (!esGrupo) throw problema;
+            // Las que terminaron bien o siguen en curso no son "omitidas": no hay nada que retomar y la pantalla no tiene por qué listarlas.
+            if (r.estadoProceso !== 'FALLIDA' || r.progreso?.finishedAt == null) continue;
+            omitidas.push({ remesaId: r.id, numeroRemesa: r.numeroRemesa, motivo: problema.message });
+        }
+        if (candidatas.length === 0) {
+            this.logger.warn(`Retomar: ninguna de las remesas se puede retomar (${omitidas.map((o) => o.remesaId).join(', ')})`);
+            throw new ConflictException('Ninguna de las importaciones se puede retomar: ya procesaron filas o no terminaron.');
+        }
+
+        const r = await this.encolarLote({
+            remesaIds: candidatas,
+            modo: 'RETOMAR',
+            solicitanteId: user.sub,
+            tolerante: esGrupo,
+        });
+        this.logger.log(
+            `Retomar listo: ${r.cargas.length} encolada(s), ${omitidas.length + r.omitidas.length} omitida(s), ` +
+            `${r.noEncoladas.length} sin encolar, por usuario ${user.sub} en ${Date.now() - t0}ms`,
+        );
+        return { cargas: r.cargas, omitidas: [...omitidas, ...r.omitidas], noEncoladas: r.noEncoladas };
+    }
+
+    /** Comprueba que los archivos de la remesa siguen en el disco (solo existencia). Tira el 400 que ya dan los helpers. */
+    private comprobarArchivosDeRemesa(remesa: { categoria: string | null; archivo: string | null; archivos: unknown }): void {
+        if (remesa.categoria === 'MULTIARCHIVO') this.leerPaqueteMultiarchivo(remesa, true);
+        else this.archivosDeRemesa(remesa);
+    }
+
+    private excepcionNoRetomable(
+        progreso: { finishedAt?: Date | null; startedAt?: Date | null; resumen?: unknown } | null,
+        estadoProceso: string,
+    ): ConflictException {
+        if (!progreso?.finishedAt || estadoProceso !== 'FALLIDA') return new ConflictException(MSG_RETOMAR_NO_TERMINO);
+        const resumen = leerResumen(progreso.resumen);
+        if (resumen?.v !== 1 || !resumen.origen) return new ConflictException(MSG_RETOMAR_ANTERIOR);
+        return new ConflictException(MSG_RETOMAR_PROCESO_FILAS);
+    }
+
+    /** Las validaciones de RETOMAR contra la fila bloqueada y los datos (§10.5.4). Null = se puede. */
+    private async motivoNoRetomable(
+        tx: Prisma.TransactionClient,
+        f: FilaBloqueada,
+    ): Promise<{ texto: string; excepcion: HttpException } | null> {
+        const rechazo = (e: HttpException) => ({ texto: e.message, excepcion: e });
+        if (f.estadoProceso !== 'FALLIDA' || f.progresoId == null || f.finishedAt == null) {
+            this.logger.warn(`Retomar rechazado: la remesa ${f.id} no terminó o terminó bien (estado=${f.estadoProceso})`);
+            return rechazo(new ConflictException(MSG_RETOMAR_NO_TERMINO));
+        }
+        const resumen = leerResumen(f.resumen);
+        if (resumen?.v !== 1 || !resumen.origen) {
+            this.logger.warn(`Retomar rechazado: la remesa ${f.id} es anterior a la función de retomar`);
+            return rechazo(new ConflictException(MSG_RETOMAR_ANTERIOR));
+        }
+        if (f.startedAt != null && resumen.sinFilasEntregadas !== true) {
+            this.logger.warn(`Retomar rechazado: la remesa ${f.id} ya procesó filas`);
+            return rechazo(new ConflictException(MSG_RETOMAR_PROCESO_FILAS));
+        }
+        // Independiente del marcador: contra los datos.
+        const [casos, claves] = await Promise.all([
+            tx.deudor.count({ where: { remesaId: f.id } }),
+            tx.clave_pago.count({ where: { remesaId: f.id } }),
+        ]);
+        if (casos > 0 || claves > 0) {
+            this.logger.error(
+                `Retomar rechazado: la remesa ${f.id} figura sin filas entregadas pero tiene ${casos} caso(s) y ${claves} clave(s) ` +
+                'cargados: el marcador y los datos se contradicen',
+            );
+            return rechazo(new ConflictException(MSG_RETOMAR_PROCESO_FILAS));
+        }
+        // Su corte ya se cargó en otra remesa (se canceló en cola, se volvió a subir el archivo y se cargó en una nueva).
+        const choques = await this.remesasQueChocanConElCorte(tx, f);
+        if (choques.length > 0) {
+            this.logger.warn(`Retomar rechazado: el corte de la remesa ${f.id} ya figura en ${choques.join(', ')}`);
+            return rechazo(new ConflictException(
+                `El corte de esta remesa ya figura en la remesa ${choques.join(', ')}: no se puede retomar. ` +
+                'Si esta ya no hace falta, eliminala desde el Historial.',
+            ));
+        }
+        return null;
+    }
+
+    /** Traducción de un error de bloqueo (deadlock, P2034) a un 409; todo lo demás sale como vino. */
+    private errorDeBloqueo(e: any, que: string): unknown {
+        const deadlock = e?.code === 'P2034' || (e?.code === 'P2010' && /1213|deadlock/i.test(String(e?.message ?? '')));
+        if (!deadlock) return e;
+        this.logger.warn(`${que}: deadlock o conflicto de escritura (${motivoLegible(e)})`);
+        return new ConflictException('Otra operación está tocando estas remesas. Probá de nuevo.');
+    }
+
     // --- EN CURSO ---
     /** Cargas encoladas y sin terminar (§8.3: `encoladaAt != null && finishedAt == null`). Una remesa
      *  heredada, sin fila de progreso, nunca figura acá. */
@@ -2208,7 +3353,12 @@ export class ImportService {
     }
 
     // --- WORKER DE IMPORTACIÓN LÓGICA PESADA ---
-    async processImportJob(job: Job, remesaId: number, remesaOrigenId?: number, remesaOrigenIds?: number[]) {
+    async processImportJob(
+        job: Job,
+        remesaId: number,
+        remesaOrigenId?: number,
+        remesaOrigenIds?: number[],
+    ): Promise<{ total: number; ok: number; err: number; ignorado?: true; cancelada?: true }> {
         const usuarioId: number | undefined = job.data?.usuarioId;
         const t0 = Date.now();
 
@@ -2270,6 +3420,26 @@ export class ImportService {
             return { total: 0, ok: 0, err: 0, ignorado: true };
         }
 
+        // La fila manda (hallazgo 1 de la auditoría): un job que entra tarde —el confirmar dio 503, la remesa volvió a borrador y
+        // se confirmó de nuevo con otra remesa de origen— corría con el origen del primer intento. Si la fila guarda el origen con
+        // el que se confirmó, es ese; `job.data` queda solo para una carga anterior a C1, que no lo tiene.
+        const origenDeLaFila = leerResumen(remesa.progreso?.resumen)?.origen;
+        if (origenDeLaFila && typeof origenDeLaFila === 'object') {
+            const idFila = origenDeLaFila.remesaOrigenId ?? undefined;
+            const idsFila = origenDeLaFila.remesaOrigenIds?.length ? origenDeLaFila.remesaOrigenIds : undefined;
+            const difiere =
+                (remesaOrigenId ?? undefined) !== idFila ||
+                JSON.stringify(remesaOrigenIds?.length ? remesaOrigenIds : undefined) !== JSON.stringify(idsFila);
+            if (difiere) {
+                this.logger.warn(
+                    `Remesa ${remesaId}: el job trae otra remesa de origen (${remesaOrigenId ?? '-'}/${JSON.stringify(remesaOrigenIds ?? null)}) ` +
+                    `que la fila (${idFila ?? '-'}/${JSON.stringify(idsFila ?? null)}): se usa la de la fila`,
+                );
+            }
+            remesaOrigenId = idFila;
+            remesaOrigenIds = idsFila;
+        }
+
         const usuarioNombre = remesa.usuarioCreador?.nombre ?? 'Sistema';
         const ownerId = remesa.usuarioCreadorId ?? usuarioId;
 
@@ -2299,6 +3469,9 @@ export class ImportService {
         // Filas de aviso (rowNumber 0) que este runner ya contó en el tracker; el resto, escrito por los
         // processors, se suma recién después del post-proceso.
         let avisosEscritos = 0;
+        // Marcador de §10.5.4: se prende JUSTO ANTES de la primera llamada a un processor (`processRow` o
+        // `processBatch`). Mientras sea `false` no se escribió nada que un reintento pueda duplicar.
+        let filasEntregadas = false;
 
         try {
         // Va ANTES de cualquier validación: todo job emite `iniciada` y después `finalizada`, y
@@ -2310,6 +3483,12 @@ export class ImportService {
                 this.logger.warn(
                     `Job ignorado: la remesa ${remesaId} ya no está en cola (se borró, terminó o volvió a borrador); no se procesa.`,
                 );
+                return { total: 0, ok: 0, err: 0, ignorado: true };
+            }
+            if (e instanceof CargaCanceladaError) {
+                // Alguien pidió cancelar antes de que el worker la tomara: la compuerta de `iniciar` no escribió nada.
+                this.logger.warn(`La remesa ${remesaId} tenía la cancelación pedida cuando el worker tomó el job: no arranca`);
+                await this.cerrarCanceladaSinArrancar(remesaId);
                 return { total: 0, ok: 0, err: 0, ignorado: true };
             }
             throw e;
@@ -2451,15 +3630,23 @@ export class ImportService {
         const tFilas = Date.now();
 
         const processBatch = async () => {
-            // Otro cerró la carga (reaper de otro proceso, y en la Fase C "cancelar"): se corta por lote.
+            // Otro cerró la carga (reaper de otro proceso): se corta por lote.
             if (tracker.cerradaPorFuera) throw new CargaCerradaPorFueraError(remesaId);
+            // Punto de corte de LOTE (§10.5.3): una bandera en memoria, sin IO. Los contadores los escribe `cancelar`.
+            if (tracker.cancelacionPedida) throw new CargaCanceladaError('lote');
             const group = batch.splice(0, batch.length);
+            let cortar = false;
             const errorBatch: Array<{ remesaId: number; rowNumber: number; rawRow: any; errorMsg: string }> = [];
 
             // Filas que pasaron mapeo + validación, para el camino por lote.
             const validas: Array<{ row: any; idx: number; mapped: any; origen?: string | null }> = [];
 
             for (const { row, idx, origen } of group) {
+                // Punto de corte de FILA: solo donde cada `processRow` es una unidad cerrada y el contador queda exacto.
+                if (!processor.processBatch && tracker.cancelacionPedida) {
+                    cortar = true;
+                    break;
+                }
                 try {
                     const obj = esPreparsado ? (row as MappedRow) : this.mapRow(row, mapping);
                     this.validateMappedRow(obj, mapping);
@@ -2478,6 +3665,7 @@ export class ImportService {
                         continue;
                     }
 
+                    filasEntregadas = true;
                     await processor.processRow(obj, ctx);
                     ok++;
                 } catch (e: any) {
@@ -2497,6 +3685,7 @@ export class ImportService {
             if (processor.processBatch && validas.length > 0) {
                 const porIdx = new Map(validas.map((v) => [v.idx, v]));
                 let fallos: Array<{ idx: number; error: string }> = [];
+                filasEntregadas = true;
                 try {
                     fallos = await processor.processBatch(
                         validas.map((v) => ({ row: v.mapped, idx: v.idx })),
@@ -2526,6 +3715,9 @@ export class ImportService {
                 await this.prisma.importerror.createMany({ data: errorBatch });
             }
 
+            // Se cortó entre filas: los errores de las ya procesadas quedaron guardados y `cancelar` escribe los contadores.
+            if (cortar) throw new CargaCanceladaError('fila');
+
             // Persiste el lote (sin tocar `remesa.totalFilas`: es el de la vista previa) y emite.
             await tracker.lote({ ok, err, descartadas, fueraDeCorte });
 
@@ -2554,6 +3746,10 @@ export class ImportService {
                 `${resumen.facturas} facturas, ${resumen.bajas} bajas, ${resumen.ignoradas} ignoradas ` +
                 `en ${Date.now() - t0}ms`,
             );
+
+            // El parseo bloqueó el event loop: antes de tocar nada más (sin dejar nada "sucio" que el reloj emita durante la espera)
+            // se cede y se relee el pedido de cancelación. Si hay, corta con 0 filas.
+            await this.cederYReleerCancelacion(tracker, remesaId);
 
             // Las advertencias del parseo (clientes sin ficha, avisos repetidos) se registran como
             // errores de la remesa para que queden visibles en el detalle del import.
@@ -2592,6 +3788,10 @@ export class ImportService {
                 `(${resumen.cuotasDescartadas} cuotas de asignaciones no vigentes descartadas, ` +
                 `${resumen.casosSinDetalle} casos sin detalle) en ${Date.now() - t0}ms`,
             );
+
+            // El parseo bloqueó el event loop: antes de tocar nada más (sin dejar nada "sucio" que el reloj emita durante la espera)
+            // se cede y se relee el pedido de cancelación. Si hay, corta con 0 filas.
+            await this.cederYReleerCancelacion(tracker, remesaId);
 
             // Las advertencias del cruce (cuotas huérfanas, casos sin detalle, codeudores sin
             // titular) se registran como errores de la remesa para que queden visibles en el
@@ -2636,6 +3836,10 @@ export class ImportService {
                 `avisos=${JSON.stringify(resumen.porAviso)}) en ${Date.now() - t0}ms`,
             );
 
+            // El parseo bloqueó el event loop: antes de tocar nada más (sin dejar nada "sucio" que el reloj emita durante la espera)
+            // se cede y se relee el pedido de cancelación. Si hay, corta con 0 filas.
+            await this.cederYReleerCancelacion(tracker, remesaId);
+
             // Los avisos del parseo (no bloquean la carga) quedan visibles en el detalle de la
             // importación, con prefijo [aviso] y rowNumber 0 para no contarlos como error.
             if (avisos.length > 0) {
@@ -2674,7 +3878,30 @@ export class ImportService {
             fueraDeCorte = deCorte.length > 0 ? 0 : null;
 
             // Un Excel se lee entero y de golpe (`xlsx.readFile` es síncrono): se avisa antes.
-            if (paths.some(esExcel)) await tracker.entrarEnLectura();
+            const leeExcel = paths.some(esExcel);
+            if (leeExcel) await tracker.entrarEnLectura();
+            // La lectura del Excel es síncrona y bloquea: antes de la primera fila se cede el event loop (ver la constante).
+            let pausaPendiente = leeExcel;
+
+            // Las filas que el filtro descarta no son errores: no se procesan, no van a
+            // `importerror` y no cuentan en el total. Son las de la plantilla más el corte
+            // propio de la remesa cuando la carga se dividió por nómina/gestión.
+            const alFila = ({ valores, origen }: { valores: any; origen?: string | null }) => {
+                if (!pasaFiltro(valores, dePlantilla)) {
+                    descartadas++;
+                    tracker.avance({ ok, err, descartadas, fueraDeCorte });
+                    return;
+                }
+                if (!pasaFiltro(valores, deCorte)) {
+                    descartadas++;
+                    fueraDeCorte = (fueraDeCorte ?? 0) + 1;
+                    tracker.avance({ ok, err, descartadas, fueraDeCorte });
+                    return;
+                }
+                batch.push({ row: valores, idx: total++, origen });
+                // Devolver la promesa hace que el recorrido se pause hasta que el lote termine.
+                if (batch.length >= BATCH_SIZE) return processBatch();
+            };
 
             await recorrerFilas(
                 {
@@ -2685,24 +3912,12 @@ export class ImportService {
                     anchoFijo: this.layoutAnchoFijo(mapping),
                     hoja: remesa.hoja ?? undefined,
                 },
-                ({ valores, origen }) => {
-                    // Las filas que el filtro descarta no son errores: no se procesan, no van a
-                    // `importerror` y no cuentan en el total. Son las de la plantilla más el corte
-                    // propio de la remesa cuando la carga se dividió por nómina/gestión.
-                    if (!pasaFiltro(valores, dePlantilla)) {
-                        descartadas++;
-                        tracker.avance({ ok, err, descartadas, fueraDeCorte });
-                        return;
+                (fila) => {
+                    if (pausaPendiente) {
+                        pausaPendiente = false;
+                        return this.cederYReleerCancelacion(tracker, remesaId).then(() => alFila(fila));
                     }
-                    if (!pasaFiltro(valores, deCorte)) {
-                        descartadas++;
-                        fueraDeCorte = (fueraDeCorte ?? 0) + 1;
-                        tracker.avance({ ok, err, descartadas, fueraDeCorte });
-                        return;
-                    }
-                    batch.push({ row: valores, idx: total++, origen });
-                    // Devolver la promesa hace que el recorrido se pause hasta que el lote termine.
-                    if (batch.length >= BATCH_SIZE) return processBatch();
+                    return alFila(fila);
                 },
             );
             if (batch.length > 0) await processBatch();
@@ -2724,6 +3939,10 @@ export class ImportService {
             );
         }
 
+        // Punto de corte previo al cierre (§10.5.3): un pedido que llegó durante el último lote corta ACÁ, tenga o no
+        // `afterAll` el processor. En ACTUALIZACIONES el cierre da por pagados o desasigna a los ausentes del archivo.
+        if (tracker.cancelacionPedida) throw new CargaCanceladaError('antes del cierre');
+
         // Hook post-batch: lógica que corre después de todas las filas. Si tira, las filas ya están
         // cargadas: la carga NO pasa a FALLIDA, pero el motivo queda escrito y visible (#3).
         let errorPostProceso: string | null = null;
@@ -2735,8 +3954,26 @@ export class ImportService {
                 // Una carga que otro ya cerró NO entra al post-proceso: el `afterAll` de ACTUALIZACIONES o PAGOS
                 // genera pagos y cancela casos, y no se corre sobre una carga FALLIDA. Se corta acá (el `catch`
                 // de abajo lo trata como el corte por lote: sin `fallar` ni notificar).
-                if (faseErr instanceof CargaCerradaPorFueraError) throw faseErr;
+                // La compuerta leyó un pedido de cancelación con la fila bloqueada: el `afterAll` NO corre.
+                if (faseErr instanceof CargaCerradaPorFueraError || faseErr instanceof CargaCanceladaError) throw faseErr;
                 this.logger.warn(`No se pudo registrar la fase POST_PROCESO de la remesa ${remesaId}: ${motivoLegible(faseErr)}`);
+                // La escritura de la etiqueta falló por otra causa y el `afterAll` va a correr igual: antes se confirma
+                // con una lectura simple que nadie pidió cancelar. Si la lectura falla o viene vacía, se sigue: una
+                // etiqueta no frena la consolidación (y un vacío espurio nunca es un pedido).
+                if (tracker.cancelacionPedida) throw new CargaCanceladaError('antes del post-proceso');
+                try {
+                    const fila = await this.prisma.import_progreso.findUnique({
+                        where: { remesaId },
+                        select: { cancelSolicitadaAt: true },
+                    });
+                    if (fila?.cancelSolicitadaAt != null) {
+                        tracker.avisarCancelacion();
+                        throw new CargaCanceladaError('antes del post-proceso');
+                    }
+                } catch (lecturaErr) {
+                    if (lecturaErr instanceof CargaCanceladaError) throw lecturaErr;
+                    this.logger.warn(`No se pudo confirmar si hay una cancelación pedida en la remesa ${remesaId}: ${motivoLegible(lecturaErr)}`);
+                }
             }
             const t1 = Date.now();
             this.logger.log(`Post-proceso remesa=${remesaId} categoria=${remesa.categoria} iniciado`);
@@ -2821,6 +4058,10 @@ export class ImportService {
                 );
                 return { total, ok, err, ignorado: true };
             }
+            // Cancelación pedida (§10.5.3): no es una falla. Se cierra con los contadores exactos, sin cierre de carga.
+            if (error instanceof CargaCanceladaError) {
+                return this.cerrarCargaCancelada(tracker, remesa, { ok, err, descartadas, fueraDeCorte }, { total, filasEntregadas, ownerId: ownerId ?? null, t0, remesaId, donde: error.donde });
+            }
             // Un error de negocio (plantilla sin estado inicial, archivo que falta…) es `warn`; una falla
             // inesperada, `error` con stack. El detalle completo va solo al log.
             if (error instanceof HttpException) {
@@ -2828,7 +4069,7 @@ export class ImportService {
             } else {
                 this.logger.error(`Remesa ${remesaId} falló tras ${Date.now() - t0}ms: ${error?.message}`, error?.stack);
             }
-            const estadoFallido = await tracker.fallar(error, { ok, err, descartadas, fueraDeCorte });
+            const estadoFallido = await tracker.fallar(error, { ok, err, descartadas, fueraDeCorte }, { sinFilasEntregadas: !filasEntregadas });
             if (tracker.cerradaPorFuera) {
                 // `fallar` se encontró con que otro ya había cerrado la carga: tampoco se notifica.
                 this.logger.warn(`La remesa ${remesaId} fue cerrada por fuera mientras se marcaba como fallida: no se notifica`);
@@ -2843,6 +4084,26 @@ export class ImportService {
         }
     }
 
+    /**
+     * Cede el event loop y relee el pedido de cancelación de la base (§10.5.3, hallazgo 3 de la auditoría). Se llama después de una
+     * lectura síncrona que bloquea y ANTES de entregar la primera fila. Si hay pedido corta con 0 filas. Una lectura que falla no
+     * es un pedido: la carga sigue.
+     */
+    private async cederYReleerCancelacion(tracker: ProgresoTracker, remesaId: number): Promise<void> {
+        await new Promise((r) => setTimeout(r, PAUSA_TRAS_LECTURA_BLOQUEANTE_MS));
+        if (tracker.cancelacionPedida) throw new CargaCanceladaError('lectura');
+        try {
+            const fila = await this.prisma.import_progreso.findUnique({ where: { remesaId }, select: { cancelSolicitadaAt: true } });
+            if (fila?.cancelSolicitadaAt != null) {
+                tracker.avisarCancelacion();
+                throw new CargaCanceladaError('lectura');
+            }
+        } catch (e) {
+            if (e instanceof CargaCanceladaError) throw e;
+            this.logger.warn(`No se pudo releer la cancelación de la remesa ${remesaId} tras la lectura: ${motivoLegible(e)}`);
+        }
+    }
+
     /** ¿Este proceso está procesando alguna carga ahora? (el reaper lo usa para distinguir "el worker no toma el job"). */
     hayCargasVivasEnEsteProceso(): boolean {
         return this.cargasVivas.size > 0;
@@ -2852,11 +4113,13 @@ export class ImportService {
      * ¿Esta carga la está procesando este proceso ahora? Lo consulta el reaper (§9.5.6): `null` si no.
      * Es memoria del proceso, no depende de ningún timer.
      */
-    cargaVivaEnEsteProceso(remesaId: number): { sinAvanceMs: number; fase: string; subfase: string | null } | null {
+    cargaVivaEnEsteProceso(
+        remesaId: number,
+    ): { sinAvanceMs: number; fase: string; subfase: string | null; cancelacionPedidaHaceMs: number | null } | null {
         const t = this.cargasVivas.get(remesaId);
         if (!t) return null;
         const { fase, subfase } = t.faseActual;
-        return { sinAvanceMs: t.sinAvanceMs, fase, subfase };
+        return { sinAvanceMs: t.sinAvanceMs, fase, subfase, cancelacionPedidaHaceMs: t.cancelacionPedidaHaceMs };
     }
 
     /** Compensación cuando `processImportJob` falla antes de tener tracker: deja la carga FALLIDA con
@@ -2889,7 +4152,13 @@ export class ImportService {
      * Notificación persistente según cómo terminó la carga (§8.5.5). Nunca tira: la carga ya terminó.
      * El resultado viaja en `payload.resultado`; el enum `TipoNotificacion` no se toca.
      */
-    private async notificarResultadoCarga(estado: EstadoCargaDto, ownerId: number | null, sinRegistrar = false): Promise<void> {
+    private async notificarResultadoCarga(
+        estado: EstadoCargaDto,
+        ownerId: number | null,
+        sinRegistrar = false,
+        /** Solo al dueño: sin avisar a quienes ven las importaciones de otros (una cancelada en cola no procesó nada). */
+        soloAlDueno = false,
+    ): Promise<void> {
         if (ownerId == null) {
             this.logger.warn(`La remesa ${estado.remesaId} no tiene dueño: no hay a quién notificar el resultado.`);
             return;
@@ -2916,10 +4185,11 @@ export class ImportService {
                     okFilas: estado.okFilas,
                     errFilas: estado.errFilas,
                     totalFilas: estado.totalFilas,
+                    ...(estado.cancelada ? { cancelada: true } : {}),
                 },
                 rutaAccion: `/historial-importaciones/${estado.remesaId}`,
                 destinatarioPrincipalId: ownerId,
-                incluirUsuariosConPermiso: 'importacion.ver_progreso_otros',
+                ...(soloAlDueno ? {} : { incluirUsuariosConPermiso: 'importacion.ver_progreso_otros' }),
             });
         } catch (notifErr: any) {
             this.logger.warn(`Error creando notificacion de importacion de la remesa ${estado.remesaId}: ${notifErr?.message}`);
@@ -3270,14 +4540,14 @@ export class ImportService {
         type FilaCierre = {
             estadoProceso: string; categoria: string | null; filtroFilas: unknown;
             encoladaAt: Date | null; startedAt: Date | null; heartbeatAt: Date | null; finishedAt: Date | null;
-            ok: number; err: number; jobId: string | null;
+            ok: number; err: number; jobId: string | null; resumen?: unknown;
         };
         let minutosSinLatido: number | null = null;
         const cerrada = await this.prisma.$transaction(async (tx) => {
             const filas = await tx.$queryRaw<FilaCierre[]>`
                 SELECT r.estadoProceso AS estadoProceso, r.categoria AS categoria, r.filtroFilas AS filtroFilas, p.encoladaAt AS encoladaAt,
                        p.startedAt AS startedAt, p.heartbeatAt AS heartbeatAt, p.finishedAt AS finishedAt,
-                       p.ok AS ok, p.err AS err, p.jobId AS jobId
+                       p.ok AS ok, p.err AS err, p.jobId AS jobId, p.resumen AS resumen
                 FROM remesa r JOIN import_progreso p ON p.remesaId = r.id
                 WHERE r.id = ${remesaId}
                 FOR UPDATE
@@ -3304,7 +4574,11 @@ export class ImportService {
 
             const ahora = new Date();
             // "Tiene corte propio": el mismo criterio con el que el runner arma `deCorte` (`filtrosSeparados`).
-            const texto = textoInterrupcion(motivo, f.categoria, { conCorte: this.tieneCortePropio(f.filtroFilas) });
+            // Retomable (§10.5.4): nunca arrancó (`SIN_JOB` ya lo comprobó con el lock) y se guardó con qué remesas de origen
+            // se confirmó. El marcador de "no entregó filas" NO se escribe acá: lo escribe solo el runner vivo.
+            const resumen = leerResumen(f.resumen);
+            const retomable = motivo === 'SIN_JOB' && resumen?.v === 1 && !!resumen.origen;
+            const texto = textoInterrupcion(motivo, f.categoria, { conCorte: this.tieneCortePropio(f.filtroFilas), retomable });
             // Una sola escritura, con la remesa y su fila juntas. `heartbeatAt` NO se toca: queda el último real.
             return tx.remesa.update({
                 where: { id: remesaId },

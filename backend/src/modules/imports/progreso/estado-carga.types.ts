@@ -9,6 +9,22 @@ export type ResultadoCarga = 'OK' | 'CON_ERRORES' | 'CON_ADVERTENCIAS' | 'SIN_FI
 
 export type EstadoProcesoRemesa = 'PENDIENTE' | 'VALIDANDO' | 'PROCESANDO' | 'FINALIZADA' | 'FALLIDA';
 
+/**
+ * `import_progreso.resumen` (Json). Sobre versionado: C3 lo extiende con el resumen por categoría.
+ * Todas las claves son opcionales para quien lee: una carga anterior a C1 trae null.
+ */
+export interface ResumenCarga {
+    v?: number;
+    /** Remesas de origen con las que se confirmó la carga (lo que viajaba solo en el job y en la auditoría). */
+    origen?: { remesaOrigenId: number | null; remesaOrigenIds: number[] | null };
+    /** La carga falló o se canceló sin haberle entregado ninguna fila a un processor. */
+    sinFilasEntregadas?: true;
+    /** Quién pidió la cancelación. */
+    cancelacion?: { usuarioId: number; nombre: string };
+    /** Veces que se retomó. Informativo. */
+    retomas?: number;
+}
+
 /** Foto completa del estado de una carga. Es el payload de los tres eventos de socket y la
  *  respuesta de los endpoints de estado. Nunca es un delta. */
 export interface EstadoCargaDto {
@@ -84,6 +100,25 @@ export interface EstadoCargaDto {
     /** Hora del servidor (ISO 8601, UTC) al armar este DTO. Sirve para medir la edad de
      *  `heartbeatAt` sin depender del reloj del navegador. */
     servidorAhora: string;
+
+    /** Carga dividida confirmada como grupo: id, posición (1..N) y cantidad. null si no lo es. */
+    grupoId: string | null;
+    grupoOrden: number | null;
+    grupoTotal: number | null;
+
+    /** Alguien pidió cancelar (ISO 8601). No se borra al terminar. null si nadie lo pidió. */
+    cancelacionPedidaAt: string | null;
+    /** Terminó por una cancelación. Con `true`, `resultado` viaja como 'FALLIDA' y `error` trae el
+     *  texto de la cancelación: una pestaña que no conoce este campo la muestra como fallida con ese
+     *  motivo, que es cierto. */
+    cancelada: boolean;
+    /** Nombre de quien pidió la cancelación, si se sabe. */
+    canceladaPor: string | null;
+    /** Se puede pedir la cancelación ahora. Lo calcula el backend (§10.4.1). */
+    cancelable: boolean;
+    /** Terminó sin haber cargado ninguna fila y se puede volver a encolar tal cual. Lo calcula el
+     *  backend (§10.4.1); el endpoint lo vuelve a comprobar. */
+    retomable: boolean;
 
     /** @deprecated Alias para las pestañas que quedaron abiertas con el frontend anterior.
      *  El código nuevo NO los lee. Se quitan en la Fase C. */

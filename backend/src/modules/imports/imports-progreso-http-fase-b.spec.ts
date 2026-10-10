@@ -168,7 +168,7 @@ describe('cerrarCargaInterrumpida', () => {
         ['un arreglo', [{ fromIndex: 1, operador: 'IGUAL', valor: 'A' }]],
         ['un JSON en texto', '[{"fromIndex":1,"operador":"IGUAL","valor":"A"}]'],
     ])('H-5d: DEUDORES con corte propio (%s) agrega el aviso de los cortes tildados; sin corte, no', async (_n, filtroFilas) => {
-        const aviso = 'Esta remesa es un corte de un archivo dividido: al volver a cargarlo, tildá solo los cortes que no se cargaron. Si tildás uno que ya está cargado, sus casos quedan duplicados.';
+        const aviso = 'Esta remesa es un corte de un archivo dividido: al volver a subirlo, los cortes que ya están cargados aparecen destildados; dejalos así. Si no aparece ninguno destildado, el sistema no reconoció el archivo: destildá a mano los que ya figuran cargados en el Historial.';
         const base = 'Lo procesado hasta el corte quedó cargado en esta remesa. Eliminá esta importación desde el Historial y volvé a cargar el archivo. Si no se puede eliminar (porque algún caso ya tiene gestión o porque la remesa es muy grande), avisá a soporte antes de volver a cargarlo.';
         const conCorte = await armar(arrancada(), { filtroFilas }).service.cerrarCargaInterrumpida(1, 'SIN_LATIDO', { umbralMs: 5 * MIN });
         expect(conCorte!.error).toContain(`${base} ${aviso}`);

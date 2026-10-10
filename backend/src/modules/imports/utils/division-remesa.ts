@@ -247,3 +247,32 @@ export class AcumuladorCortes {
         return [...this.vistos.values()].sort((a, b) => b.filas - a.filas);
     }
 }
+
+/**
+ * Clave canónica de un corte: dos remesas que tienen el MISMO corte dan la misma clave aunque sus filtros
+ * estén escritos en otro orden (docs/imports-progreso-realtime-spec.md §10.5.6). Es lo que permite reconocer
+ * "este corte ya está cargado" comparando contra `remesa.filtroFilas`.
+ *
+ * Los filtros se ordenan por `fromIndex` y cada uno se escribe como `fromIndex|operador|valor|valores`, con los
+ * `valores` ordenados. Así `IGUAL 3G` y `EN [3G, 3GH]` dan claves distintas. Acepta el JSON ya parseado o su texto
+ * (un `$queryRaw` lo trae como texto); algo que no es una lista de filtros da la clave vacía.
+ */
+export function claveDeCorte(filtros: unknown): string {
+    let lista = filtros;
+    if (typeof lista === 'string') {
+        try {
+            lista = JSON.parse(lista);
+        } catch {
+            return '';
+        }
+    }
+    if (!Array.isArray(lista)) return '';
+    return (lista as FiltroFila[])
+        .map((f) => ({
+            texto: `${f?.fromIndex}|${f?.operador}|${f?.valor ?? ''}|${[...(Array.isArray(f?.valores) ? f.valores : [])].map(String).sort().join(',')}`,
+            indice: Number(f?.fromIndex),
+        }))
+        .sort((a, b) => a.indice - b.indice || (a.texto < b.texto ? -1 : a.texto > b.texto ? 1 : 0))
+        .map((f) => f.texto)
+        .join('&');
+}

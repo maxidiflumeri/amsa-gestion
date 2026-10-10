@@ -1,8 +1,8 @@
 // src/import/import.controller.ts
-import { Body, Controller, Delete, Get, Param, ParseIntPipe, Post, Put, Query, UploadedFile, UploadedFiles, UseInterceptors } from '@nestjs/common';
+import { Body, Controller, Delete, Get, HttpCode, NotFoundException, Param, ParseIntPipe, Post, Put, Query, UploadedFile, UploadedFiles, UseInterceptors } from '@nestjs/common';
 import { FileFieldsInterceptor, FileInterceptor } from '@nestjs/platform-express';
 import { ImportService } from './imports.service';
-import { CambiarEmpresaPlantillaDto, ClonarPlantillaDto, CreatePlantillaDto, CreateRemesaDto } from './dtos/import.dto';
+import { CambiarEmpresaPlantillaDto, ClonarPlantillaDto, CreatePlantillaDto, CreateRemesaDto, EjecutarGrupoDto } from './dtos/import.dto';
 import { Permisos, UsuarioActual } from '../../auth/decorators';
 import { Audit } from '../transacciones/audit.decorator';
 import { AuditModulo, AuditTipo } from '../transacciones/audit.enums';
@@ -308,6 +308,105 @@ export class ImportController {
             remesaOrigenId ? Number(remesaOrigenId) : undefined,
             ids && ids.length ? ids : undefined,
         );
+    }
+
+    /**
+     * Confirma TODAS las remesas de una carga dividida con un solo pedido: el backend las encola juntas y en orden, y la
+     * pestaña deja de ser parte del mecanismo (§10.5.2). Cierra el problema de que cerrar la pantalla cortaba la división.
+     */
+    @Post('ejecutar-grupo')
+    @Permisos('importacion.ejecutar')
+    @Audit({
+        modulo: AuditModulo.IMPORT,
+        entidad: 'Remesa',
+        tipo: AuditTipo.IMPORT_START,
+        resumen: (res, req) => `Inició ejecución de carga dividida (${(req.body?.remesaIds ?? []).length} remesas)`,
+        data: (res, req) => ({ params: req.body }),
+    })
+    runGrupo(@Body() dto: EjecutarGrupoDto, @UsuarioActual() user: UsuarioJwt) {
+        const ids = Array.isArray(dto.remesaOrigenIds) ? dto.remesaOrigenIds.map(Number).filter((n) => Number.isFinite(n)) : undefined;
+        return this.service.ejecutarGrupo(
+            {
+                remesaIds: dto.remesaIds,
+                remesaOrigenId: dto.remesaOrigenId ? Number(dto.remesaOrigenId) : undefined,
+                remesaOrigenIds: ids && ids.length ? ids : undefined,
+            },
+            user.sub,
+        );
+    }
+
+    /** Una carga dividida: sus remesas por orden, con el estado de cada una. */
+    @Get('grupos/:grupoId')
+    grupo(@Param('grupoId') grupoId: string) {
+        return this.service.grupo(grupoId);
+    }
+
+    /**
+     * Pide cancelar una carga: corta, deja lo ya procesado y lo informa con el número exacto. No revierte nada.
+     * Dueño de la remesa o `importacion.ver_progreso_otros`.
+     */
+    @Post('remesas/:id/cancelar')
+    @HttpCode(200)
+    @Permisos('importacion.ejecutar')
+    @Audit({
+        modulo: AuditModulo.IMPORT,
+        entidad: 'Remesa',
+        tipo: AuditTipo.ANULAR,
+        entidadIdParam: 'id',
+        resumen: (res, req) => `Pidió cancelar la importación de la remesa ${req.params.id}`,
+    })
+    cancelar(@Param('id', ParseIntPipe) id: number, @UsuarioActual() user: UsuarioJwt) {
+        return this.service.cancelarCarga(id, { sub: user.sub, permisos: user.permisos });
+    }
+
+    /** Cancela todo lo que falta de una carga dividida: las que no empezaron primero, la que corre al final. */
+    @Post('grupos/:grupoId/cancelar')
+    @HttpCode(200)
+    @Permisos('importacion.ejecutar')
+    @Audit({
+        modulo: AuditModulo.IMPORT,
+        entidad: 'Remesa',
+        tipo: AuditTipo.ANULAR,
+        resumen: (res, req) => `Pidió cancelar la carga dividida ${req.params.grupoId}`,
+    })
+    cancelarGrupo(@Param('grupoId') grupoId: string, @UsuarioActual() user: UsuarioJwt) {
+        return this.service.cancelarGrupo(grupoId, { sub: user.sub, permisos: user.permisos });
+    }
+
+    /** Vuelve a encolar la MISMA remesa, solo si no cargó ninguna fila (§10.5.4). */
+    @Post('remesas/:id/retomar')
+    @Permisos('importacion.ejecutar')
+    @Audit({
+        modulo: AuditModulo.IMPORT,
+        entidad: 'Remesa',
+        tipo: AuditTipo.IMPORT_START,
+        entidadIdParam: 'id',
+        resumen: (res, req) => `Retomó la remesa ${req.params.id}`,
+    })
+    async retomar(@Param('id', ParseIntPipe) id: number, @UsuarioActual() user: UsuarioJwt) {
+        const r = await this.service.retomarRemesas({ remesaIds: [id] }, { sub: user.sub, permisos: user.permisos });
+        if (!r.cargas[0]) throw new NotFoundException('La importación fue eliminada mientras se retomaba.');
+        return { message: 'Importación encolada de nuevo', remesaId: id, carga: r.cargas[0] };
+    }
+
+    /** Retoma las remesas de una carga dividida que no cargaron ninguna fila; las demás van en `omitidas`. */
+    @Post('grupos/:grupoId/retomar')
+    @Permisos('importacion.ejecutar')
+    @Audit({
+        modulo: AuditModulo.IMPORT,
+        entidad: 'Remesa',
+        tipo: AuditTipo.IMPORT_START,
+        resumen: (res, req) => `Retomó la carga dividida ${req.params.grupoId}`,
+    })
+    async retomarGrupo(@Param('grupoId') grupoId: string, @UsuarioActual() user: UsuarioJwt) {
+        const r = await this.service.retomarRemesas({ grupoId }, { sub: user.sub, permisos: user.permisos });
+        return {
+            message: 'Importaciones encoladas de nuevo',
+            grupoId,
+            cargas: r.cargas,
+            omitidas: r.omitidas,
+            ...(r.noEncoladas.length > 0 ? { noEncoladas: r.noEncoladas } : {}),
+        };
     }
 
     @Get('en-curso')

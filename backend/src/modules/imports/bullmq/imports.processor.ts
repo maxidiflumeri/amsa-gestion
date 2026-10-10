@@ -93,6 +93,13 @@ export class ImportsProcessor extends WorkerHost {
         return result;
       }
 
+      // Una carga cancelada (§10.5.3) no es una importación completada ni una falla: el runner ya la cerró, la notificó y
+      // auditó el corte (`IMPORT_FAIL`, WARN). Se trata como un `ignorado`, con su propia línea.
+      if (result?.cancelada) {
+        this.logger.warn(`Importación cancelada remesa=${remesaId} job=${job.id}`);
+        return result;
+      }
+
       this.logger.log(`Importación completada remesa=${remesaId} job=${job.id}`);
 
       await this.auditoria.log({

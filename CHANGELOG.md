@@ -6,6 +6,159 @@
 
 ---
 
+## [2026-10-09] — Importaciones, Fase C entrega 1: la carga dividida corre en el servidor, y una carga se puede cancelar y retomar
+
+**Entrega 1 de la Fase C** (C1) del plan de [docs/imports-progreso-realtime-spec.md](docs/imports-progreso-realtime-spec.md).
+La Fase C se partió en tres entregas desplegables por separado (§10.1): **C1** lo que hoy pierde o
+duplica datos; **C2** la interfaz (tarjeta única de progreso, Historial en vivo, errores en CSV); **C3**
+el resumen por categoría y el revertir de ACCIONES. El diseño de C1 está en §10.2 a §10.12 y lo que
+cambió al auditar en §10.16, que manda.
+
+**Estado: implementada y auditada; sin desplegar y sin ver en un navegador.** C2 y C3, solo esbozadas
+(§10.15). Las decisiones de producto se tomaron con las recomendaciones del spec y **esperan la
+confirmación del usuario** (§10.14; resumidas abajo).
+
+La idea en cinco líneas: (1) una carga dividida se confirma con **un solo pedido** y el servidor encola
+las N remesas juntas y en orden: la pestaña deja de ser parte del mecanismo; (2) **cancelar** es un
+pedido que queda escrito en la fila y que el runner mira en cada lote, y entre filas donde se puede:
+corta, deja lo procesado y lo informa con el número exacto; (3) lo que se pidió antes del cierre
+garantiza que el post-proceso **no corre**; (4) **retomar** vuelve a encolar la misma remesa, y solo se
+ofrece si no cargó ninguna fila; (5) al volver a subir un archivo dividido, los cortes ya cargados
+vienen destildados y el servidor rechaza repetirlos.
+
+### Decisiones y cambios de comportamiento
+
+- **La carga dividida ya no depende de la pestaña.** Antes la encadenaba el navegador: cerrar la
+  pantalla cortaba la división en silencio. Si una remesa falla, las demás siguen (como hasta ahora).
+  Lo nuevo que se paga: otro usuario que confirme una carga mientras corre una división espera a la
+  división entera, y quien la lanzó queda ocupado hasta la última remesa.
+- **La vista previa valida todos los cortes** antes de confirmar (antes se veía solo el primero): más
+  espera en ese paso, y "Confirmar e importar" se deshabilita si alguna remesa no tiene filas.
+- **Cancelar no deshace.** Corta la carga y deja lo ya procesado. Si se pide antes del cierre, el
+  post-proceso no corre (en Actualizaciones es el paso que da por pagados o desasigna a los ausentes).
+  **No se puede cancelar durante el post-proceso** ni **una acción masiva que ya empezó** (perdería los
+  datos para revertir). En una división se puede cancelar solo una remesa o todo lo que falta.
+- **Retomar existe solo para lo que no cargó ninguna fila** (nunca arrancó, o falló o se canceló antes
+  de la primera fila). Re-ejecutar una carga a medias no se ofrece en ninguna categoría: el análisis
+  encontró que en Pagos, Actualizaciones, Acciones y Multirregistro/Multiarchivo duplicaría o perdería
+  datos.
+- **Cortes ya cargados.** El sistema reconoce el archivo por sus bytes: los cortes cargados, en curso o
+  a medias vienen destildados, y crear, confirmar o retomar una remesa de un corte que ya figura en otra
+  responde 409, salvo confirmación explícita al crearla. Si el archivo se volvió a bajar con otros
+  bytes no se reconoce: el respaldo sigue siendo mirar el Historial.
+- Cancelar y retomar usan el permiso `importacion.ejecutar`, siendo el dueño de la carga o con
+  `importacion.ver_progreso_otros`. **Sin permiso nuevo, sin cambio de schema y sin variables nuevas.**
+- Hasta C2, una carga cancelada figura como FALLIDA en el Historial (con el motivo de la cancelación; en
+  el detalle dice "Cancelada"), y las remesas en cola de una división, como PENDIENTE.
+
+### Backend
+
+- **`POST /import/ejecutar-grupo`**: una transacción pasa las N remesas a EN_COLA con el mismo `grupoId`,
+  `grupoOrden` 1..N y `encoladaAt` escalonado de a 1 ms, y un `addBulk` las manda a la cola. No hay job
+  padre: el grupo es una etiqueta en N filas y la cola, con `concurrency: 1`, es la cadena. `addBulk`
+  no es atómico (usa un pipeline): si falla, se compensa mirando la base (si la primera ya fue tomada el
+  lote entró; si no, las N vuelven a borrador y responde 503; un residuo mixto sale como 201 con
+  `noEncoladas`). `GET /import/grupos/:id` devuelve el grupo.
+- **Cancelar** (`POST /import/remesas/:id/cancelar`, `/grupos/:id/cancelar`): escribe
+  `cancelSolicitadaAt` con la fila bloqueada. El tracker lo lee en la compuerta `FOR UPDATE` de cada
+  escritura, en la del reloj y por un atajo en memoria; `iniciar` y `entrarEnPostProceso` no escriben
+  si está pedido. El runner corta entre filas (camino por fila) o entre lotes y cierra con sus
+  contadores exactos: remesa FALLIDA, columna `resultado = 'CANCELADA'`, que el DTO traduce a
+  `resultado: 'FALLIDA'` más `cancelada: true` (una pestaña vieja la muestra como fallida con el
+  motivo). Una carga en cola cuyo job se pudo sacar se cierra en el acto. Después de una lectura que
+  bloquea (Excel y categorías pre-parseadas) el runner espera 300 ms y relee el pedido antes de la
+  primera fila: la lectura síncrona hacía que el pedido se atendiera junto con las primeras filas.
+- **Retomar** (`POST /import/remesas/:id/retomar`, `/grupos/:id/retomar`): vuelve a encolar la misma
+  remesa con el progreso en cero. Solo si nunca arrancó o si el runner vivo escribió
+  `resumen.sinFilasEntregadas` (se prende justo antes de la primera llamada a un processor; lo que
+  cierra el reaper nunca lo lleva). Además cuenta casos y claves en la base, comprueba que los archivos
+  sigan en el disco y pasa por la guarda de cortes.
+- **La remesa de origen sale de la fila, no del job.** `executeRemesa` y la confirmación de grupo
+  guardan `resumen.origen`, y el runner usa ese valor. Antes, si la cola no respondía al confirmar
+  (503) y el operador reconfirmaba con **otra** remesa de origen, el job del primer intento podía
+  entrar tarde y procesar la carga con el origen viejo: reproducido, una Actualizaciones "desasignar"
+  dejó 4.700 casos desasignados en la remesa equivocada, con la carga FINALIZADA OK. El mecanismo era
+  anterior a esta entrega.
+- **Guarda de cortes** ([utils/hash-archivos.ts](backend/src/modules/imports/utils/hash-archivos.ts),
+  `claveDeCorte`): `previewDivision` devuelve `yaCargado` por corte (CARGADA, EN_CURSO, A_MEDIAS,
+  SIN_CARGAR); el alta, la confirmación y retomar rechazan un corte que ya figura en otra remesa. Al
+  confirmar y al retomar cuenta solo lo que se confirmó después de crear la remesa, que es lo que
+  respeta un `repetir` deliberado. El hash coincide con el `archivoHash` de las remesas ya cargadas.
+- **Reaper:** un aviso si una carga viva tiene la cancelación pedida hace más de 2 minutos y no cortó.
+- **Tests:** 52 suites / 1.255 tests en imports + realtime + notificaciones (eran 49 / 1.069) y 1.931 en
+  la suite completa. Ningún processor tocado. De los specs que ya existían solo cambiaron tres asserts
+  de texto de la Fase B (el aviso del corte dividido), por política.
+
+### Frontend
+
+- **Asistente:** la vista de cortes trae la columna Estado y los cortes ya cargados destildados (tildar
+  uno pide confirmación); valida todas las remesas ("Armando la vista previa: remesa 2 de 5…") y muestra
+  la tabla "Remesas que se van a cargar"; confirma con un solo pedido. Se fue la cadena por navegador.
+  Si el alta rechaza un corte que se cargó mientras tanto, la vista se actualiza conservando lo que el
+  operador había editado.
+- **"Importando" de una división** (hook nuevo `useGrupoCarga`): "Carga dividida: remesa N de M", una
+  línea por remesa y la barra de la actual. Se puede cerrar la pantalla.
+- **Cancelar:** botón con confirmación en "Importando" y en el detalle; en una división, "Cancelar solo
+  esta remesa" o "Cancelar todo lo que falta", que queda disponible aunque la remesa en curso esté
+  cerrando, y el diálogo dice cuál se corta y cuál no. Deshabilitado con el motivo cuando no se puede.
+- **Retomar:** botón con confirmación en el detalle y en el resultado; "Cargar las que faltan" para las
+  remesas que el servidor no pudo encolar, con el resumen de las dos corridas acumulado.
+- Una cancelada se muestra como "Importación cancelada", nunca como exitosa ni como finalizada. Detalle:
+  línea "Remesa N de M de una carga dividida" con las hermanas. Campanita: "· 2 de 3" y "Cancelando…".
+- Lo que la pantalla ofrece (cancelable, retomable) lo decide el backend; los campos nuevos se leen
+  tolerando que falten.
+
+### Documentación
+
+- Wiki de importación ([docs/ayuda/03-importacion/](docs/ayuda/03-importacion/)): `05` (cortes ya
+  cargados, vista previa de una división, secciones nuevas "Cancelar una importación" y "Retomar una
+  importación", qué hacer con cada resultado), `08`, `01`, `07`, `04` y `06-actualizaciones` (ahora se
+  puede cancelar antes del cierre para que los ausentes no se toquen).
+- [docs/notificaciones-spec.md](docs/notificaciones-spec.md).
+
+### Lo que C1 no arregla
+
+- El Historial sigue sin botones de cancelar ni retomar y no distingue una cancelada (C2).
+- Una carga en post-proceso, o trabada, no se puede cortar; sale con un reinicio (C3).
+- La guarda de cortes reconoce el archivo por sus bytes: el mismo contenido con otros bytes, otra
+  plantilla o una plantilla cuyas columnas de corte cambiaron no se reconocen.
+- Dos usuarios que confirman **a la vez** remesas distintas del mismo corte pueden pasar los dos: la
+  ventana es lo que tarda en confirmarse (unos 15 ms una remesa suelta, medio segundo una división de 30
+  cortes). Antes de esta entrega la ventana era ilimitada. Y retomar una remesa que **no** es un corte,
+  después de haber vuelto a subir ese archivo como otra remesa, no lo frena nada (backlog los dos).
+
+### Cómo se verificó
+
+- Diseño por `architect`; backend y frontend en paralelo contra el contrato; tres auditores (backend,
+  frontend y wiki), **dos pasadas cada uno** como tope (detalle en §10.16 del spec).
+- Backend con la aplicación levantada contra MySQL y Redis locales: división sin clientes conectados,
+  cancelar en cada momento (480 rondas con el processor real de Actualizaciones sin que el post-proceso
+  corriera tras una cancelación), retomar, `kill -9` con la cancelación pedida, la cola sin responder
+  detrás de un proxy, y 82 mutaciones del código entre las dos pasadas. Veredicto final del backend: PASA;
+  frontend y wiki, PASA CON OBSERVACIONES, con sus últimos puntos corregidos después y sin otra pasada.
+- Frontend en un arnés con los módulos reales, React en modo estricto y un servidor socket.io real (126
+  pruebas de C1).
+- **No se probó:** nada en un navegador; MULTIARCHIVO y MULTICLAVES contra la base.
+
+### Deploy
+
+- **Dos pushes, backend primero**: el frontend nuevo contra el backend anterior no funciona
+  (`ejecutar-grupo` no existe). El backend nuevo sí sirve a las pestañas viejas, que siguen encadenando
+  la división desde el navegador hasta que recarguen.
+- Sin cambio de schema (`prisma migrate diff` vacío), sin variables de entorno nuevas.
+- Volver a la imagen anterior es casi gratis: las canceladas se verían como "Importación finalizada".
+
+### Pendiente
+
+- Confirmación del usuario de las decisiones tomadas por defecto (§10.14 del spec).
+- Prueba manual en el navegador (§10.9.5 del spec).
+- Backlog ajeno a esta entrega, encontrado al diseñar y auditar (§10.16): las bajas por pago de
+  Multirregistro y Multiarchivo no tienen anti-duplicados (recargar el paquete duplica pagos); revertir
+  una acción masiva por API sobre una carga fallida la marca como revertida sin revertir nada;
+  `ejecutar` no comprueba que el borrador sea de quien confirma.
+
+---
+
 ## [2026-10-09] — Progreso de las importaciones, Fase B: avance por segundo, cargas que no se re-ejecutan y cierre automático de las colgadas
 
 **Fase B** del plan de [docs/imports-progreso-realtime-spec.md](docs/imports-progreso-realtime-spec.md)

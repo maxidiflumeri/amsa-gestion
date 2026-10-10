@@ -18,6 +18,8 @@ const LATIDO_ATRASADO_MS = 60_000;
 const VIVA_SIN_AVANCE_MS = 15 * 60_000;
 const REPETIR_AVISO_MS = 15 * 60_000;
 const REPETIR_AVISO_LATIDO_MS = 5 * 60_000;
+/** Una cancelación pedida hace más de esto sin que la carga viva corte se avisa (§10.5.7). */
+const CANCELACION_SIN_HONRAR_MS = 2 * 60_000;
 const EN_ESPERA_SIN_TOMAR_MS = 5 * 60_000;
 const PASADA_LENTA_MS = 500;
 /** Tope de borradores que se borran por corrida: si hay más, se van en las noches siguientes. */
@@ -156,6 +158,18 @@ export class ReaperCargasService implements OnModuleInit {
                 this.logger.warn(
                     `Remesa ${id}: viva y sin avance hace ${Math.round(viva.sinAvanceMs / 60_000)} min ` +
                     `(${viva.fase}${viva.subfase ? `, ${viva.subfase}` : ''}). No se cierra sola: se ve y sale con un reinicio`,
+                );
+            }
+            // Una cancelación pedida que la carga viva no honró: se ve, no se cierra (cortarla de verdad necesita un reinicio).
+            // El dato sale de la carga viva y no de la consulta de candidatas; un doble que no lo trae no dispara el aviso.
+            if (
+                typeof viva.cancelacionPedidaHaceMs === 'number' &&
+                viva.cancelacionPedidaHaceMs >= CANCELACION_SIN_HONRAR_MS &&
+                !this.yaAvisado(`cancelacion:${id}`, REPETIR_AVISO_MS)
+            ) {
+                this.logger.warn(
+                    `Remesa ${id}: se pidió cancelar hace ${Math.round(viva.cancelacionPedidaHaceMs / 60_000)} min y la carga viva no cortó ` +
+                    `(${viva.fase}${viva.subfase ? `, ${viva.subfase}` : ''})`,
                 );
             }
             return false;

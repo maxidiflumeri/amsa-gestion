@@ -530,3 +530,75 @@ describe('arranque', () => {
         expect(h.warn.mock.calls.some(([m]) => String(m).includes('desactivado por IMPORTS_REAPER_DESACTIVADO'))).toBe(true);
     });
 });
+
+// ── Fase C, entrega 1 (docs/imports-progreso-realtime-spec.md §10.5.7 y §10.9.2 F) ────────────────────
+describe('reaper de cargas colgadas — Fase C1', () => {
+    const viva = (cancelacionPedidaHaceMs: number | null) => ({
+        sinAvanceMs: 1000, fase: 'PROCESANDO', subfase: null, cancelacionPedidaHaceMs,
+    });
+    const avisosDeCancelacion = (h: ReturnType<typeof armar>) =>
+        h.warn.mock.calls.filter(([m]) => String(m).includes('se pidió cancelar'));
+
+    it('F-1: una carga viva con la cancelación pedida hace 3 minutos avisa una vez, y no otra hasta 15 minutos después', async () => {
+        const h = armar();
+        h.importService.cargaVivaEnEsteProceso.mockReturnValue(viva(3 * MIN));
+        h.pone([arrancada(0)]);
+
+        await h.pasada();
+        expect(avisosDeCancelacion(h)).toHaveLength(1);
+        expect(String(avisosDeCancelacion(h)[0][0])).toContain('Remesa 1: se pidió cancelar hace 3 min y la carga viva no cortó (PROCESANDO)');
+
+        // 14 minutos después: no repite.
+        await h.pasada(14 * 60);
+        expect(avisosDeCancelacion(h)).toHaveLength(1);
+        // 15 minutos después del primero: avisa de nuevo.
+        await h.pasada(61);
+        expect(avisosDeCancelacion(h)).toHaveLength(2);
+        // Y no cerró nada: sale con un reinicio.
+        expect(h.importService.cerrarCargaInterrumpida).not.toHaveBeenCalled();
+    });
+
+    it('F-2: con la cancelación pedida hace menos de 2 minutos, o sin pedido, no avisa', async () => {
+        const h = armar();
+        h.pone([arrancada(0)]);
+        for (const v of [viva(60_000), viva(null)]) {
+            h.importService.cargaVivaEnEsteProceso.mockReturnValue(v);
+            await h.pasada(1);
+        }
+        expect(avisosDeCancelacion(h)).toHaveLength(0);
+    });
+
+    it('F-3: un doble de la carga viva que no trae el campo (el de los specs de la Fase B) no dispara el aviso', async () => {
+        const h = armar();
+        h.importService.cargaVivaEnEsteProceso.mockReturnValue({ sinAvanceMs: 1000, fase: 'PROCESANDO', subfase: null });
+        h.pone([arrancada(0)]);
+        await h.pasada();
+        expect(avisosDeCancelacion(h)).toHaveLength(0);
+    });
+
+    it('F-4: cinco cargas en cola del mismo grupo, cada una con su job esperando, no se cierra ninguna', async () => {
+        const h = armar();
+        h.importService.estadoDelJobDeCarga.mockResolvedValue({ estado: 'EN_ESPERA' });
+        // Una división confirmada: cinco remesas en cola desde hace 10 minutos (la primera corre, el resto espera).
+        h.pone([1, 2, 3, 4, 5].map((id) => enCola(10, id)));
+
+        for (let i = 0; i < 6; i++) await h.pasada(60);
+
+        expect(h.importService.cerrarCargaInterrumpida).not.toHaveBeenCalled();
+        expect(h.importService.sacarJobDeLaCola).not.toHaveBeenCalled();
+    });
+
+    it('F-5: una del grupo que perdió su job sí se cierra (como "no llegó a empezar") y las demás siguen en pie', async () => {
+        const h = armar();
+        h.importService.estadoDelJobDeCarga.mockImplementation((id: number) =>
+            Promise.resolve({ estado: id === 3 ? 'NO_EXISTE' : 'EN_ESPERA' }));
+        h.pone([1, 2, 3, 4, 5].map((id) => enCola(10, id)));
+
+        await h.pasada();
+        const cerradas = await h.pasada(60);
+
+        expect(cerradas).toEqual([3]);
+        expect(h.importService.cerrarCargaInterrumpida).toHaveBeenCalledTimes(1);
+        expect(h.importService.cerrarCargaInterrumpida).toHaveBeenCalledWith(3, 'SIN_JOB', expect.anything());
+    });
+});

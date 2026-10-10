@@ -1,9 +1,23 @@
 # Progreso en tiempo real de las importaciones — diagnóstico y plan
 
 > Estado: **diagnóstico cerrado (30/09/2026) · Fase A implementada, auditada y desplegada en prod el
-> 05/10/2026 (imagen `a5ed9c4`) · Fase B diseñada, implementada y auditada el 09/10/2026
-> ([§9](#9-diseño-de-la-fase-b)), sin desplegar y sin ver en un navegador · fases C y D sin empezar.**
-> Al 09/10 la Fase A no corrió ni una vez con una carga real en prod: `import_progreso` tiene 0 filas (la
+> 05/10/2026 (imagen `a5ed9c4`) · Fase B diseñada, implementada, auditada y **desplegada en prod el
+> 09/10/2026** (imagen `58bb9e1`, 19:44 UTC; [§9](#9-diseño-de-la-fase-b)), sin ver en un navegador ·
+> Fase C diseñada el 09/10/2026 y partida en tres entregas ([§10](#10-diseño-de-la-fase-c)): **la
+> primera (C1: carga dividida en el backend, cancelar, retomar y guarda de cortes), implementada y
+> auditada el 09/10/2026, sin desplegar**; lo que cambió al auditarla está en
+> [§10.16](#1016-lo-que-cambió-en-la-entrega-1-después-de-la-auditoría-09102026), que manda sobre
+> §10.2 a §10.12; **C2 (interfaz) está diseñada en un documento aparte,
+> [imports-progreso-c2-spec.md](imports-progreso-c2-spec.md)**, partida en C2a (Historial con estados
+> reales y acciones, errores paginados y en CSV, tests del frontend en el repo: diseño ejecutable) y C2b
+> (tarjeta única de progreso, campanita con acciones, celular: esbozada), sin implementar; C3 (resumen por
+> categoría y revertir), esbozada en §10.15 · Fase D sin empezar.** Donde §4, §10.1 y §10.15 dicen "C2",
+> el reparto fino entre C2a y C2b es el de §1 de ese documento (su §17 lista lo que falta actualizar acá).
+> Deploy de la B verificado en prod (solo lecturas): `migrate diff` vacío, columna `fueraDeCorte` creada,
+> log "Reaper de importaciones activo: sin latido a los 5 min, borradores a las 24 h", ningún error al
+> arrancar y el bundle del frontend con los textos nuevos. Los dos commits (`0e6aa81` backend, `58bb9e1`
+> frontend y wiki) se pushearon juntos.
+> Al 09/10 ni la Fase A ni la B corrieron con una carga real en prod: `import_progreso` tiene 0 filas (la
 > última remesa es la 149, del 30/09). En local sí: la auditoría de la Fase B levantó la aplicación
 > completa y corrió importaciones de punta a punta por primera vez (HTTP, socket, BullMQ, crons y MySQL
 > juntos). Lo que cada fase dejó distinto de su diseño está en
@@ -18,10 +32,13 @@
 > (§ progreso de imports) porque varias cosas que ese spec promete el código no las hace.
 >
 > **Para retomar:** antes de desplegar la Fase B, el chequeo previo de [§9.6](#96-deploy) y, si se
-> puede, el guion manual de §9.9.5 en un navegador. La fase siguiente es la C (§4), que necesita las
-> decisiones abiertas de §5.4 y §5.6. Las decisiones de §5.1, §5.2 y §5.3 están cerradas. El diseño de la
+> puede, el guion manual de §9.9.5 en un navegador. Lo siguiente es la **primera entrega de la Fase C**
+> ([§10.2 a §10.14](#102-entrega-1-c1-alcance-impacto-y-riesgos), con su bloque "PLAN PARA IMPLEMENTER"
+> al final del documento): no depende de la pestaña, cancelar y retomar. Las decisiones de §5.4 y §5.6
+> se adoptaron por defecto con la recomendación del spec y **esperan la confirmación del usuario**
+> ([§10.14](#1014-lo-que-necesita-el-ok-del-usuario)). Las decisiones de §5.1, §5.2 y §5.3 están cerradas. El diseño de la
 > Fase A está en [§8](#8-diseño-de-la-fase-a); el architect verificó contra el código (HEAD `a0675dc`
-> para la A, `a5ed9c4` para la B) cada referencia en la que se apoya, y lo que encontró inexacto o nuevo
+> para la A, `a5ed9c4` para la B, `58bb9e1` para la C) cada referencia en la que se apoya, y lo que encontró inexacto o nuevo
 > está en [§3.6](#36-correcciones-y-hallazgos-nuevos-del-architect-05102026) y en §9.1.
 
 ---
@@ -266,32 +283,53 @@ del estado persistido y de los eventos.
 
 ### Fase C — Interfaz (~3 días)
 
-- [ ] **[MEJORA]** Componente único `ImportProgressCard` para wizard, panel y detalle: stepper de fases, barra, contadores, velocidad/ETA y **últimos 5 errores en vivo** con link a la tabla completa.
-- [ ] **[BUG #7] / [MEJORA]** Carga dividida orquestada en el **backend** (job padre o BullMQ FlowProducer), mostrada como grupo: "remesa 2 de 3", barra total + una por hija. Resumen final con todas las hijas. Corregir la wiki (`05-importar-un-archivo.md:152`).
-- [ ] **[MEJORA]** Panel de notificaciones con estado vivo y acciones: ver detalle, descargar errores (CSV autenticado vía blob, arregla el 401 de #17), reintentar FALLIDA, cancelar (flag revisado en cada lote).
-- [ ] **[MEJORA]** Chip compacto de progreso en la barra superior (`AppShell`), visible en todas las pantallas mientras haya cargas activas.
-- [ ] **[MEJORA]** Resumen final por categoría:
+> **Diseñada el 09/10/2026 y partida en tres entregas**, cada una desplegable sola
+> ([§10.1](#101-reparto-en-entregas)). El título y la estimación de arriba quedaron chicos: la fase
+> junta el encolado de la carga dividida, cancelar y retomar (backend), la interfaz, y el resumen por
+> categoría con el revertir. La lista de abajo es el plan original, con la entrega de cada ítem; lo que
+> el diseño cambió respecto de ella (justificado en §10.2 y §10.5):
+>
+> - **C1 — no depende de la pestaña, cancelar y retomar** (diseño ejecutable en §10.2 a §10.14; sin
+>   implementar). **C2 — interfaz. C3 — resumen por categoría y revertir** (esbozadas en §10.15).
+> - **La carga dividida no usa job padre ni FlowProducer:** un endpoint encola las N remesas juntas y
+>   en orden (§5.6).
+> - **"Reintentar FALLIDA" es "Retomar"**, y solo existe para una carga que no cargó ninguna fila. Volver
+>   a ejecutar una remesa sobre lo ya cargado no se ofrece en ninguna categoría (§10.5.5).
+> - **Cancelar** no se puede durante el post-proceso ni sobre una acción masiva que ya arrancó, y lo
+>   pedido antes del cierre garantiza que el cierre no corre (§10.5.3).
+> - **Entran dos cosas que no estaban:** la guarda de cortes ya cargados al volver a subir un archivo
+>   dividido, y la vista previa de todos los cortes antes de confirmar.
+> - **Ninguna entrega de la C necesita, hasta donde se diseñó, un cambio de schema:** C1 usa las columnas
+>   que la Fase A dejó preparadas.
+
+- [ ] **[MEJORA]** Componente único `ImportProgressCard` para wizard, panel y detalle: stepper de fases, barra, contadores, velocidad/ETA y **últimos 5 errores en vivo** con link a la tabla completa. → **C2**
+- [ ] **[BUG #7] / [MEJORA]** Carga dividida orquestada en el **backend** (~~job padre o BullMQ FlowProducer~~ un endpoint de grupo, §10.5.2), mostrada como grupo: "remesa 2 de 3", barra total + una por hija. Resumen final con todas las hijas. Corregir la wiki (`05-importar-un-archivo.md:152`). → **C1** (el backend, el paso "Importando" y la wiki); la barra total y una por hija, **C2**
+- [ ] **[MEJORA]** Panel de notificaciones con estado vivo y acciones: ver detalle, descargar errores (CSV autenticado vía blob, arregla el 401 de #17), reintentar FALLIDA, cancelar (flag revisado en cada lote). → cancelar y retomar, **C1** (desde el asistente y el detalle); el panel con acciones y el CSV, **C2**
+- [ ] **[MEJORA]** Chip compacto de progreso en la barra superior (`AppShell`), visible en todas las pantallas mientras haya cargas activas. → **C2**
+- [ ] **[MEJORA]** Resumen final por categoría: → **C3**
   - DEUDORES: altas, actualizados, colisiones por documento.
   - PAGOS: aplicados, ya cargados, negativos, con/sin clave.
   - ACTUALIZACIONES: ausentes desasignados o PAGO_TODO, consolidados.
   - MULTI*: casos, cuotas, bajas, advertencias.
   - ACCIONES: deudores afectados + revertir (con progreso: pasarlo a job BullMQ, arregla #16).
-- [x] ~~**[BUG #11]** Mostrar advertencias aunque `errFilas=0`; avisar si se truncó a 500.~~ → **movido a la Fase A** (§8.5.4 y §8.8.6). Queda para C mostrarlas en vivo en el `ImportProgressCard`.
-- [ ] **[BUG #17]** ~~"Ver remesas" a una ruta que exista, y "Ver errores" autenticado.~~ Los dos botones se arreglan en la Fase A (§8.8.5: van al detalle y al historial). Queda para C la descarga de errores en CSV vía blob.
-- [ ] **[BUG #18]** `ImportHistory` escucha el socket (o re-consulta) para actualizar estados, y distingue "Borrador" y "En cola" (hasta entonces los muestra como Pendiente/Validando).
-- [ ] **[MEJORA]** Mobile: panel como bottom-sheet / diálogo full-screen en `xs`, contadores en grilla de 2 columnas, ETA abreviada. Probar dark/light.
+- [x] ~~**[BUG #11]** Mostrar advertencias aunque `errFilas=0`; avisar si se truncó a 500.~~ → **movido a la Fase A** (§8.5.4 y §8.8.6). Queda para C mostrarlas en vivo en el `ImportProgressCard`. → **C2**
+- [ ] **[BUG #17]** ~~"Ver remesas" a una ruta que exista, y "Ver errores" autenticado.~~ Los dos botones se arreglan en la Fase A (§8.8.5: van al detalle y al historial). Queda para C la descarga de errores en CSV vía blob. → **C2**
+- [ ] **[BUG #18]** `ImportHistory` escucha el socket (o re-consulta) para actualizar estados, y distingue "Borrador" y "En cola" (hasta entonces los muestra como Pendiente/Validando). → **C2**, con "Cancelada" y la agrupación de una división
+- [ ] **[MEJORA]** Mobile: panel como bottom-sheet / diálogo full-screen en `xs`, contadores en grilla de 2 columnas, ETA abreviada. Probar dark/light. → **C2**
+- [ ] **[BUG]** *(agregado al diseñar, §10.5.6)* Al volver a subir un archivo dividido vienen todos los cortes tildados y las nóminas ya cargadas se duplican: reconocer el archivo por su hash, destildar los cortes cargados y rechazar el alta de un corte repetido. → **C1**
+- [ ] **[MEJORA]** *(agregado al diseñar, §10.8.2)* Vista previa de **todos** los cortes de una división antes de confirmar (hoy solo se ve el primero). → **C1**
 
-**Criterios de aceptación C**
-- Cerrar la pestaña en medio de una carga dividida → las remesas restantes corren igual.
-- Desde la campanita se puede ver el detalle, descargar errores y reintentar sin 401 ni pantallas en blanco.
-- Revertir ACCIONES grande no da 504 y muestra progreso; un segundo clic no re-ejecuta.
+**Criterios de aceptación C** (los verificables de la primera entrega están en §10.11)
+- Cerrar la pestaña en medio de una carga dividida → las remesas restantes corren igual. → **C1** (CC-21)
+- Desde la campanita se puede ver el detalle, descargar errores y reintentar sin 401 ni pantallas en blanco. → **C2**; retomar desde el detalle y el asistente, **C1** (CC-25)
+- Revertir ACCIONES grande no da 504 y muestra progreso; un segundo clic no re-ejecuta. → **C3**
 
 ### Fase D — Notificaciones y documentación (~1 día)
 
 - [ ] **[BUG #13]** Cron de limpieza de notificaciones (N12 del spec de notificaciones). Preferencia de usuario para no recibir cargas ajenas; agrupar.
 - [x] ~~**[BUG #18]** Una sola emisión por usuario; el último tick no dice 100 con PROCESANDO; FINALIZADA con ok=0 no se notifica como "fallida".~~ → **movido a la Fase A** (§8.4 y §8.5.5): salen gratis del contrato nuevo.
 - [x] ~~**[MEJORA]** Notificación "terminó con advertencias".~~ → Fase A (§8.5.5).
-- [ ] **[BUG]** Wiki: documentar fases, cancelar/reintentar y el nuevo panel. Las dos frases falsas (`05-importar-un-archivo.md:152` y `08-historial-y-problemas.md:237`) y todo lo que cambia la Fase A se corrigen **en la Fase A** (§8.10): la regla del repo es que la página cambia en el mismo commit que el flujo. Toda página de ayuda pasa por agente revisor antes de cerrarse (memoria `auditar-documentacion-con-agentes`).
+- [ ] **[BUG]** Wiki: documentar fases, cancelar/reintentar y el nuevo panel. Las dos frases falsas (`05-importar-un-archivo.md:152` y `08-historial-y-problemas.md:237`) y todo lo que cambia la Fase A se corrigen **en la Fase A** (§8.10): la regla del repo es que la página cambia en el mismo commit que el flujo. Toda página de ayuda pasa por agente revisor antes de cerrarse (memoria `auditar-documentacion-con-agentes`). → Por esa misma regla, cancelar, retomar y la carga dividida se documentan **en la entrega C1** (§10.10), y el panel nuevo en la C2: para la Fase D no queda wiki de importaciones pendiente.
 - [ ] Actualizar [notificaciones-spec.md](notificaciones-spec.md) y CHANGELOG.
 
 ---
@@ -303,9 +341,9 @@ del estado persistido y de los eventos.
 | 5.1 | `jobimport` vs tabla nueva | **Cerrada** (architect, 05/10/2026): tabla nueva `import_progreso` |
 | 5.2 | Cómo se distingue un borrador de una carga en curso; TTL del reaper | **Cerrada** (architect, 05/10/2026): sin tocar el enum; TTL 24 h; reaper en la Fase B |
 | 5.3 | Minutos sin heartbeat para declarar FALLIDA | **Cerrada** (architect, 09/10/2026): 5 minutos, por variable de entorno. Falta el OK del usuario al número (§9.14) |
-| 5.4 | Cancelar: ¿deja lo procesado o revierte? | Abierta — **necesita OK del usuario**; es de la Fase C |
+| 5.4 | Cancelar: ¿deja lo procesado o revierte? | **Adoptada por defecto** (09/10/2026) con la recomendación: deja lo procesado. Diseñada en §10.5.3, con tres matices (§10.2). **Falta el OK del usuario** (§10.14) |
 | 5.5 | Notificar las cargas ajenas a todos los admins | Abierta — **necesita OK del usuario**; es de la Fase D |
-| 5.6 | Carga dividida: job padre o FlowProducer | Abierta — recomendación abajo; es de la Fase C |
+| 5.6 | Carga dividida: job padre o FlowProducer | **Adoptada por defecto** (09/10/2026) con la recomendación: ninguno de los dos, un endpoint de grupo; si una falla, las demás siguen. Diseñada en §10.5.1 y §10.5.2. **Falta el OK del usuario** (§10.14) |
 
 ### 5.1 — Tabla nueva `import_progreso`. `jobimport` no se toca. (cerrada)
 
@@ -419,6 +457,24 @@ Lo que sí se midió, y no hacía falta esperar a la Fase B para medirlo, está 
   agrupadas. FlowProducer está pensado para hijos en paralelo con un padre que espera, que es lo
   contrario de lo que se necesita. Lo único que **necesita OK del usuario**: si una remesa del grupo
   falla, ¿siguen las demás? (Hoy siguen.)
+
+> **Actualización 09/10/2026 (architect, al diseñar la Fase C).** El usuario pidió seguir sin frenar y
+> quien orquesta adoptó por defecto las recomendaciones de 5.4 y 5.6; el diseño de [§10](#10-diseño-de-la-fase-c)
+> está hecho sobre ellas. Ninguna de las dos resultó mala idea al mirar el código. Lo que el código
+> agregó, y que el usuario tiene que ver junto con la decisión ([§10.14](#1014-lo-que-necesita-el-ok-del-usuario)):
+>
+> - **5.4.** "Solo ACCIONES tiene con qué deshacer" es cierto **solo si la carga termina**: los datos
+>   para revertir se guardan recién en el `afterAll`. Por eso una acción masiva que ya arrancó **no se
+>   puede cancelar** en la primera entrega (cancelarla le quitaría al operador el Revertir); cancelar
+>   guardando esos datos queda para la tercera. Tampoco se puede cancelar durante el post-proceso. Y lo
+>   que hace valiosa a la cancelación en ACTUALIZACIONES es una garantía que la recomendación no
+>   nombraba: si se pidió antes del cierre, el cierre —que es donde se da por pagados a los ausentes—
+>   **no corre**. El número que se informa es exacto, no "al menos".
+> - **5.6.** `addBulk` no es atómico en la versión de BullMQ del repo (usa un `pipeline`): el diseño no
+>   depende de que lo sea. El encolado en bloque tiene dos efectos de producto: otro usuario que
+>   confirme una carga espera a la división entera (hoy podía colarse entre dos cortes), y quien lanzó
+>   la división no puede iniciar otra carga hasta que termina su última remesa. Con dos procesos de
+>   backend la división dejaría de ser secuencial (§10.2).
 
 ---
 
@@ -4012,9 +4068,1750 @@ fuera del repo y no se conservan.
   otros agentes trabajaban. Con varios agentes sobre el mismo árbol: `git show HEAD:ruta`, nunca `stash`.
 
 ---
+
+## 10. Diseño de la Fase C
+
+> Architect, 09/10/2026, sobre HEAD `58bb9e1` (árbol limpio; Fase B commiteada y pusheada ese día, con
+> el deploy en curso mientras se escribía esto). Las referencias `archivo:línea` de esta sección se
+> leyeron contra ese commit. Qué se **ejecutó**, qué se **leyó** y qué es **suposición** está en
+> [§10.13](#1013-qué-se-verificó-y-qué-es-suposición). Las dos decisiones de producto de la fase (§5.4
+> cancelar, §5.6 carga dividida) van con la recomendación del spec; ninguna resultó mala idea al mirar
+> el código, pero las dos traen matices que están en §10.2 y que el usuario tiene que ver (§10.14).
+>
+> **La idea en cinco líneas.** (1) La fase se parte en tres entregas: primero lo que hoy pierde o
+> duplica datos, después la interfaz, al final el resumen por categoría y el revertir. (2) Una carga
+> dividida se confirma con **un solo pedido**: el backend encola las N remesas juntas y en orden, y la
+> pestaña deja de ser parte del mecanismo. (3) **Cancelar** es un pedido que queda escrito en la fila y
+> que el runner mira en cada lote (y entre filas, donde se puede): corta, deja lo procesado y lo informa
+> con el número exacto; lo que se pidió antes del cierre garantiza que el `afterAll` **no corre**.
+> (4) **Retomar** vuelve a encolar la misma remesa, y solo se ofrece cuando está demostrado por
+> construcción que no cargó ninguna fila; re-ejecutar sobre lo ya cargado no se ofrece en ninguna
+> categoría. (5) Al volver a subir un archivo dividido, los cortes que ya están cargados vienen
+> destildados y el backend rechaza repetirlos.
+
+### 10.1 Reparto en entregas
+
+El plan de §4 juntaba tres cosas de naturaleza distinta. Se parte así, por valor y por riesgo:
+
+| Entrega | Qué trae, en una línea | Qué toca | Riesgo para los datos |
+|---|---|---|---|
+| **C1 — La carga no depende de la pestaña, se puede cortar y se puede retomar** | Carga dividida encolada por el backend; cancelar; retomar lo que no cargó nada; guarda de cortes ya cargados; vista previa de todos los cortes | Backend (encolado, runner, tracker) y lo mínimo de pantalla para usarlo | **Arregla** pérdida y duplicación; es la que más toca el runner |
+| **C2 — Interfaz** | Componente único de progreso, Historial en vivo y con los estados reales, errores paginados y en CSV, acciones desde la campanita, chip en la barra, celular | Casi todo frontend; dos lecturas nuevas en el backend | Ninguno: no cambia qué se escribe |
+| **C3 — Resumen por categoría y revertir** | `resumen` por categoría, revertir ACCIONES como job y sobre cargas cortadas, cierre ordenado en el deploy, y la discusión de re-ejecutar sobre parcial donde se pueda demostrar | Processors (los once) y `revertirAcciones` | Alto: toca processors destructivos. Conviene con mediciones reales de prod |
+
+**Por qué este orden.** Coincide con la intuición de quien encargó el diseño, con dos agregados que
+salieron de leer el código: la guarda de cortes ya cargados y la vista previa de todos los cortes, que
+van en C1 porque son la otra mitad del mismo problema (#7 y la trampa de "destildar" de §9.15). C1 no
+necesita ningún cambio de schema y es la única que el operador no puede suplir con cuidado: hoy cerrar
+una pestaña corta una división en silencio, y volver a subir el archivo duplica nóminas. C2 es grande
+pero inofensiva, y se beneficia de que C1 ya haya fijado el contrato (grupo, cancelada, retomable). C3
+va al final porque es la única que modifica lo que los processors escriben, y para entonces va a haber
+cargas reales en prod con el log de tiempos por paso de la Fase B.
+
+**Cada entrega se despliega sola y tiene sentido sola.** Después de C1 el operador puede cerrar la
+pestaña, cortar una carga y retomar un corte, aunque el Historial siga mostrando "FALLIDA" para una
+cancelada. Después de C2 lo ve todo bien. C3 no cambia ningún flujo: agrega información y un revertir
+que no da 504.
+
+**Dónde cae cada ítem** de §4 "Fase C", de las filas **C** de §8.13 y de la deuda de §9.15:
+
+| Ítem | Entrega | Nota |
+|---|---|---|
+| §4: carga dividida orquestada en el backend, mostrada como grupo | **C1** | El backend, el paso "Importando" y una línea en el detalle. "Barra total más una por hija" es presentación: C2 |
+| §4: cancelar (flag revisado en cada lote) | **C1** | Botón en el paso "Importando" y en el detalle. En la campanita: C2 |
+| §4: reintentar FALLIDA · §8.13: no hay cómo retomar una remesa de una división ni reintentar · §9.15: ídem | **C1** | Como "Retomar", con el alcance de §10.5.4. Re-ejecutar sobre parcial: no se ofrece (§10.5.5); lo que se pueda abrir, C3 |
+| §9.15: una carga en cola cuyo job nadie toma no se cierra sola, y mientras tanto no se limpian los borradores de ese usuario | **C1** | No se cierra sola, pero se puede **cancelar**: libera al usuario y queda retomable |
+| §9.15: una carga viva que no avanza no se cierra sola; un cierre que llega durante el `afterAll` no lo interrumpe | **C1** lo decide, no lo arregla | Cancelar no interrumpe el `afterAll` ni un `await` colgado: lo rechaza o lo deja visible (§10.5.3). Cortar de verdad necesita un reinicio; poder abortar un paso, C3 o backlog |
+| §8.13: las remesas de origen de una carga solo quedan en la auditoría | **C1** las persiste (`resumen.origen`: lo necesita retomar); **C2** las muestra en el detalle | |
+| §4: `ImportProgressCard` único, con stepper y últimos errores en vivo · #11 advertencias en vivo | **C2** | |
+| §4: #18 `ImportHistory` en vivo, con "Borrador" y "En cola" · §8.13: no distingue "con advertencias" | **C2** | Más "Cancelada" y la agrupación de una división |
+| §4: #17 errores en CSV vía blob · §8.13: solo 100 errores sin paginado · `rowNumber 0` ambiguo | **C2** | |
+| §4: panel de notificaciones con acciones · chip en la barra superior · celular | **C2** | |
+| §9.15: "descartó las 1 filas" · los alias `okFilas`/`errFilas`/`totalFilas`/`durationMs` del DTO ("se quitan en la Fase C") | **C2** | Los alias, solo si ya no quedan pestañas de la Fase A |
+| §4: resumen final por categoría | **C3** | |
+| §4: #16 revertir ACCIONES como job · §8.13: Revertir con snapshots parciales; qué hace Revertir en una carga interrumpida o con advertencias | **C3** | Y cancelar una ACCIONES en curso guardando lo necesario para revertir (§10.5.3) |
+| §9.1: cierre ordenado al recibir `SIGTERM` | **C3** | Usa el mecanismo de cancelar de C1 |
+| §9.15: remesas de más de 60.000 casos no se pueden eliminar; timeouts de transacción del resto del backend | Backlog | No son de esta evolución |
+
+### 10.2 Entrega 1 (C1): alcance, impacto y riesgos
+
+**Qué entra** (y dónde está diseñado):
+
+| Qué | Sección |
+|---|---|
+| Confirmar una carga dividida con un pedido: `POST /import/ejecutar-grupo` | §10.4.4, §10.5.1, §10.5.2 |
+| El asistente valida **todos** los cortes antes de confirmar y muestra una fila por remesa | §10.8.2 |
+| Guarda de cortes ya cargados, en la vista de cortes y en el alta | §10.5.6, §10.8.1 |
+| Cancelar una carga, o todo lo que falta de una división | §10.5.3, §10.8.4 |
+| Retomar una remesa (o las de una división) que no cargó ninguna fila | §10.5.4, §10.8.5 |
+| Guardar las remesas de origen de cada carga (`resumen.origen`) | §10.3, §10.5.1 |
+| Campos nuevos del `EstadoCargaDto` (grupo, cancelación, retomable) | §10.4.2 |
+| Textos, wiki y `notificaciones-spec.md` | §10.5.8, §10.10 |
+
+**Qué no entra, y se va a seguir viendo después de C1:**
+
+- El Historial muestra una carga cancelada como **FALLIDA** y las remesas en cola de una división como
+  PENDIENTE; no se actualiza solo y no tiene botones de cancelar ni retomar (se usan desde el detalle
+  y desde el asistente). Es C2.
+- Re-ejecutar una remesa que ya cargó filas. Una DEUDORES cortada a mitad se sigue resolviendo como
+  dice su motivo: eliminarla y volver a subir el archivo. Lo que cambia es que al volver a subirlo los
+  cortes ya cargados vienen destildados.
+- Cancelar durante el post-proceso, y cancelar una ACCIONES que ya arrancó (§10.5.3).
+- Una carga trabada en un `await` que no vuelve: el pedido de cancelación queda escrito y la pantalla
+  dice que no se honró, pero cortarla sigue necesitando reiniciar el servicio.
+
+**Las dos decisiones de producto, y los matices que aparecieron al mirar el código.** Ninguna se
+cambia; los matices son para que el usuario los vea.
+
+- **§5.4 — Cancelar corta la carga, deja lo ya procesado y lo informa con el número exacto. No
+  revierte.** Se confirma como buena idea: no hay rollback posible (cada fila confirma por separado y
+  varias categorías escriben sobre casos de otras remesas). Matices:
+  1. **Lo pedido antes del cierre garantiza que el cierre no corre.** En ACTUALIZACIONES el `afterAll`
+     es el paso destructivo (da por pagados o desasigna a los ausentes: `actualizaciones.processor.ts:939-941`
+     y `:993` en adelante). Quien cancela porque eligió mal el archivo o la remesa de origen necesita
+     exactamente eso. Por eso una cancelación que llega en el último lote **no** se ignora aunque ya
+     estén todas las filas: la carga queda cancelada con N de N filas y sin cierre.
+  2. **No se puede cancelar durante el post-proceso** (409). Cortarlo a la mitad deja ausentes
+     desasignados a medias o casos sin consolidar, que es peor que dejarlo terminar, y ningún
+     `afterAll` tiene puntos de corte seguros hoy.
+  3. **No se puede cancelar una ACCIONES que ya arrancó** (409). Los datos para revertir viven en
+     memoria y se guardan recién en el `afterAll` (`acciones.processor.ts:280-296`): cancelar le
+     quitaría al operador el único remedio que tiene, que es dejarla terminar y usar Revertir. Cancelar
+     guardando esos datos es C3.
+- **§5.6 — Ni job padre ni FlowProducer: un endpoint que encola las N juntas y en orden; si una falla,
+  las demás siguen.** Se confirma: el worker tiene `concurrency: 1` (`bullmq/imports.processor.ts:17`),
+  así que la cola ya es la cadena. Matices:
+  1. **`addBulk` no es atómico** en BullMQ 5.70.4: usa un `pipeline`, no un `MULTI`
+     (`node_modules/bullmq/dist/cjs/classes/job.js:143-164`). El diseño no depende de que lo sea
+     (§10.5.1).
+  2. **Otro usuario que confirme una carga mientras corre una división espera a la división entera.**
+     Hoy, como cada remesa se encola cuando termina la anterior, su carga podía colarse entre dos
+     cortes. Con cuatro usuarios es aceptable; se dice.
+  3. **El bloqueo "una importación por usuario" pasa a ser "una importación o una división".** Mientras
+     quede una remesa de la división en curso, el usuario no puede confirmar otra carga ni retomar una
+     remesa suelta.
+
+**Supuesto que sostiene el diseño: un solo proceso de backend** (igual que en §9.1). Qué se rompe si
+alguna vez hay dos:
+
+1. **La división deja de ser secuencial.** Con dos workers de `concurrency: 1`, dos remesas del mismo
+   grupo corren a la vez. Para cortes de DEUDORES es inofensivo (cada una escribe en su remesa); para
+   una división de PAGOS o de ACTUALIZACIONES sobre la misma remesa de origen serían dos cargas
+   escribiendo los mismos casos. Habría que serializar por grupo (un lock por grupo en Redis, o la
+   cadena explícita que §5.6 descartó).
+2. **El aviso de cancelación en memoria no llega al otro proceso.** No rompe nada: el pedido está en la
+   fila y el tracker lo lee en la compuerta de cada lote y en cada escritura del reloj (§10.5.3). Solo
+   se pierde el corte entre filas inmediato.
+3. **El rechazo de "ya está en post-proceso" mira la memoria del tracker** además de la fila. Con dos
+   procesos queda solo la fila, y una carga cuya escritura de `POST_PROCESO` falló podría aceptar una
+   cancelación que después no se honra (la carga termina completa y lo dice).
+4. Lo que ya estaba dicho del registro de cargas vivas (§9.5.6).
+
+**Impacto.** Backend: `ImportService` (siete métodos nuevos; cambios chicos en `executeRemesa`,
+`processImportJob`, `previewDivision`, `createRemesa`, `cerrarCargaInterrumpida` y
+`cargaVivaEnEsteProceso`), `ImportController` (seis rutas), `ProgresoTracker`, las funciones puras de
+`estado-carga.ts`, `ImportsProcessor` (una rama) y `ReaperCargasService` (un aviso). **Ningún
+processor.** Frontend: el asistente, `ImportProgress`, `ImportSummary`, `AvisosCarga`, el detalle, el
+ítem de la campanita, un hook nuevo y las utilidades. Schema: **ningún cambio**. Permisos: **ninguno
+nuevo**. Jobs: ninguno nuevo.
+
+**Qué se rompe si sale mal:**
+
+1. *El `afterAll` corre después de una cancelación.* Es el peor desenlace en ACTUALIZACIONES. Lo
+   impide la compuerta: el pedido y la entrada al post-proceso se serializan por el lock de la fila
+   (§10.5.3), y hay una sonda de concurrencia contra MySQL que lo ataca (§10.9.3).
+2. *Retomar vuelve a procesar algo que ya estaba cargado.* Duplicaría casos, pagos o comentarios. Lo
+   impiden cuatro condiciones independientes, una de ellas contra los datos y no contra un marcador
+   (§10.5.4).
+3. *Una cancelación corta una carga sana.* No puede salir de un resultado vacío: la decisión cuelga de
+   leer un valor **no nulo** en `cancelSolicitadaAt`; un vacío espurio (§9.15) significa "nadie pidió
+   cancelar".
+4. *El grupo se encola dos veces o queda a medias.* El paso a `EN_COLA` de las N es una sola
+   transacción; el encolado en Redis puede fallar o entrar tarde y cada caso tiene desenlace definido
+   (§10.5.1).
+5. *La guarda de cortes bloquea una carga legítima.* Tiene salida explícita (`repetir`), y solo mira
+   remesas del mismo archivo, la misma plantilla y el mismo corte.
+6. *`processImportJob` deja de pasar sus specs.* Es el camino de toda la cartera: los 1.069 tests de
+   base tienen que pasar sin tocar ninguno (§10.9.1).
+
+**Datos ya cargados.** Ninguna fila existente se modifica. Sin backfill. Una carga confirmada con el
+código anterior a C1 no tiene `resumen.origen` y por eso **no es retomable**: su motivo sigue diciendo
+"volvé a importar el archivo", que para ella es lo correcto.
+
+### 10.3 Datos
+
+**Ningún cambio de schema.** `prisma migrate diff` contra la base local da `This is an empty migration`
+hoy y tiene que seguir dándolo después de C1 (ejecutado el 09/10 sobre `58bb9e1`). Se usan columnas de
+`import_progreso` que la Fase A dejó preparadas (`schema.prisma:243-258`):
+
+| Columna | Uso en C1 |
+|---|---|
+| `grupoId` (`VarChar(40)`) | Un `crypto.randomUUID()` por carga dividida confirmada. Lo comparten sus N remesas. Ya tiene índice |
+| `grupoOrden`, `grupoTotal` | Posición 1..N (el orden es el de `remesa.id` ascendente, que es el de los cortes) y cantidad de remesas confirmadas juntas |
+| `cancelSolicitadaAt` | Cuándo se pidió cancelar. Se escribe con la fila bloqueada. No se borra al terminar: una carga que terminó igual lo conserva (y la pantalla lo explica) |
+| `resultado` (`VarChar(20)`) | Valor nuevo **en la columna**: `CANCELADA`. En el DTO viaja como `FALLIDA` más `cancelada: true` (§10.4.2) |
+| `resumen` (`Json`) | Sobre versionado, que C3 extiende con el resumen por categoría. Forma en C1, abajo |
+
+```ts
+/** `import_progreso.resumen`. Todas las claves son opcionales para quien lee: una carga anterior a C1 trae null. */
+interface ResumenCarga {
+    v: 1;
+    /** Remesas de origen con las que se confirmó (lo que viajaba solo en el job y en la auditoría). */
+    origen: { remesaOrigenId: number | null; remesaOrigenIds: number[] | null };
+    /** La carga falló o se canceló sin haberle entregado ninguna fila a un processor (§10.5.4). */
+    sinFilasEntregadas?: true;
+    /** Quién pidió la cancelación. */
+    cancelacion?: { usuarioId: number; nombre: string };
+    /** Veces que se retomó. Informativo. */
+    retomas?: number;
+}
+```
+
+- **`remesa.estadoProceso` no se toca.** Una cancelada queda `FALLIDA`: no hay `ALTER` sobre `remesa`
+  y los consumidores del enum siguen valiendo. En particular, el combo de remesa de origen filtra
+  `FINALIZADA` (`ImportWizard.tsx:246`), así que una remesa cortada a mitad **no** se ofrece como
+  origen, que es lo que se quiere.
+- **`resumen` se escribe entero** al confirmar y al retomar, y se **mezcla bajo el lock de la fila** en
+  los otros dos lugares que lo tocan (el pedido de cancelación y el cierre del tracker). Nunca se
+  reescribe a partir de una copia en memoria: así el pedido de cancelación y el cierre no se pisan.
+- Los comentarios `///` de `resultado`, `resumen`, `grupo*` y `cancelSolicitadaAt` en `schema.prisma`
+  se actualizan (hoy dicen "Fase C"). No generan SQL.
+
+**Procedimientos de wipe.** Sin cambios.
+
+### 10.4 Máquina de estados y contrato
+
+#### 10.4.1 Estados
+
+La tabla de §8.3 y las filas de §9.3 siguen valiendo. Se agregan:
+
+| Momento | Quién | `estadoProceso` | `fase` | `resultado` (columna) | Otros |
+|---|---|---|---|---|---|
+| Se confirma una división | `ejecutarGrupo` | PENDIENTE, las N | EN_COLA | null | `grupo*`; `encoladaAt` escalonado de a 1 ms; `resumen.origen` |
+| Se pide cancelar una carga que ya arrancó | `cancelarCarga` | (igual) | (igual) | null | `cancelSolicitadaAt`; `resumen.cancelacion` |
+| El runner ve el pedido | `tracker.cancelar` | FALLIDA | TERMINADA | **CANCELADA** | `finishedAt`; contadores exactos |
+| Se cancela una carga en cola | `cancelarCarga`, o el worker al tomarla | FALLIDA | TERMINADA | **CANCELADA** | `startedAt` queda null; `finishedAt` |
+| Se retoma | `retomarRemesas` | PENDIENTE | EN_COLA | null | Todo en cero; `startedAt`, `finishedAt` y `cancelSolicitadaAt` null |
+
+**Reglas que cambian:**
+
+- **"De un estado terminal no se sale" gana una única excepción, explícita: retomar.** Solo desde
+  `FALLIDA`, solo si la carga es **retomable** (abajo), y siempre por una persona. Validar o ejecutar
+  una remesa terminal sigue siendo 409.
+- **Retomable** ⟺ la remesa está `FALLIDA`, tiene `finishedAt`, su `resumen` es de la versión 1 con
+  `origen`, **y** (`startedAt` es null **o** `resumen.sinFilasEntregadas` es `true`). Es la definición
+  que arma el DTO; el endpoint agrega dos comprobaciones contra los datos (§10.5.4).
+- **Cancelable** ⟺ está en curso, nadie pidió cancelar todavía, la fase no es `POST_PROCESO`, y no es
+  una ACCIONES que ya arrancó.
+- **El orden de la cola dentro de un grupo lo da `encoladaAt`.** Las N remesas se encolan en una
+  transacción con `encoladaAt = ahora + (orden − 1) ms`. Así `listarEnCurso` (que ordena solo por
+  `encoladaAt`, `imports.service.ts:2123`) y `enColaDelante` las devuelven en orden sin tocarlos.
+- **Una carga cancelada no es una interrupción.** No pasa por `cerrarCargaInterrumpida` y sus
+  contadores son exactos: el proceso está vivo y los escribe él.
+
+`clasificarResultado` y `calcularPorcentaje` no cambian (una cancelada conserva el último porcentaje,
+como una fallida).
+
+#### 10.4.2 Tipos (lo que se agrega a §8.4.1 y §9.4.1)
+
+`backend/src/modules/imports/progreso/estado-carga.types.ts` y, copia textual,
+`frontend/src/types/importProgreso.ts`:
+
+```ts
+export interface EstadoCargaDto {
+    // … todo lo anterior, sin cambios de nombre ni de tipo, más:
+
+    /** Carga dividida confirmada como grupo: id, posición (1..N) y cantidad. null si no lo es. */
+    grupoId: string | null;
+    grupoOrden: number | null;
+    grupoTotal: number | null;
+
+    /** Alguien pidió cancelar (ISO 8601). No se borra al terminar. null si nadie lo pidió. */
+    cancelacionPedidaAt: string | null;
+    /** Terminó por una cancelación. Con `true`, `resultado` viaja como 'FALLIDA' y `error` trae el
+     *  texto de la cancelación: una pestaña que no conoce este campo la muestra como fallida con ese
+     *  motivo, que es cierto. */
+    cancelada: boolean;
+    /** Nombre de quien pidió la cancelación, si se sabe. */
+    canceladaPor: string | null;
+    /** Se puede pedir la cancelación ahora. Lo calcula el backend (§10.4.1). */
+    cancelable: boolean;
+    /** Terminó sin haber cargado ninguna fila y se puede volver a encolar tal cual. Lo calcula el
+     *  backend (§10.4.1); el endpoint lo vuelve a comprobar. */
+    retomable: boolean;
+}
+```
+
+**`ResultadoCarga` no gana valores.** Es deliberado. El frontend de la Fase B trata cualquier
+resultado que no conoce como "Importación finalizada", en azul y sin detalle
+(`frontend/src/utils/estadoCarga.ts:349-350`): una cancelada con 3.000 de 14.466 filas se vería como
+terminada, que es el hallazgo #5 otra vez. Por eso la columna guarda `CANCELADA` (la verdad, y
+consultable por SQL) y `armarEstadoCarga` la traduce a `resultado: 'FALLIDA'` más `cancelada: true`.
+
+En una remesa heredada (sin fila): los tres `grupo*`, `cancelacionPedidaAt` y `canceladaPor` en `null`;
+`cancelada`, `cancelable` y `retomable` en `false`.
+
+#### 10.4.3 Eventos de socket
+
+Ningún evento nuevo. Los tres de §8.4.2, con las mismas salas y garantías. Cambia cuándo salen:
+
+| Evento | Se agrega |
+|---|---|
+| `import:progreso` | Uno por remesa al confirmar una división (`EN_COLA`, con `grupo*`); uno al aceptar un pedido de cancelación (`cancelacionPedidaAt`); uno por remesa al retomar (`EN_COLA`, con un `rev` mayor que el del estado terminal anterior) |
+| `import:finalizada` | Lo emiten además `tracker.cancelar` (el runner) y `cancelarCarga` (una carga en cola). `cancelada: true`, `resultado: 'FALLIDA'` |
+
+- **Una remesa puede volver de terminal a en curso** (retomar). Los clientes ya fusionan por `rev`, que
+  sigue creciendo; la campanita hace upsert con `import:progreso` (§8.8.4). La garantía "exactamente
+  una `import:finalizada` por intento" se mantiene: cada retomada es un intento nuevo.
+- **Los eventos del tracker tienen que traer los `grupo*`, la cancelación y `retomable` reales.** Hoy
+  `armar()` los arma con `null` fijo (`progreso-tracker.ts:291-297`); con campos del DTO que salen de
+  esas columnas, HTTP y socket se contradirían. Ver §10.5.3.
+
+#### 10.4.4 HTTP
+
+Todo bajo `/api/import`, con el permiso de clase del controller (`importacion.ver_historial`) más el
+que se indica. **No se agrega ningún permiso** (nada que declarar en `permisos-catalogo.ts`): cancelar
+y retomar piden `importacion.ejecutar`, y además ser el dueño de la remesa o tener
+`importacion.ver_progreso_otros`, la misma regla que ya usa el borrado (`imports.service.ts:3442-3445`).
+
+| Método y ruta | Permiso | Entrada | Respuesta | Errores |
+|---|---|---|---|---|
+| `POST /import/ejecutar-grupo` | `importacion.ejecutar` | `{ remesaIds: number[], remesaOrigenId?: number, remesaOrigenIds?: number[] }` | `201` `{ message, grupoId, cargas: EstadoCargaDto[], noEncoladas?: Array<{ remesaId, numeroRemesa }> }`, `cargas` en orden | `400` menos de 2 o más de 100 ids, repetidos, no son cortes del mismo archivo, categoría sin división, alguna sin vista previa o con total 0 · `404` alguna no existe · `409` alguna ya confirmada · `409` el usuario tiene otra en curso · `503` no se pudo encolar (todas vuelven a borrador) |
+| `POST /import/remesas/:id/cancelar` | `importacion.ejecutar` + dueño o `ver_progreso_otros` | — | `200` `{ message, efecto: 'CANCELADA' \| 'PEDIDA', carga: EstadoCargaDto }` | `404` · `403` · `409` no está en curso · `409` está en post-proceso · `409` es una acción masiva que ya arrancó |
+| `POST /import/grupos/:grupoId/cancelar` | ídem | — | `200` `{ resultados: Array<{ remesaId, numeroRemesa, efecto: 'CANCELADA' \| 'PEDIDA' \| 'YA_TERMINADA' \| 'RECHAZADA', motivo?: string, carga: EstadoCargaDto }> }` | `404` el grupo no existe · `403` |
+| `POST /import/remesas/:id/retomar` | ídem | — | `201` `{ message, remesaId, carga: EstadoCargaDto }` con `carga.fase === 'EN_COLA'` | `404` · `403` · `409` no es retomable (con el motivo) · `400` el archivo ya no está en el servidor · `409` el dueño tiene otra en curso · `503` no se pudo encolar (queda otra vez "no llegó a empezar", retomable) |
+| `POST /import/grupos/:grupoId/retomar` | ídem | — | `201` `{ message, grupoId, cargas: EstadoCargaDto[], omitidas: Array<{ remesaId, numeroRemesa, motivo }> }` | `404` · `403` · `409` ninguna es retomable · `409` otra en curso · `503` |
+| `GET /import/grupos/:grupoId` | — | — | `200` `{ grupoId, total: number, remesas: EstadoCargaDto[] }`, por `grupoOrden`. `total` es `grupoTotal`; `remesas` puede traer menos si alguna se eliminó | `404` |
+| `POST /import/remesas/division-preview` | (igual) | (igual) | Cada corte agrega `yaCargado?: { remesaId, numeroRemesa, situacion: 'CARGADA' \| 'EN_CURSO' \| 'A_MEDIAS' \| 'SIN_CARGAR', casos: number, retomable: boolean }` | (igual) |
+| `POST /import/remesas` | (igual) | En `divisiones[i]`, opcional: `repetir?: boolean` | (igual) | **Nuevo `409`** si un corte ya está cargado, en curso o a medias y no viene `repetir: true` (§10.5.6) |
+| `POST /import/ejecutar/:id` | (igual) | (igual) | (igual). Además guarda `resumen.origen` | (igual) |
+
+Textos de los errores nuevos en §10.5.8. Los `POST` de cancelar llevan `@HttpCode(200)`. El cuerpo de
+`ejecutar-grupo` es un DTO con `class-validator` (`EjecutarGrupoDto`: `remesaIds` arreglo de enteros de
+2 a 100 elementos; los dos de origen, opcionales), no parámetros sueltos como en `ejecutar/:id`.
+
+#### 10.4.5 Compatibilidad
+
+- **Backend C1 con pestañas de la Fase B** (las va a haber):
+  - Una división lanzada desde una pestaña vieja **sigue encadenada por el navegador**: valida y
+    ejecuta remesa por remesa con los endpoints de siempre, que no cambian. Sigue teniendo el problema
+    #7 hasta que recargue.
+  - Al volver a subir un archivo dividido, la pestaña vieja ignora `yaCargado` y deja todo tildado,
+    pero el alta responde el `409` nuevo con un texto que dice qué corte está cargado y dónde: la
+    guarda protege también a quien no recargó.
+  - Una carga cancelada por otro le llega como una `import:finalizada` con `resultado: 'FALLIDA'` y el
+    texto de la cancelación en `error`: la muestra como "La importación falló" con ese motivo. Es lo
+    que se buscaba al no agregar un valor a `ResultadoCarga`.
+  - Los campos nuevos los ignora. Una remesa retomada le reaparece en la campanita por el upsert.
+- **Frontend C1 con backend de la Fase B. No se soporta:** `ejecutar-grupo` da 404. El orden de §10.6
+  es obligatorio.
+- **Volver a la imagen de la Fase B** es casi gratis (no hay schema que deshacer): las filas con
+  `resultado = 'CANCELADA'` se verían como "Importación finalizada" (el frontend de la B no conoce el
+  valor), y las remesas en cola de un grupo se procesan igual porque sus jobs son los de siempre.
+
+### 10.5 Backend — lógica crítica
+
+#### 10.5.1 Encolar un lote: una función para confirmar un grupo y para retomar
+
+`executeRemesa` (`imports.service.ts:1892-2110`) **no se reescribe**: sigue siendo el camino de una
+carga común y sus specs lo afirman tal cual. Solo gana una clave en su escritura (abajo). Lo nuevo es
+una función privada de `ImportService`, que usan `ejecutarGrupo` y `retomarRemesas`:
+
+```ts
+private encolarLote(p: {
+    remesaIds: number[];                       // ya ordenados por id ascendente, sin repetidos
+    modo: 'CONFIRMAR' | 'RETOMAR';
+    solicitanteId: number;                     // quién lo pide (auditoría y `_ctx`)
+    origen?: { remesaOrigenId?: number; remesaOrigenIds?: number[] };   // solo CONFIRMAR
+    grupoId?: string;                          // solo CONFIRMAR
+}): Promise<{ cargas: EstadoCargaDto[]; noEncoladas: Array<{ remesaId: number; numeroRemesa: string }> }>
+```
+
+```
+── 1. Transacción (maxWait 10 s, timeout 30 s; son pocas sentencias y ninguna larga) ──
+   a. mutex: SELECT id FROM usuario WHERE id IN (…) ORDER BY id FOR UPDATE
+        CONFIRMAR: el solicitante (va a ser el dueño, como en executeRemesa).  RETOMAR: los dueños de las remesas.
+   b. filas = SELECT r.id, r.numeroRemesa, r.estadoProceso, r.totalFilas, r.categoria, r.empresaId, r.plantillaId,
+                     r.archivoHash, r.filtroFilas, r.usuarioCreadorId,
+                     p.remesaId AS progresoId, p.fase, p.encoladaAt, p.startedAt, p.finishedAt, p.resumen
+              FROM remesa r LEFT JOIN import_progreso p ON p.remesaId = r.id
+              WHERE r.id IN (…) ORDER BY r.id FOR UPDATE
+        falta alguna → 404 (CONFIRMAR) / se omite con motivo (RETOMAR de grupo)
+   c. validar cada una según el modo (§10.5.2 y §10.5.4). CONFIRMAR: una sola que no cumpla aborta todo.
+   d. por cada dueño: ¿tiene otra carga en curso que NO sea de este lote?            → 409 (c) de §8.5.3
+        (la misma consulta de executeRemesa, :1944-1948, con `AND p.remesaId NOT IN (…)`)
+   e. ahora = new Date().  Por cada remesa, en orden (i = 0..N−1), un `tx.remesa.update`:
+        CONFIRMAR: lo mismo que escribe executeRemesa (:1961-1992) más
+                   encoladaAt = ahora + i ms, grupoId, grupoOrden = i + 1, grupoTotal = N,
+                   cancelSolicitadaAt = null, resumen = { v: 1, origen }
+        RETOMAR:   estadoProceso PENDIENTE, okFilas 0, errFilas 0 y, en la fila:
+                   fase EN_COLA, encoladaAt = ahora + i ms, totalEsperado = r.totalFilas,
+                   startedAt, heartbeatAt, finishedAt, resultado, error, errorPostProceso,
+                   cancelSolicitadaAt, subfase, jobId, fueraDeCorte, nuevos, actualizados → null;
+                   porcentaje, procesadas, ok, err, descartadas, advertencias, intentos → 0;
+                   resumen = el que tenía, sin `sinFilasEntregadas` ni `cancelacion`, con `retomas + 1`;
+                   rev + 1.   `grupo*` no se tocan.
+── 2. Encolar ──
+   jobs = importQueue.addBulk([{ name: 'process-import', data: { remesaId, remesaOrigenId, remesaOrigenIds,
+                                usuarioId: dueño, _ctx } }, …])        bajo `conTope` (un tope para todo el lote)
+        en RETOMAR, `remesaOrigenId(s)` salen de `resumen.origen` de cada remesa.
+── 3. Si `addBulk` rechaza o vence: COMPENSAR (abajo) ──
+── 4. Guardar cada `jobId` (la misma escritura de :2079-2082, una por remesa; un fallo es `warn`;
+      `P2025` = la borraron mientras se confirmaba → sacar ese job, como en :2084-2094, y seguir con las demás) ──
+── 5. Emitir `import:progreso` (EN_COLA) por cada una, con `enColaDelante` (una sola llamada a `posicionesEnCola`) ──
+```
+
+**Compensación** (cuando el encolado falla). `addBulk` puede no haber entrado, haber entrado tarde o,
+como no es atómico, haber entrado en parte. No se intenta saber cuál: se decide con el estado de la
+base, que es lo que el worker ya hizo o no.
+
+```
+primera = la primera remesa del lote, releída con FOR UPDATE
+si la primera ya fue tomada (startedAt != null, o es terminal):
+    → el lote entró: NO se compensa nada.  201 con el estado real de las N.  `warn`.
+si no:
+    por cada remesa del lote, en orden INVERSO, cada una en su transacción con FOR UPDATE:
+        si sigue EN_COLA, sin `startedAt` y sin terminar:
+            CONFIRMAR → vuelve a borrador: el `estadoProceso` que tenía, fase BORRADOR, encoladaAt, jobId y `grupo*` en null, rev + 1
+            RETOMAR   → vuelve a quedar terminal y retomable: FALLIDA, fase TERMINADA, resultado FALLIDA,
+                        error = textoInterrupcion('SIN_JOB', …), finishedAt = ahora, rev + 1.  Sin notificación.
+        si no → la tomó el worker mientras se compensaba: se deja.
+    ninguna tomada → 503 (d).
+    alguna tomada  → 201 con `cargas` = las que quedaron en curso y `noEncoladas` = las compensadas.  `error` en el log.
+```
+
+Por qué así:
+
+- **El caso normal de falla (Redis caído) queda idéntico al de hoy:** nada entró, todas vuelven a
+  borrador, 503, y "Confirmar e importar" funciona de nuevo sin volver a subir el archivo.
+- **El caso "entró pero la respuesta se perdió"** se resuelve mirando la primera remesa: con la cola
+  FIFO y un solo worker, si alguna del lote fue tomada, la primera lo fue antes. Si el worker estaba
+  ocupado con la carga de otro, ninguna fue tomada: se compensa todo, los jobs quedan en la cola como
+  fantasmas y al llegar a un borrador los ignora la guarda que ya existe (`:2253-2256`). Si el usuario
+  vuelve a confirmar antes de que lleguen, los fantasmas encuentran las remesas en cola y **las
+  procesan ellos**; los jobs nuevos llegan después a remesas ya terminadas y se ignoran (`:2240-2248`).
+  Cada remesa se procesa exactamente una vez: la unidad de "una sola vez" es la remesa, no el job.
+- **El residuo mixto** (el lote entra justo durante la compensación) deja algunas remesas corriendo y
+  otras en borrador. Es visible —201 con `noEncoladas`, y el asistente lo muestra— y no pierde nada:
+  una remesa en borrador no cargó nada y su corte aparece sin cargar la próxima vez que se suba el
+  archivo.
+- **Si el `pipeline` de `addBulk` dejó un job sin entrar** y los demás corrieron, esa remesa queda
+  `EN_COLA` sin job: la cierra el reaper a los ~3 minutos como "no llegó a empezar" (§9.5.6, caso R2)
+  y queda **retomable**. Es el mismo camino que ya cubre el proceso muerto entre el commit y el `add`.
+- **Orden de locks:** usuarios por id, después remesas por id. Es el orden de `executeRemesa` (usuario,
+  después remesa) y no se cruza con el tracker ni con `cerrarCargaInterrumpida`, que bloquean una sola
+  remesa. Un deadlock de MySQL (1213), si apareciera, se responde `409` "Otra operación está tocando
+  estas remesas. Probá de nuevo." y se loguea: no es silencioso.
+
+**`executeRemesa` guarda el origen.** En su `update` transaccional (`:1961-1992`), tanto en `create`
+como en `update` del `upsert`: `resumen: { v: 1, origen: { remesaOrigenId: … ?? null, remesaOrigenIds:
+… ?? null } }`. Va ahí y no en la escritura del `jobId`, que el caso C-1 afirma con la llamada exacta
+(`imports-progreso-http.spec.ts:133-135`); el `update` transaccional se afirma con `toMatchObject`
+(`:112-116`) y admite la clave nueva.
+
+#### 10.5.2 Confirmar una carga dividida: `ejecutarGrupo(remesaIds, usuarioId, origen)`
+
+```
+remesaIds: dedup, orden ascendente.  Menos de 2 o más de 100 → 400.
+log "intent" (usuario, cantidad, ids)
+grupoId = crypto.randomUUID()
+resultado = encolarLote({ remesaIds, modo: 'CONFIRMAR', solicitanteId: usuarioId, origen, grupoId })
+log "done" con ms, grupoId y los jobIds
+return { message, grupoId, cargas, noEncoladas? }
+```
+
+Validaciones de `CONFIRMAR` (paso 1.c), con la fila bloqueada:
+
+| Condición | Respuesta |
+|---|---|
+| `estadoProceso` no es PENDIENTE ni VALIDANDO, o `encoladaAt` no es null | `409` "La remesa {número} ya fue confirmada." |
+| `estadoProceso` es PENDIENTE (sin vista previa) | `400` "La remesa {número} no tiene hecha la vista previa." |
+| `totalFilas` es 0 | `400` "La vista previa de la remesa {número} no encontró filas para importar. Revisá el archivo y el filtro de la plantilla." |
+| No comparten `empresaId`, `plantillaId`, `archivoHash` y `categoria`, o alguna no tiene corte propio (`tieneCortePropio`, `:551-561`) | `400` "Las remesas no son cortes del mismo archivo." |
+| La categoría es MULTIRREGISTRO, MULTIARCHIVO o MULTICLAVES | `400` "Esta categoría no admite dividir la carga." |
+
+- A diferencia de una carga común (§8.5.3, paso 4), acá **se exige la vista previa de las N**: el
+  asistente nuevo las valida todas antes de habilitar el botón (§10.8.2), y sin el total no hay
+  porcentaje. Las pestañas viejas no usan este endpoint.
+- La última fila es un respaldo: el editor de plantillas ya no ofrece la división en esas tres
+  categorías (`PlantillaEditor.tsx:826`), y el runner **no aplica** `remesa.filtroFilas` en sus ramas
+  pre-parseadas (`imports.service.ts:2535-2660`): una división ahí cargaría el archivo entero N veces.
+- **No hay un job que represente al grupo ni nada que "espere" a las hijas.** El grupo es una etiqueta
+  en N filas. Si una remesa falla, se cancela o se borra, las demás siguen: lo decide la cola, igual
+  que hoy.
+
+`grupo(grupoId)` (para `GET /import/grupos/:grupoId`): `remesa.findMany` con
+`progreso: { is: { grupoId } }`, ordenado por `progreso.grupoOrden`; `404` si no hay ninguna; arma cada
+DTO con `armarEstadoCarga` y, si alguna está `EN_COLA`, una sola llamada a `posicionesEnCola`.
+
+#### 10.5.3 Cancelar
+
+**El mecanismo en una frase:** cancelar es escribir `cancelSolicitadaAt` con la fila bloqueada; el
+runner lo ve en puntos de corte definidos y cierra la carga él mismo, con sus contadores exactos. Lo
+que la Fase B dejó como gancho (`cerradaPorFuera` y la compuerta `FOR UPDATE`) se reutiliza tal cual:
+la compuerta ya relee la fila antes de cada escritura que toca `remesa`; ahora además mira una columna
+más.
+
+**El endpoint: `cancelarCarga(remesaId, user)`**
+
+```
+r = leer la remesa con su fila y su creador                                        (404)
+dueño o `importacion.ver_progreso_otros`                                           (403)   ← ANTES de tocar la cola
+log "intent"
+sinArrancar = r.progreso?.encoladaAt != null && r.progreso.startedAt == null && r.progreso.finishedAt == null
+sacado = sinArrancar ? await this.sacarJobDeLaCola(remesaId, r.progreso.jobId) : false    (:3155-3198; fuera de la transacción)
+
+transacción, con SELECT r.estadoProceso, r.categoria, r.filtroFilas, r.totalFilas, p.* … FOR UPDATE:
+    enMemoria = this.cargasVivas.get(remesaId)?.faseActual.fase ?? null      (se lee con la fila YA bloqueada)
+    sin fila de progreso, o encoladaAt == null     → 409 (a) "no está en curso" (borrador o heredada)
+    terminal:
+        resultado == 'CANCELADA'                   → return { efecto: 'CANCELADA', carga }          (idempotente)
+        si no                                      → 409 (b) "ya terminó"
+    si startedAt == null:                          ── todavía no arrancó ──
+        si sacado:                                 (su job ya no está en la cola; vale aunque ya estuviera pedida)
+            cerrar: remesa FALLIDA, okFilas 0, errFilas 0; fila fase TERMINADA, resultado 'CANCELADA',
+                    error = textoCancelacion(sin arrancar), cancelSolicitadaAt = el que tenía ?? ahora,
+                    finishedAt = ahora, resumen + { cancelacion }, rev + 1.   `startedAt` queda null.
+            efecto = 'CANCELADA'
+        si no:                                     (el worker la está tomando, o la cola no responde)
+            cancelSolicitadaAt != null             → return { efecto: 'PEDIDA', carga }             (idempotente)
+            fila: cancelSolicitadaAt = ahora, resumen + { cancelacion }, rev + 1;  efecto = 'PEDIDA'
+    si no:                                         ── ya arrancó ──
+        cancelSolicitadaAt != null                 → return { efecto: 'PEDIDA', carga }             (idempotente)
+        fase == 'POST_PROCESO' o enMemoria == 'POST_PROCESO'   → 409 (c)
+        categoria == 'ACCIONES'                    → 409 (d)
+        fila: cancelSolicitadaAt = ahora, resumen + { cancelacion }, rev + 1;  efecto = 'PEDIDA'
+después del commit, cada paso en su try/catch:
+    'PEDIDA'    → this.cargasVivas.get(remesaId)?.avisarCancelacion()        (atajo en memoria)
+                  emitir import:progreso
+    'CANCELADA' → emitir import:finalizada; notificar (abajo); auditar
+log "done" con el efecto y los ms
+```
+
+- **Mismo esqueleto que el borrado de una carga en cola**, que ya está auditado: sacar el job primero y
+  decidir después con la fila bloqueada (`deleteRemesa`, `:3449-3459` y `verificarNoArrancada`).
+- **Si el job no se pudo sacar** (el worker lo está tomando, o la cola no responde), la carga no se
+  cierra acá: queda el pedido escrito, y como `iniciar` lo relee con la fila bloqueada, **una carga con
+  la cancelación pedida no llega a arrancar** (abajo).
+- **Si el job se sacó y después la transacción falla** (la base no responde), la carga queda en cola sin
+  job y sin pedido: el pedido HTTP devuelve el error, y el reaper la cierra a los ~3 minutos como "no
+  llegó a empezar", retomable. No queda nada a medias sin dueño.
+- **El rechazo en post-proceso mira dos cosas:** la fila (con el lock) y la memoria del tracker si la
+  carga vive en este proceso. La segunda existe porque la escritura de `POST_PROCESO` puede fallar y el
+  runner sigue igual (`:2731-2740`): la fila diría `PROCESANDO` con el `afterAll` corriendo. Del otro
+  lado, el runner no entra al `afterAll` a ciegas cuando esa escritura falla: antes confirma con una
+  lectura simple que nadie pidió cancelar (abajo).
+- **Notificación de una cancelada en cola:** solo al dueño, y solo si la canceló otra persona. No
+  procesó nada y quien cancela ya lo sabe; avisar a todos los que tienen `ver_progreso_otros` sería
+  ruido (una división de cinco cancelada entera serían cuatro avisos por persona).
+
+**El grupo: `cancelarGrupo(grupoId, user)`.** Lee las remesas del grupo y llama a `cancelarCarga` para
+cada una que esté en curso, **en orden inverso** (`grupoOrden` descendente): primero se sacan de la
+cola las que no empezaron y al final se pide el corte de la que corre. Al revés, la que corre cortaría
+y el worker tomaría la siguiente antes de que se la saque. Un 409 de una remesa (por ejemplo, la que
+está en post-proceso) no frena a las demás: va en `resultados` como `RECHAZADA` con su motivo.
+
+**El tracker** (`progreso/progreso-tracker.ts`):
+
+```ts
+/** La tiran `iniciar` y `entrarEnPostProceso` cuando la compuerta lee un pedido de cancelación, y el
+ *  runner en sus puntos de corte. */
+export class CargaCanceladaError extends Error {}
+
+export class ProgresoTracker {
+    // … lo de hoy, sin cambio de firma, más:
+    /** `true` desde que el tracker supo que alguien pidió cancelar. No se apaga. */
+    get cancelacionPedida(): boolean;
+    /** Atajo en memoria: lo llama `cancelarCarga` después de su commit. Idempotente; no escribe. */
+    avisarCancelacion(): void;
+    /** Nombre de quien pidió cancelar, si la compuerta lo leyó. Para el texto. */
+    get canceladaPor(): string | null;
+    /** Milisegundos desde que se supo del pedido; null si no hay pedido. Para el aviso del reaper. */
+    get cancelacionPedidaHaceMs(): number | null;
+    /** Cierre por cancelación. Mismo contrato que `fallar`: nunca tira, detiene el reloj, espera la
+     *  escritura en vuelo, escribe por la compuerta y emite `import:finalizada`. */
+    cancelar(c: ContadoresCarga, o: { texto: string; sinFilasEntregadas: boolean }): Promise<EstadoCargaDto>;
+    /** Tercer argumento OPCIONAL: las llamadas de hoy no cambian. */
+    fallar(error: unknown, c: ContadoresCarga, o?: { sinFilasEntregadas?: boolean }): Promise<EstadoCargaDto>;
+}
+```
+
+Tres lugares donde el tracker se entera del pedido, de más a menos autoritativo:
+
+1. **La compuerta** (`persistir`, `:888-958`). Su `SELECT … FOR UPDATE` (`:906-913`) agrega
+   `p.cancelSolicitadaAt` y `p.resumen`. Si `cancelSolicitadaAt` no es null, prende
+   `cancelacionPedida` y guarda quién. Qué hace después depende de quién escribe:
+
+   | Escritura | Con la cancelación pedida |
+   |---|---|
+   | `iniciar` | **No escribe.** Tira `CargaCanceladaError`: la carga no arranca |
+   | `entrarEnPostProceso` | **No escribe.** Tira `CargaCanceladaError`: el `afterAll` no corre |
+   | `lote`, `entrarEnLectura` | Escribe normal (los contadores del lote quedan persistidos); el runner corta en su próximo punto de corte |
+   | `finalizar` | Escribe normal: la carga terminó. El pedido llegó tarde y queda en la fila (§10.8.4 dice qué se muestra) |
+   | `fallar`, `cancelar` | Escriben normal |
+
+   Las dos primeras usan una opción nueva de `persistir`, `abortarSiCancelada`, al lado de
+   `soloSiSigueEncolada`. Escrito para que una fila que no trae la columna (los dobles de los specs
+   actuales devuelven filas sin ella) no dispare nada: `undefined` no es un pedido.
+2. **La escritura del reloj** (`persistirSoloProgreso`, `:826-846`). Ya lee `rev` después de su
+   `updateMany` (`:835`): agrega `cancelSolicitadaAt` al mismo `select`. Ninguna sentencia nueva. Es lo
+   que haría llegar el pedido a una carga que corre en **otro** proceso.
+3. **`avisarCancelacion()`**, en memoria, para que el corte entre filas sea inmediato.
+
+Ninguna de las tres puede dar un falso positivo: las tres cuelgan de un valor **no nulo** o de una
+llamada explícita. Un resultado vacío espurio (§9.15) se lee como "nadie pidió cancelar".
+
+`cancelar()` escribe, por la compuerta: `remesa.estadoProceso = FALLIDA`, `okFilas`, `errFilas`; y en
+la fila `fase TERMINADA`, `resultado 'CANCELADA'`, `error = texto`, contadores finales, `subfase null`,
+`finishedAt`, y —solo si `sinFilasEntregadas`— `resumen` mezclado con `{ sinFilasEntregadas: true }`.
+La mezcla se hace con el `resumen` **que acaba de leer la compuerta**, no con una copia de memoria:
+así no pisa el `cancelacion` que escribió el endpoint. `fallar()` hace la misma mezcla cuando recibe
+`sinFilasEntregadas: true`, y **no agrega la clave `resumen` a su escritura en ningún otro caso**.
+
+`armar()` (`:257-305`) deja de pasar `null` fijo en `resumen`, `grupoId`, `grupoOrden`, `grupoTotal` y
+`cancelSolicitadaAt` (`:291-297`): los `grupo*` salen de la fila previa (no cambian durante un job) y
+los otros dos, de lo último que leyó la compuerta o el reloj. Si no, los eventos de socket dirían
+`grupoId: null` y `retomable: false` mientras HTTP dice lo contrario.
+
+**El runner** (`processImportJob`, `imports.service.ts:2211-2844`). Cambia el manejo del estado; el
+recorrido de filas, no.
+
+```
+(lectura y guardas de hoy, :2215-2271)
+tracker = new ProgresoTracker(…)                                          (:2277-2291, igual)
+let filasEntregadas = false          ← NUEVO: se prende JUSTO ANTES de la primera llamada a un processor
+try:
+    try:    await tracker.iniciar(job.id)
+    catch:  CargaCerradaPorFueraError → ignorado                          (igual, :2309-2315)
+            CargaCanceladaError       → await this.cerrarCanceladaSinArrancar(remesaId)      ← NUEVO
+                                         return { total: 0, ok: 0, err: 0, ignorado: true }
+    …                                                                     (igual hasta el closure)
+    processBatch (:2453-2533):
+        si tracker.cerradaPorFuera   → throw CargaCerradaPorFueraError    (igual, :2455)
+        si tracker.cancelacionPedida → throw new CargaCanceladaError()    ← NUEVO: punto de corte de LOTE
+        por cada fila del grupo (:2462-2495):
+            si el processor NO tiene processBatch y tracker.cancelacionPedida:
+                cortar = true; break                                      ← NUEVO: punto de corte de FILA
+            … mapear y validar …                                          (igual)
+            filasEntregadas = true        (antes de `processor.processRow`, :2481)
+            …
+        si hay válidas para el lote: filasEntregadas = true   (antes de `processor.processBatch`, :2501)
+        si errorBatch.length → importerror.createMany                     (igual; también si se cortó)
+        si cortar → throw new CargaCanceladaError()                       ← sin `tracker.lote`: los contadores los escribe `cancelar`
+        await tracker.lote(…); await job.updateProgress(…)                (igual)
+    … las cuatro ramas de lectura …                                       (igual)
+    si tracker.cancelacionPedida → throw new CargaCanceladaError()        ← NUEVO: antes del cierre, tenga o no `afterAll` el processor
+    post-proceso (:2730-2770):
+        try:    await tracker.entrarEnPostProceso()     (la compuerta relee el pedido con la fila bloqueada)
+        catch:  CargaCerradaPorFueraError o CargaCanceladaError → relanzar
+                otro → warn (igual que hoy), y ANTES de seguir:           ← NUEVO
+                       si tracker.cancelacionPedida → throw new CargaCanceladaError()
+                       pedido = lectura simple de `cancelSolicitadaAt` (un `findUnique`, en try/catch)
+                       si pedido != null → throw new CargaCanceladaError()
+                       (si la lectura falla o no trae nada, sigue: una etiqueta no frena la consolidación)
+        …
+catch (error):
+    cerrada por fuera → igual                                             (:2817-2823)
+    NUEVO — si error es CargaCanceladaError:
+        texto  = textoCancelacion({ … ok, err, total, categoria, conCorte, por: tracker.canceladaPor,
+                                    arranco: true, sinFilasEntregadas: !filasEntregadas })
+        estado = await tracker.cancelar({ ok, err, descartadas, fueraDeCorte }, { texto, sinFilasEntregadas: !filasEntregadas })
+        si tracker.cerradaPorFuera → warn; return { total, ok, err, ignorado: true }
+        await this.notificarResultadoCarga(estado, ownerId)
+        auditar IMPORT_FAIL, severidad WARN: "Importación cancelada remesa N"
+        log warn con contadores y ms
+        return { total, ok, err, cancelada: true }                        ← NO relanza: no es una falla
+    resto, igual, salvo: tracker.fallar(error, c, { sinFilasEntregadas: !filasEntregadas })      (:2831)
+finally: igual                                                            (:2839-2843)
+```
+
+Puntos que no son obvios:
+
+- **Entre filas solo se corta en el camino por fila** (DEUDORES, DEUDORES_Y_FACTURAS, PAGOS, CONTACTOS,
+  ENRIQUECIMIENTO, MULTIRREGISTRO, MULTIARCHIVO): cada `processRow` es una unidad cerrada y el contador
+  queda exacto. En MULTIARCHIVO una fila tarda 0,12 a 0,37 s (§9.1): sin este punto, cancelar esperaría
+  hasta seis minutos a que termine el lote. En los processors por lote (ACTUALIZACIONES, FACTURAS,
+  MULTICLAVES) el lote es la unidad: se corta en el siguiente.
+- **Los números de una cancelada son exactos** en todas las categorías, a diferencia de una
+  interrupción ("al menos N"): el corte cae siempre después de una fila o de un lote completos.
+- **Los errores de las filas ya procesadas se guardan** aunque se corte a mitad de un lote.
+- **`processImportJob` sigue devolviendo exactamente `{ total, ok, err }`** en el camino normal.
+- **`ImportsProcessor`** (`bullmq/imports.processor.ts:89-106`): un resultado con `cancelada: true` se
+  trata como el `ignorado` de hoy —no se loguea "Importación completada" ni se audita `IMPORT_OK`—, con
+  su propia línea de log ("Importación cancelada remesa=… job=…"). La auditoría del corte la escribe el
+  runner.
+- **`cerrarCanceladaSinArrancar(remesaId)`** es el cierre de una carga que no arrancó cuando lo hace el
+  worker: misma transacción y misma escritura que la rama "no arrancó" de `cancelarCarga`, que conviene
+  extraer a un método privado común. Devuelve `null` si la carga ya no está en cola.
+
+**Qué pasa en cada momento:**
+
+| La cancelación llega… | Qué pasa | Qué queda |
+|---|---|---|
+| En cola, con el job esperando | Se saca el job y se cierra en el acto | CANCELADA, 0 filas, `startedAt` null: **retomable** |
+| En cola, con el job perdido | Se cierra en el acto | Ídem |
+| Justo cuando el worker la toma | Queda pedida; `iniciar` la lee y no arranca | Ídem |
+| Leyendo un Excel o parseando un paquete | Queda pedida; la lectura es síncrona y termina; corta antes de la primera fila | CANCELADA, 0 filas, `sinFilasEntregadas`: **retomable** |
+| Procesando, camino por fila | Corta después de la fila en curso | CANCELADA, N filas exactas, sin cierre |
+| Procesando, camino por lote | Corta al terminar el lote en curso (hasta 1.000 filas) | Ídem |
+| En el último lote | Corta antes del post-proceso: **el `afterAll` no corre** | CANCELADA, N de N filas, sin cierre |
+| Durante el post-proceso | `409`. La carga sigue | — |
+| En una ACCIONES que ya arrancó | `409`. La carga sigue | — |
+| Con la carga trabada en un `await` | Queda pedida y nadie la honra | La pantalla y el log lo dicen a los 2 minutos (§10.5.7, §10.8.4). Sale con un reinicio, y entonces la cierra el reaper como interrumpida |
+| Con el proceso ya muerto | Queda pedida | La cierra el reaper como interrumpida (FALLIDA, no CANCELADA): es lo que pasó |
+
+#### 10.5.4 Retomar: `retomarRemesas`
+
+**Qué significa.** Volver a encolar **la misma remesa** —mismo id, mismo número, mismo archivo, mismas
+remesas de origen—, con el progreso en cero. La plantilla se vuelve a leer al procesar, así que una
+corrección de la plantilla (el caso típico: faltaba el estado inicial) vale. No crea una remesa nueva y
+no vuelve a subir nada.
+
+**Cuándo se ofrece: solo cuando la carga no le entregó ninguna fila a un processor.** No depende de la
+categoría y no depende de que nada sea idempotente: si ningún processor fue llamado, no hay nada
+escrito que se pueda duplicar. Son dos situaciones:
+
+1. **Nunca arrancó** (`startedAt` es null): quedó en cola sin job y la cerró el reaper, se canceló en
+   cola, o falló la lectura inicial. `iniciar` es lo primero que escribe el worker y es lo que pone
+   `startedAt`.
+2. **Arrancó y falló o se canceló antes de la primera fila** (`resumen.sinFilasEntregadas`): plantilla
+   sin estado inicial, archivo que no está, paquete que no parsea, hoja que no existe, cancelación
+   durante la lectura.
+
+**Por qué hace falta el marcador y no alcanza con los contadores.** `ok + err = 0` no prueba nada en
+una carga que cerró el reaper: los contadores persistidos pueden ir un segundo atrás, y en los
+processors por lote `ok` no avanza hasta que el lote termina. El marcador lo escribe **el propio
+runner, vivo**, en el mismo cierre, a partir de una variable que se prende antes de llamar a
+`processRow` o a `processBatch`. Lo que cierra el reaper (`cerrarCargaInterrumpida`) nunca lo escribe:
+una carga interrumpida después de arrancar **no es retomable**, haya dicho lo que haya dicho su
+contador.
+
+Lo que el runner hace antes de la primera fila, y por qué no importa: borra y escribe `importerror`
+(avisos de parseo), que la retomada vuelve a borrar al empezar (`:2447-2449`); y escribe la fila de
+progreso. Nada más (leído en `:2327-2452` y en las cuatro ramas de lectura).
+
+**Validaciones de `RETOMAR`** (paso 1.c de `encolarLote`), con la fila bloqueada. Las cuatro primeras
+son la definición de retomable de §10.4.1; las dos últimas son **independientes del marcador**:
+
+| Condición | Si no se cumple |
+|---|---|
+| `estadoProceso` es FALLIDA y la fila tiene `finishedAt` | `409` "Esta importación no terminó, o terminó bien: no hay nada que retomar." |
+| `resumen.v === 1` y trae `origen` | `409` "Esta importación es anterior a la función de retomar. Volvé a subir el archivo." |
+| `startedAt` es null, o `resumen.sinFilasEntregadas === true` | `409` "Esta importación ya procesó filas: no se puede retomar. Mirá el motivo de la falla para saber qué hacer." |
+| `SELECT COUNT(*) FROM deudor WHERE remesaId = ?` da 0, y lo mismo en `clave_pago` | `409`, el mismo texto. Y un `error` en el log: el marcador y los datos se contradicen |
+| Los archivos de la remesa están en el disco | `400`, el texto que ya dan `archivosDeRemesa` (`:505-516`) y `leerPaqueteMultiarchivo` (`:457-459`). Se comprueba antes de la transacción, solo existencia |
+| El dueño no tiene otra carga en curso | `409` (c) |
+
+`retomarRemesas({ remesaIds | grupoId }, user)`: comprueba dueño o `ver_progreso_otros` en cada una
+(403), comprueba los archivos, y llama a `encolarLote` en modo `RETOMAR`. Con `grupoId` toma las
+retomables del grupo, en orden, y devuelve las demás en `omitidas` con su motivo. La remesa conserva su
+dueño original aunque la retome otro (la regla "una por usuario" y el `usuarioId` del job van por el
+dueño); quién la retomó queda en la auditoría.
+
+**Lo que retomar tiene que atravesar**, y cómo queda cada guarda:
+
+| Guarda | Qué pasa después de retomar |
+|---|---|
+| El job sobre una remesa terminal se ignora (`:2240-2248`) | La remesa ya no es terminal cuando el job nuevo llega: se procesa |
+| La re-entrega de una carga que había arrancado se cierra como interrumpida (`:2261-2271`) | `startedAt` vuelve a null: no se dispara |
+| La compuerta del tracker no escribe sobre un terminal | Ídem |
+| El aviso "Esta carga se reinició (intento N)" | `intentos` vuelve a 0: no aparece |
+| Un job viejo de la misma remesa (`failed` o `completed`) | BullMQ no lo vuelve a entregar. `jobId` pasa a ser el nuevo, y `estadoDelJobDeCarga` ya descarta un id que no es de la remesa |
+| Un job viejo **en espera** (el reaper no lo pudo sacar) | Llega primero, encuentra la remesa en cola y la procesa él; el nuevo llega después a una remesa terminada y se ignora. Una sola pasada |
+| La sospecha del reaper sobre esa remesa | Se borra en la pasada siguiente a que dejó de ser candidata; y `encoladaAt` nuevo le da los 2 minutos de gracia |
+| Borrar y retomar a la vez | Las dos bloquean la fila. Si gana retomar, el borrado responde el `409` "se acaba de confirmar" que ya existe (`:3395-3398`); si gana el borrado, retomar responde `404` |
+| Doble clic en Retomar | El segundo encuentra la remesa en cola: `409` "no terminó" |
+
+#### 10.5.5 Reintentar sobre lo ya cargado: categoría por categoría
+
+"Reintentar" una carga que **ya procesó filas** sería volver a pasar el archivo entero por la misma
+remesa. **No se ofrece en ninguna categoría en C1.** La tabla es la lectura del código (un agente de
+solo lectura sobre `58bb9e1`, con las citas revisadas por muestreo; **nada se ejecutó**) y dice dónde se
+podría abrir más adelante y con qué prueba.
+
+| Categoría | Qué haría una segunda pasada sobre la misma remesa | Veredicto | Lo que hay hoy para una carga a medias |
+|---|---|---|---|
+| DEUDORES | Encuentra los casos que creó la primera (misma clave, misma remesa: `identidad-deudor.ts:83-89`) y los actualiza; facturas y contactos de bloques van por las claves únicas de la base. `nuevos` contaría solo los que no creó la primera: el número engaña | Idempotente por lectura. **No se ofrece:** no está probado, y el remedio verificado ya existe | Eliminar la remesa y volver a subir (motivo de §9.15); ahora con los cortes cargados destildados |
+| DEUDORES_Y_FACTURAS | Ídem; el recálculo de montos del `afterAll` se reconstruye entero (`deudores-facturas.processor.ts:106`) | Ídem | Ídem |
+| FACTURAS | `INSERT … ON DUPLICATE KEY UPDATE` sobre `(deudorId, nroFactura)` (`facturas.processor.ts:240-250`); el estado del `afterAll` se reconstruye | Idempotente por lectura. No se ofrece: sin prueba | Soporte |
+| CONTACTOS, ENRIQUECIMIENTO | `upsert` por la clave única `(deudorId, tipo, valor)`. Con validación de domicilios, el `valor` depende de lo que conteste Georef en cada pasada | Idempotente por lectura, **salvo** direcciones validadas: no se puede afirmar | Soporte |
+| MULTICLAVES | Los trámites ya cargados salen por "ya cargadas" sin escribir (`multiclaves.processor.ts:135-138`); se pierde el aviso `TANDA_ANTERIOR` de la primera pasada | Idempotente por lectura. No se ofrece: sin prueba | Soporte |
+| PAGOS | Los cobros de la primera pasada se saltean por duplicado **antes** de anotarse como tocados (`pagos.processor.ts:396-399`, `:495-501`): sus casos **no se consolidan** ni se les cierran promesas. Y duplica en dos huecos: fecha que no parsea con reintento otro día, y una fila que confirmó un pago manual sin id de cobro | **Pierde** la consolidación; **duplica** en los huecos | Lo que dice la wiki hoy: consolidar las remesas de origen; soporte |
+| ACTUALIZACIONES | Las altas de la primera pasada cuentan como coincidencias en la segunda: el freno de "ninguna fila coincidió con la cartera" (`actualizaciones.processor.ts:211`, `:993`) **deja de proteger**, y con el archivo o la remesa equivocados la cartera entera queda ausente. Las altas sin documento se duplican | **Peligroso.** No se ofrece | Soporte |
+| ACCIONES | Duplica comentarios; los cambios ya aplicados no generan snapshot y el valor previo real se pierde; el contacto borrado es irrecuperable (`acciones.processor.ts:219`, `:250-254`, `:282-296`) | **Duplica y pierde.** No se ofrece (demostrado en §8.13) | Soporte; no volver a cargar |
+| MULTIRREGISTRO, MULTIARCHIVO | Casos, facturas y contactos, idempotentes. Las **bajas por pago** hacen `pago.create` sin ninguna comprobación (`casos-cedente.processor.ts:682-692`): cada baja de la primera pasada quedaría con dos pagos, y un caso con cuotas vigentes puede terminar cancelado por el doble conteo | **Duplica pagos.** No se ofrece | Soporte |
+
+**Lo que se podría abrir en C3**, con una sonda ejecutada por categoría (cortar una carga real a mitad
+con `kill -9`, re-ejecutarla sobre la misma remesa y comparar la base contra la de una carga limpia):
+DEUDORES, DEUDORES_Y_FACTURAS, FACTURAS y MULTICLAVES. Las otras no, sin cambiar antes el processor.
+
+#### 10.5.6 Cortes ya cargados: el archivo se reconoce por su hash
+
+`remesa.archivoHash` se guarda desde siempre y nadie lo lee (grep: solo el catálogo de reportes). Es
+SHA-256 de los bytes subidos (`file-storage.service.ts:12`); con varios archivos, el SHA-256 de los
+hashes ordenados y unidos con `|` (`imports.service.ts:807`).
+
+**En la vista de cortes** (`previewDivision`, `:602-693`). Después de contar, calcula el hash de lo
+subido **con la misma función que el alta** —se extrae un helper puro, `hashDeArchivos(buffers)`, y el
+alta pasa a usarlo: dos implementaciones del mismo hash es la forma de que esta guarda no encuentre
+nunca nada—. El helper tiene que dar, byte a byte, **el valor que ya está guardado** en las remesas de
+hoy (un archivo: SHA-256 del buffer; varios: SHA-256 de los hashes individuales ordenados y unidos con
+`|`): si no, las divisiones cargadas antes de C1 no se reconocerían. La rama de MULTIARCHIVO, que arma
+su hash con el rol de cada archivo (`imports.service.ts:771`), no se toca: no admite división.
+
+Con el hash, busca las remesas de esa empresa con el mismo `archivoHash` y la misma `plantillaId` que
+tengan corte propio. A cada corte le asigna, si existe, la remesa cuyo `filtroFilas` es **el mismo
+corte**: se comparan con una clave canónica (`claveDeCorte(filtros)`, nueva y pura en
+`utils/division-remesa.ts`: filtros ordenados por `fromIndex`, cada uno como
+`fromIndex|operador|valor|valores ordenados`). Si hay más de una, la de mayor gravedad en el orden de
+la tabla.
+
+| `situacion` | Cuándo | Qué hace el asistente |
+|---|---|---|
+| `EN_CURSO` | La remesa está encolada y sin terminar | Corte destildado; "se está cargando en la remesa N" |
+| `CARGADA` | La remesa está FINALIZADA | Corte destildado; "ya está cargado en la remesa N (X casos)" |
+| `A_MEDIAS` | FALLIDA con casos, o que procesó filas (`startedAt` y sin `sinFilasEntregadas`). Ante la duda —una FALLIDA anterior a C1 que arrancó— cae acá | Corte destildado; "quedó a medias en la remesa N: eliminala antes de volver a cargar este corte" |
+| `SIN_CARGAR` | FALLIDA sin ninguna fila cargada (nunca arrancó, o tiene el marcador; una heredada sin fila de progreso, si no tiene casos) | Corte tildado; "no llegó a cargarse en la remesa N" y, si es retomable, "podés retomarla desde su detalle en vez de crear otra" |
+| (sin `yaCargado`) | No hay remesa, o es un borrador sin confirmar | Como hoy |
+
+**En el alta** (`createRemesa`, rama de `divisiones`, `:834-925`). La misma búsqueda, con el hash ya
+calculado, antes del bucle que crea las remesas. Si un corte de los pedidos está `EN_CURSO`, `CARGADA`
+o `A_MEDIAS` y no viene `repetir: true` en ese elemento de `divisiones`: `409`, sin crear ninguna
+remesa, con un texto que nombra **todos** los cortes repetidos (§10.5.8). Es lo que protege a una
+pestaña vieja y a quien vuelve a tildar sin leer. `repetir` existe porque una regla sin salida es una
+regla que alguien va a necesitar saltear por la base: el asistente lo manda solo después de una
+confirmación explícita.
+
+- **Qué no cubre, a propósito:** el mismo archivo cargado sin dividir (en PAGOS, volver a cargar un
+  acumulativo es legítimo); otra plantilla sobre el mismo archivo; un archivo reenviado por el cedente
+  con otros bytes; una plantilla cuya configuración de división cambió entre una carga y la otra (los
+  filtros ya no coinciden). En los cuatro la guarda no dice nada, igual que hoy.
+- El `409` del alta llega después de guardar el archivo, como los 400 que ya hay en esa rama
+  (`:846-864`): el archivo queda en el volumen. Es la deuda conocida de §9.1.
+
+#### 10.5.7 Reapers y bloqueo por usuario con N remesas en cola
+
+- **Reaper de borradores.** No cambia. Las remesas de una división que esperaban su turno eran
+  borradores (por eso la Fase B agregó "no borra un borrador cuyo creador tiene una carga en curso");
+  con C1 son cargas en cola y el reaper de borradores ni las ve. La condición se deja: sigue
+  protegiendo a las divisiones lanzadas desde pestañas viejas y a los borradores de la ventana de
+  validación.
+- **Reaper de cargas colgadas.** No cambia su lógica. Con N remesas en cola hay N candidatas por
+  pasada, todas con su job esperando: no cierra ninguna (caso RC-10). Una que quedó sin job la cierra
+  como siempre, y ahora eso tiene salida (retomar). Se agrega **un aviso**: si una carga viva tiene la
+  cancelación pedida hace más de 2 minutos, `warn` "Remesa N: se pidió cancelar hace M min y la carga
+  viva no cortó (fase, subfase)", a lo sumo uno cada 15 minutos. El dato sale de
+  `cargaVivaEnEsteProceso` (que agrega `cancelacionPedidaHaceMs` a lo que devuelve), **no** de la
+  consulta de candidatas, que no se toca.
+- **"Una importación por usuario".** La regla no cambia de forma: el usuario no puede tener otra carga
+  en curso al confirmar. Lo que cambia es que una división confirmada ocupa al usuario hasta que
+  termina su última remesa. La consulta excluye a las remesas del propio lote.
+- **La carga en cola cuyo job nadie toma** (§9.15) sigue sin cerrarse sola, pero deja de ser un callejón:
+  se cancela desde la pantalla, queda `CANCELADA` sin haber arrancado, el usuario queda libre y la
+  remesa, retomable.
+
+#### 10.5.8 Textos
+
+Todos salen de funciones puras de `progreso/estado-carga.ts`, con su test. La regla de §9.5.5 sigue
+valiendo: **un "qué hacer" solo se escribe si está verificado contra el processor y contra
+`deleteRemesa`.**
+
+**`textoCancelacion(d)`** — va a `import_progreso.error`. Primera línea (la que viaja en la
+notificación; entra en 300 caracteres):
+
+| Caso | Primera línea |
+|---|---|
+| No arrancó | "La importación fue cancelada por {nombre} antes de empezar." |
+| Arrancó, con total conocido | "La importación fue cancelada por {nombre} cuando llevaba {procesadas} de {total} filas." |
+| Arrancó, sin total | "La importación fue cancelada por {nombre} cuando llevaba {procesadas} filas." |
+
+Sin nombre, se omite "por {nombre}". Números con punto de miles, sin `toLocaleString`. Después, `\n\n`
+y el qué hacer:
+
+| Caso | Segundo párrafo | Verificado contra |
+|---|---|---|
+| No arrancó, o no entregó ninguna fila | "No se cargó ninguna fila. Para cargarla, usá «Retomar» en el detalle de la importación: no hace falta volver a subir el archivo." | §10.5.4 |
+| DEUDORES, DEUDORES_Y_FACTURAS | "Las {ok} filas ya procesadas quedaron cargadas en esta remesa y el cierre de la carga no corrió. Para cargarla completa, eliminá esta importación desde el Historial y volvé a subir el archivo. Si no se puede eliminar (porque algún caso ya tiene gestión o porque la remesa es muy grande), avisá a soporte antes de volver a subirlo." Con corte propio agrega: " Esta remesa es un corte de un archivo dividido: al volver a subirlo, los cortes que ya están cargados aparecen destildados; dejalos así." | El mismo remedio de §9.15 (`deleteRemesa`), más §10.5.6 |
+| ACTUALIZACIONES | "Las {ok} filas ya procesadas quedaron aplicadas sobre la remesa de origen. El cierre de la carga no corrió: los casos ausentes del archivo no se tocaron y los casos no se consolidaron. Antes de volver a cargar el archivo, avisá a soporte." | Los ausentes se tratan solo en el `afterAll` (`actualizaciones.processor.ts:939-941`, `:993` en adelante; leído) |
+| El resto | "Las {ok} filas ya procesadas quedaron aplicadas y el cierre de la carga no corrió. Antes de volver a cargar el archivo, avisá a soporte." | No afirma remedio |
+
+Si hubo filas con error, después de "{ok} filas ya procesadas" va " ({err} dieron error)". ACCIONES no
+tiene texto de "arrancó": no se puede cancelar en ese estado.
+
+**`textoInterrupcion`** gana una opción, `retomable`. Con `retomable: true` y motivo `SIN_JOB`, el
+segundo párrafo es el de "no se cargó ninguna fila… usá «Retomar»" de arriba, sin el aviso del corte
+(no hay que volver a subir nada). Sin la opción devuelve **exactamente** el texto de hoy, que sigue
+siendo el correcto para una carga anterior a C1: por eso los casos existentes de
+`estado-carga.spec.ts` (`:560-564`, `:600-608`) pasan sin tocarlos. `cerrarCargaInterrumpida` le pasa
+`retomable` según el `resumen` de la fila que ya tiene bloqueada.
+
+**`textoNotificacion`**, caso nuevo (va antes del `switch`, por `e.cancelada`): tipo
+`IMPORTACION_ERROR`, título **"Importación cancelada"**, mensaje = la primera línea más " Las {ok}
+filas ya procesadas quedaron cargadas." o " No se cargó ninguna fila." El `payload` de la notificación
+suma `cancelada: true`. Se usa `IMPORTACION_ERROR` y no `IMPORTACION_FINALIZADA` porque una pestaña
+vieja le pondría el tilde verde.
+
+**Errores HTTP nuevos:**
+
+| | Texto |
+|---|---|
+| Cancelar, (a) | "Esta importación no está en curso: no hay nada que cancelar. Si es una vista previa que no querés, eliminala." |
+| Cancelar, (b) | "Esta importación ya terminó: no hay nada que cancelar." |
+| Cancelar, (c) | "La importación ya procesó todas las filas y está cerrando: en este paso no se puede cancelar. Esperá a que termine." |
+| Cancelar, (d) | "Una acción masiva que ya empezó no se cancela: los datos para deshacerla se guardan recién al terminar. Esperá a que termine y usá Revertir, que la deshace completa." |
+| Alta, corte repetido | "Este archivo ya tiene cortes cargados: {corte} en la remesa {número} ({situación}); … Destildalos, o confirmá que querés cargarlos de nuevo: sus casos van a quedar duplicados." |
+
+Los de `ejecutar-grupo` y de retomar están en las tablas de §10.5.2 y §10.5.4.
+
+#### 10.5.9 Logging y auditoría
+
+Según la política del `CLAUDE.md`. Se agrega a §8.5.8 y §9.5.11:
+
+| Dónde | Nivel | Qué |
+|---|---|---|
+| `ejecutarGrupo`, `retomarRemesas` | `log` ×2 | intent (usuario, cantidad, ids) y done (`grupoId`, jobs, `en Xms`) |
+| `cancelarCarga`, `cancelarGrupo` | `log` ×2 | intent (remesa, usuario, fase) y done (efecto, `en Xms`) |
+| 400, 403, 404 y 409 nuevos | `warn` | motivo de negocio |
+| `addBulk` que falla, y cada compensación | `error` con stack; `warn` por remesa compensada | — |
+| Residuo mixto del encolado | `error` | qué remesas quedaron en curso y cuáles no |
+| El runner corta por cancelación | `warn` | remesa, contadores, `en Xms`, dónde cortó (fila, lote, antes del cierre) |
+| Carga con la cancelación pedida que no arranca | `warn` | — |
+| Retomar con el marcador y los datos en contradicción | `error` | remesa y cantidad de casos encontrados |
+| Reaper: cancelación sin honrar | `warn`, uno cada 15 min | §10.5.7 |
+| Alta rechazada por corte repetido | `warn` | cortes y remesas |
+
+**Auditoría** (`transaccion.tipo` es un `String`: no hay enum de base que tocar; se usan valores que ya
+existen): los cinco `POST` nuevos llevan `@Audit` —`IMPORT_START` en `ejecutar-grupo` y en los dos de retomar
+("Retomó la remesa N"), `ANULAR` en los dos de cancelar ("Pidió cancelar la importación de la remesa
+N")—, con `data: { params: req.body }` en `ejecutar-grupo`, como `ejecutar/:id`. El corte efectivo lo
+audita el runner (o `cancelarCarga`, si la cerró él): `IMPORT_FAIL`, severidad `WARN`, "Importación
+cancelada remesa N", con quién la pidió y los contadores.
+
+No se loguea ninguna fila cruda ni ningún documento.
+
+### 10.6 Deploy y compatibilidad con pestañas viejas
+
+**Antes de desplegar** (lecturas en prod; las corre quien orquesta, el architect no las corrió):
+
+1. **Que la base esté sincronizada con el schema desplegado** (`prisma migrate diff` con la imagen
+   actual → `This is an empty migration`). C1 no agrega nada al push, pero el push corre igual y
+   ejecuta cualquier drift pendiente (§8.6).
+2. **Que no haya cargas en curso:**
+   `SELECT remesaId, fase, encoladaAt, startedAt FROM import_progreso WHERE encoladaAt IS NOT NULL AND finishedAt IS NULL`
+   → vacío. El deploy mata la que esté procesando; con la Fase B queda FALLIDA por el reaper, y **no**
+   es retomable (procesó filas).
+3. **Que no haya una división a medio encadenar desde una pestaña.** No hay consulta que lo diga con
+   certeza (las remesas que faltan son borradores); alcanza con el punto 2 más preguntar.
+
+**Orden: primero el backend, después el frontend, en dos commits**, como en §8.6 y §9.6. El backend
+nuevo es compatible con el frontend de la Fase B (§10.4.5); el frontend nuevo contra el backend viejo
+no: `ejecutar-grupo` no existe.
+
+**Qué pasa con lo que ya existe:**
+
+| Situación | Después del deploy |
+|---|---|
+| Cargas terminadas antes de C1 | `resumen` null: `retomable: false`, `cancelada: false`, sin grupo. Sin cambios a la vista |
+| Una FALLIDA "no llegó a empezar" anterior a C1 | No es retomable y su motivo sigue diciendo "volvé a importar el archivo": es lo correcto para ella |
+| Carga en cola confirmada con el código viejo, que el worker nuevo toma | Corre normal. Se puede cancelar. Si falla antes de la primera fila, no es retomable (no tiene `resumen.origen`) |
+| Borradores de una división creados antes del deploy | Se pueden confirmar con `ejecutar-grupo` solo si tienen la vista previa hecha; el asistente nuevo las valida todas |
+| Pestañas con el frontend de la Fase B | §10.4.5 |
+| Remesas 93, 98 y toda heredada sin fila | Nada las toca: todo lo nuevo parte de la fila de progreso |
+
+**Después de desplegar:** `prisma migrate diff` vacío; y con la primera división real, que las N filas
+de `import_progreso` tengan el mismo `grupoId`, `grupoOrden` 1..N y `encoladaAt` creciente.
+
+**Volver atrás** no choca con el schema (§10.4.5). Ante un problema con el encolado de grupos, las
+pestañas viejas —y un `git revert` del commit de frontend— siguen funcionando contra el backend nuevo
+con el encadenado por navegador.
+
+### 10.7 Fallos silenciosos
+
+| Qué puede pasar en silencio | Cómo queda a la vista |
+|---|---|
+| Se cierra la pestaña a mitad de una carga dividida y las remesas que faltan no se cargan (#7) | Ya no dependen de la pestaña: están en la cola desde que se confirma. El asistente lo dice ("podés cerrar esta pantalla") |
+| Al volver a subir un archivo dividido se cargan otra vez nóminas ya cargadas | **Antes de crear nada:** los cortes cargados vienen destildados, con la remesa y la cantidad de casos. **Si igual se piden:** `409` que los nombra, salvo confirmación explícita. Protege también a las pestañas viejas |
+| El operador confirma una división habiendo visto solo el primer corte | La vista previa trae una fila por remesa, con sus filas, los errores de la muestra y sus avisos; no se puede confirmar con una en cero |
+| Una remesa del grupo no llega a encolarse y nadie se entera | Las N pasan a `EN_COLA` en una transacción. La que quede sin job la cierra el reaper como "no llegó a empezar", con notificación, y se retoma con un botón |
+| El encolado "falla" pero una parte entró | `201` con `noEncoladas`, y el asistente las lista. `error` en el log |
+| Se cancela y el cierre corre igual (ausentes dados por pagados después de pedir que pare) | El pedido y la entrada al post-proceso se serializan por el lock de la fila. Sonda de concurrencia dedicada (§10.9.3) |
+| Se cancela y parece que no pasó nada | El pedido se ve enseguida ("Se pidió cancelar…"), y a los 2 minutos sin corte la pantalla y el log dicen que no se honró y qué hacer |
+| Se cancela una acción masiva y se pierde la posibilidad de revertirla | No se puede: `409` que explica por qué y qué hacer en cambio |
+| Una carga cancelada se muestra como terminada | En el DTO viaja como `FALLIDA` con el texto de la cancelación: hasta una pestaña vieja la muestra como fallida con ese motivo. La notificación es de tipo error |
+| "Se cargaron 3.000 filas" que en realidad son más, o menos | En una cancelada el número es exacto (el corte cae después de una fila o de un lote completos) y lo escribe el proceso vivo. En una interrumpida sigue siendo "al menos N" |
+| Retomar vuelve a procesar una remesa que ya tenía filas cargadas | Cuatro condiciones: terminal, marcador escrito por el runner vivo (o nunca arrancó), cero casos y cero claves en la base, y el lock de la fila. Si el marcador y los datos se contradicen: `409` y `error` en el log |
+| Retomar con otras remesas de origen que las de la primera vez | Salen de `resumen.origen`, guardado al confirmar. Sin él, no se ofrece |
+| Retomar con el archivo ya borrado del servidor | Se comprueba antes de encolar: `400` que dice qué archivo falta |
+| Una carga retomada se ve todavía como fallida | `rev` sigue creciendo y sale un `import:progreso`: las pantallas la vuelven a mostrar en curso |
+| Una cancelación tardía (la carga ya cerraba) que no se honra | El `409` en post-proceso lo dice en el momento. En el caso residual en que se aceptó y la carga terminó igual, el detalle lo explica |
+| Una carga en cola que nadie toma deja al usuario bloqueado | Se puede cancelar; queda retomable |
+| Un vacío espurio de Prisma interpretado como cancelación | No puede: la decisión cuelga de un valor no nulo |
+| La guarda de cortes no reconoce un archivo que sí es el mismo | El alta y la vista de cortes usan la **misma** función de hash; un test lo afirma con los mismos buffers en los dos caminos |
+| La guarda bloquea una recarga que el operador sí quiere | `repetir: true`, con confirmación. Queda en el log |
+| Otro usuario espera más que antes detrás de una división | La posición en la cola cuenta las N remesas ("Hay 5 importaciones antes que esta") |
+| Un permiso nuevo que nadie puede asignar | No aplica: no se agrega ninguno |
+| Algo escrito al disco del contenedor que se pierde en el deploy | No aplica. (El archivo de un alta rechazada por corte repetido queda en el volumen: deuda de §9.1) |
+| Una variable de entorno nueva que en prod no existe | No se agrega ninguna |
+
+### 10.8 Frontend
+
+El frontend sigue sin tests ni lint; la verificación está en §10.9.4. Sin el componente único de C2:
+cada pantalla que ya existe muestra lo nuevo en su lugar. Todo campo nuevo del DTO se lee tolerando
+`undefined` (`== null`, nunca `=== null`). Todo con `theme.palette`.
+
+#### 10.8.1 Vista de cortes (`pages/ImportWizard.tsx`, diálogo de `:1218-1308`)
+
+- Al armar `cortes` (`:339-347`), `incluir` deja de ser siempre `true`: es `false` si el corte trae
+  `yaCargado.situacion` `CARGADA`, `EN_CURSO` o `A_MEDIAS`.
+- Una columna más, "Estado", con el texto de la tabla de §10.5.6 y un enlace al detalle de la remesa.
+  Arriba de la tabla, si hay alguno destildado por esto: "N cortes de este archivo ya están cargados y
+  vienen destildados."
+- Si el operador **tilda** uno de esos: aviso bajo la tabla ("Si lo cargás de nuevo, sus casos quedan
+  duplicados") y, al apretar "Crear N remesa(s)", una confirmación. Recién ahí ese corte viaja con
+  `repetir: true`.
+- Si el alta responde el `409` de corte repetido (otra pestaña lo cargó mientras tanto): se vuelve a
+  pedir la vista de cortes.
+
+#### 10.8.2 Vista previa de todos los cortes y confirmación
+
+- `handleCrearYValidar` (`:358-495`): después de crear las remesas valida **todas**, una por una
+  (`POST /import/validar/:id`), en orden. Mientras tanto: "Armando la vista previa: remesa 2 de 5…". Si
+  una validación falla, se muestra el error y no se avanza (las remesas quedan como borradores y las
+  borra el reaper).
+- Paso "Vista previa": la muestra y los avisos de la primera, como hoy, más una tabla **"Remesas que se
+  van a cargar"**: número, corte, filas, errores en la muestra de 50, descartadas por el filtro y
+  avisos. Reemplaza al cartel "Abajo se ve el preview de la primera" (`:983-991`).
+- "Confirmar e importar" se deshabilita si **alguna** remesa tiene total 0, y dice cuál.
+- `handleEjecutar` (`:521-539`): con una sola remesa, `POST /import/ejecutar/:id`, como hoy. Con dos o
+  más, `POST /import/ejecutar-grupo`. Ante cualquier fallo del pedido se consulta el estado real de la
+  primera remesa, como hoy (`:506-517`): si está en curso o terminó, se sigue al grupo; si es un
+  borrador, se vuelve a la vista previa con el error.
+- Se van `ejecutarRemesa(id, false)` como eslabón de la cadena, `handleImportComplete` como
+  encadenador (`:567-593`), `colaRemesas`/`indiceCola` como motor y `marcarNoEjecutadas` (`:542-559`).
+  La pestaña ya no arranca nada.
+
+#### 10.8.3 "Importando" de una carga dividida
+
+- Hook nuevo, `hooks/useGrupoCarga.ts`: `useGrupoCarga(grupoId)` → `{ remesas: EstadoCargaDto[],
+  total, cargando, refrescar }`. Pide `GET /import/grupos/:grupoId` al montar, cuando sube
+  `conexiones`, al volver a la pestaña y con `online`; fusiona por `rev` los tres eventos de import de
+  las remesas del grupo; y polléa con las mismas reglas que `useEstadoCarga` (10 s con el socket
+  caído, 30 s si está callado) hasta que todas son terminales. Consultas con `silencioso`.
+- El paso muestra: "Carga dividida: remesa {orden} de {total}"; el texto **"Las remesas se cargan una
+  después de la otra en el servidor. Podés cerrar esta pantalla: siguen igual, y las ves en la campanita
+  y en el Historial."** (reemplaza al de `:1114-1121`); una lista con una línea por remesa (número,
+  corte y estado: En cola · Procesando 43 % · Finalizada · Falló · Cancelada · No llegó a empezar); y el
+  `ImportProgress` de la remesa **actual**, que es la primera en curso según `grupoOrden`.
+- Cuando todas son terminales pasa a "Resultado" con las N. Si `total` es mayor que las remesas que
+  devuelve el grupo, una línea: "N remesas de esta división se eliminaron."
+- `noEncoladas` (el residuo de §10.5.1): alerta fija "N remesas no se pudieron encolar y quedaron sin
+  confirmar", con sus números, y en "Resultado" un botón "Cargar las que faltan" que las confirma
+  (`ejecutar-grupo` si son dos o más; `ejecutar/:id` si es una).
+
+#### 10.8.4 Cancelar
+
+- **Dónde:** un botón "Cancelar importación" en `ImportProgress` (el paso "Importando") y en el
+  detalle. Visible con `importacion.ejecutar` y si el usuario es el dueño o tiene
+  `importacion.ver_progreso_otros`.
+- **Cuándo se puede:** `carga.cancelable`. Si la carga está en curso y no es cancelable, el botón va
+  deshabilitado con el motivo, que sale de una función pura nueva, `motivoNoCancelable(estado)`:
+  post-proceso → "La importación ya procesó todas las filas y está cerrando: en este paso no se puede
+  cancelar."; acción masiva que arrancó → "Una acción masiva que ya empezó no se cancela: esperá a que
+  termine y usá Revertir."; ya pedida → "Ya se pidió cancelar."
+- **El diálogo dice qué va a pasar, con el número del momento:**
+  - En cola: "Esta importación todavía no empezó. Si la cancelás no se carga ninguna fila, y después la
+    podés retomar desde su detalle."
+  - Procesando: "Lleva {procesadas} de {total} filas. Si la cancelás, **las filas ya procesadas quedan
+    cargadas** —no se deshacen— y el cierre de la carga no corre. Se corta al terminar la fila o el
+    lote en curso." Y una línea según la categoría, resumida de §10.5.8.
+  - En una división, dos opciones: **"Cancelar solo esta remesa"** y **"Cancelar todo lo que falta"**
+    (la remesa en curso y las K que no empezaron, con sus números).
+- **Después:** con `efecto: 'PEDIDA'`, un aviso nuevo en `AvisosCarga`, mientras la carga siga en curso
+  y `cancelacionPedidaAt` no sea null: menos de 2 minutos → info "Se pidió cancelar esta importación. Se
+  corta al terminar la fila o el lote en curso; lo ya procesado queda cargado."; 2 minutos o más →
+  warning "Se pidió cancelar hace N min y la carga todavía no cortó: puede estar en un paso que no se
+  puede interrumpir. Si sigue así, avisá a soporte." La edad se mide con `servidorAhora`, como los otros
+  avisos.
+- **Una cancelada:** `presentarResultado` mira `estado.cancelada` antes del `switch`
+  (`utils/estadoCarga.ts:288-352`): severidad `warning`, título **"Importación cancelada"**, y el
+  detalle es `estado.error` tal cual (ya trae los párrafos y el número exacto; no se le agrega "Antes
+  del corte se cargaron al menos…"). En el detalle, el chip dice "Cancelada" (`ImportDetail.tsx:316-323`)
+  y la alerta de resultado se muestra también para `cancelada` (`:325-329`). En el resumen de una
+  división, `rangoGravedad` la ubica entre FALLIDA y CON_ADVERTENCIAS.
+- **Pedido que llegó tarde** (terminal, `cancelacionPedidaAt` no nulo y `cancelada` falso): una línea
+  informativa en el detalle, "Se pidió cancelar esta importación cuando ya estaba cerrando: terminó
+  completa."
+- El aviso "en cola y nadie la toma" (`AvisosCarga.tsx:103-108`) cambia su final: "…Mientras no
+  arranque, la podés cancelar desde acá (queda para retomar) o eliminar desde el Historial."
+
+#### 10.8.5 Retomar
+
+- **Dónde:** botón "Retomar" en el detalle cuando `carga.retomable` (mismos permisos que cancelar), y
+  en "Resultado" del asistente: con una remesa, "Retomar"; en una división con al menos una retomable,
+  "Retomar las N que no se cargaron" (`POST /import/grupos/:grupoId/retomar`), que vuelve al paso
+  "Importando".
+- Antes de pedirlo, una línea: "Se vuelve a encolar la misma remesa, con el mismo archivo. No se cargó
+  ninguna fila la vez anterior." Con `omitidas`, se listan con su motivo.
+- Después del `201` el detalle aplica la `carga` devuelta (`aplicar` de `useEstadoCarga`) y tiene que
+  **volver a seguirla**: el hook hoy consulta solo mientras `estado === null || estado.enCurso`, así que
+  al pasar de terminal a en curso el polling tiene que rearmarse. Es el punto a probar a mano (MC-9).
+- `ImportSummary` deja de recibir `noEjecutadas` para una división: toda remesa del grupo tiene un
+  estado propio. "La importación quedó incompleta" pasa a decidirse con los resultados: alguna
+  `FALLIDA`, `cancelada` o `retomable`.
+
+#### 10.8.6 Detalle y campanita
+
+- **Detalle** (`pages/ImportDetail.tsx`): si `carga.grupoId`, una línea bajo el número: "Remesa
+  {grupoOrden} de {grupoTotal} de una carga dividida", con las hermanas como chips enlazados (número y
+  estado), pedidas una vez con `GET /import/grupos/:grupoId`.
+- **Campanita** (`ImportEnCursoItem.tsx`): agrega " · 2 de 3" al encabezado si hay grupo, y "Cancelando…"
+  en vez de la fase si `cancelacionPedidaAt` no es null. Sin botones (C2).
+- **No cambian:** `SocketContext`, `NotificacionesContext`, `NotificacionesPopover`, `ImportHistory`,
+  `useEstadoCarga` (salvo que la prueba de §10.8.5 muestre que hace falta), `useImportacionesEnCurso`.
+
+### 10.9 Plan de pruebas
+
+**Línea de base, medida el 09/10/2026 sobre HEAD `58bb9e1`:**
+
+- Backend: `npx jest src/modules/imports src/modules/realtime src/modules/notificaciones` → **49
+  suites, 1.069 tests, todos pasan.** `npx jest` completo → **99 suites y 1.745 tests pasan** (1 suite y
+  3 tests salteados, que ya lo estaban).
+- Frontend: `npx tsc --noEmit -p tsconfig.json` → **los mismos 5 errores**: `MappingEditor.tsx:443` y
+  `:499`, `ImportHistory.tsx:423`, `Login.tsx:104`, `theme/components.ts:165`.
+- `prisma migrate diff` de la base local contra el schema de HEAD → `This is an empty migration`.
+
+#### 10.9.1 Qué pasa con los specs que ya existen
+
+**No se toca ninguno.** No hay excepción admitida en esta entrega: ninguna política que un spec
+existente afirme cambia. El diseño se armó mirando los asserts que lo obligan:
+
+- `executeRemesa` solo gana una clave (`resumen`) en una escritura que el caso C-1 afirma con
+  `toMatchObject`; la escritura del `jobId`, que afirma con la llamada exacta, no cambia (§10.5.1).
+- `processImportJob` devuelve exactamente `{ total, ok, err }` en el camino normal, y la secuencia de
+  eventos del caso B-1 es la misma: los puntos de corte son lecturas de una bandera en memoria.
+- `fallar` agrega `resumen` a su escritura **solo** cuando no se entregó ninguna fila; el tercer
+  argumento es opcional.
+- Las columnas nuevas del `SELECT` de la compuerta se leen tolerando `undefined`: los dobles de
+  `progreso-tracker-atomico.spec.ts` y de los specs del runner devuelven filas sin ellas.
+- `textoInterrupcion` sin la opción `retomable` devuelve el texto de hoy, carácter por carácter.
+- El reaper no cambia su consulta de candidatas (el caso RC-15 la afirma): el dato nuevo le llega por
+  `cargaVivaEnEsteProceso`, y un doble que no lo trae no dispara el aviso.
+- Los DTO armados por `armarEstadoCarga` ganan campos; ningún spec los compara enteros con `toEqual`
+  (revisado con grep; si aparece uno, es el primer lugar donde mirar).
+
+Si al implementar hace falta tocar un assert existente: **parar y reportar**.
+
+#### 10.9.2 Specs nuevos de backend
+
+**Regla para los dobles**, que viene de §9.15: en lo que este diseño apoya, el doble se comporta como
+MySQL y Prisma de verdad. En concreto: (1) un `update` o `updateMany` condicionado que no encuentra la
+fila **no tira**: afecta 0 filas; (2) el `SELECT … FOR UPDATE` devuelve la fila **actual** del doble,
+no una fija; (3) hay al menos un caso por spec en que una lectura devuelve **vacío sin error** sobre
+una fila que existe, y se afirma que nada se decide con eso. Los specs C y D usan un `prisma` falso en
+memoria con esas tres propiedades (el de `imports-progreso-fase-b.spec.ts` es el punto de partida; no
+se le importa el arnés para no tocar ese archivo).
+
+**A. `progreso/estado-carga.spec.ts`** (casos nuevos)
+
+- `armarEstadoCarga`: columna `CANCELADA` → `resultado: 'FALLIDA'`, `cancelada: true`, `canceladaPor`
+  del resumen; `grupo*` pasan tal cual; `cancelacionPedidaAt` en ISO; heredada → todo en `null` o
+  `false`; un `resumen` que llega como texto JSON se lee igual que como objeto, y uno ilegible no tira.
+- `cancelable`: la matriz completa —en cola, leyendo, procesando, post-proceso, terminal, borrador, ya
+  pedida, ACCIONES en cola (sí), ACCIONES arrancada (no)—.
+- `retomable`: nunca arrancó (sí); arrancó con `sinFilasEntregadas` (sí); arrancó sin el marcador (no);
+  FINALIZADA (no); en curso (no); sin `resumen`, con `v` distinta de 1 o sin `origen` (no).
+- `textoCancelacion`: las filas de las dos tablas de §10.5.8; con y sin nombre; con y sin total; con
+  errores; con corte; la primera línea entra en 300 caracteres; nunca nombra «Retomar» si se cargaron
+  filas.
+- `textoInterrupcion`: `SIN_JOB` con `retomable: true` nombra «Retomar» y no trae el aviso del corte;
+  sin la opción, el texto de hoy.
+- `textoNotificacion`: cancelada con y sin filas → `IMPORTACION_ERROR`, "Importación cancelada".
+
+**B. `progreso/progreso-tracker-cancelacion.spec.ts`** (nuevo)
+
+| # | Caso | Qué tiene que pasar |
+|---|---|---|
+| TK-1 | La compuerta de `lote` lee `cancelSolicitadaAt` | El lote se persiste igual; `cancelacionPedida` pasa a `true`; no tira |
+| TK-2 | La compuerta de `iniciar` lo lee | No escribe nada (ni `startedAt`); tira `CargaCanceladaError`; el reloj no arranca |
+| TK-3 | La compuerta de `entrarEnPostProceso` lo lee | No escribe la fase; tira `CargaCanceladaError` |
+| TK-4 | La compuerta de `finalizar` lo lee | Escribe FINALIZADA normal; `cancelSolicitadaAt` queda; el DTO trae `cancelada: false` y `cancelacionPedidaAt` |
+| TK-5 | La escritura del reloj lo lee | `cancelacionPedida` pasa a `true`; **ninguna sentencia más** que las de hoy |
+| TK-6 | `avisarCancelacion()` | `true` sin escribir nada; idempotente |
+| TK-7 | Una lectura vacía sin error en la compuerta y en el reloj | `cancelacionPedida` sigue en `false` |
+| TK-8 | `cancelar` | Remesa FALLIDA con `okFilas`/`errFilas` reales; fila TERMINADA, columna `CANCELADA`, `error` = el texto, `finishedAt`; emite una sola `import:finalizada`, con `cancelada: true` y `resultado: 'FALLIDA'`; el reloj queda detenido y 60 s después no hay ni una escritura |
+| TK-9 | `cancelar` con `sinFilasEntregadas` cuando el endpoint ya escribió `resumen.cancelacion` | El `resumen` final tiene `origen`, `cancelacion` **y** `sinFilasEntregadas`: no se pisa |
+| TK-10 | `cancelar` sobre una carga que otro ya cerró | No escribe, no emite, `cerradaPorFuera`; no tira |
+| TK-11 | `fallar` sin tercer argumento, y con `sinFilasEntregadas: false` | La escritura no lleva la clave `resumen` |
+| TK-12 | `fallar` con `sinFilasEntregadas: true` | `resumen` mezclado con el de la fila; el DTO emitido trae `retomable: true` |
+| TK-13 | Una fila previa con `grupoId`, `grupoOrden`, `grupoTotal` | Todos los eventos del tracker los traen (hoy saldrían `null`) |
+| TK-14 | El `SELECT` de la compuerta devuelve una fila sin las columnas nuevas | Se comporta como hoy |
+
+**C. `imports-progreso-fase-c1.spec.ts`** (nuevo; `ImportService` real, processor de mentira)
+
+| # | Caso | Qué tiene que pasar |
+|---|---|---|
+| FC-1 | Camino por fila, 2.500 filas; la cancelación se pide durante la fila 1.300 | `processRow` se llamó 1.300 veces, no más. Una sola `finalizada`, `cancelada`, con `ok + err = 1300` y `procesadas: 1300`. **`afterAll` no se llamó.** Los errores de las filas procesadas están en `importerror`. Devuelve `cancelada: true` y **no rechaza** |
+| FC-2 | Camino por lote, tres lotes; se pide durante el segundo | El segundo lote termina y se persiste; el tercero no se procesa; `ok + err` = dos lotes exactos |
+| FC-3 | Se pide durante el **último** lote | Las filas quedan todas; `afterAll` **no** se llama; cancelada con N de N |
+| FC-4 | El pedido aparece recién en la compuerta de `entrarEnPostProceso` | `afterAll` no se llama |
+| FC-5 | La fila ya tenía `cancelSolicitadaAt` cuando el worker tomó el job | Ningún `processRow`; `startedAt` sigue null; columna `CANCELADA`; `ignorado: true`; `retomable: true` |
+| FC-6 | Se pide durante `LEYENDO` (categoría pre-parseada) | Ningún `processRow`; `resumen.sinFilasEntregadas`; `retomable: true` |
+| FC-7 | Plantilla sin estado inicial (falla antes de la primera fila) | FALLIDA con `sinFilasEntregadas` y `retomable: true` |
+| FC-8 | Falla después de procesar filas (`importerror.createMany` rechaza en el segundo lote) | FALLIDA **sin** `sinFilasEntregadas`; `retomable: false` |
+| FC-9 | Todas las filas del primer lote fallan la validación y después algo tira | `sinFilasEntregadas` (ningún processor fue llamado), aunque `err > 0` |
+| FC-10 | El processor por lote tira en el primer lote | **Sin** `sinFilasEntregadas`: fue llamado |
+| FC-11 | Cancelada, y la notificación o la auditoría tiran | El estado terminal queda; no hay segunda `finalizada`; no rechaza |
+| FC-12 | Una remesa retomada (fila en cola, `startedAt` null, `intentos` 0, `rev` 40) | Corre normal: `iniciada`, progreso, `finalizada`; `intentos: 1`; `rev > 40`; ningún `warn` de re-ejecución |
+| FC-13 | Carga normal de 2.500 filas sin ninguna cancelación | La secuencia de eventos del caso B-1, idéntica; devuelve `{ total, ok, err }` exacto |
+| FC-14 | La escritura de `POST_PROCESO` falla por un error que no es de cierre, y la lectura simple devuelve el pedido | `afterAll` **no** se llama; cancelada |
+| FC-15 | Lo mismo, y la lectura simple también falla o devuelve vacío | `afterAll` corre, como hoy: una etiqueta no frena la consolidación |
+| FC-16 | Un processor sin `afterAll`, con la cancelación pedida en el último lote | Cancelada con N de N: el punto de corte previo al cierre no depende de que haya `afterAll` |
+
+**D. `imports-grupo.spec.ts`** (nuevo)
+
+| # | Caso | Qué tiene que pasar |
+|---|---|---|
+| G-1 | `ejecutarGrupo` con tres borradores validados | Una transacción; tres escrituras con el mismo `grupoId`, `grupoOrden` 1, 2, 3, `grupoTotal` 3, `encoladaAt` creciente de a 1 ms y `resumen.origen`; **un** `addBulk` con tres jobs en ese orden; tres `import:progreso`; tres escrituras de `jobId` |
+| G-2 | Los ids llegan desordenados y con un repetido | Se ordenan por id y se deduplican |
+| G-3 | Una ya confirmada · una sin vista previa · una con total 0 · una de otro archivo · una MULTIARCHIVO · una sola · 101 | `409` / `400` según la tabla de §10.5.2; **ninguna** escritura y `addBulk` no se llama |
+| G-4 | El usuario tiene otra carga en curso que no es del lote | `409`; nada escrito |
+| G-5 | `addBulk` rechaza y ninguna fue tomada | Las tres vuelven a borrador, en orden inverso, sin `grupo*`; `503`; ningún evento |
+| G-6 | `addBulk` vence por tiempo y la primera ya arrancó | Ninguna compensación; `201` con el estado real |
+| G-7 | `addBulk` rechaza y una se toma durante la compensación | `201` con `noEncoladas`; `error` en el log |
+| G-8 | Guardar un `jobId` da `P2025` | Se saca ese job; las otras dos siguen |
+| G-9 | `grupo(id)` | Ordenado por `grupoOrden`; `404` si no hay ninguna; `enColaDelante` cuenta las de todos |
+| G-10 | `cancelarCarga` en cola, con el job esperando | Se saca el job **antes** de la transacción; columna `CANCELADA`, `startedAt` null; `efecto: 'CANCELADA'`; `import:finalizada` |
+| G-11 | En cola, y `sacarJobDeLaCola` devuelve `false` | No se cierra: `cancelSolicitadaAt` y `efecto: 'PEDIDA'` |
+| G-12 | Procesando | `cancelSolicitadaAt`, `resumen.cancelacion`; `avisarCancelacion` del tracker vivo; `import:progreso`; `efecto: 'PEDIDA'` |
+| G-13 | Borrador · terminal · post-proceso en la fila · post-proceso solo en la memoria del tracker · ACCIONES arrancada | `409` con el texto de cada uno; nada escrito |
+| G-14 | Ya cancelada · ya pedida | `200` idempotente; ninguna escritura nueva |
+| G-15 | Sin ser el dueño ni tener `ver_progreso_otros` | `403`, y `sacarJobDeLaCola` **no** se llamó |
+| G-16 | Cancelada en cola por otro usuario, y por el dueño | Con otro: notificación solo al dueño. Con el dueño: ninguna |
+| G-17 | `cancelarGrupo` con una terminada, una procesando y dos en cola | Se llama en orden inverso (4, 3, 2); la terminada va como `YA_TERMINADA`; un `409` de una no frena a las otras |
+| G-18 | `retomarRemesas` sobre una cancelada en cola | Remesa PENDIENTE; fila en cola con todo en cero, `startedAt`/`finishedAt`/`cancelSolicitadaAt` null, `intentos` 0, `resumen` sin `cancelacion` y con `retomas: 1`; el job lleva las remesas de origen de `resumen.origen` |
+| G-19 | No retomable: procesó filas · FINALIZADA · en curso · sin `resumen.origen` | `409` con su texto; nada escrito |
+| G-20 | El marcador dice "sin filas" y hay un caso con ese `remesaId` | `409` y `error` en el log; nada escrito |
+| G-21 | Falta un archivo en el disco | `400` antes de abrir la transacción |
+| G-22 | `addBulk` falla al retomar | La remesa vuelve a FALLIDA "no llegó a empezar", **retomable**; `503`; sin notificación |
+| G-23 | Retomar un grupo con dos retomables y una que procesó filas | Se encolan dos, en orden; la tercera va en `omitidas` |
+| G-24 | `executeRemesa` | Su escritura transaccional lleva `resumen: { v: 1, origen }`, con `null` donde no hay origen |
+| G-25 | `previewDivision` con un archivo que ya tiene cortes | Cada corte trae su `yaCargado` con la situación de la tabla de §10.5.6; un borrador no cuenta; otra plantilla no cuenta |
+| G-26 | El hash de la vista de cortes y el del alta | Con los mismos buffers, uno y varios archivos en distinto orden, dan **el mismo** valor, y ese valor es el de la fórmula de hoy (calculado en el test con `crypto`, no con el helper): una remesa cargada antes de C1 se reconoce |
+| G-27 | `createRemesa` con un corte `CARGADA` · con `repetir: true` · con uno `SIN_CARGAR` | `409` sin crear ninguna remesa · las crea · las crea |
+
+**E. `bullmq/imports.processor.spec.ts`** (casos nuevos): un resultado con `cancelada: true` no se
+loguea como completado ni se audita `IMPORT_OK`.
+
+**F. `progreso/reaper-cargas.service.spec.ts`** (casos nuevos): una carga viva con la cancelación
+pedida hace 3 minutos → un `warn`, y no otro hasta 15 minutos después; cinco cargas en cola del mismo
+grupo, con sus jobs esperando → no cierra ninguna.
+
+**G. `utils/division-remesa.spec.ts`** (casos nuevos): `claveDeCorte` no depende del orden de los
+filtros ni del orden de `valores`; distingue `IGUAL 3G` de `EN [3G, 3GH]`.
+
+#### 10.9.3 Lo que solo se puede probar contra Redis y MySQL de verdad
+
+Paso **BE-0**, antes de escribir código de producción, con colas de prueba (nunca `import-queue`) y
+tablas de prueba o la base local; lo repite el auditor. Todo arnés que levante la aplicación lleva
+`LOG_DIR` a un directorio temporal.
+
+| # | Sonda | Resultado esperado | Si no da |
+|---|---|---|---|
+| SC-1 | `addBulk` de tres jobs con un worker de `concurrency: 1` | Entran en el orden del array, devuelve los tres ids y los jobs heredan `attempts: 1` de la cola; el worker los procesa en ese orden | Reportar. El orden de un grupo pasaría a depender de `encoladaAt` solo en la pantalla |
+| SC-2 | `addBulk` con Redis caído, bajo un tope de 10 s; después se levanta Redis | Rechaza al vencer el tope. Anotar si los jobs entran tarde o no: el diseño contempla los dos casos (§10.5.1) | Reportar lo que haga |
+| SC-3 | Contra MySQL: 150 rondas de `cancelarCarga` contra `entrarEnPostProceso` del tracker, lanzados a la vez sobre la misma remesa | En cada ronda pasa una de dos cosas, nunca otra: el endpoint responde `PEDIDA` **y** el tracker tira `CargaCanceladaError` sin escribir la fase; o el tracker escribe `POST_PROCESO` **y** el endpoint responde `409` | **Parar.** Es la garantía central de cancelar |
+| SC-4 | Contra MySQL: lo mismo contra `iniciar` (carga en cola con el job activo) y contra `finalizar` | Contra `iniciar`: o arranca y después corta, o no arranca; nunca las dos escrituras. Contra `finalizar`: FINALIZADA con el pedido registrado, o cancelada; nunca un terminal pisado | Parar |
+| SC-5 | `$queryRaw` de una columna `Json` (`p.resumen`) en MySQL con Prisma 6 | Anotar si devuelve objeto o texto. `leerResumen` acepta los dos | — |
+| SC-6 | Retomar de punta a punta: una remesa cerrada como "no llegó a empezar", con su job viejo en estado `failed` y, en otra corrida, en `waiting` | La remesa se procesa **una** vez en los dos casos; el job que llega segundo se ignora | Parar |
+| SC-7 | Dos `ejecutar-grupo` simultáneos sobre el mismo lote, y dos sobre lotes que comparten una remesa | Uno gana y el otro recibe `409`; ningún deadlock (o, si lo hay, sale como `409`, no como 500) | Reportar |
+
+Y, para el auditor, con la aplicación levantada: borrar y retomar la misma remesa a la vez; doble clic
+en Retomar; cancelar el grupo mientras la remesa en curso termina; `kill -9` con una cancelación
+pedida (tiene que cerrarla el reaper como interrumpida).
+
+#### 10.9.4 Frontend
+
+Sin tests. Los tres controles de siempre, obligatorios:
+
+```bash
+cd frontend
+npx tsc --noEmit -p tsconfig.json   # exactamente los 5 errores de base; ninguno en archivos tocados
+npm run build
+npm run verificar-ayuda
+```
+
+#### 10.9.5 Prueba manual (la usan el auditor y los usuarios que prueban)
+
+Con la app levantada en local. Preparación: `IMPORTS_BATCH_SIZE=100`; un CSV de DEUDORES de unas 6.000
+filas con una columna de nómina de tres valores, y su plantilla con división por esa columna; un
+archivo de ACTUALIZACIONES con plantilla "pagó todo" sobre una remesa de prueba; una plantilla de
+DEUDORES **sin** estado inicial.
+
+| # | Qué hacer | Qué tiene que verse |
+|---|---|---|
+| MC-1 | Subir el archivo dividido y llegar a la vista previa | "Armando la vista previa: remesa 2 de 3…". Una tabla con las tres remesas y sus filas, que suman lo que mostró la vista de cortes |
+| MC-2 | Confirmar y **cerrar la pestaña** apenas arranca la primera | Desde otra pestaña: la campanita muestra las tres ("1 de 3" procesando; "2 de 3" y "3 de 3" en cola) y terminan las tres. En `import_progreso`, el mismo `grupoId` |
+| MC-3 | Subir **el mismo archivo** otra vez | En la vista de cortes, los tres vienen destildados, con "ya está cargado en la remesa N (X casos)". Tildar uno y crear: pide confirmación. Con `curl`, el alta sin `repetir` responde `409` nombrando el corte |
+| MC-4 | Otra división; durante la segunda remesa, "Cancelar todo lo que falta" | El diálogo dice cuántas filas lleva y cuáles no empezaron. La segunda queda "Cancelada" con el número exacto, que coincide con `SELECT COUNT(*) FROM deudor WHERE remesaId = …`; la tercera, "Cancelada antes de empezar". El usuario puede importar de nuevo |
+| MC-5 | En el resultado de MC-4, "Retomar las que no se cargaron" | Se encola solo la tercera, sin volver a subir nada, y termina bien. La segunda no se ofrece |
+| MC-6 | Eliminar la segunda (a medias) desde el Historial y volver a subir el archivo | Vienen tildado solo el corte de la segunda |
+| MC-7 | ACTUALIZACIONES "pagó todo": cancelar a mitad de las filas; y, en otra corrida, en el último lote | En las dos: **ningún** caso ausente quedó dado por pagado: comparando contra una copia de la remesa de origen previa, ningún caso que no estuviera en las filas procesadas tiene un pago nuevo ni cambió de situación (los pagos automáticos de los casos que sí se procesaron son esperables). El motivo dice que los ausentes no se tocaron |
+| MC-8 | La misma carga: intentar cancelar durante "Post-proceso" | Botón deshabilitado con el motivo; por API, `409`. La carga termina |
+| MC-9 | Plantilla sin estado inicial: confirmar, ver la falla, corregir la plantilla y "Retomar" desde el detalle | Falla con el motivo y el botón Retomar. Después de retomar, el detalle **vuelve a seguir la carga solo** (sin F5) y termina bien. Una sola remesa, el mismo número |
+| MC-10 | Carga de ACCIONES: intentar cancelar en cola y procesando | En cola se puede. Procesando: deshabilitado, con el texto que manda a usar Revertir |
+| MC-11 | Con el worker ocupado en una carga larga de A, B confirma otra y la cancela | Queda cancelada en el acto, retomable; B puede importar. La de A no se entera |
+| MC-12 | Parar Redis y confirmar una división | A los ~10 s vuelve a la vista previa con el aviso de la cola; las tres siguen siendo borradores. Levantar Redis y confirmar de nuevo funciona |
+| MC-13 | Confirmar una carga, borrar su job de Redis a mano, esperar al reaper | "No llegó a empezar… usá «Retomar»". Retomar funciona |
+| MC-14 | Con el bundle del frontend de la Fase B (pestaña vieja) contra el backend nuevo: lanzar una división; desde otra sesión, cancelar una de sus remesas | La pestaña vieja la muestra como "La importación falló" con el texto de la cancelación y sigue con la siguiente. Al volver a subir el archivo, el alta le responde el `409` del corte repetido |
+| MC-15 | Cancelar, y con la carga cortando, `kill -9` al backend | Al levantar, el reaper la cierra como **interrumpida** (no cancelada). No es retomable |
+| MC-16 | Diálogos, avisos, lista del grupo y botones en claro, oscuro y ancho de celular, con cinco remesas y un motivo largo | Se lee todo, nada se desborda, ningún color fuera del tema |
+
+Una carga trabada en un `await` que no vuelve no tiene forma razonable de provocarse a mano: el aviso
+de "se pidió cancelar hace N min" lo cubren el caso F del reaper y una carga con el processor de
+mentira dormido.
+
+### 10.10 Documentación
+
+- **Wiki** (`docs/ayuda/03-importacion/`, paquete de frontend; cambia en el mismo commit que el flujo y
+  actualiza el `revisado` de cada página):
+  - `05-importar-un-archivo.md` — la que más cambia. La vista de cortes (`:93`): los ya cargados vienen
+    destildados, y qué significa cada estado. La vista previa: una fila por remesa. La "Excepción: la
+    carga dividida" (`:203-206`) y "¿Puedo cerrar el navegador?" (`:520-523`) **dejan de ser ciertas**:
+    se puede cerrar. Sección nueva **"Cancelar una importación"**: qué queda cargado, que el cierre no
+    corre, cuándo no se puede (post-proceso, acción masiva) y qué hacer después según la categoría, con
+    los textos de §10.5.8 copiados. "No se reintenta la misma remesa" (`:390`) pasa a explicar
+    **Retomar** y cuándo se ofrece. "No llegó a empezar" (`:443-454`): el párrafo nuevo, y que el viejo
+    sigue apareciendo en cargas anteriores. "Una remesa de la división no arrancó" (`:429-435`,
+    `:476-477`): ya no se destilda a mano; se retoma, o se vuelve a subir y los cargados vienen
+    destildados. El aviso de la cola (`:230-233`, `:375-376`).
+  - `08-historial-y-problemas.md` — la carga en cola que no arranca (`:317`): se puede cancelar.
+    "La importación falló" (`:365-376`): Retomar, y el caso de la división. Que una cancelada figura
+    como **Fallida** en el Historial y como **Cancelada** en su detalle (hasta C2).
+  - `01-como-funciona.md` — `:95-97`: se va el "menos en una carga dividida". En la tabla de estados,
+    que Fallida incluye a una cancelada.
+  - `07-acciones-masivas.md` — que una acción masiva en curso no se cancela, y por qué.
+  - `cd frontend && npm run verificar-ayuda`. Cada página pasa por un agente revisor antes de cerrarse
+    (memoria `auditar-documentacion-con-agentes`): en las dos fases anteriores todas salieron con
+    errores en la primera revisión.
+- **`docs/notificaciones-spec.md`** (paquete de backend): la notificación de una cancelada y cuándo no
+  se manda; que `import:progreso` sale también al pedir una cancelación y al retomar; una entrada
+  fechada en su §5.
+- **`CHANGELOG.md`**: lo escribe quien orquesta, al cerrar, con lo que devuelva cada implementer.
+- **Este documento**: quien orquesta actualiza el encabezado y §4, y agrega un §10.16 con lo que cambió
+  al auditar, como §8.13 y §9.15.
+- **Memorias** (fuera del repo, quien orquesta): `progreso-imports-realtime`, y `multiclaves-cupon-telecom`
+  si menciona el encadenado por pestaña.
+
+### 10.11 Criterios de aceptación
+
+**Schema y deploy**
+
+- **CC-1.** El `git diff` de `schema.prisma` son solo comentarios `///`. `prisma migrate diff` da
+  `This is an empty migration` antes y después. No hay ninguna variable de entorno nueva.
+- **CC-2.** `permisos-catalogo.ts` no tiene diff.
+
+**Backend, automáticos**
+
+- **CC-3.** `npm run build` pasa. Las 49 suites y los 1.069 tests de base pasan **sin que cambie ningún
+  assert**. `git diff --stat` de los `*.spec.ts` que ya existían muestra solo líneas agregadas.
+- **CC-4.** Pasan los specs A a G de §10.9.2.
+- **CC-5.** Confirmar tres cortes es una transacción, un `addBulk` de tres jobs en orden y tres filas
+  con el mismo `grupoId` y `encoladaAt` creciente (G-1).
+- **CC-6.** Si el encolado falla y ninguna fue tomada, las N vuelven a borrador y responde `503`; si la
+  primera ya arrancó, no se compensa nada (G-5, G-6).
+- **CC-7.** Una cancelación pedida durante las filas corta sin llamar al `afterAll`, **también si se
+  pidió en el último lote** (FC-1, FC-3, FC-4).
+- **CC-8.** Una carga con la cancelación pedida antes de arrancar no procesa ninguna fila y queda sin
+  `startedAt` (FC-5, TK-2).
+- **CC-9.** En el camino por fila, cancelar no procesa ninguna fila después de la que estaba en curso
+  (FC-1); en el camino por lote, ningún lote después del que estaba en curso (FC-2).
+- **CC-10.** Una cancelada: remesa FALLIDA, columna `resultado = 'CANCELADA'`, contadores iguales a las
+  filas realmente procesadas, y en el DTO `resultado: 'FALLIDA'` con `cancelada: true` (TK-8, FC-1).
+- **CC-11.** No se puede cancelar en post-proceso —mirando la fila y la memoria del tracker— ni una
+  ACCIONES que ya arrancó (G-13).
+- **CC-12.** Una lectura vacía sin error nunca prende una cancelación (TK-7).
+- **CC-13.** `retomable` es `true` solo si la carga nunca arrancó o el runner vivo marcó que no entregó
+  filas; una carga que cerró el reaper después de arrancar nunca lo es (spec A, FC-7 a FC-10).
+- **CC-14.** Retomar no escribe nada si la remesa procesó filas, si tiene algún caso o alguna clave, si
+  falta su archivo, o si su dueño tiene otra carga en curso (G-19 a G-21).
+- **CC-15.** Una remesa retomada se procesa con las remesas de origen guardadas al confirmar (G-18,
+  G-24).
+- **CC-16.** `processImportJob` devuelve exactamente `{ total, ok, err }` y emite la secuencia del caso
+  B-1 en una carga sin cancelaciones (FC-13).
+- **CC-17.** La vista de cortes y el alta calculan el mismo hash para los mismos archivos (G-26), y el
+  alta rechaza un corte ya cargado salvo `repetir` (G-27).
+- **CC-18.** Los eventos del tracker traen `grupoId`, `grupoOrden` y `grupoTotal` (TK-13).
+- **CC-19.** Las siete sondas de §10.9.3 dan el resultado esperado, o está reportado cuál no. SC-3,
+  SC-4 y SC-6 no admiten "reportar y seguir".
+
+**Frontend y manuales**
+
+- **CC-20.** `npx tsc --noEmit` da exactamente los 5 errores de base. `npm run build` y `npm run
+  verificar-ayuda` pasan.
+- **CC-21.** Con la pestaña cerrada después de confirmar, las tres remesas de una división terminan
+  (MC-2).
+- **CC-22.** Al volver a subir un archivo dividido ya cargado, sus cortes vienen destildados y el alta
+  los rechaza sin confirmación (MC-3). Después de eliminar una remesa a medias, solo su corte viene
+  tildado (MC-6).
+- **CC-23.** El número de filas que informa una cancelada coincide con lo que quedó en la base (MC-4).
+- **CC-24.** En una ACTUALIZACIONES "pagó todo" cancelada —a mitad o en el último lote—, ningún caso
+  ausente del archivo quedó dado por pagado (MC-7).
+- **CC-25.** Retomar una remesa que no cargó nada no pide volver a subir el archivo, conserva el número
+  de remesa y el detalle la sigue sin F5 (MC-5, MC-9).
+- **CC-26.** Una remesa a medias no ofrece Retomar en ninguna pantalla (MC-5).
+- **CC-27.** Una pestaña con el frontend de la Fase B muestra una carga cancelada como fallida con el
+  texto de la cancelación, y recibe el `409` del corte repetido (MC-14).
+- **CC-28.** Ninguna página de la wiki dice que no se puede cerrar la pantalla en una carga dividida, ni
+  que hay que destildar a mano los cortes ya cargados, ni que "no se reintenta la misma remesa" sin
+  explicar Retomar.
+- **CC-29.** Nada de lo nuevo usa colores fuera de `theme.palette` (MC-16).
+
+### 10.12 Paquetes de trabajo
+
+Dos paquetes con **conjuntos de archivos disjuntos**, para dos `implementer` en paralelo sobre el mismo
+working tree. El contrato de §10.4 es el único punto de contacto. Valen las reglas de §8.12 y lo que
+enseñó §9.15: nadie commitea; nadie toca un archivo del otro paquete, ni `CHANGELOG.md`, ni este
+documento; nada de `npm run lint` / `eslint --fix` / `prisma format`; **nada de `git stash` ni de ningún
+comando que mueva el árbol** (para comparar contra la base, `git show HEAD:ruta`); todo arnés que
+levante la aplicación lleva `LOG_DIR` a un directorio temporal; ante una duda de contrato manda §10.4;
+y cada informe trae lo hecho, los desvíos, la salida de la verificación y el texto para el CHANGELOG.
+
+#### Paquete BE — backend
+
+| Archivo | Qué |
+|---|---|
+| `backend/prisma/schema.prisma` | **Solo comentarios** de `resultado`, `resumen`, `grupo*` y `cancelSolicitadaAt` (§10.3). No se corre `db push` |
+| `backend/src/modules/imports/progreso/estado-carga.types.ts` | Campos de §10.4.2 |
+| `backend/src/modules/imports/progreso/estado-carga.ts` | `armarEstadoCarga` (campos nuevos, traducción de `CANCELADA`, `cancelable`, `retomable`), `leerResumen`, `textoCancelacion`, la opción `retomable` de `textoInterrupcion`, el caso cancelada de `textoNotificacion` |
+| `backend/src/modules/imports/progreso/estado-carga.spec.ts` | Casos nuevos (spec A) |
+| `backend/src/modules/imports/progreso/progreso-tracker.ts` | §10.5.3: `cancelacionPedida`, `avisarCancelacion`, `cancelar`, `fallar` con el marcador, la compuerta y el reloj leyendo el pedido, `armar` con los valores reales |
+| `backend/src/modules/imports/progreso/progreso-tracker-cancelacion.spec.ts` | **Nuevo.** Spec B |
+| `backend/src/modules/imports/progreso/reaper-cargas.service.ts` | El aviso de cancelación sin honrar (§10.5.7). La consulta de candidatas no se toca |
+| `backend/src/modules/imports/progreso/reaper-cargas.service.spec.ts` | Casos nuevos (spec F) |
+| `backend/src/modules/imports/utils/division-remesa.ts` | `claveDeCorte` |
+| `backend/src/modules/imports/utils/division-remesa.spec.ts` | Casos nuevos (spec G) |
+| `backend/src/modules/imports/utils/hash-archivos.ts` | **Nuevo.** `hashDeArchivos`, la única implementación del hash de una remesa |
+| `backend/src/modules/imports/imports.service.ts` | `encolarLote`, `ejecutarGrupo`, `grupo`, `cancelarCarga`, `cancelarGrupo`, `cerrarCanceladaSinArrancar`, `retomarRemesas` (nuevos); `executeRemesa` (`resumen.origen`); `processImportJob` (puntos de corte, marcador, rama de cancelada); `previewDivision` y `createRemesa` (§10.5.6); `cerrarCargaInterrumpida` (pasa `retomable` al texto); `cargaVivaEnEsteProceso` (un campo más) |
+| `backend/src/modules/imports/imports.controller.ts` | Las seis rutas de §10.4.4, con `@Permisos` y `@Audit` |
+| `backend/src/modules/imports/dtos/import.dto.ts` | `EjecutarGrupoDto`; `repetir?` en `divisiones` |
+| `backend/src/modules/imports/bullmq/imports.processor.ts` | La rama de `cancelada` |
+| `backend/src/modules/imports/bullmq/imports.processor.spec.ts` | Casos nuevos (spec E) |
+| `backend/src/modules/imports/imports-progreso-fase-c1.spec.ts` | **Nuevo.** Spec C |
+| `backend/src/modules/imports/imports-grupo.spec.ts` | **Nuevo.** Spec D |
+| `docs/notificaciones-spec.md` | §10.10 |
+
+No se tocan: ningún archivo de `processors/`, `processor-registry.ts`, `consolidacion/`, `realtime/`,
+`imports.module.ts`, `reaper-cargas.scheduler.ts`, `permisos-catalogo.ts`, `.env.example`, ni ningún
+assert de un `*.spec.ts` que ya exista.
+
+Pasos:
+
+1. **BE-0 — Las siete sondas de §10.9.3.** Antes de escribir código de producción. SC-3, SC-4 y SC-6
+   se pueden escribir contra un prototipo mínimo de la compuerta; si alguna de esas tres no da, **parar
+   y reportar**.
+2. **BE-1 — Contrato y funciones puras**, con el spec A. No dependen de nada.
+3. **BE-2 — Tracker**, con el spec B. Correr también los tres specs del tracker que ya existen.
+4. **BE-3 — Runner** (`processImportJob` e `ImportsProcessor`), con los specs C y E. Es el paso de más
+   riesgo: correr **todos** los specs de imports apenas compile.
+5. **BE-4 — `encolarLote`, `ejecutarGrupo`, `grupo` y `resumen.origen` en `executeRemesa`**, con G-1 a
+   G-9 y G-24.
+6. **BE-5 — Cancelar** (endpoint, grupo, cierre sin arrancar), con G-10 a G-17.
+7. **BE-6 — Retomar**, con G-18 a G-23.
+8. **BE-7 — Cortes ya cargados** (`hashDeArchivos`, `claveDeCorte`, vista de cortes, alta), con G-25 a
+   G-27 y el spec G.
+9. **BE-8 — Reaper** (el aviso), con el spec F.
+10. **BE-9 — Controller, DTO, comentarios del schema y `docs/notificaciones-spec.md`.**
+11. **BE-10 — Verificación:**
+
+```bash
+cd backend
+npx prisma migrate diff --from-schema-datasource prisma/schema.prisma \
+    --to-schema-datamodel prisma/schema.prisma --script      # → "This is an empty migration."
+npm run build
+npx jest src/modules/imports src/modules/realtime src/modules/notificaciones
+npx jest
+git diff --stat -- 'src/modules/imports/processors/'          # → vacío
+git diff -- src/auth/permisos-catalogo.ts                     # → vacío
+```
+
+#### Paquete FE — frontend
+
+| Archivo | Qué |
+|---|---|
+| `frontend/src/types/importProgreso.ts` | Campos de §10.4.2, copiados tal cual |
+| `frontend/src/api/imports.ts` | `ejecutarGrupo`, `obtenerGrupo`, `cancelarCarga`, `cancelarGrupo`, `retomarRemesa`, `retomarGrupo` |
+| `frontend/src/utils/estadoCarga.ts` | `presentarResultado` y `rangoGravedad` con `cancelada`; `motivoNoCancelable`; la edad del pedido de cancelación; los textos de §10.8 |
+| `frontend/src/hooks/useGrupoCarga.ts` | **Nuevo.** §10.8.3 |
+| `frontend/src/components/import/AvisosCarga.tsx` | El aviso de cancelación pedida; el final del aviso de la cola |
+| `frontend/src/components/import/ImportProgress.tsx` | El botón y el diálogo de cancelar |
+| `frontend/src/components/import/ImportSummary.tsx` | Cancelada, retomar, y el resumen de un grupo sin `noEjecutadas` |
+| `frontend/src/pages/ImportWizard.tsx` | §10.8.1, §10.8.2 y §10.8.3 |
+| `frontend/src/pages/ImportDetail.tsx` | Cancelar, retomar, "Cancelada", la línea del grupo, el pedido tardío |
+| `frontend/src/components/layout/AppShell/ImportEnCursoItem.tsx` | "2 de 3" y "Cancelando…" |
+| `frontend/src/hooks/useEstadoCarga.ts` | **Solo si** MC-9 muestra que el polling no se rearma al retomar |
+| `docs/ayuda/03-importacion/01-como-funciona.md`, `05-importar-un-archivo.md`, `07-acciones-masivas.md`, `08-historial-y-problemas.md` | §10.10 |
+
+No se tocan: `SocketContext.tsx`, `NotificacionesContext.tsx`, `NotificacionesPopover.tsx`,
+`ImportHistory.tsx`, `useImportacionesEnCurso.ts`.
+
+Pasos:
+
+1. **FE-1 — Tipos, API y utilidades.** Base de todo; no depende del backend.
+2. **FE-2 — Vista de cortes** con los ya cargados.
+3. **FE-3 — Vista previa de todos los cortes y confirmación por grupo.**
+4. **FE-4 — `useGrupoCarga` y el paso "Importando" de una división.**
+5. **FE-5 — Cancelar:** `ImportProgress`, `AvisosCarga`, detalle.
+6. **FE-6 — Retomar y resumen:** `ImportSummary`, detalle.
+7. **FE-7 — Campanita.**
+8. **FE-8 — Wiki**, con los textos de §10.5.8 y §10.8 copiados, no parafraseados.
+9. **FE-9 — Verificación:** los tres comandos de §10.9.4.
+
+La prueba contra el backend real (§10.9.5) la hace el auditor con los dos paquetes cerrados.
+
+### 10.13 Qué se verificó y qué es suposición
+
+| Afirmación | Cómo se sabe |
+|---|---|
+| Línea de base: 49 suites / 1.069 tests; 99 / 1.745 en total; 5 errores de `tsc` | **Ejecutado** el 09/10/2026 sobre `58bb9e1` |
+| La base local está sincronizada con el schema de HEAD, y C1 no necesita ningún cambio de schema | **Ejecutado** (`prisma migrate diff`, solo lectura) y **leído** (`schema.prisma:210-271`: las columnas existen) |
+| `addBulk` usa un `pipeline` y no un `MULTI`: no es atómico. Aplica `defaultJobOptions` | **Leído** en BullMQ 5.70.4 (`classes/job.js:143-164`, `classes/queue.js:204-233`). **No ejecutado.** Sondas SC-1 y SC-2. El diseño no depende de la atomicidad |
+| Con un solo worker y cola FIFO, si alguna remesa de un lote fue tomada, la primera lo fue antes | **Suposición** sobre el orden de `addBulk`. Sonda SC-1 |
+| El pedido de cancelación y la entrada al post-proceso se serializan por el lock de la fila | **Diseño**, apoyado en la compuerta que la Fase B midió contra MySQL (§9.15). **No ejecutado** para este uso. Sondas SC-3 y SC-4 |
+| Ningún processor es llamado antes de la primera llamada a `processRow` / `processBatch`, y sus constructores no hacen IO | **Leído** (`imports.service.ts:2327-2533`; §8.5.6) |
+| Con el runner vivo, toda llamada a un processor deja `ok + err >= 1`; por eso el marcador se toma de una variable propia y no de los contadores | **Leído** (`:2462-2523`) |
+| Los ausentes de ACTUALIZACIONES se tratan solo en el `afterAll` | **Leído** (`actualizaciones.processor.ts:202`, `:939-941`, `:993`) |
+| Los snapshots de ACCIONES se guardan solo en el `afterAll` | **Leído** (`acciones.processor.ts:280-296`) |
+| La tabla por categoría de §10.5.5 | **Leída** por un agente de solo lectura; el architect revisó por muestreo las citas de PAGOS, FACTURAS, MULTICLAVES, ACCIONES, DEUDORES_Y_FACTURAS y las bajas de MULTI\*. **Nada se ejecutó.** Como el veredicto en todas es "no se ofrece", un error ahí no produce un fallo |
+| `archivoHash` es SHA-256 de los bytes y nadie lo lee | **Leído** (`file-storage.service.ts:12`, `imports.service.ts:771`, `:780`, `:807`) y grep |
+| El editor de plantillas no ofrece la división en las categorías pre-parseadas, y el runner no aplica el corte en ellas | **Leído** (`PlantillaEditor.tsx:826`; `imports.service.ts:2535-2660`) |
+| Los specs existentes pasan sin tocarlos | **Suposición de diseño**, sostenida en los asserts que se leyeron (C-1, los de `textoInterrupcion`) y en un grep de comparaciones de DTO enteros. Lo confirma BE-2 a BE-4 |
+| El frontend de la Fase B muestra un `resultado` desconocido como "Importación finalizada", y una FALLIDA con el texto de `error` | **Leído** (`frontend/src/utils/estadoCarga.ts:335-351`) |
+| `$queryRaw` devuelve una columna `Json` como objeto | **No se sabe.** Sonda SC-5; `leerResumen` acepta las dos formas |
+| El detalle vuelve a seguir una carga que pasa de terminal a en curso | **No verificado.** El hook hoy deja de consultar en un estado terminal. Prueba MC-9 |
+| `SELECT … WHERE id IN (…) ORDER BY id FOR UPDATE` bloquea en orden de id | **Suposición** sobre InnoDB. Sonda SC-7; un deadlock sale como `409`, no en silencio |
+| Hay un solo proceso de backend en prod | **Dato del entorno**, de quien encargó el diseño |
+| En prod `import_progreso` tenía 0 filas al desplegar la Fase B | **Dato de quien encargó el diseño** |
+| Cada referencia `archivo:línea` de §10 | **Leído** contra `58bb9e1` |
+
+### 10.14 Lo que necesita el OK del usuario
+
+Quien orquesta adoptó por defecto las recomendaciones de §5.4 y §5.6. Esto es lo que el usuario tiene
+que ver, porque son decisiones sobre qué le pasa a una carga y qué puede hacer el operador:
+
+1. **Cancelar no deshace nada** (§5.4), con tres consecuencias que no estaban escritas: lo pedido antes
+   del cierre hace que el cierre **no corra**, aunque ya se hayan procesado todas las filas; **no se
+   puede cancelar durante el post-proceso**; y **no se puede cancelar una acción masiva que ya
+   arrancó** (hay que dejarla terminar y revertirla).
+2. **En una carga dividida, si una remesa falla las demás siguen** (§5.6); y dos efectos del encolado
+   en bloque: otro usuario espera a la división entera, y quien la lanzó no puede iniciar otra carga
+   hasta que termina la última remesa.
+3. **Cancelar y retomar no tienen permiso propio:** los puede usar quien tiene "Ejecutar
+   importaciones", sobre sus cargas; sobre las de otros, quien además tiene "Ver importaciones de otros
+   usuarios". La alternativa es un permiso nuevo, que habría que asignar rol por rol antes de que
+   alguien pueda cancelar.
+4. **Retomar solo existe para lo que no cargó ninguna fila.** Una carga que se cortó a mitad no se
+   puede re-ejecutar desde la pantalla en ninguna categoría: sigue valiendo lo que dice su motivo. En
+   cuatro categorías se podría abrir más adelante, con una prueba (§10.5.5).
+5. **Los cortes ya cargados vienen destildados, y el sistema rechaza cargarlos de nuevo salvo que el
+   operador lo confirme.** Es una regla nueva.
+6. **La vista previa de una división pasa a validar todos los cortes**: se espera más antes de poder
+   confirmar (una lectura del archivo por corte), a cambio de ver cada remesa antes de cargarla.
+7. **Hasta la entrega 2, una carga cancelada figura como "FALLIDA" en el Historial** (y en los
+   reportes que usan el estado de la remesa); en su detalle y en la notificación dice "Cancelada".
+8. **Los textos** que ve el operador al cancelar y al retomar (§10.5.8, §10.8.4), en particular los
+   dos que mandan a hacer algo.
+
+Sigue abierta, y no bloquea esta entrega: §5.5 (cargas ajenas), que es de la Fase D.
+
+### 10.15 Esbozo de las entregas 2 y 3
+
+No se diseñan en detalle acá: se diseñan cuando les toque, sobre lo que haya dejado la auditoría de la
+anterior.
+
+#### Entrega 2 (C2) — Interfaz
+
+**Alcance.** `ImportProgressCard` único para el asistente, el detalle y la campanita (stepper de fases,
+barra, contadores, ritmo, y los últimos cinco errores y avisos en vivo); en una división, la barra del
+grupo y una por remesa. Historial que se actualiza solo y dice la verdad: Borrador, En cola, Cancelada,
+Con advertencias, con las remesas de una división agrupadas y los botones de cancelar y retomar en la
+fila. Errores: tabla paginada completa (hoy muestra 100), descarga en CSV autenticada, y la numeración
+de filas arreglada (`rowNumber 0` es a la vez "primera fila" y "aviso"; no cuenta encabezado ni
+descartadas). Campanita con acciones (ver detalle, descargar errores, cancelar, retomar). Chip de
+progreso en la barra superior. Celular: panel como hoja inferior, contadores en dos columnas. Las
+remesas de origen en el detalle (ya están en `resumen.origen`). El singular de "descartó las 1 filas".
+Quitar los alias viejos del DTO.
+
+**Dependencias.** El contrato de C1 (`grupo*`, `cancelada`, `cancelable`, `retomable`). Del backend
+necesita poco: que el listado del Historial traiga `carga` (o los campos mínimos) por remesa; una
+lectura paginada de errores que distinga avisos de filas; el CSV; y los últimos errores de una carga en
+curso (una lectura acotada, o un campo del DTO).
+
+**Riesgos.** Ninguno para los datos. El de siempre en un frontend sin tests: regresiones que solo se
+ven a mano; conviene decidir en ese diseño si se agrega un arnés mínimo. `listRemesas` lo usan también
+los combos de remesa de origen y tiene un spec propio (`imports-list-remesas.spec.ts`): el Historial
+debería ganar su propia lectura en vez de engordar esa. Y el número de fila es un contrato implícito
+con lo que los operadores ya le reportan al cedente: cambiarlo hay que avisarlo.
+
+#### Entrega 3 (C3) — Resumen por categoría, revertir y lo que queda del ciclo de vida
+
+**Alcance.** El `resumen` por categoría de §4 (DEUDORES: altas y filas sobre un caso ya creado por la
+misma carga; PAGOS: aplicados, ya cargados, negativos, con y sin clave; ACTUALIZACIONES: ausentes
+desasignados o dados por pagados, consolidados; MULTI\*: casos, cuotas, bajas; ACCIONES: afectados),
+escrito por cada processor al terminar y mostrado en el resultado y en el detalle. Revertir ACCIONES
+como job de BullMQ con progreso, idempotente ante un segundo clic (#16), y qué ofrece Revertir en una
+carga con advertencias, interrumpida o cancelada. **Cancelar una ACCIONES en curso** guardando antes
+los datos para revertir (un gancho del processor que el runner llama al cortar). Cierre ordenado al
+recibir `SIGTERM`: marcar la carga como interrumpida en el momento del deploy, con el mecanismo de C1,
+en vez de seis minutos después. Abrir "re-ejecutar sobre lo ya cargado" en las categorías donde una
+sonda lo demuestre, o su variante segura para DEUDORES: vaciar la remesa y volver a cargarla en un solo
+paso. Puntos de corte dentro del post-proceso, si con datos reales resulta que hacen falta.
+
+**Dependencias.** C1 (el pedido de cancelación, el marcador, `resumen` versionado). Los tiempos por
+paso que la Fase B deja en el log, con cargas reales. `revertirAcciones` hoy es HTTP síncrono y no mira
+el estado de la remesa.
+
+**Riesgos.** Es la única entrega que toca lo que escriben los processors, dos de ellos destructivos. El
+resumen tiene que salir de contadores que el processor ya lleva, sin consultas nuevas ni cambios de
+orden —la misma regla de "ningún cambio de lógica" de §9.4.4, con el mismo control: el estado de la
+base idéntico con y sin el cambio—. Revertir como job cambia un flujo que hoy "funciona" en cargas
+chicas: hay que probarlo con una acción masiva grande de verdad. Y el cierre en `SIGTERM` compite con
+el tiempo de gracia del contenedor (10 s por defecto): un lote puede tardar más.
+
+**Encontrado de paso, ajeno a esta fase** (leído, no ejecutado; va al backlog):
+
+- **Las bajas por pago de MULTIRREGISTRO y MULTIARCHIVO no tienen anti-duplicados**
+  (`casos-cedente.processor.ts:682-692`): volver a cargar el mismo paquete, o que el cedente reenvíe
+  una baja, crea otro pago, y la consolidación puede dar por cancelado un caso con cuotas vigentes.
+- **`revertirAcciones` no mira el estado de la remesa** (`imports.service.ts:1827-1833`): por API, sobre
+  una FALLIDA sin snapshots, marca la acción como revertida sin revertir nada. La pantalla solo ofrece
+  el botón en una FINALIZADA.
+- **PAGOS:** una fila que confirmó un pago manual, en una plantilla sin id de cobro, se carga de nuevo
+  como pago nuevo al volver a subir un archivo acumulativo.
+- **El combo de remesa de origen filtra FINALIZADA solo en el frontend** (`ImportWizard.tsx:246`); el
+  backend acepta cualquier remesa como origen.
+- **El alta de una carga dividida no es transaccional** (`imports.service.ts:869-916`): si falla en el
+  corte k, quedan k−1 borradores (los borra el reaper).
+
+### 10.16 Lo que cambió en la entrega 1 después de la auditoría (09/10/2026)
+
+C1 se implementó en dos paquetes y pasó por tres auditorías independientes (backend, frontend y wiki),
+**dos pasadas cada una**: es el tope que se fijó después de la Fase B, donde las últimas rondas
+perseguían problemas anteriores a la fase. Esta sección registra dónde el código se apartó de §10.2 a
+§10.12 y por qué. Como en §9.15, el diseño de arriba no se reescribió: **donde se contradicen, vale lo
+de acá.**
+
+**Lo que se vio funcionar** (auditoría de backend, con la aplicación levantada contra MySQL y Redis
+locales y un cliente `socket.io` real):
+
+- Una división de 3 remesas confirmada con `ejecutar-grupo` corrió en orden **sin ningún cliente
+  conectado**; un grupo de 100 se confirmó en 632 ms. `grupo*` y `enColaDelante` correctos en HTTP y en
+  socket; ningún evento sin `grupoId` en 598 eventos.
+- **El `afterAll` nunca corrió después de una cancelación aceptada**: 480 rondas con el processor real
+  de ACTUALIZACIONES (320 "pagó todo", 160 desasignar), la mitad cancelando desde otra instancia, 0
+  violaciones. Por HTTP, cancelar en el último lote dejó la carga en N de N filas, sin pagos automáticos
+  y sin ausentes tocados.
+- **Retomar nunca reprocesó nada**: cancelada en cola, falla antes de la primera fila, con un job viejo
+  esperando (código real, no el prototipo de la sonda SC-6), doble clic (20 rondas: siempre 201 y 409),
+  retomar contra borrar (20 rondas, ningún 5xx) y 8 estados forzados (todos 409).
+- Los números de una cancelada son exactos (881 informadas, 881 casos; 23 errores, 23 filas de error).
+- `kill -9` con la cancelación pedida: la remesa siguiente del grupo continuó al levantar, y el reaper
+  cerró la interrumpida a los 289 s, no retomable y sin re-ejecutarla.
+- El hash de la guarda coincide byte a byte con el `archivoHash` de las cinco remesas reales de la base
+  local (de 1 a 31 archivos), también con los archivos en otro orden.
+
+**Backend** (primera pasada PASA CON OBSERVACIONES, con un hallazgo de impacto ALTO y baja probabilidad;
+segunda y última, **PASA**: los seis hallazgos cerrados contra MySQL y Redis reales).
+
+| Qué | Diseño de §10 | Cómo quedó | Por qué |
+|---|---|---|---|
+| Remesa de origen de una carga | Viaja en `job.data` (como siempre); `resumen.origen` era para retomar | **La fila manda**: si la fila tiene `resumen.origen`, el runner usa ese origen y no el del job, con un `warn` si difieren. `job.data` queda para las cargas anteriores a C1 | Un job que entra tarde procesaba la remesa con el origen del **primer** intento: la cola no responde, el confirmar da 503 y la remesa vuelve a borrador, el operador reconfirma con **otra** remesa de origen, y el job viejo entra antes. Reproducido con un proxy delante de Redis: una ACTUALIZACIONES "desasignar" dejó 4.700 casos desasignados en la remesa equivocada, con la fila diciendo el origen nuevo y la carga FINALIZADA OK. El mecanismo es anterior a C1 (está en `ejecutar/:id` desde siempre) y C1 lo replicaba en `ejecutar-grupo`. §10.5.1 daba por seguros a los jobs "fantasma": procesan la remesa una sola vez, sí, pero no con los parámetros confirmados |
+| Guarda de cortes ya cargados | En la vista de cortes y en el alta; un borrador no cuenta | **También al confirmar** (`executeRemesa` y `ejecutar-grupo`, con la fila bloqueada) **y al retomar**: no pasa una remesa cuyo corte ya figura en otra del mismo archivo y plantilla que esté en curso, cargada o a medias **y que se haya confirmado después de que esta se creó**. 409 en los tres casos | Dos altas del mismo archivo antes de confirmar ninguna (dos operadores, o el mismo dos veces) pasaban las dos y cargaban cada corte dos veces. Y retomar una remesa cancelada en cola después de haber vuelto a subir y cargado ese corte en otra duplicaba la nómina (lo encontraron, por separado, el auditor del frontend y el de la wiki). La comparación de fechas es lo que respeta un `repetir` confirmado a propósito: lo que ya estaba cargado cuando se creó la remesa ya lo vio la guarda del alta |
+| Cancelar mientras lee un Excel o parsea un paquete | "Corta antes de la primera fila: 0 filas, retomable" (tabla de §10.5.3) | Después de una lectura que bloquea, y antes de entregar la primera fila, el runner espera 300 ms (`PAUSA_TRAS_LECTURA_BLOQUEANTE_MS`) y **relee el pedido de la base**. Un CSV no espera | La lectura es síncrona: el pedido HTTP recién se atiende cuando termina, en paralelo con las primeras filas. Medido: una DEUDORES quedaba cancelada con 2 filas y no retomable, y una ACTUALIZACIONES aplicaba un lote entero. Si el pedido tarda más de 300 ms en atenderse llega tarde igual: por eso el diálogo no promete cero |
+| "Una hoja que no existe" como falla previa a la primera fila (§10.5.4) | Ejemplo de carga retomable | **No es una falla**: la lectura cae a la primera hoja (`recorrer-filas.ts`) | El diseño lo daba por ejemplo; la wiki lo copió y hubo que sacarlo |
+| Hash en el alta | `hashDeArchivos(buffers)` en la vista de cortes y en el alta | Una sola fórmula, `combinarHashes`, que el alta aplica sobre el hash de cada archivo guardado y la vista de cortes sobre el SHA-256 de cada buffer | Un spec existente afirma el `archivoHash` con el hash que devuelve el doble de `saveBuffer` |
+| `ejecutar-grupo` con ids repetidos | 400 (§10.4.4) | Se deduplican y recién ahí se valida el 2 a 100 (caso G-2) | El spec se contradecía |
+| `import:progreso` EN_COLA de un grupo | Después de guardar los `jobId` | Justo después del `addBulk`, antes de esas escrituras | El de la primera remesa llegaba después de su `import:iniciada`, con `rev` menor |
+| `cancelarGrupo` | — | Una remesa que termina mientras se recorre el grupo sale `YA_TERMINADA`, no `RECHAZADA`; `resultados` va por `grupoOrden` | — |
+| `omitidas` al retomar un grupo | Toda remesa no retomable | Solo las **fallidas** que no se pueden retomar | La pantalla listaba casi siempre las que habían terminado bien, con "no hay nada que retomar" |
+| `cancelSolicitadaAt` al confirmar | Lo limpiaba solo la confirmación de grupo | También `executeRemesa` | Simetría; no se encontró cómo alcanzarlo |
+| Motivo de una cancelada con filas con error | "Las {ok} filas ya procesadas ({err} dieron error) quedaron cargadas…" | "De las {procesadas} filas ya procesadas, {ok} quedaron cargadas en esta remesa y {err} dieron error; el cierre de la carga no corrió." (y sus variantes por categoría) | Con 0 cargadas y 40 con error decía "Las 0 filas ya procesadas (40 dieron error) quedaron cargadas" |
+| Aviso del corte dividido en el motivo (cancelada, interrumpida, "no llegó a empezar") | "…tildá solo los cortes que no se cargaron" (Fase B) / "…aparecen destildados; dejalos así" | "…los cortes que ya están cargados aparecen destildados; dejalos así. **Si no aparece ninguno destildado, el sistema no reconoció el archivo: destildá a mano los que ya figuran cargados en el Historial.**" | La guarda reconoce el archivo por sus bytes exactos: un archivo vuelto a bajar del cedente con otros bytes trae todos los cortes tildados. Cambió dos asserts de la Fase B (H-5d y los de `textoInterrupcion`): la política cambió, ahora la guarda existe |
+| Textos menores | — | El 409 de retomar con el dueño ocupado nombra al dueño; los mensajes del DTO de `ejecutar-grupo`, en español | — |
+
+**Frontend** (PASA CON OBSERVACIONES en las dos pasadas; el punto que la segunda pedía para pasar a PASA
+se corrigió después y se verificó con las pruebas del propio auditor: 26 de 28 en verde y las otras dos,
+las que afirmaban el texto viejo).
+
+| Qué | Diseño de §10 | Cómo quedó | Por qué |
+|---|---|---|---|
+| Cancelar una división | El botón es el de la remesa en curso, con dos opciones en el diálogo | **A nivel de la división**: mientras alguna remesa sea cancelable, el botón queda activo como "Cancelar todo lo que falta" aunque la remesa en curso no se pueda cortar (post-proceso, acción masiva ya empezada, pedido ya hecho), y el diálogo dice cuál no se corta. Si la en curso sí se corta, el cartel la nombra entre lo que se cancela | Con la remesa actual cerrando el botón quedaba gris, la wiki mandaba a esperar, y al terminar arrancaba la siguiente: no había forma de frenar las que esperaban |
+| El 409 del alta por un corte que se cargó mientras tanto | Volver a pedir la vista de cortes | La re-consulta **conserva** lo que el operador editó (`incluir` y número de remesa) y aplica solo el `yaCargado` nuevo; avisa que los recién cargados quedaron destildados | Volvía tildado un corte que el operador había destildado, con el botón diciendo lo mismo que antes |
+| "Cargar las que faltan" | Abría un grupo nuevo | El resumen final **acumula** la primera corrida; nunca "Importación exitosa" con remesas sin encolar | Una división con una remesa fallida terminaba titulando "exitosa · 100 %" |
+| `situacion` de un corte que el frontend no conoce | — | Destildado, con un texto neutro | Fallaba abierto: lo tildaba y decía "no llegó a cargarse" |
+| "Quedó a medias en la remesa N" | "…eliminala antes de volver a cargar este corte" | "eliminala" solo en Deudores y Deudores y Facturas; en las demás, "avisá a soporte antes de volver a cargar este corte" | Borrar una remesa de pagos, actualizaciones o facturas no deshace nada |
+| Pedido de cancelación que llegó tarde | "…terminó completa." en todo terminal no cancelado | "terminó completa" solo si el resultado es OK; en los demás, "el pedido llegó tarde y la carga terminó igual"; nada si terminó fallida. También en el Resultado del asistente | Se lo decía a una carga con advertencias o sin filas, y a una interrumpida |
+| Diálogo de cancelar durante la lectura | No estaba definido | "…Si la cancelás ahora no debería cargarse ninguna; el resultado lo dice con el número exacto y, si no se cargó ninguna, la podés retomar desde su detalle." | Ver la pausa tras la lectura, arriba |
+| `useGrupoCarga` | — | Devuelve `noExiste` tras tres 404 separados por al menos 6 s (como `useEstadoCarga`) | — |
+| Otros desvíos menores | — | "Cancelada antes de empezar" en la lista del grupo; "Retomar la que no se cargó" en singular; los avisos de las remesas 2..N de una división se listan además del conteo; un toast al cancelar en cola | — |
+
+**Wiki** (primera pasada NO PASA: dos ALTO; los textos citados coincidían 52 de 52). Los dos ALTO no
+eran de redacción y terminaron también en el código: la promesa sin condición de que los cortes ya
+cargados "vienen destildados" (la guarda reconoce el archivo por sus bytes: se repuso el control a mano
+contra el Historial como respaldo, en la wiki y en el motivo) y la imposibilidad de cancelar lo que
+falta de una división con la remesa actual cerrando (primera fila de la tabla de frontend). Se tocaron
+`01`, `04`, `05`, `06-actualizaciones.md`, `07` y `08`.
+
+**Deuda conocida de C1:**
+
+| Qué | Dónde se resuelve |
+|---|---|
+| Nada se vio en un navegador (ni de A, ni de B, ni de C1) | Prueba manual (§10.9.5) |
+| Dos confirmaciones **simultáneas** de remesas distintas con el mismo corte, de dos usuarios, pueden pasar las dos la guarda (lee las otras sin bloquearlas). La ventana es lo que dura la transacción de confirmar, medido: ~15 ms para una remesa suelta (con 15 ms de desfase pasan 3 de 12), ~40 ms para un grupo de 3, medio segundo para uno de 30 (con 600 ms ya no pasa ninguna) y 1,5 a 2 s para uno de 100. Del mismo usuario no pasa nunca (0 de 12): lo serializa el bloqueo por usuario. Antes de C1 la ventana era ilimitada | Backlog: bloquear por archivo y corte al confirmar |
+| Un `ejecutar-grupo` con el mismo corte dos veces **dentro del mismo pedido** (los borradores de dos altas del mismo archivo) carga los dos. Solo por API: el asistente manda los ids de una sola alta | Backlog, con la fila de arriba |
+| Retomar un **grupo** cuyos cortes ya figuran en otra remesa responde un 409 genérico ("ya procesaron filas o no terminaron"), y el DTO de esas remesas sigue diciendo `retomable: true`: el botón se ofrece y responde 409. El retomar de una sola remesa sí da el texto correcto | C2 |
+| La guarda no cubre a una remesa **sin corte**: retomar una remesa suelta después de haber vuelto a subir y cargado ese mismo archivo en otra carga lo mismo dos veces (en Deudores, los casos; en Acciones, los comentarios). La wiki lo advierte | Backlog |
+| La auditoría `IMPORT_OK` guarda el origen que traía el job, no el que se usó (solo afecta la traza). Ningún spec afirma `enColaDelante` en los eventos EN_COLA de un grupo (en la prueba con socket salen 0, 1 y 2). Confirmar un grupo de 100 pasó de 0,6 s a 1,5-2 s por la guarda | Backlog |
+| La guarda reconoce el archivo por sus **bytes**: el mismo contenido vuelto a bajar del cedente con otros bytes no se reconoce, y tampoco si la plantilla cambió sus columnas de corte o si se cargó con otra plantilla. El respaldo es manual (Historial) | Decisión de producto: ¿reconocer por plantilla y valor del corte, sin el hash? |
+| Cancelar durante una lectura larga depende de que el pedido se atienda dentro de los 300 ms que siguen a la lectura. Medido: con el pedido a 290 ms quedó 1 caso cargado y la remesa no retomable (el número informado es exacto); con la base lenta puede no llegar a tiempo | — |
+| Una carga trabada en un `await`, y una en post-proceso, no se cortan: el pedido queda escrito (o se rechaza) y sale con un reinicio | C3 |
+| El Historial muestra una cancelada como FALLIDA y las remesas en cola de una división como PENDIENTE, igual que un borrador (y se pueden borrar desde ahí); no tiene botones de cancelar ni retomar | C2 |
+| Las remesas que el backend no pudo encolar (residuo mixto) solo se confirman con "Cargar las que faltan" del asistente: si se cerró, hay que eliminarlas y volver a subir esos cortes | C2 |
+| En el detalle de una remesa en cola, la lista del diálogo de cancelar es la foto de cuando se abrió; si la división no se pudo leer nunca, el diálogo no avisa que se cancela solo esa remesa; `ejecutar-grupo` sin respuesta deja "Enviando a la cola…" sin seguimiento (acotado por el tope de 10 s); cosméticos de gramática y de textos | C2 |
+| El 409 de corte repetido se reconoce en el frontend por la frase "cortes cargados": conviene un código | C2 |
+| `ejecutar-grupo` y `ejecutar/:id` no comprueban que el borrador sea de quien confirma (anterior a C1) | Backlog |
+| El alta rechazada por corte repetido deja el archivo en `uploads` | Backlog (§9.1) |
+| MULTIARCHIVO y MULTICLAVES no corrieron contra la base (no hay archivos de cedente locales); MULTIRREGISTRO corrió por primera vez, en la segunda pasada, con un archivo generado con el layout de Toyota del repo. Un `addBulk` que deja el lote a medias solo está cubierto por un test | Primera carga real |
+
+**Encontrado de paso, ajeno a C1** (al backlog; leído, no ejecutado): las bajas por pago de
+MULTIRREGISTRO y MULTIARCHIVO no tienen anti-duplicados (recargar el paquete duplica pagos y puede
+cancelar un caso); `revertirAcciones` no mira el estado de la remesa (por API, sobre una FALLIDA sin
+snapshots, la marca como revertida sin revertir nada); en PAGOS, una fila que confirmó un pago manual en
+una plantilla sin id de cobro se duplica al recargar un archivo acumulativo; el filtro FINALIZADA del
+combo de remesa de origen está solo en el frontend; el alta de una división no es transaccional.
+
+**Veredictos al cierre (09/10/2026).** Backend: **PASA** (segunda pasada). Frontend: PASA CON OBSERVACIONES en
+la segunda pasada, que pasaba a PASA corrigiendo un punto (el cartel de "Cancelar todo lo que falta" no
+nombraba a la remesa en curso, que el pedido corta igual); se corrigió después y se verificó con las pruebas
+del propio auditor, sin una tercera pasada. Wiki: PASA CON OBSERVACIONES en la segunda pasada; sus tres
+puntos medios y la mayoría de los menores se aplicaron después, verificados solo con `verificar-ayuda`.
+
+Tests al cierre: 52 suites / 1.255 tests en imports + realtime + notificaciones (base: 49 / 1.069) y 102
+suites / 1.931 en la suite completa (base: 99 / 1.745). Frontend: `tsc --noEmit` con los 5 errores de base,
+`npm run build` y `npm run verificar-ayuda` en verde. El auditor de backend aplicó 82 mutaciones entre las
+dos pasadas (sobreviven 3 equivalentes y una real: el `enColaDelante` de los eventos de un grupo). `prisma
+migrate diff` vacío: C1 no cambia el schema.
+
+**Una cosa que salió mal durante el trabajo:** en la ronda de arreglos, un reemplazo mal anclado le
+borró al implementer unas 2.000 líneas de `imports.service.ts`. Lo recuperó de la caché de jest y
+reaplicó los cambios; se comprobó contra `HEAD` que no falta ningún método ni hay bloques borrados
+(+1.314 / −40 líneas), con el build y la suite completa en verde. Para ediciones grandes sobre ese
+archivo (casi 5.000 líneas): anclas únicas y una copia antes.
+
+---
 ## PLAN PARA IMPLEMENTER
 
-> Este bloque es el de la **Fase A**, ya ejecutada. El de la Fase B está al final del documento.
+> Este bloque es el de la **Fase A**, ya ejecutada. Los de la Fase B y de la primera entrega de la
+> Fase C están más abajo, al final del documento.
 
 **Orden de implementación:**
 Dos paquetes en paralelo (§8.12). Dentro de cada uno:
@@ -4110,3 +5907,61 @@ Dos paquetes en paralelo (§9.12), con el contrato de §9.4 como único punto de
 - Volver a la imagen anterior choca con la columna nueva y restaura la re-ejecución automática.
 
 **Criterios de aceptación:** CB-1 a CB-33 de §9.11.
+
+---
+## PLAN PARA IMPLEMENTER — Fase C, entrega 1
+
+Diseño completo en [§10](#10-diseño-de-la-fase-c) (la entrega 1 es §10.2 a §10.14; las entregas 2 y 3
+están esbozadas en §10.15 y se diseñan cuando les toque). Antes de empezar: el OK del usuario a los ocho
+puntos de §10.14.
+
+**Orden de implementación:**
+Dos paquetes en paralelo (§10.12), con el contrato de §10.4 como único punto de contacto. Dentro de cada uno:
+- BE-0 las siete sondas contra Redis y MySQL locales (la garantía de "si pediste cancelar, el cierre no corre" descansa en la serialización por el lock de la fila, que para este uso solo está diseñada: si SC-3, SC-4 o SC-6 no dan, parar) → BE-1 contrato y funciones puras → BE-2 tracker (el pedido de cancelación en la compuerta y en el reloj, `cancelar`, el marcador en `fallar`, `armar` con los valores reales) → BE-3 runner e `ImportsProcessor` (puntos de corte, marcador, rama de cancelada) → BE-4 `encolarLote`, `ejecutarGrupo`, `grupo` y `resumen.origen` en `executeRemesa` → BE-5 cancelar → BE-6 retomar → BE-7 cortes ya cargados → BE-8 aviso del reaper → BE-9 controller, DTO, comentarios del schema y `notificaciones-spec.md` → BE-10 verificación.
+- FE-1 tipos, API y utilidades (no depende del backend) → FE-2 vista de cortes con los ya cargados → FE-3 vista previa de todos los cortes y confirmación por grupo → FE-4 `useGrupoCarga` y el paso "Importando" de una división → FE-5 cancelar → FE-6 retomar y resumen → FE-7 campanita → FE-8 wiki → FE-9 verificación.
+
+**Archivos a crear:**
+- Backend: `backend/src/modules/imports/utils/hash-archivos.ts`; `backend/src/modules/imports/progreso/progreso-tracker-cancelacion.spec.ts`; `backend/src/modules/imports/imports-progreso-fase-c1.spec.ts`; `backend/src/modules/imports/imports-grupo.spec.ts`.
+- Frontend: `frontend/src/hooks/useGrupoCarga.ts`.
+
+**Archivos a modificar:**
+- `backend/prisma/schema.prisma` — **solo comentarios** `///` de `resultado`, `resumen`, `grupo*` y `cancelSolicitadaAt`. Ningún campo, ningún índice, ningún enum.
+- `backend/src/modules/imports/progreso/estado-carga.types.ts` — `grupoId`, `grupoOrden`, `grupoTotal`, `cancelacionPedidaAt`, `cancelada`, `canceladaPor`, `cancelable`, `retomable`. `ResultadoCarga` no gana valores.
+- `backend/src/modules/imports/progreso/estado-carga.ts` (y su spec, con casos nuevos) — `armarEstadoCarga` (campos nuevos; la columna `CANCELADA` viaja como `resultado: 'FALLIDA'` más `cancelada: true`; `cancelable`; `retomable`), `leerResumen`, `textoCancelacion`, la opción `retomable` de `textoInterrupcion` (sin ella, el texto de hoy), el caso cancelada de `textoNotificacion`.
+- `backend/src/modules/imports/progreso/progreso-tracker.ts` — `CargaCanceladaError`, `cancelacionPedida`, `avisarCancelacion`, `canceladaPor`, `cancelacionPedidaHaceMs`, `cancelar`; tercer argumento opcional de `fallar` (`sinFilasEntregadas`); el `SELECT … FOR UPDATE` de la compuerta lee `cancelSolicitadaAt` y `resumen`; `iniciar` y `entrarEnPostProceso` no escriben si hay un pedido; la escritura del reloj lee `cancelSolicitadaAt` junto con `rev`; `armar` deja de pasar `null` fijo en `resumen`, `grupo*` y `cancelSolicitadaAt`.
+- `backend/src/modules/imports/progreso/reaper-cargas.service.ts` (y su spec, con casos nuevos) — el aviso de cancelación sin honrar. La consulta de candidatas no se toca.
+- `backend/src/modules/imports/utils/division-remesa.ts` (y su spec, con casos nuevos) — `claveDeCorte`.
+- `backend/src/modules/imports/imports.service.ts` — nuevos: `encolarLote` (privado), `ejecutarGrupo`, `grupo`, `cancelarCarga`, `cancelarGrupo`, `cerrarCanceladaSinArrancar`, `retomarRemesas`. Cambian: `executeRemesa` (guarda `resumen.origen` en su escritura transaccional; nada más); `processImportJob` (puntos de corte de lote, de fila y previo al cierre; `filasEntregadas`; rama de `CargaCanceladaError`; `fallar` con el marcador); `previewDivision` (`yaCargado` por corte); `createRemesa` (usa `hashDeArchivos`; `409` de corte repetido salvo `repetir`); `cerrarCargaInterrumpida` (lee `resumen` y pasa `retomable` al texto); `cargaVivaEnEsteProceso` (agrega `cancelacionPedidaHaceMs`).
+- `backend/src/modules/imports/imports.controller.ts` — `POST ejecutar-grupo`, `POST remesas/:id/cancelar`, `POST grupos/:grupoId/cancelar`, `POST remesas/:id/retomar`, `POST grupos/:grupoId/retomar`, `GET grupos/:grupoId`.
+- `backend/src/modules/imports/dtos/import.dto.ts` — `EjecutarGrupoDto`; `repetir?` en `divisiones`.
+- `backend/src/modules/imports/bullmq/imports.processor.ts` (y su spec, con casos nuevos) — un resultado `cancelada` no se audita como `IMPORT_OK`.
+- `docs/notificaciones-spec.md`.
+- `frontend/src/types/importProgreso.ts`, `api/imports.ts`, `utils/estadoCarga.ts`; `components/import/AvisosCarga.tsx`, `ImportProgress.tsx`, `ImportSummary.tsx`; `pages/ImportWizard.tsx`, `ImportDetail.tsx`; `components/layout/AppShell/ImportEnCursoItem.tsx`; `hooks/useEstadoCarga.ts` solo si la prueba MC-9 lo pide.
+- No se tocan: ningún archivo de `processors/`, `processor-registry.ts`, `consolidacion/`, `realtime/`, `imports.module.ts`, `reaper-cargas.scheduler.ts`, `permisos-catalogo.ts`, `.env.example`, ni ningún assert de un spec que ya exista; `SocketContext.tsx`, `NotificacionesContext.tsx`, `NotificacionesPopover.tsx`, `ImportHistory.tsx`, `useImportacionesEnCurso.ts`.
+
+**Cambios de schema:** ninguno. Se usan columnas que la Fase A dejó en `import_progreso`: `grupoId`, `grupoOrden`, `grupoTotal`, `cancelSolicitadaAt`, `resumen` (JSON versionado: `{ v: 1, origen, sinFilasEntregadas?, cancelacion?, retomas? }`) y un valor nuevo, `CANCELADA`, en `resultado` (`VarChar`). `remesa.estadoProceso` no se toca: una cancelada queda `FALLIDA`. **No se corre `prisma db push`**; `prisma migrate diff` tiene que dar vacío antes y después. **Sin backfill:** una carga anterior no tiene `resumen.origen` y por eso no es retomable.
+
+**Tests a escribir:** casos nuevos en `estado-carga.spec.ts` (traducción de `CANCELADA`, matrices de `cancelable` y `retomable`, `textoCancelacion`, `textoInterrupcion` con `retomable`, notificación de cancelada); `progreso-tracker-cancelacion.spec.ts` (14 casos: el pedido visto en la compuerta de cada escritura, en el reloj y en memoria; `iniciar` y `entrarEnPostProceso` que no escriben; una lectura vacía que no cancela; `cancelar`; el `resumen` que no se pisa; los eventos con `grupo*`); `imports-progreso-fase-c1.spec.ts` (16 casos: corte por fila y por lote, cancelación en el último lote sin `afterAll`, carga que no arranca, el marcador en sus cuatro variantes, remesa retomada, y la secuencia de B-1 intacta); `imports-grupo.spec.ts` (27 casos: grupo, compensación, cancelar, retomar, origen, cortes ya cargados y el hash único); casos nuevos en `imports.processor.spec.ts`, `reaper-cargas.service.spec.ts` y `division-remesa.spec.ts`. Los dobles se comportan como MySQL y Prisma en lo que el diseño apoya (un `update` condicionado que no encuentra la fila no tira; el `FOR UPDATE` devuelve la fila actual; hay casos con una lectura vacía sin error). Detalle en §10.9.2. Más las siete sondas de §10.9.3.
+
+**Páginas de la wiki a tocar:** `docs/ayuda/03-importacion/05-importar-un-archivo.md`, `08-historial-y-problemas.md`, `01-como-funciona.md`, `07-acciones-masivas.md`. Actualizar `revisado`, correr `cd frontend && npm run verificar-ayuda` y pasar cada página por un agente revisor.
+
+**Skills a consultar:** BE: `bullmq-worker`, `nestjs-module`, `prisma-migration` (para lo que **no** hay que hacer: ni push ni migración), `amsa-general`. FE: `react-component`, `amsa-general`.
+
+**Riesgos durante la implementación:**
+- `processImportJob` es el camino de toda la cartera: después de cada cambio en el runner, correr todos los specs de imports. Los puntos de corte son lecturas de una bandera en memoria; si alguno termina haciendo IO por fila, está mal.
+- El `afterAll` de ACTUALIZACIONES da por pagados a los ausentes: una cancelación pedida antes del cierre **nunca** puede dejarlo correr. La sonda SC-3 va antes de escribir el runner.
+- Retomar una remesa que ya cargó filas duplica casos, pagos o comentarios. El marcador lo prende una variable del runner **antes** de llamar al processor, lo escribe solo el runner vivo, y el endpoint además cuenta casos y claves. Lo que cierra el reaper nunca lleva el marcador.
+- Ninguna decisión puede colgar de un resultado vacío: el pedido de cancelación es un valor no nulo; un vacío es "nadie pidió".
+- Las escrituras condicionadas van con relectura `FOR UPDATE` en una transacción (o una sentencia con chequeo de filas afectadas), nunca con un `update` de Prisma con `where` no único.
+- `resumen` se mezcla siempre con lo que se acaba de leer bajo el lock, nunca con una copia de memoria: si no, el cierre pisa a quien pidió la cancelación.
+- `addBulk` no es atómico (usa un `pipeline`): no asumir "todas o ninguna".
+- El hash de la vista de cortes y el del alta tienen que salir de la misma función; dos implementaciones es una guarda que no encuentra nada, en silencio.
+- Si hace falta tocar un assert de un spec existente, parar: en esta entrega no hay ninguno admitido.
+- Un "qué hacer" para el operador solo se escribe si está verificado contra el processor y contra `deleteRemesa`.
+- En el frontend, `vite build` no chequea tipos, y todo campo nuevo puede llegar `undefined` desde un backend viejo.
+- Al retomar, el detalle tiene que volver a seguir una carga que pasó de terminal a en curso: el hook hoy deja de consultar al llegar a un estado terminal.
+- Nada de `git stash` ni de comandos que muevan el árbol; `LOG_DIR` temporal en todo arnés que levante la aplicación; nada de `npm run lint`.
+- Si los dos commits se pushean juntos, el frontend llega antes que el backend y `ejecutar-grupo` da 404.
+- El diseño supone un solo proceso de backend (§10.2 dice qué se rompe con dos).
+
+**Criterios de aceptación:** CC-1 a CC-29 de §10.11.

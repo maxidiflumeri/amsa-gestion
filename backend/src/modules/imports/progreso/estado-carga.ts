@@ -1,7 +1,7 @@
 // Funciones puras del estado de una carga (docs/imports-progreso-realtime-spec.md §8.3 y §8.5).
 // Las usan las tres lecturas HTTP y el `ProgresoTracker`: HTTP y socket arman el DTO con el mismo código.
 import type { import_progreso } from '@prisma/client';
-import type { EstadoCargaDto, EstadoProcesoRemesa, ResultadoCarga } from './estado-carga.types';
+import type { EstadoCargaDto, EstadoProcesoRemesa, ResultadoCarga, ResumenCarga } from './estado-carga.types';
 
 /** Máximo de caracteres del motivo que se persiste en `import_progreso.error`. */
 export const MAX_ERROR_PERSISTIDO = 4000;
@@ -29,6 +29,12 @@ export interface RemesaParaEstado {
 export interface ExtrasEstado {
     /** Cargas en curso confirmadas antes que esta. Solo se usa si la fase es EN_COLA. */
     enColaDelante?: number | null;
+}
+
+/** Separador de miles propio (sin `toLocaleString`: no se depende del ICU del contenedor). */
+export function conPuntoDeMiles(n: number): string {
+    const entero = Math.max(0, Math.floor(n));
+    return String(entero).replace(/\B(?=(\d{3})+(?!\d))/g, '.');
 }
 
 /** Una ETA de más de esto no informa nada. */
@@ -104,6 +110,50 @@ export function calcularRitmo(
 
 function iso(d: Date | null | undefined): string | null {
     return d ? d.toISOString() : null;
+}
+
+/** Valor de `import_progreso.resultado` de una carga cancelada. En el DTO viaja como `FALLIDA` + `cancelada: true` (§10.4.2). */
+export const RESULTADO_CANCELADA = 'CANCELADA';
+
+/**
+ * Lee `import_progreso.resumen`. Acepta el objeto o su texto JSON (`$queryRaw` y Prisma no tienen por qué
+ * devolver la misma forma) y nunca tira: algo ilegible, o que no es un objeto, es `null`.
+ */
+export function leerResumen(raw: unknown): ResumenCarga | null {
+    let valor = raw;
+    if (typeof valor === 'string') {
+        try {
+            valor = JSON.parse(valor);
+        } catch {
+            return null;
+        }
+    }
+    if (valor === null || typeof valor !== 'object' || Array.isArray(valor)) return null;
+    return valor as ResumenCarga;
+}
+
+/**
+ * Retomable ⟺ la remesa está FALLIDA, terminó, su `resumen` es de la versión 1 con `origen`, y nunca arrancó o
+ * el runner vivo marcó que no le entregó ninguna fila a un processor (§10.4.1). Los contadores no prueban nada.
+ */
+export function esRetomable(
+    estadoProceso: string,
+    fila: { finishedAt?: Date | null; startedAt?: Date | null; resumen?: unknown } | null,
+): boolean {
+    if (!fila || estadoProceso !== 'FALLIDA' || !fila.finishedAt) return false;
+    const resumen = leerResumen(fila.resumen);
+    if (!resumen || resumen.v !== 1 || !resumen.origen || typeof resumen.origen !== 'object') return false;
+    return !fila.startedAt || resumen.sinFilasEntregadas === true;
+}
+
+/** Cancelable ⟺ está en curso, nadie pidió cancelar, no está en post-proceso y no es una ACCIONES que ya arrancó (§10.4.1). */
+export function esCancelable(
+    categoria: string | null | undefined,
+    fila: { fase: string; encoladaAt?: Date | null; finishedAt?: Date | null; startedAt?: Date | null; cancelSolicitadaAt?: Date | null },
+): boolean {
+    const enCurso = fila.encoladaAt != null && fila.finishedAt == null;
+    if (!enCurso || fila.cancelSolicitadaAt != null || fila.fase === 'POST_PROCESO') return false;
+    return !(categoria === 'ACCIONES' && fila.startedAt != null);
 }
 
 function resultadoHeredada(r: RemesaParaEstado): ResultadoCarga {
@@ -185,14 +235,28 @@ export function armarEstadoCarga(
             errFilas: err,
             totalFilas: terminal ? procesadas : r.totalFilas,
             durationMs: null,
+            grupoId: null,
+            grupoOrden: null,
+            grupoTotal: null,
+            cancelacionPedidaAt: null,
+            cancelada: false,
+            canceladaPor: null,
+            cancelable: false,
+            retomable: false,
         };
     }
 
     const enCurso = fila.encoladaAt != null && fila.finishedAt == null;
+    // La columna guarda `CANCELADA` (la verdad, consultable por SQL); el DTO la traduce a `FALLIDA` + `cancelada`:
+    // una pestaña que no conoce el campo la muestra como fallida con el motivo, que es cierto (§10.4.2).
+    const cancelada = terminal && fila.resultado === RESULTADO_CANCELADA;
     const resultado: ResultadoCarga | null = terminal
-        ? ((fila.resultado as ResultadoCarga | null) ??
-            (estadoProceso === 'FALLIDA' ? 'FALLIDA' : resultadoHeredada({ ...r, totalFilas: fila.procesadas, errFilas: fila.err })))
+        ? cancelada
+            ? 'FALLIDA'
+            : ((fila.resultado as ResultadoCarga | null) ??
+                (estadoProceso === 'FALLIDA' ? 'FALLIDA' : resultadoHeredada({ ...r, totalFilas: fila.procesadas, errFilas: fila.err })))
         : null;
+    const resumen = leerResumen(fila.resumen);
     const progreso = terminal
         ? estadoProceso === 'FINALIZADA' ? 100 : Math.min(99, fila.porcentaje)
         : Math.min(99, fila.porcentaje);
@@ -234,6 +298,14 @@ export function armarEstadoCarga(
         errFilas: fila.err,
         totalFilas: terminal ? fila.procesadas : fila.totalEsperado,
         durationMs: duracionMs,
+        grupoId: fila.grupoId ?? null,
+        grupoOrden: fila.grupoOrden ?? null,
+        grupoTotal: fila.grupoTotal ?? null,
+        cancelacionPedidaAt: iso(fila.cancelSolicitadaAt),
+        cancelada,
+        canceladaPor: typeof resumen?.cancelacion?.nombre === 'string' ? resumen.cancelacion.nombre : null,
+        cancelable: esCancelable(r.categoria, fila),
+        retomable: esRetomable(estadoProceso, fila),
     };
 }
 
@@ -319,9 +391,13 @@ const ORACION_SIN_JOB =
  * caso tiene gestión; ACCIONES guarda los datos para revertir recién en el `afterAll`. El resto
  * escribe sobre casos de otras remesas: no se afirma ningún remedio.
  */
-const AVISO_CORTE =
-    ' Esta remesa es un corte de un archivo dividido: al volver a cargarlo, tildá solo los cortes que no se cargaron. ' +
-    'Si tildás uno que ya está cargado, sus casos quedan duplicados.';
+export const AVISO_CORTE =
+    ' Esta remesa es un corte de un archivo dividido: al volver a subirlo, los cortes que ya están cargados aparecen destildados; dejalos así. ' +
+    'Si no aparece ninguno destildado, el sistema no reconoció el archivo: destildá a mano los que ya figuran cargados en el Historial.';
+
+/** Segundo párrafo de una carga que no le entregó ninguna fila a un processor (§10.5.8). */
+const QUE_HACER_SIN_FILAS =
+    'No se cargó ninguna fila. Para cargarla, usá «Retomar» en el detalle de la importación: no hace falta volver a subir el archivo.';
 
 function remedioDeInterrupcion(categoria: string | null | undefined, conCorte: boolean): string {
     switch (categoria) {
@@ -352,18 +428,100 @@ function remedioDeInterrupcion(categoria: string | null | undefined, conCorte: b
 export function textoInterrupcion(
     motivo: MotivoInterrupcion,
     categoria: string | null | undefined,
-    opciones: { conCorte?: boolean } = {},
+    opciones: { conCorte?: boolean; retomable?: boolean } = {},
 ): string {
     if (motivo === 'SIN_JOB') {
+        // Retomable (§10.5.4): no se cargó nada y se puede volver a encolar la misma remesa; no hay que subir nada.
+        if (opciones.retomable === true) return `${ORACION_SIN_JOB}\n\n${QUE_HACER_SIN_FILAS}`;
         // Con corte propio, resubir con todos los cortes tildados duplicaría los que ya se cargaron (cualquier categoría).
         return `${ORACION_SIN_JOB}\n\nNo se cargó ninguna fila: volvé a importar el archivo.${opciones.conCorte === true ? AVISO_CORTE : ''}`;
     }
     return `${ORACION_INTERRUMPIDA}\n\n${remedioDeInterrupcion(categoria, opciones.conCorte === true)}`;
 }
 
+export interface EntradaTextoCancelacion {
+    /** Filas ya resueltas ok / con error. */
+    ok: number;
+    err: number;
+    /** Total esperado según la vista previa; 0 o ausente = no se sabe. */
+    total?: number | null;
+    categoria?: string | null;
+    conCorte?: boolean;
+    /** Nombre de quien pidió cancelar. */
+    por?: string | null;
+    /** El worker llegó a tomar la carga. */
+    arranco: boolean;
+    /** Ningún processor fue llamado. */
+    sinFilasEntregadas: boolean;
+}
+
+/**
+ * Texto de `import_progreso.error` de una carga cancelada (§10.5.8). La primera línea es la que viaja en la
+ * notificación; el qué hacer va en un párrafo aparte y solo se afirma lo verificado contra el processor y
+ * contra `deleteRemesa`.
+ */
+export function textoCancelacion(d: EntradaTextoCancelacion): string {
+    const por = d.por && d.por.trim() ? ` por ${d.por.trim()}` : '';
+    const procesadas = d.ok + d.err;
+    const total = d.total != null && Number.isFinite(d.total) && d.total > 0 ? d.total : null;
+    let primera: string;
+    if (!d.arranco) primera = `La importación fue cancelada${por} antes de empezar.`;
+    else if (total != null) {
+        primera = `La importación fue cancelada${por} cuando llevaba ${conPuntoDeMiles(procesadas)} de ${conPuntoDeMiles(total)} filas.`;
+    } else primera = `La importación fue cancelada${por} cuando llevaba ${conPuntoDeMiles(procesadas)} filas.`;
+    if (primera.length > MAX_PRIMERA_LINEA) primera = `${primera.slice(0, MAX_PRIMERA_LINEA - 1).trimEnd()}…`;
+
+    if (!d.arranco || d.sinFilasEntregadas) return `${primera}\n\n${QUE_HACER_SIN_FILAS}`;
+
+    // Con filas con error el "ok" solo no dice la verdad ("Las 0 filas ya procesadas (40 dieron error) quedaron cargadas").
+    const conError = d.err > 0;
+    const de = `De las ${conPuntoDeMiles(procesadas)} filas ya procesadas, ${conPuntoDeMiles(d.ok)}`;
+    const err = conPuntoDeMiles(d.err);
+    let segundo: string;
+    switch (d.categoria) {
+        case 'DEUDORES':
+        case 'DEUDORES_Y_FACTURAS':
+            segundo =
+                (conError
+                    ? `${de} quedaron cargadas en esta remesa y ${err} dieron error; el cierre de la carga no corrió. `
+                    : `Las ${conPuntoDeMiles(d.ok)} filas ya procesadas quedaron cargadas en esta remesa y el cierre de la carga no corrió. `) +
+                'Para cargarla completa, eliminá esta importación desde el Historial y volvé a subir el archivo. ' +
+                'Si no se puede eliminar (porque algún caso ya tiene gestión o porque la remesa es muy grande), ' +
+                'avisá a soporte antes de volver a subirlo.' +
+                (d.conCorte === true ? AVISO_CORTE : '');
+            break;
+        case 'ACTUALIZACIONES':
+            segundo =
+                (conError
+                    ? `${de} quedaron aplicadas sobre la remesa de origen y ${err} dieron error. `
+                    : `Las ${conPuntoDeMiles(d.ok)} filas ya procesadas quedaron aplicadas sobre la remesa de origen. `) +
+                'El cierre de la carga no corrió: los casos ausentes del archivo no se tocaron y los casos no se consolidaron. ' +
+                'Antes de volver a cargar el archivo, avisá a soporte.';
+            break;
+        default:
+            segundo =
+                (conError
+                    ? `${de} quedaron aplicadas y ${err} dieron error; el cierre de la carga no corrió. `
+                    : `Las ${conPuntoDeMiles(d.ok)} filas ya procesadas quedaron aplicadas y el cierre de la carga no corrió. `) +
+                'Antes de volver a cargar el archivo, avisá a soporte.';
+    }
+    return `${primera}\n\n${segundo}`;
+}
+
 /** Título, mensaje y tipo de la notificación según cómo terminó la carga (§8.5.5). */
 export function textoNotificacion(e: EstadoCargaDto, opciones: { sinRegistrar?: boolean } = {}): TextoNotificacion {
     let r: TextoNotificacion;
+    // Una cancelada es de tipo ERROR y no FINALIZADA: una pestaña vieja le pondría el tilde verde (§10.5.8).
+    if (e.cancelada === true) {
+        r = {
+            tipo: 'IMPORTACION_ERROR',
+            titulo: 'Importación cancelada',
+            mensaje:
+                conPunto(primeraLineaDelMotivo(e.error)) +
+                (e.ok > 0 ? ` Las ${conPuntoDeMiles(e.ok)} filas ya procesadas quedaron cargadas.` : ' No se cargó ninguna fila.'),
+        };
+        return aplicarNota(r, opciones.sinRegistrar === true);
+    }
     switch (e.resultado) {
         case 'OK':
             r = {
@@ -412,10 +570,12 @@ export function textoNotificacion(e: EstadoCargaDto, opciones: { sinRegistrar?: 
             };
             break;
     }
-    // Si la falla no se pudo persistir, la base todavía dice PROCESANDO: la notificación lo avisa.
-    const nota = opciones.sinRegistrar
-        ? ' El estado no se pudo registrar: la carga puede figurar todavía en proceso.'
-        : '';
+    return aplicarNota(r, opciones.sinRegistrar === true);
+}
+
+/** Si la falla no se pudo persistir, la base todavía dice PROCESANDO: la notificación lo avisa. Y el mensaje entra en 1000. */
+function aplicarNota(r: TextoNotificacion, sinRegistrar: boolean): TextoNotificacion {
+    const nota = sinRegistrar ? ' El estado no se pudo registrar: la carga puede figurar todavía en proceso.' : '';
     const tope = MAX_MENSAJE_NOTIFICACION - nota.length;
     if (r.mensaje.length > tope) {
         r.mensaje = `${r.mensaje.slice(0, tope - 1)}…`;

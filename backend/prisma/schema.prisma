@@ -239,22 +239,27 @@ model import_progreso {
   nuevos             Int?
   /// Fase B.
   actualizados       Int?
-  /// null mientras no terminó. OK | CON_ERRORES | CON_ADVERTENCIAS | SIN_FILAS | FALLIDA
+  /// null mientras no terminó. OK | CON_ERRORES | CON_ADVERTENCIAS | SIN_FILAS | FALLIDA | CANCELADA.
+  /// CANCELADA solo existe en esta columna: el DTO la traduce a FALLIDA + cancelada = true, y la remesa queda FALLIDA.
   resultado          String?   @db.VarChar(20)
   /// Motivo de la falla (resultado FALLIDA). Máx. 4000 caracteres, lo recorta el código.
   error              String?   @db.Text
   /// Por qué no terminó el post-proceso (resultado CON_ADVERTENCIAS).
   errorPostProceso   String?   @db.Text
-  /// Resumen final por categoría (altas, actualizados, bajas…). Fase C.
+  /// Sobre versionado { v: 1, origen: { remesaOrigenId, remesaOrigenIds }, sinFilasEntregadas?, cancelacion?, retomas? }.
+  /// `origen` lo escribe la confirmación (lo necesita retomar); `sinFilasEntregadas` solo el runner vivo; `cancelacion`
+  /// el pedido de cancelar. Siempre se mezcla con lo leído bajo el lock de la fila. La Fase C3 le suma el resumen por categoría.
   resumen            Json?
   /// Cuántas veces arrancó el worker sobre esta remesa. >1 = BullMQ la re-ejecutó.
   intentos           Int       @default(0)
   jobId              String?   @db.VarChar(64)
-  /// Carga dividida mostrada como grupo. Fase C.
+  /// Carga dividida confirmada con un solo pedido: un crypto.randomUUID() compartido por sus N remesas, la posición
+  /// (1..N, el orden de remesa.id) y la cantidad. null en una carga que no es una división.
   grupoId            String?   @db.VarChar(40)
   grupoOrden         Int?
   grupoTotal         Int?
-  /// Cancelación pedida por el usuario; el runner la revisa en cada lote. Fase C.
+  /// Cuándo se pidió cancelar. Se escribe con la fila bloqueada; el runner la lee en cada lote (y entre filas donde
+  /// se puede) y cierra la carga. No se borra al terminar. Retomar la deja en null.
   cancelSolicitadaAt DateTime?
   /// null = borrador. Se escribe al confirmar, en la misma transacción que manda el job a la cola.
   encoladaAt         DateTime?

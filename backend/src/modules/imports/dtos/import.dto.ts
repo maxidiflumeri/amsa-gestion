@@ -1,7 +1,7 @@
 // src/import/import.dto.ts
 import { FiltroFila, ImportCategoria } from '../mapping-types';
 import { Transform, Type } from 'class-transformer';
-import { IsArray, IsBoolean, IsInt, IsNotEmpty, IsOptional, IsString } from 'class-validator';
+import { ArrayMaxSize, ArrayMinSize, IsArray, IsBoolean, IsInt, IsNotEmpty, IsOptional, IsString } from 'class-validator';
 
 export class CreatePlantillaDto {
     empresaId!: number;
@@ -83,7 +83,33 @@ export class CreateRemesaDto {
         numeroRemesa: string;
         /** Filtros calculados por `division-preview`. Ver la validación en `imports.service`. */
         filtros?: FiltroFila[];
+        /**
+         * Cargar este corte aunque ya esté cargado, en curso o a medias en otra remesa del mismo archivo
+         * (§10.5.6). Sin esto el alta responde 409. El asistente lo manda solo tras una confirmación explícita.
+         */
+        repetir?: boolean;
     }>;
+}
+
+/** Confirmación de una carga dividida: las N remesas se encolan juntas y en orden (§10.5.2). */
+export class EjecutarGrupoDto {
+    @IsArray({ message: 'Las remesas de la carga dividida tienen que ser una lista.' })
+    @ArrayMinSize(2, { message: 'Una carga dividida necesita al menos 2 remesas.' })
+    @ArrayMaxSize(100, { message: 'Una carga dividida admite como máximo 100 remesas.' })
+    @IsInt({ each: true, message: 'Cada remesa de la carga dividida tiene que ser un número entero.' })
+    @Type(() => Number)
+    remesaIds!: number[];
+
+    @IsOptional()
+    @IsInt({ message: 'La remesa de origen tiene que ser un número entero.' })
+    @Type(() => Number)
+    remesaOrigenId?: number;
+
+    @IsOptional()
+    @IsArray({ message: 'Las remesas de origen tienen que ser una lista.' })
+    @IsInt({ each: true, message: 'Cada remesa de origen tiene que ser un número entero.' })
+    @Type(() => Number)
+    remesaOrigenIds?: number[];
 }
 
 export class ClonarPlantillaDto {

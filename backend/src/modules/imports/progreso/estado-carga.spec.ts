@@ -9,6 +9,7 @@ import {
     textoNotificacion,
 } from './estado-carga';
 import type { EstadoCargaDto } from './estado-carga.types';
+import { esCancelable, esRetomable, leerResumen, textoCancelacion } from './estado-carga';
 
 const remesaBase = (o: Partial<RemesaParaEstado> = {}): RemesaParaEstado => ({
     id: 98,
@@ -534,8 +535,8 @@ describe('textoInterrupcion', () => {
             );
             expect(t).not.toContain('corte de un archivo dividido');
             expect(textoInterrupcion('SIN_LATIDO', c, { conCorte: true })).toBe(
-                t + ' Esta remesa es un corte de un archivo dividido: al volver a cargarlo, tildá solo los cortes que no se cargaron. ' +
-                'Si tildás uno que ya está cargado, sus casos quedan duplicados.',
+                t + ' Esta remesa es un corte de un archivo dividido: al volver a subirlo, los cortes que ya están cargados aparecen destildados; dejalos así. ' +
+                'Si no aparece ninguno destildado, el sistema no reconoció el archivo: destildá a mano los que ya figuran cargados en el Historial.',
             );
         }
         // El aviso del corte es solo de estas dos categorías.
@@ -598,12 +599,277 @@ describe('Fase B, ronda final', () => {
     });
 
     it('SIN_JOB con corte propio avisa que se tilden solo los cortes que no se cargaron (cualquier categoría); sin corte, no', () => {
-        const aviso = ' Esta remesa es un corte de un archivo dividido: al volver a cargarlo, tildá solo los cortes que no se cargaron. Si tildás uno que ya está cargado, sus casos quedan duplicados.';
+        const aviso = ' Esta remesa es un corte de un archivo dividido: al volver a subirlo, los cortes que ya están cargados aparecen destildados; dejalos así. Si no aparece ninguno destildado, el sistema no reconoció el archivo: destildá a mano los que ya figuran cargados en el Historial.';
         for (const c of ['DEUDORES', 'PAGOS', 'ACCIONES', 'FACTURAS', null]) {
             const sin = textoInterrupcion('SIN_JOB', c);
             expect(sin).not.toContain('corte de un archivo dividido');
             expect(textoInterrupcion('SIN_JOB', c, { conCorte: true })).toBe(sin + aviso);
         }
         expect(textoInterrupcion('SIN_JOB', 'DEUDORES', { conCorte: true })).toContain('No se cargó ninguna fila: volvé a importar el archivo. Esta remesa es un corte');
+    });
+});
+
+// ── Fase C, entrega 1 (docs/imports-progreso-realtime-spec.md §10.4 y §10.5.8) ───────────────────────────────────────
+describe('armarEstadoCarga — cancelación, grupo y retomar', () => {
+    const ORIGEN = { v: 1, origen: { remesaOrigenId: null, remesaOrigenIds: null } };
+    const fin = new Date('2026-10-09T12:00:00Z');
+    const ini = new Date('2026-10-09T11:00:00Z');
+
+    it('la columna CANCELADA viaja como FALLIDA + cancelada: true, con quién la pidió y el pedido en ISO', () => {
+        const pedido = new Date('2026-10-09T11:30:00Z');
+        const e = armarEstadoCarga(
+            remesaBase({ estadoProceso: 'FALLIDA' }),
+            filaBase({
+                fase: 'TERMINADA', resultado: 'CANCELADA', error: 'La importación fue cancelada por Ana antes de empezar.',
+                encoladaAt: ini, startedAt: ini, finishedAt: fin, cancelSolicitadaAt: pedido,
+                resumen: { ...ORIGEN, cancelacion: { usuarioId: 9, nombre: 'Ana' } },
+            }),
+        );
+        expect(e.resultado).toBe('FALLIDA');
+        expect(e.cancelada).toBe(true);
+        expect(e.canceladaPor).toBe('Ana');
+        expect(e.cancelacionPedidaAt).toBe('2026-10-09T11:30:00.000Z');
+        expect(e.error).toContain('cancelada por Ana');
+    });
+
+    it('una FALLIDA común no es cancelada, y una carga que terminó igual con un pedido tardío conserva el pedido', () => {
+        const fallida = armarEstadoCarga(
+            remesaBase({ estadoProceso: 'FALLIDA' }),
+            filaBase({ fase: 'TERMINADA', resultado: 'FALLIDA', encoladaAt: ini, finishedAt: fin }),
+        );
+        expect(fallida.cancelada).toBe(false);
+        const tardia = armarEstadoCarga(
+            remesaBase({ estadoProceso: 'FINALIZADA' }),
+            filaBase({ fase: 'TERMINADA', resultado: 'OK', encoladaAt: ini, finishedAt: fin, cancelSolicitadaAt: ini }),
+        );
+        expect(tardia.cancelada).toBe(false);
+        expect(tardia.resultado).toBe('OK');
+        expect(tardia.cancelacionPedidaAt).toBe(ini.toISOString());
+    });
+
+    it('los grupo* pasan tal cual', () => {
+        const e = armarEstadoCarga(
+            remesaBase({ estadoProceso: 'PENDIENTE' }),
+            filaBase({ fase: 'EN_COLA', encoladaAt: ini, grupoId: 'abc', grupoOrden: 2, grupoTotal: 3 }),
+        );
+        expect([e.grupoId, e.grupoOrden, e.grupoTotal]).toEqual(['abc', 2, 3]);
+    });
+
+    it('una remesa heredada (sin fila) trae todo en null o false', () => {
+        const e = armarEstadoCarga(remesaBase({ estadoProceso: 'FALLIDA' }), null);
+        expect(e).toMatchObject({
+            grupoId: null, grupoOrden: null, grupoTotal: null, cancelacionPedidaAt: null, canceladaPor: null,
+            cancelada: false, cancelable: false, retomable: false,
+        });
+    });
+
+    it('un resumen que llega como texto JSON se lee igual que como objeto, y uno ilegible no tira', () => {
+        const base = { fase: 'TERMINADA', resultado: 'CANCELADA', encoladaAt: ini, finishedAt: fin } as const;
+        const comoTexto = armarEstadoCarga(
+            remesaBase({ estadoProceso: 'FALLIDA' }),
+            filaBase({ ...base, resumen: JSON.stringify({ ...ORIGEN, cancelacion: { usuarioId: 1, nombre: 'Luz' } }) as any }),
+        );
+        expect(comoTexto.canceladaPor).toBe('Luz');
+        expect(comoTexto.retomable).toBe(true);
+        for (const roto of ['{no es json', '[1,2]', '7', null, 'null']) {
+            const e = armarEstadoCarga(remesaBase({ estadoProceso: 'FALLIDA' }), filaBase({ ...base, resumen: roto as any }));
+            expect(e.canceladaPor).toBeNull();
+            expect(e.retomable).toBe(false);
+        }
+    });
+
+    describe('cancelable', () => {
+        const dto = (categoria: string, estadoProceso: string, f: Partial<import_progreso>) =>
+            armarEstadoCarga(remesaBase({ categoria, estadoProceso }), filaBase(f));
+        const enCola = { fase: 'EN_COLA', encoladaAt: ini };
+        const procesando = { fase: 'PROCESANDO', encoladaAt: ini, startedAt: ini };
+
+        it('en cola, leyendo y procesando: sí', () => {
+            expect(dto('DEUDORES', 'PENDIENTE', enCola).cancelable).toBe(true);
+            expect(dto('DEUDORES', 'PROCESANDO', { ...procesando, fase: 'LEYENDO' }).cancelable).toBe(true);
+            expect(dto('DEUDORES', 'PROCESANDO', procesando).cancelable).toBe(true);
+        });
+        it('post-proceso, terminal, borrador y ya pedida: no', () => {
+            expect(dto('DEUDORES', 'PROCESANDO', { ...procesando, fase: 'POST_PROCESO' }).cancelable).toBe(false);
+            expect(dto('DEUDORES', 'FALLIDA', { fase: 'TERMINADA', encoladaAt: ini, finishedAt: fin }).cancelable).toBe(false);
+            expect(dto('DEUDORES', 'FINALIZADA', { fase: 'TERMINADA', encoladaAt: ini, finishedAt: fin }).cancelable).toBe(false);
+            expect(dto('DEUDORES', 'PENDIENTE', { fase: 'BORRADOR' }).cancelable).toBe(false);
+            expect(dto('DEUDORES', 'PROCESANDO', { ...procesando, cancelSolicitadaAt: fin }).cancelable).toBe(false);
+        });
+        it('ACCIONES en cola: sí; ACCIONES que ya arrancó: no', () => {
+            expect(dto('ACCIONES', 'PENDIENTE', enCola).cancelable).toBe(true);
+            expect(dto('ACCIONES', 'PROCESANDO', procesando).cancelable).toBe(false);
+            expect(dto('ACCIONES', 'PROCESANDO', { ...procesando, fase: 'LEYENDO' }).cancelable).toBe(false);
+        });
+        it('esCancelable es la misma regla sobre una fila suelta', () => {
+            expect(esCancelable('PAGOS', { fase: 'PROCESANDO', encoladaAt: ini, startedAt: ini })).toBe(true);
+            expect(esCancelable('ACCIONES', { fase: 'PROCESANDO', encoladaAt: ini, startedAt: ini })).toBe(false);
+        });
+    });
+
+    describe('retomable', () => {
+        const dto = (estadoProceso: string, f: Partial<import_progreso>) =>
+            armarEstadoCarga(remesaBase({ estadoProceso }), filaBase({ fase: 'TERMINADA', encoladaAt: ini, ...f }));
+
+        it('nunca arrancó (sin startedAt): sí', () => {
+            expect(dto('FALLIDA', { resultado: 'FALLIDA', finishedAt: fin, resumen: ORIGEN }).retomable).toBe(true);
+        });
+        it('arrancó pero el runner marcó sinFilasEntregadas: sí', () => {
+            expect(dto('FALLIDA', { resultado: 'FALLIDA', startedAt: ini, finishedAt: fin, resumen: { ...ORIGEN, sinFilasEntregadas: true } }).retomable).toBe(true);
+        });
+        it('arrancó sin el marcador: no (los contadores no prueban nada)', () => {
+            expect(dto('FALLIDA', { resultado: 'FALLIDA', startedAt: ini, finishedAt: fin, resumen: ORIGEN, ok: 0, err: 0 }).retomable).toBe(false);
+        });
+        it('FINALIZADA y en curso: no', () => {
+            expect(dto('FINALIZADA', { resultado: 'OK', finishedAt: fin, resumen: ORIGEN }).retomable).toBe(false);
+            expect(armarEstadoCarga(remesaBase({ estadoProceso: 'PENDIENTE' }), filaBase({ fase: 'EN_COLA', encoladaAt: ini, resumen: ORIGEN })).retomable).toBe(false);
+        });
+        it('sin resumen, con v distinta de 1 o sin origen: no', () => {
+            const comun = { resultado: 'FALLIDA', finishedAt: fin };
+            expect(dto('FALLIDA', { ...comun, resumen: null }).retomable).toBe(false);
+            expect(dto('FALLIDA', { ...comun, resumen: { ...ORIGEN, v: 2 } }).retomable).toBe(false);
+            expect(dto('FALLIDA', { ...comun, resumen: { v: 1 } }).retomable).toBe(false);
+        });
+        it('una cancelada en cola (sin startedAt) es retomable; una cancelada con filas, no', () => {
+            expect(dto('FALLIDA', { resultado: 'CANCELADA', finishedAt: fin, resumen: ORIGEN }).retomable).toBe(true);
+            expect(dto('FALLIDA', { resultado: 'CANCELADA', startedAt: ini, finishedAt: fin, resumen: ORIGEN, ok: 300 }).retomable).toBe(false);
+        });
+        it('esRetomable sin fila o sin finishedAt es false', () => {
+            expect(esRetomable('FALLIDA', null)).toBe(false);
+            expect(esRetomable('FALLIDA', { finishedAt: null, startedAt: null, resumen: ORIGEN })).toBe(false);
+        });
+    });
+
+    it('leerResumen: objeto, texto JSON y basura', () => {
+        expect(leerResumen({ v: 1 })).toEqual({ v: 1 });
+        expect(leerResumen('{"v":1}')).toEqual({ v: 1 });
+        expect(leerResumen(undefined)).toBeNull();
+        expect(leerResumen('xx')).toBeNull();
+        expect(leerResumen([])).toBeNull();
+    });
+});
+
+describe('textoCancelacion', () => {
+    const base = { ok: 0, err: 0, total: 0, categoria: 'DEUDORES', conCorte: false, por: 'Ana', arranco: true, sinFilasEntregadas: false };
+    const primera = (t: string) => t.split('\n\n')[0];
+    const RETOMAR = 'No se cargó ninguna fila. Para cargarla, usá «Retomar» en el detalle de la importación: no hace falta volver a subir el archivo.';
+
+    it('la primera línea: no arrancó, con total, sin total', () => {
+        expect(primera(textoCancelacion({ ...base, arranco: false, sinFilasEntregadas: true }))).toBe('La importación fue cancelada por Ana antes de empezar.');
+        expect(primera(textoCancelacion({ ...base, ok: 1_250, err: 50, total: 14_466 }))).toBe('La importación fue cancelada por Ana cuando llevaba 1.300 de 14.466 filas.');
+        expect(primera(textoCancelacion({ ...base, ok: 20, total: 0 }))).toBe('La importación fue cancelada por Ana cuando llevaba 20 filas.');
+    });
+    it('sin nombre se omite "por …"', () => {
+        expect(primera(textoCancelacion({ ...base, por: null, arranco: false }))).toBe('La importación fue cancelada antes de empezar.');
+        expect(primera(textoCancelacion({ ...base, por: '  ', ok: 3, total: 9 }))).toBe('La importación fue cancelada cuando llevaba 3 de 9 filas.');
+    });
+    it('no arrancó, o no entregó ninguna fila: manda a Retomar', () => {
+        expect(textoCancelacion({ ...base, arranco: false })).toContain(`\n\n${RETOMAR}`);
+        expect(textoCancelacion({ ...base, sinFilasEntregadas: true })).toContain(`\n\n${RETOMAR}`);
+    });
+    it('DEUDORES y DEUDORES_Y_FACTURAS: eliminar desde el Historial; con corte agrega el aviso de los destildados', () => {
+        for (const categoria of ['DEUDORES', 'DEUDORES_Y_FACTURAS']) {
+            const t = textoCancelacion({ ...base, categoria, ok: 100, total: 500 });
+            expect(t).toContain(
+                'Las 100 filas ya procesadas quedaron cargadas en esta remesa y el cierre de la carga no corrió. ' +
+                'Para cargarla completa, eliminá esta importación desde el Historial y volvé a subir el archivo. ' +
+                'Si no se puede eliminar (porque algún caso ya tiene gestión o porque la remesa es muy grande), avisá a soporte antes de volver a subirlo.',
+            );
+            expect(t).not.toContain('corte de un archivo dividido');
+            expect(textoCancelacion({ ...base, categoria, ok: 100, total: 500, conCorte: true })).toBe(
+                `${t} Esta remesa es un corte de un archivo dividido: al volver a subirlo, los cortes que ya están cargados aparecen destildados; dejalos así. ` +
+                'Si no aparece ninguno destildado, el sistema no reconoció el archivo: destildá a mano los que ya figuran cargados en el Historial.',
+            );
+        }
+    });
+    it('ACTUALIZACIONES: los ausentes no se tocaron; no afirma ningún remedio salvo avisar a soporte', () => {
+        const t = textoCancelacion({ ...base, categoria: 'ACTUALIZACIONES', ok: 700, total: 900 });
+        expect(t).toContain(
+            'Las 700 filas ya procesadas quedaron aplicadas sobre la remesa de origen. El cierre de la carga no corrió: ' +
+            'los casos ausentes del archivo no se tocaron y los casos no se consolidaron. Antes de volver a cargar el archivo, avisá a soporte.',
+        );
+    });
+    it('el resto: no afirma remedio', () => {
+        for (const categoria of ['PAGOS', 'FACTURAS', 'CONTACTOS', 'MULTICLAVES', null]) {
+            expect(textoCancelacion({ ...base, categoria, ok: 5, total: 10 })).toContain(
+                'Las 5 filas ya procesadas quedaron aplicadas y el cierre de la carga no corrió. Antes de volver a cargar el archivo, avisá a soporte.',
+            );
+        }
+    });
+    it('con filas con error se dice cuántas quedaron y cuántas dieron error, por categoría; sin errores queda como estaba', () => {
+        expect(textoCancelacion({ ...base, categoria: 'PAGOS', ok: 90, err: 10, total: 500 })).toContain(
+            'De las 100 filas ya procesadas, 90 quedaron aplicadas y 10 dieron error; el cierre de la carga no corrió. Antes de volver a cargar el archivo, avisá a soporte.',
+        );
+        expect(textoCancelacion({ ...base, categoria: 'DEUDORES', ok: 0, err: 40, total: 500 })).toContain(
+            'De las 40 filas ya procesadas, 0 quedaron cargadas en esta remesa y 40 dieron error; el cierre de la carga no corrió. Para cargarla completa, eliminá',
+        );
+        expect(textoCancelacion({ ...base, categoria: 'DEUDORES_Y_FACTURAS', ok: 5, err: 1, total: 500 })).toContain(
+            'De las 6 filas ya procesadas, 5 quedaron cargadas en esta remesa y 1 dieron error; el cierre de la carga no corrió.',
+        );
+        expect(textoCancelacion({ ...base, categoria: 'ACTUALIZACIONES', ok: 700, err: 20, total: 900 })).toContain(
+            'De las 720 filas ya procesadas, 700 quedaron aplicadas sobre la remesa de origen y 20 dieron error. El cierre de la carga no corrió: los casos ausentes del archivo no se tocaron y los casos no se consolidaron. Antes de volver a cargar el archivo, avisá a soporte.',
+        );
+        expect(textoCancelacion({ ...base, categoria: 'PAGOS', ok: 90, err: 0, total: 500 })).toContain('Las 90 filas ya procesadas quedaron aplicadas y el cierre de la carga no corrió.');
+    });
+    it('la primera línea entra en 300 caracteres, aun con un nombre larguísimo', () => {
+        const t = textoCancelacion({ ...base, por: 'N'.repeat(900), ok: 3, total: 9 });
+        expect(primera(t).length).toBeLessThanOrEqual(300);
+    });
+    it('nunca nombra «Retomar» si se cargaron filas', () => {
+        for (const categoria of ['DEUDORES', 'DEUDORES_Y_FACTURAS', 'ACTUALIZACIONES', 'PAGOS', 'FACTURAS', 'ACCIONES', null]) {
+            for (const conCorte of [true, false]) {
+                expect(textoCancelacion({ ...base, categoria, conCorte, ok: 40, total: 100 })).not.toContain('Retomar');
+            }
+        }
+    });
+});
+
+describe('textoInterrupcion — retomable', () => {
+    it('SIN_JOB retomable nombra «Retomar», no trae el aviso del corte y no manda a volver a subir', () => {
+        for (const c of ['DEUDORES', 'PAGOS', null]) {
+            const t = textoInterrupcion('SIN_JOB', c, { retomable: true, conCorte: true });
+            expect(t).toContain('«Retomar»');
+            expect(t).not.toContain('corte de un archivo dividido');
+            expect(t).not.toContain('volvé a importar el archivo');
+            expect(t.startsWith('La importación no llegó a empezar:')).toBe(true);
+        }
+    });
+    it('sin la opción, el texto de hoy; retomable false tampoco lo cambia', () => {
+        const hoy = textoInterrupcion('SIN_JOB', 'DEUDORES');
+        expect(hoy).toContain('No se cargó ninguna fila: volvé a importar el archivo.');
+        expect(textoInterrupcion('SIN_JOB', 'DEUDORES', { retomable: false })).toBe(hoy);
+    });
+    it('SIN_LATIDO y REENTREGA no cambian con retomable (una interrumpida después de arrancar nunca es retomable)', () => {
+        for (const m of ['SIN_LATIDO', 'REENTREGA'] as const) {
+            expect(textoInterrupcion(m, 'DEUDORES', { retomable: true })).toBe(textoInterrupcion(m, 'DEUDORES'));
+        }
+    });
+});
+
+describe('textoNotificacion — cancelada', () => {
+    const cancelada = (o: Partial<EstadoCargaDto>): EstadoCargaDto => ({
+        ...armarEstadoCarga(
+            remesaBase({ estadoProceso: 'FALLIDA' }),
+            filaBase({ fase: 'TERMINADA', resultado: 'CANCELADA', encoladaAt: new Date(), finishedAt: new Date() }),
+        ),
+        ...o,
+    });
+
+    it('con filas: tipo error, título «Importación cancelada» y cuántas quedaron cargadas', () => {
+        const n = textoNotificacion(cancelada({ error: 'La importación fue cancelada por Ana cuando llevaba 1.300 de 2.500 filas.\n\nLas 1.300 filas…', ok: 1_300, procesadas: 1_300 }));
+        expect(n).toEqual({
+            tipo: 'IMPORTACION_ERROR',
+            titulo: 'Importación cancelada',
+            mensaje: 'La importación fue cancelada por Ana cuando llevaba 1.300 de 2.500 filas. Las 1.300 filas ya procesadas quedaron cargadas.',
+        });
+    });
+    it('sin filas: "No se cargó ninguna fila."', () => {
+        const n = textoNotificacion(cancelada({ error: 'La importación fue cancelada por Ana antes de empezar.\n\nNo se cargó…', ok: 0, procesadas: 0 }));
+        expect(n.tipo).toBe('IMPORTACION_ERROR');
+        expect(n.mensaje).toBe('La importación fue cancelada por Ana antes de empezar. No se cargó ninguna fila.');
+    });
+    it('una FALLIDA común sigue como antes', () => {
+        const n = textoNotificacion(armarEstadoCarga(remesaBase({ estadoProceso: 'FALLIDA' }), filaBase({ fase: 'TERMINADA', resultado: 'FALLIDA', error: 'Boom', encoladaAt: new Date(), finishedAt: new Date() })));
+        expect(n.titulo).toBe('Importación fallida');
     });
 });

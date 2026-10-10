@@ -121,3 +121,43 @@ describe('ImportsProcessor — política de BullMQ de la Fase B', () => {
         });
     });
 });
+
+// ── Fase C, entrega 1 (docs/imports-progreso-realtime-spec.md §10.5.3 y §10.9.2 E) ───────────────────
+describe('ImportsProcessor — una carga cancelada', () => {
+    beforeAll(() => Logger.overrideLogger(false));
+    afterEach(() => jest.restoreAllMocks());
+
+    const armarCancelada = (resultado: Record<string, unknown>) => {
+        const importService: any = { processImportJob: jest.fn().mockResolvedValue(resultado) };
+        const auditoria: any = { log: jest.fn().mockResolvedValue(undefined) };
+        const requestContext: any = { run: (_ctx: unknown, fn: () => unknown) => fn() };
+        const processor = new ImportsProcessor(importService, auditoria, requestContext);
+        const job: any = { id: 'j7', queueName: 'import-queue', data: { remesaId: 5, usuarioId: 3 } };
+        return { processor, auditoria, job };
+    };
+
+    it('no se loguea como completada, no se audita IMPORT_OK y devuelve el resultado tal cual', async () => {
+        const log = jest.spyOn(Logger.prototype, 'log');
+        const warn = jest.spyOn(Logger.prototype, 'warn');
+        const h = armarCancelada({ total: 2500, ok: 1290, err: 10, cancelada: true });
+
+        await expect(h.processor.process(h.job)).resolves.toEqual({ total: 2500, ok: 1290, err: 10, cancelada: true });
+
+        // La auditoría del corte la escribe el runner (IMPORT_FAIL, WARN): acá no se audita nada.
+        expect(h.auditoria.log).not.toHaveBeenCalled();
+        expect(log.mock.calls.some(([m]) => String(m).includes('completada'))).toBe(false);
+        expect(warn.mock.calls.some(([m]) => String(m).includes('Importación cancelada remesa=5 job=j7'))).toBe(true);
+    });
+
+    it('no relanza: BullMQ lo ve como un job terminado', async () => {
+        const h = armarCancelada({ total: 0, ok: 0, err: 0, cancelada: true });
+        await expect(h.processor.process(h.job)).resolves.toBeDefined();
+    });
+
+    it('una importación normal sigue auditando IMPORT_OK (el resultado sin `cancelada`)', async () => {
+        const h = armarCancelada({ total: 5, ok: 5, err: 0 });
+        await h.processor.process(h.job);
+        expect(h.auditoria.log).toHaveBeenCalledTimes(1);
+        expect(h.auditoria.log.mock.calls[0][0].resumen).toBe('Import OK remesa 5');
+    });
+});

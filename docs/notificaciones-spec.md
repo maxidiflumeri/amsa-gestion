@@ -100,6 +100,8 @@ Los tres eventos de importación llevan una **foto completa** del estado de la c
 
 `import:finalizada` puede salir ahora **sin que haya un worker**: la emite `ImportService.cerrarCargaInterrumpida` cuando el reaper (o la guarda de re-entrega) cierra una carga interrumpida, con `resultado: 'FALLIDA'` y el motivo en `error`. Mismas salas, mismo payload.
 
+**Fase C, entrega 1.** Ningún evento nuevo. Cambia cuándo salen: `import:progreso` sale también (a) al aceptarse un pedido de cancelar una carga que ya arrancó (con `cancelacionPedidaAt` y `cancelable: false`), (b) una vez por remesa al confirmar una carga dividida (`EN_COLA`, con `grupoId`, `grupoOrden` y `grupoTotal`) y (c) al **retomar** una remesa, con un `rev` mayor que el del estado terminal anterior: una remesa puede volver de terminal a en curso, y los clientes que fusionan por `rev` la vuelven a mostrar viva. `import:finalizada` lo emiten además `ProgresoTracker.cancelar` (el runner vivo, con los contadores exactos) y `cancelarCarga` (una carga en cola que no arrancó); `cancelada: true` y `resultado: 'FALLIDA'` (la columna guarda `CANCELADA`, el DTO la traduce: una pestaña que no conoce el campo la muestra como fallida con el motivo, que es cierto).
+
 ### 3.3 Endpoints REST
 
 | Método | Ruta | Auth | Notas |
@@ -424,3 +426,12 @@ Diseño: `docs/imports-progreso-realtime-spec.md` (§9). Lo que cambia en este d
 - **Reaper de borradores** (cron 04:30 del reloj del contenedor): borra (04:30 de Argentina: el contenedor fija `TZ`) las vistas previas sin confirmar de más de `IMPORTS_BORRADOR_TTL_HORAS` (24) sin casos y cuyo creador no tiene una carga en curso. `IMPORTS_REAPER_DESACTIVADO` (solo `1`, `true`, `si`, `sí`, `yes`) apaga los dos crons.
 - **Notificaciones:** el `payload` de toda notificación de importación suma `fueraDeCorte` y `descartadasPorFiltro`; la de `SIN_FILAS` separa lo que descartó el filtro de la plantilla de lo que es de otros cortes de la división.
 - **Carreras:** confirmar y borrar a la vez responde 404 ("La importación fue eliminada mientras se confirmaba.") o 409 ("Esta importación se acaba de confirmar…") según quién llegó primero; un `add` que venció por tiempo pero cuyo job el worker ya tomó responde 201 con el estado real en vez de devolver la carga a borrador.
+
+### 2026-10-09 — Progreso en tiempo real de las importaciones, Fase C entrega 1 (backend)
+
+Diseño: `docs/imports-progreso-realtime-spec.md` (§10). Lo que cambia en este documento:
+
+- **Notificación de una carga cancelada:** tipo `IMPORTACION_ERROR` (no `IMPORTACION_FINALIZADA`: una pestaña vieja le pondría el tilde verde), título **"Importación cancelada"**, mensaje = la primera línea del motivo ("La importación fue cancelada por Ana cuando llevaba 1.300 de 2.500 filas.") más "Las N filas ya procesadas quedaron cargadas." o "No se cargó ninguna fila.". El `payload` suma `cancelada: true`.
+- **Cuándo se manda:** si la carga la cierra el runner vivo (cancelada mientras procesaba), como cualquier resultado: al dueño y a quienes tienen `importacion.ver_progreso_otros`. Si se cancela una carga **en cola** (no procesó nada), solo al dueño y solo si la canceló otra persona: quien cancela ya lo sabe, y avisar a todos los que ven importaciones de otros serían cuatro avisos por persona en una división de cinco.
+- **Una carga que se cierra "no llegó a empezar" y es retomable** (el reaper, o un encolado que falló al retomar) usa el texto que manda a «Retomar» en el detalle en vez de pedir que se vuelva a subir el archivo. Las cargas anteriores a esta entrega conservan el texto de siempre.
+- **Eventos:** `import:progreso` sale también al aceptarse un pedido de cancelación, al confirmar una división (una por remesa) y al retomar; `import:finalizada` lo emite además el runner al cortar una carga cancelada. Ver §3.2.
