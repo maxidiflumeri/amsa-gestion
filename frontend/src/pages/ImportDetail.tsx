@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { fechaDelCedente } from '../utils/fechas';
-import { useParams, useNavigate } from 'react-router-dom';
+import { Link as RouterLink, useParams, useNavigate } from 'react-router-dom';
 import { isAxiosError } from 'axios';
 import {
     Alert,
@@ -15,6 +15,7 @@ import {
     useTheme,
 } from '@mui/material';
 import ArrowBackIcon from '@mui/icons-material/ArrowBack';
+import PlayArrowIcon from '@mui/icons-material/PlayArrow';
 import TableRowsIcon from '@mui/icons-material/TableRows';
 import CheckCircleOutlineIcon from '@mui/icons-material/CheckCircleOutline';
 import ErrorOutlineIcon from '@mui/icons-material/ErrorOutline';
@@ -29,8 +30,12 @@ import {
     Label,
 } from 'recharts';
 import api from '../api/axios';
+import { obtenerGrupo, retomarRemesa } from '../api/imports';
 import { useNotify } from '../hooks/useNotify';
+import { useAuth } from '../context/AuthContext';
+import { useConfirm } from '../context/ConfirmContext';
 import { useSocket } from '../context/SocketContext';
+import type { EstadoCargaDto } from '../types/importProgreso';
 import { useEstadoCarga } from '../hooks/useEstadoCarga';
 import {
     PageHeader,
@@ -44,17 +49,25 @@ import type { StatusValue } from '../components/ui';
 import type { DataTableColumn } from '../components/ui';
 import MulticlavesLoteResumen from '../components/import/MulticlavesLoteResumen';
 import AvisosCarga from '../components/import/AvisosCarga';
+import { BotonCancelarCarga } from '../components/import/ImportProgress';
 import {
     barraIndeterminada,
+    cancelacionLlegoTarde,
     casosActualizados,
     casosNuevos,
+    datosDeGrupo,
     descartadasFueraDeCorte,
     descartadasPorFiltro,
     esAvisoDeCarga,
+    esRetomable,
+    estaCancelada,
+    estadoEnGrupo,
     etiquetaFase,
     formatearNumero,
     lineaDeRitmo,
     presentarResultado,
+    puedeGestionarCarga,
+    textoCancelacionTardia,
 } from '../utils/estadoCarga';
 
 // ─── Tipos ───────────────────────────────────────────────────────────────────
@@ -185,10 +198,12 @@ export default function ImportDetail() {
     const { id } = useParams();
     const navigate = useNavigate();
     const notify = useNotify();
+    const confirm = useConfirm();
+    const { usuario, tienePermiso } = useAuth();
     const theme = useTheme();
     const { conectado } = useSocket();
     // Todo lo que se mueve (estado, contadores, fechas, resultado) sale de acá; la remesa de abajo es lo fijo.
-    const { estado: carga, cargando: cargandoCarga, noExiste } = useEstadoCarga(id ? Number(id) : null);
+    const { estado: carga, cargando: cargandoCarga, noExiste, aplicar, refrescar } = useEstadoCarga(id ? Number(id) : null);
 
     const [remesa, setRemesa] = useState<RemesaDetalle | null>(null);
     const [errors, setErrors] = useState<ImportError[]>([]);
@@ -234,6 +249,55 @@ export default function ImportDetail() {
         if (terminalPrevRef.current === false && terminal === true) fetchAll(true);
         terminalPrevRef.current = terminal;
     }, [terminal, fetchAll]);
+
+    // Las remesas hermanas de una carga dividida (§10.8.6): se piden al abrir, cuando cambia el grupo y cuando la
+    // carga termina, para que los chips no queden con un estado viejo.
+    const grupoActual = carga ? datosDeGrupo(carga) : null;
+    const grupoIdActual = grupoActual?.grupoId ?? null;
+    const [hermanas, setHermanas] = useState<EstadoCargaDto[]>([]);
+    const cargarHermanas = useCallback(async () => {
+        if (grupoIdActual === null) {
+            setHermanas([]);
+            return;
+        }
+        try {
+            const r = await obtenerGrupo(grupoIdActual);
+            if (idActualRef.current === id) setHermanas(Array.isArray(r.remesas) ? r.remesas : []);
+        } catch {
+            // Consulta de fondo: sin los chips la pantalla sigue sirviendo.
+        }
+    }, [grupoIdActual, id]);
+    useEffect(() => {
+        void cargarHermanas();
+    }, [cargarHermanas, terminal]);
+
+    // Retomar (§10.8.5): vuelve a encolar la misma remesa. La `carga` que devuelve el pedido pasa de terminal a en
+    // curso: el hook la aplica y vuelve a seguirla solo.
+    const [retomando, setRetomando] = useState(false);
+    const handleRetomar = async () => {
+        if (!carga || retomando) return;
+        const acepta = await confirm({
+            title: 'Retomar la remesa',
+            description: 'Se vuelve a encolar la misma remesa, con el mismo archivo. No se cargó ninguna fila la vez anterior.',
+            confirmLabel: 'Retomar',
+        });
+        if (!acepta) return;
+        setRetomando(true);
+        try {
+            const r = await retomarRemesa(carga.remesaId);
+            // Lo que se pidió en la corrida anterior (avisos de la lectura) ya no vale.
+            erroresPedidosRef.current = false;
+            setErrors([]);
+            aplicar(r.carga);
+            void cargarHermanas();
+        } catch (err) {
+            notify.error(err as Error);
+            // El pedido pudo haber surtido efecto (o la carga cambió): se muestra el estado real.
+            void refrescar();
+        } finally {
+            setRetomando(false);
+        }
+    };
 
     // Lo que se muestra: con la carga en vivo (en curso o terminada) manda `carga`; mientras no llega,
     // o si es un borrador, lo que dice la remesa.
@@ -317,6 +381,7 @@ export default function ImportDetail() {
     if (carga) {
         if (!carga.enCurso && !carga.terminal) chipEstado = { status: 'pending', label: 'Borrador' };
         else if (carga.fase === 'EN_COLA') chipEstado = { status: 'pending', label: 'En cola' };
+        else if (estaCancelada(carga)) chipEstado = { status: 'warning', label: 'Cancelada' };
         else chipEstado = { status: ESTADO_TO_STATUS[carga.estadoProceso] ?? 'neutral', label: carga.estadoProceso };
     } else if (remesa && !cargandoCarga) {
         chipEstado = { status: ESTADO_TO_STATUS[remesa.estadoProceso] ?? 'neutral', label: remesa.estadoProceso };
@@ -325,7 +390,7 @@ export default function ImportDetail() {
     const fase = carga ? etiquetaFase(carga) : null;
     const resultadoPresentado =
         carga?.terminal &&
-        (carga.resultado === 'FALLIDA' || carga.resultado === 'CON_ADVERTENCIAS' || carga.resultado === 'SIN_FILAS')
+        (carga.resultado === 'FALLIDA' || estaCancelada(carga) || carga.resultado === 'CON_ADVERTENCIAS' || carga.resultado === 'SIN_FILAS')
             ? presentarResultado(carga)
             : null;
     const esBorrador = carga !== null && !carga.enCurso && !carga.terminal;
@@ -436,6 +501,34 @@ export default function ImportDetail() {
                                 >
                                     #{remesa.numeroRemesa}
                                 </Typography>
+                                {grupoActual && (
+                                    <Box mb={1}>
+                                        <Typography variant="body2" color="text.secondary">
+                                            {grupoActual.orden != null && grupoActual.total != null
+                                                ? `Remesa ${grupoActual.orden} de ${grupoActual.total} de una carga dividida`
+                                                : 'Remesa de una carga dividida'}
+                                        </Typography>
+                                        {hermanas.length > 1 && (
+                                            <Box display="flex" flexWrap="wrap" gap={0.5} mt={0.5}>
+                                                {hermanas.map((h) => {
+                                                    const est = estadoEnGrupo(h);
+                                                    return (
+                                                        <Chip
+                                                            key={h.remesaId}
+                                                            component={RouterLink}
+                                                            to={`/historial-importaciones/${h.remesaId}`}
+                                                            clickable
+                                                            size="small"
+                                                            label={`#${h.numeroRemesa} · ${est.texto}`}
+                                                            color={est.color}
+                                                            variant={String(h.remesaId) === id ? 'filled' : 'outlined'}
+                                                        />
+                                                    );
+                                                })}
+                                            </Box>
+                                        )}
+                                    </Box>
+                                )}
                                 <Box display="flex" flexWrap="wrap" gap={1}>
                                     {remesa.empresa && (
                                         <Chip
@@ -505,7 +598,31 @@ export default function ImportDetail() {
                                 <AvisosCarga estado={carga} conectado={conectado} />
                             </Box>
                         )}
+                        {carga?.enCurso && (
+                            <Box mt={2}>
+                                <BotonCancelarCarga carga={carga} onResultado={aplicar} onGrupoCambio={() => void cargarHermanas()} alineacion="flex-start" grupo={hermanas} />
+                            </Box>
+                        )}
+                        {carga && esRetomable(carga) && puedeGestionarCarga(carga, usuario?.id, tienePermiso) && (
+                            <Box mt={2}>
+                                <Button
+                                    variant="contained"
+                                    color="warning"
+                                    startIcon={<PlayArrowIcon />}
+                                    onClick={() => void handleRetomar()}
+                                    disabled={retomando}
+                                >
+                                    Retomar
+                                </Button>
+                            </Box>
+                        )}
                     </SectionCard>
+
+                    {carga && cancelacionLlegoTarde(carga) && (
+                        <Alert severity="info" sx={{ mb: 3 }}>
+                            {textoCancelacionTardia(carga.resultado)}
+                        </Alert>
+                    )}
 
                     {resultadoPresentado && (
                         <Alert severity={resultadoPresentado.severidad} sx={{ mb: 3, overflowWrap: 'anywhere', whiteSpace: 'pre-line' }}>

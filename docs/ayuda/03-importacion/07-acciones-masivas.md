@@ -110,6 +110,17 @@ como ya revertida.
 
 ---
 
+## Cancelar una acción masiva
+
+Una acción masiva **todavía en la cola** se puede cancelar como cualquier carga: no se aplica nada y se puede
+retomar. En cambio, **una que ya empezó no se puede cancelar**: el botón **Cancelar importación** queda
+deshabilitado y dice *"Una acción masiva que ya empezó no se cancela: esperá a que termine y usá Revertir."*
+El motivo: los datos para deshacerla se guardan recién al terminar, así que cancelar a mitad le quitaría el
+único remedio que tiene. Si la acción salió mal, dejala terminar y usá **Revertir**, que la deshace (con las salvedades de más arriba si terminó con advertencias).
+Ver [Importar un archivo](/ayuda/importacion/importar-un-archivo), "Cancelar una importación".
+
+---
+
 ## Qué mirar en la vista previa
 
 El **preview de impacto** es lo más valioso de esta categoría:
@@ -186,6 +197,10 @@ el motivo *"La importación se interrumpió: el servidor se reinició o dejó de
 procesaba."* Las acciones aplicadas hasta el corte quedaron hechas y **no se pueden revertir desde la
 pantalla**: los datos para deshacer se guardan recién al terminar. **No vuelvas a cargar el archivo**; avisá
 a soporte.
+
+**¿Puedo cancelar una acción masiva que está corriendo?**
+No. Si todavía está en cola, sí; si ya empezó, hay que esperar a que termine y, si hace falta, usar
+**Revertir**. Cancelarla a mitad dejaría los cambios aplicados sin forma de deshacerlos.
 
 **¿Puedo revertir una carga que quedó fallida?**
 No. El botón solo aparece en las finalizadas, y los datos para deshacer se guardan recién al terminar

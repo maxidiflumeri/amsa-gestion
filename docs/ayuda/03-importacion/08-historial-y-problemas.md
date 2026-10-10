@@ -32,12 +32,23 @@ puede, a deshacerlo.
 | **Validando** | Con la vista previa hecha y sin confirmar |
 | **Procesando** | En curso |
 | **Finalizada** | Terminó. Puede ser con filas con error, sin filas o con advertencias |
-| **Fallida** | Se cortó. Si el servidor se reinició o dejó de responder mientras procesaba, la carga se marca sola como fallida a los pocos minutos |
+| **Fallida** | Se cortó. Si el servidor se reinició o dejó de responder mientras procesaba, la carga se marca sola como fallida a los pocos minutos. **Una carga cancelada también figura como fallida** (ver abajo) |
 
 En la grilla aparecen en mayúsculas. Al entrar al **detalle**, una carga que no se confirmó dice
 **Borrador** (*"Vista previa sin confirmar. No se cargó nada."*) y una que espera su turno dice **En
 cola** (*"Esperando que termine otra importación."*, o la posición: *"Es la próxima: empieza en instantes."* /
-*"Hay N importaciones antes que esta."*).
+*"Hay N importaciones antes que esta."*). Una que se canceló dice **Cancelada**.
+
+**Una carga cancelada figura como FALLIDA en el Historial** —y en los reportes que usan el estado de la
+remesa—: la grilla todavía no la distingue. En su detalle y en la notificación sí dice **Cancelada** (es una notificación de error, no de advertencia, y no
+siempre llega: una carga cancelada en la cola notifica solo al dueño y solo si la canceló otra persona). Los
+botones **Cancelar importación** y **Retomar** no están en la grilla: están en el detalle de la carga y en
+el asistente (ver [Importar un archivo](/ayuda/importacion/importar-un-archivo), "Cancelar una importación"
+y "Retomar una importación").
+
+**Una remesa PENDIENTE no siempre es un borrador.** Las remesas de una carga dividida que esperan su turno en la
+cola también figuran PENDIENTE y se pueden borrar. Antes de borrar una, entrá a su detalle: dice **Borrador** o
+**En cola**. Borrar una en cola saca ese corte de la carga.
 
 **Las vistas previas sin confirmar se borran solas.** Una remesa que quedó en **Pendiente** o **Validando**
 porque nunca se confirmó (un borrador) se elimina automáticamente cuando tiene más de **24 horas**. La
@@ -46,12 +57,14 @@ dura entre uno y dos días. Hasta entonces sigue ocupando su número: si querés
 desde el Historial. Una vez borrada no se recupera: si todavía querías esa carga, hay que volver a subir el
 archivo (y confirmar una vista previa que ya se borró responde *"Remesa no existe"*). Solo se borran las que
 no cargaron ningún caso: una remesa confirmada, en cola o con casos no se toca. Tampoco se borran las vistas
-previas de un usuario que en ese momento tiene una importación en curso (así se protegen las remesas pendientes
-de una carga dividida que está corriendo), por lo que esas pueden durar más de dos días. Las remesas creadas
+previas de un usuario que en ese momento tiene una importación en curso, por lo que esas pueden durar más de
+dos días. Las remesas de una carga dividida ya confirmada no son vistas previas: están en la cola y esta
+limpieza no las toca. Las remesas creadas
 hasta el 05/10/2026 inclusive no entran en esta limpieza: esas se eliminan desde el Historial.
 
-El Historial **no distingue** una carga "con advertencias": la muestra como FINALIZADA a secas. Lo que
-queda es la notificación (con ícono de advertencia) y el cartel arriba del detalle.
+El Historial **no distingue** una carga "con advertencias": la muestra como FINALIZADA a secas (y a una
+cancelada, como FALLIDA). Lo que
+queda es la notificación (con ícono de advertencia, la de una carga con advertencias) y el cartel arriba del detalle.
 
 **Finalizada no significa "salió bien"**: significa que terminó. Mirá siempre la columna de filas con
 error, y el resultado que mostró el paso 5 (ver [Importar un archivo](/ayuda/importacion/importar-un-archivo)).
@@ -70,8 +83,10 @@ encabezado ni las filas descartadas por filtro). Con varios archivos, el mensaje
 `[archivo:línea]`: la línea es la fila de datos dentro de ese archivo, contando desde 1 y sin el
 encabezado (si el archivo tiene encabezado, es la línea siguiente). Los avisos
 cuentan aunque ninguna fila haya dado error: incluyen los que escriben las propias categorías al cargar
-(los de Pagos con número de convenio y los de Claves de pago, más abajo). Una carga que falló, que
-terminó con advertencias o que no tenía filas muestra además un cartel arriba con el motivo.
+(los de Pagos con número de convenio y los de Claves de pago, más abajo). Una carga que falló, que se
+canceló, que terminó con advertencias o que no tenía filas muestra además un cartel arriba con el motivo. Si
+la remesa es parte de una carga dividida, el detalle lo dice bajo el número (*"Remesa 2 de 5 de una carga
+dividida"*) y enlaza a las otras remesas.
 
 Debajo de las cuatro tarjetas (total, OK, con error y tasa de éxito) hay una línea con lo que no entra en
 ellas, y muestra solo lo que corresponde: *Casos nuevos*, *Casos actualizados* (las categorías que los
@@ -178,7 +193,7 @@ contactos ni actualizaciones.
 ### Borrar la remesa — con dos condiciones grandes
 
 Se puede borrar una remesa en cualquier estado **salvo mientras está corriendo** (arrancó y todavía no
-terminó) y salvo que sea demasiado grande (ver "No me deja borrar la remesa"). Una carga **en cola que todavía no arrancó sí se puede borrar**: el sistema la saca de la cola
+terminó) y salvo que sea demasiado grande (ver "No me deja borrar la remesa"). Una carga **en cola que todavía no arrancó sí se puede borrar** (o cancelar, que la deja retomable): el sistema la saca de la cola
 y borra la remesa. Si está corriendo, si su trabajo está activo o si la cola no se puede consultar, el
 sistema la rechaza con *"No se puede eliminar una importación en curso"*.
 En la grilla el botón solo se deshabilita en las que están procesando. Pero:
@@ -315,11 +330,11 @@ trabajando, pero esta carga no muestra avances hace N min (contados desde que ab
 avisá a soporte: no se va a marcar como fallida sola."* Avisá a soporte.
 
 Una carga **en cola** tampoco se cierra sola mientras su trabajo siga esperando en la cola. Si es la próxima
-y el servidor no la toma en 2 minutos, la pantalla avisa y mientras no arranque la podés eliminar desde el
-Historial.
+y el servidor no la toma en 2 minutos, la pantalla avisa y mientras no arranque la podés **cancelar** desde su
+detalle (queda cancelada sin cargar nada y se puede retomar) o eliminar desde el Historial.
 
 Mientras una carga ocupa su lugar, **no te deja arrancar otra importación**: el sistema permite una sola
-por usuario a la vez.
+por usuario a la vez, y una carga dividida cuenta como una hasta que termina su última remesa.
 
 ### La carga terminó con advertencias: qué hacer
 
@@ -350,7 +365,7 @@ historial", más arriba). No cierra ausentes, no recalcula montos de facturas ni
 revertir una acción masiva.
 
 **No hace falta volver a subir el archivo, y no conviene.** Las filas ya están cargadas y una remesa
-ejecutada no se puede volver a ejecutar; subir el archivo de nuevo crea **otra remesa**. Qué pasa
+que procesó filas no se puede volver a ejecutar (Retomar existe solo para una que no cargó ninguna); subir el archivo de nuevo crea **otra remesa**. Qué pasa
 depende de la categoría:
 
 - **Deudores y Deudores y Facturas:** los mismos clientes quedan como casos **nuevos** de la remesa
@@ -362,9 +377,10 @@ En el detalle de la remesa, arriba está el cartel con el motivo y en la tabla u
 
 ### La importación falló
 
-Ver [Importar un archivo](/ayuda/importacion/importar-un-archivo): no se reintenta la misma remesa, el cierre no
-corrió (la tabla de arriba dice qué es ese cierre en cada categoría) y, en Deudores y Deudores y
-Facturas, hay que borrar la remesa fallida antes de volver a subir el archivo. En Pagos, si entraron
+Ver [Importar un archivo](/ayuda/importacion/importar-un-archivo): **Retomar** existe solo para una carga que no
+cargó ninguna fila (la que "no llegó a empezar", por ejemplo); una que ya procesó filas no se puede volver a
+ejecutar. El cierre no corrió (la tabla de arriba dice qué es ese cierre en cada categoría) y, en Deudores y
+Deudores y Facturas, hay que borrar la remesa fallida antes de volver a subir el archivo. En Pagos, si entraron
 filas antes del corte, volver a subir el archivo las saltea y sus casos quedan sin consolidar: aplicá el
 mismo criterio que en la tabla de advertencias. Si la causa fue que el servidor se reinició o dejó de
 responder, el motivo de la carga lo dice y trae su propio paso a seguir según la categoría (no es el mismo
@@ -373,7 +389,15 @@ interrumpida rige ese motivo, no el criterio de arriba. En Deudores y Deudores y
 eliminar la remesa y volver a cargar; si no se puede eliminar (algún caso ya tiene gestión, o la remesa es
 demasiado grande y la pantalla responde *"No se pudo eliminar: la remesa es demasiado grande para borrarla
 desde la pantalla. Avisá a soporte."*), avisá a soporte antes de volver a cargar. Si el archivo era una división, solo se elimina la
-remesa interrumpida y al volver a subir hay que destildar los cortes que ya se cargaron.
+remesa interrumpida y al volver a subir el archivo los cortes que ya se cargaron vienen destildados. **Si en la
+vista de cortes no aparece la columna Estado ni ningún corte destildado, el sistema no reconoció el archivo** (lo
+reconoce por sus bytes exactos: si volviste a bajarlo del cedente y salió distinto, no lo reconoce): no sigas
+tildando todo, mirá en el Historial las remesas de esa división y destildá a mano los cortes de las que están
+FINALIZADAS, de las que todavía se están cargando y de las fallidas que llegaron a cargar casos.
+
+Si el título es **"Importación cancelada"**, la carga no falló: alguien la cortó. Lo ya procesado quedó cargado
+y el cierre no corrió; qué hacer lo dice su motivo (ver [Importar un archivo](/ayuda/importacion/importar-un-archivo),
+"Cancelar una importación").
 
 ### Los números no cierran y tampoco aparecen contactos
 
@@ -397,7 +421,7 @@ las facturas y los pagos de esas cuentas con "Deudor no encontrado".
 ## Preguntas frecuentes
 
 **¿Puedo volver a importar el mismo archivo?**
-Importar de nuevo crea **otra remesa**: una remesa ya ejecutada no se puede volver a ejecutar. En
+Importar de nuevo crea **otra remesa**: una remesa que procesó filas no se puede volver a ejecutar (solo se retoma la que no cargó ninguna). En
 Deudores y en Deudores y Facturas los mismos clientes quedan como casos nuevos de esa remesa (un caso
 es el cliente más la remesa), no se actualizan los de la anterior; si la primera carga falló, borrá esa
 remesa antes de volver a subir. En Pagos hay un

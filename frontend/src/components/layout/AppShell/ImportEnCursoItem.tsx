@@ -2,7 +2,14 @@ import React from 'react';
 import { Box, LinearProgress, Typography, Chip, useTheme } from '@mui/material';
 import { Link as RouterLink } from 'react-router-dom';
 import type { EstadoCargaDto } from '../../../types/importProgreso';
-import { barraIndeterminada, esperaAbreviada, etiquetaFase, formatearNumero } from '../../../utils/estadoCarga';
+import {
+    barraIndeterminada,
+    cancelacionPedidaAt,
+    datosDeGrupo,
+    esperaAbreviada,
+    etiquetaFase,
+    formatearNumero,
+} from '../../../utils/estadoCarga';
 
 interface ImportEnCursoItemProps {
     carga: EstadoCargaDto;
@@ -15,6 +22,9 @@ const ImportEnCursoItem: React.FC<ImportEnCursoItemProps> = ({ carga }) => {
     const indeterminada = barraIndeterminada(carga);
     const fase = etiquetaFase(carga);
     const espera = carga.fase === 'PROCESANDO' ? esperaAbreviada(carga) : null;
+    // Carga dividida: " · 2 de 3". Con la cancelación pedida, "Cancelando…" en vez de la fase (§10.8.6).
+    const grupo = datosDeGrupo(carga);
+    const cancelando = cancelacionPedidaAt(carga) !== null;
 
     return (
         <Box
@@ -28,6 +38,7 @@ const ImportEnCursoItem: React.FC<ImportEnCursoItemProps> = ({ carga }) => {
             <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 0.5 }}>
                 <Typography variant="body2" fontWeight={600} noWrap sx={{ minWidth: 0 }}>
                     {carga.tipo} · Remesa {carga.numeroRemesa}
+                    {grupo && grupo.orden != null && grupo.total != null ? ` · ${grupo.orden} de ${grupo.total}` : ''}
                 </Typography>
                 <Typography variant="caption" color="text.secondary" noWrap sx={{ ml: 1, flexShrink: 0, maxWidth: 110 }}>
                     {carga.usuarioNombre}
@@ -42,7 +53,7 @@ const ImportEnCursoItem: React.FC<ImportEnCursoItemProps> = ({ carga }) => {
 
             <Box sx={{ display: 'flex', gap: 1, alignItems: 'center', flexWrap: 'wrap' }}>
                 <Typography variant="caption" color="text.secondary">
-                    {fase.principal}
+                    {cancelando ? 'Cancelando…' : fase.principal}
                     {!indeterminada ? ` · ${carga.progreso}%` : ''}
                     {espera ? ` · ${espera}` : ''}
                 </Typography>

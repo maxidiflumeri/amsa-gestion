@@ -8,44 +8,66 @@ import {
     Button,
     Chip,
     Divider,
-    Link,
 } from "@mui/material";
 import CheckCircleIcon from "@mui/icons-material/CheckCircle";
 import ErrorOutlineIcon from "@mui/icons-material/ErrorOutline";
 import WarningAmberIcon from "@mui/icons-material/WarningAmber";
 import InfoOutlinedIcon from "@mui/icons-material/InfoOutlined";
+import PlayArrowIcon from "@mui/icons-material/PlayArrow";
 import ReplayIcon from "@mui/icons-material/Replay";
 import ListAltIcon from "@mui/icons-material/ListAlt";
 import VisibilityIcon from "@mui/icons-material/Visibility";
 import { useNavigate } from "react-router-dom";
+import type { RemesaNoEncolada } from "../../api/imports";
 import type { EstadoCargaDto } from "../../types/importProgreso";
 import {
     casosActualizados,
+    cancelacionLlegoTarde,
     casosNuevos,
     descartadasPorFiltro,
+    esRetomable,
+    estaCancelada,
     formatearNumero,
     peorResultado,
     presentarResultado,
+    textoCancelacionTardia,
     type SeveridadResultado,
 } from "../../utils/estadoCarga";
 
-export interface RemesaNoEjecutada {
-    remesaId: number;
-    /** Número de remesa que ve el operador; si no se conoce, se muestra el id interno. */
-    numeroRemesa?: string;
-    motivo: string;
-    /** true si no se sabe si corrió (no se pudo seguir, o ni se intentó por eso): no se afirma que no se ejecutó. */
-    noSeguida?: boolean;
-}
-
 interface Props {
-    /** Estado terminal de cada remesa que llegó a correr (una sola, o varias si la carga se dividió). */
+    /** Estado terminal de cada remesa de la carga (una sola, o las de la división). */
     resultados: EstadoCargaDto[];
-    /** Remesas de la división que no llegaron a ejecutarse, con el motivo. */
-    noEjecutadas: RemesaNoEjecutada[];
     /** Carga dividida: cada remesa lee el archivo entero, así que las descartadas no se suman. */
     dividida?: boolean;
     onNewImport: () => void;
+    /** Remesas de la división que se eliminaron mientras se cargaba (el grupo trae menos que su total). */
+    eliminadas?: number;
+    /** Remesas que el backend no pudo encolar y quedaron sin confirmar. */
+    noEncoladas?: RemesaNoEncolada[];
+    /** "Cargar las que faltan": confirma las `noEncoladas`. */
+    onCargarFaltantes?: () => void;
+    /** Las remesas que el botón "Retomar" va a volver a encolar (las de la corrida actual). Si no se pasa, las retomables de `resultados`. */
+    retomables?: EstadoCargaDto[];
+    /** "Retomar": vuelve a encolar las remesas retomables de `resultados` y vuelve al paso "Importando". */
+    onRetomar?: () => void;
+    /** Hay un pedido de retomar o de cargar las que faltan en vuelo. */
+    ocupado?: boolean;
+}
+
+/** Alerta fija de las remesas que el backend no pudo encolar (§10.8.3). */
+export function AlertaNoEncoladas({ noEncoladas }: { noEncoladas: RemesaNoEncolada[] }) {
+    if (noEncoladas.length === 0) return null;
+    const numeros = noEncoladas.map((n) => n.numeroRemesa).join(", ");
+    return (
+        <Alert severity="error" sx={{ width: "100%", textAlign: "left", overflowWrap: "anywhere" }}>
+            <AlertTitle>
+                {noEncoladas.length === 1
+                    ? "1 remesa no se pudo encolar y quedó sin confirmar"
+                    : `${noEncoladas.length} remesas no se pudieron encolar y quedaron sin confirmar`}
+            </AlertTitle>
+            Remesa{noEncoladas.length === 1 ? "" : "s"}: {numeros}.
+        </Alert>
+    );
 }
 
 function IconoSeveridad({ severidad }: { severidad: SeveridadResultado }) {
@@ -97,7 +119,17 @@ function Metrica({
     );
 }
 
-export default function ImportSummary({ resultados, noEjecutadas, dividida = false, onNewImport }: Props) {
+export default function ImportSummary({
+    resultados,
+    dividida = false,
+    onNewImport,
+    eliminadas = 0,
+    noEncoladas = [],
+    onCargarFaltantes,
+    onRetomar,
+    retomables: retomablesProp,
+    ocupado = false,
+}: Props) {
     const navigate = useNavigate();
 
     const peor = peorResultado(resultados);
@@ -134,26 +166,22 @@ export default function ImportSummary({ resultados, noEjecutadas, dividida = fal
     const presentadoResultados = peor
         ? presentarResultado(sumar ? { ...peor, procesadas, ok, err } : peor)
         : null;
-    // Con remesas sin ejecutar el encabezado no puede ser de éxito, aunque las que corrieron hayan salido bien.
-    const hayNoSeguida = noEjecutadas.some((n) => n.noSeguida);
+    // Con remesas que el backend no pudo encolar el encabezado no puede ser de éxito, aunque las que corrieron hayan salido bien.
     const presentado =
-        hayNoSeguida && (presentadoResultados === null || presentadoResultados.severidad === "success")
-            ? {
-                  severidad: "warning" as SeveridadResultado,
-                  titulo: "No se pudo seguir la importación",
-                  detalle:
-                      "No se pudo confirmar cómo terminaron algunas remesas de la división: pueden estar corriendo. Revisá el Historial antes de volver a cargar el archivo.",
-              }
-            : noEjecutadas.length > 0 && (presentadoResultados === null || presentadoResultados.severidad === "success")
+        noEncoladas.length > 0 && (presentadoResultados === null || presentadoResultados.severidad === "success")
             ? {
                   severidad: "warning" as SeveridadResultado,
                   titulo: "La importación quedó incompleta",
-                  detalle:
-                      resultados.length > 0
-                          ? "Algunas remesas de la división no se ejecutaron. Las que corrieron terminaron como se detalla abajo."
-                          : "Ninguna remesa de la división llegó a ejecutarse.",
+                  detalle: "Hay remesas que no se pudieron encolar y quedaron sin confirmar.",
               }
             : presentadoResultados;
+
+    // Una división con remesas que no se cargaron (falló, se canceló o se puede retomar) quedó incompleta: se decide con
+    // los resultados de cada remesa, no con las que no llegaron a correr.
+    const retomables = retomablesProp ?? resultados.filter(esRetomable);
+    const tardias = resultados.filter(cancelacionLlegoTarde);
+    const hayNoCargadas = resultados.some((r) => r.resultado === "FALLIDA" || estaCancelada(r) || esRetomable(r));
+    const incompleta = dividida && resultados.length > 1 && hayNoCargadas;
 
     // En una FALLIDA un 100% verde al lado de "La importación falló" confunde.
     const hayFallida = resultados.some((r) => r.resultado === "FALLIDA");
@@ -193,39 +221,29 @@ export default function ImportSummary({ resultados, noEjecutadas, dividida = fal
                     </>
                 )}
 
-                {noEjecutadas.length > 0 && (
-                    <Alert severity="error" sx={{ width: "100%", textAlign: "left" }}>
-                        <AlertTitle>
-                            {noEjecutadas.length === 1
-                                ? "1 remesa de la división "
-                                : `${noEjecutadas.length} remesas de la división `}
-                            <strong>
-                                {hayNoSeguida
-                                    ? (noEjecutadas.length === 1 ? "no se pudo seguir" : "no se pudieron seguir")
-                                    : (noEjecutadas.length === 1 ? "no se ejecutó" : "no se ejecutaron")}
-                            </strong>
-                        </AlertTitle>
-                        {hayNoSeguida && (
-                            <Typography variant="body2" sx={{ mb: 1 }}>
-                                Revisá el Historial antes de volver a cargar el archivo.
-                            </Typography>
-                        )}
-                        {noEjecutadas.map((n) => (
-                            <Typography key={n.remesaId} variant="body2" sx={{ overflowWrap: "anywhere" }}>
-                                Remesa {n.numeroRemesa ?? n.remesaId}: {n.motivo}{" "}
-                                <Link
-                                    component="button"
-                                    type="button"
-                                    variant="body2"
-                                    onClick={() => navigate(`/historial-importaciones/${n.remesaId}`)}
-                                    sx={{ verticalAlign: "baseline" }}
-                                >
-                                    Ver detalle
-                                </Link>
-                            </Typography>
-                        ))}
+                {incompleta && (
+                    <Alert severity="warning" sx={{ width: "100%", textAlign: "left" }}>
+                        <AlertTitle>La importación quedó incompleta</AlertTitle>
+                        Algunas remesas de la división no se cargaron. Las demás terminaron como se detalla abajo.
                     </Alert>
                 )}
+
+                {tardias.map((r) => (
+                    <Alert key={r.remesaId} severity="info" sx={{ width: "100%", textAlign: "left" }}>
+                        {resultados.length > 1 ? `Remesa ${r.numeroRemesa}: ` : ""}
+                        {textoCancelacionTardia(r.resultado)}
+                    </Alert>
+                ))}
+
+                {eliminadas > 0 && (
+                    <Alert severity="info" sx={{ width: "100%", textAlign: "left" }}>
+                        {eliminadas === 1
+                            ? "1 remesa de esta división se eliminó."
+                            : `${eliminadas} remesas de esta división se eliminaron.`}
+                    </Alert>
+                )}
+
+                <AlertaNoEncoladas noEncoladas={noEncoladas} />
 
                 {/* Métricas */}
                 <Box
@@ -280,6 +298,7 @@ export default function ImportSummary({ resultados, noEjecutadas, dividida = fal
                                         Remesa {r.numeroRemesa}
                                     </Typography>
                                     <Chip label={p.titulo} color={p.severidad} size="small" variant="outlined" />
+                                    {esRetomable(r) && <Chip label="Se puede retomar" size="small" variant="outlined" />}
                                     <Typography variant="caption" color="text.secondary">
                                         {formatearNumero(r.procesadas)} procesadas · {formatearNumero(r.ok)} OK ·{" "}
                                         {formatearNumero(r.err)} con error
@@ -314,6 +333,22 @@ export default function ImportSummary({ resultados, noEjecutadas, dividida = fal
                             {varias ? `Ver detalle (remesa ${r.numeroRemesa})` : "Ver detalle"}
                         </Button>
                     ))}
+
+                    {onRetomar && retomables.length > 0 && (
+                        <Button variant="contained" color="warning" startIcon={<PlayArrowIcon />} onClick={onRetomar} disabled={ocupado}>
+                            {!(dividida && resultados.length > 1)
+                                ? "Retomar"
+                                : retomables.length === 1
+                                ? "Retomar la que no se cargó"
+                                : `Retomar las ${retomables.length} que no se cargaron`}
+                        </Button>
+                    )}
+
+                    {onCargarFaltantes && noEncoladas.length > 0 && (
+                        <Button variant="contained" color="warning" onClick={onCargarFaltantes} disabled={ocupado}>
+                            Cargar las que faltan
+                        </Button>
+                    )}
 
                     <Button variant="outlined" startIcon={<ReplayIcon />} onClick={onNewImport}>
                         Nueva importación

@@ -17,6 +17,9 @@ export const EN_COLA_SIN_TOMAR_MIN = 2;
 /** Minutos sin que este navegador vea cambiar la fase, la subfase ni los contadores antes de avisar. */
 export const SIN_CAMBIOS_MIN = 10;
 
+/** Minutos que una cancelación pedida puede tardar en cortar antes de que la pantalla avise que no se honró (§10.8.4). */
+export const CANCELACION_SIN_CORTAR_MIN = 2;
+
 /** Minutos sin señal a partir de los cuales el aviso admite que el cierre automático no está ocurriendo. */
 export const SIN_SENAL_AVISAR_MIN = 15;
 /** Mínimo entre refrescos disparados por eventos de otras cargas (posición en la cola). */
@@ -290,8 +293,13 @@ export function presentarResultado(
         EstadoCargaDto,
         'resultado' | 'ok' | 'err' | 'procesadas' | 'descartadas' | 'error' | 'errorPostProceso' | 'tipo'
     > &
-        Partial<Pick<EstadoCargaDto, 'descartadasPorFiltro' | 'fueraDeCorte'>>,
+        Partial<Pick<EstadoCargaDto, 'descartadasPorFiltro' | 'fueraDeCorte' | 'cancelada'>>,
 ): ResultadoPresentado {
+    // Una cancelada viaja como FALLIDA (§10.4.2): se mira antes del switch. Su `error` ya trae los párrafos y
+    // el número exacto de filas cargadas: se muestra tal cual, sin el "Antes del corte se cargaron al menos…".
+    if (estaCancelada(estado)) {
+        return { severidad: 'warning', titulo: 'Importación cancelada', detalle: estado.error ? estado.error : null };
+    }
     switch (estado.resultado) {
         case 'OK':
             return { severidad: 'success', titulo: 'Importación exitosa', detalle: null };
@@ -351,21 +359,22 @@ export function presentarResultado(
     }
 }
 
-/** Orden de gravedad para elegir el encabezado del resumen: menor número = peor. */
-function rangoGravedad(estado: Pick<EstadoCargaDto, 'resultado' | 'ok'>): number {
+/** Orden de gravedad para elegir el encabezado del resumen: menor número = peor. Una cancelada va entre FALLIDA y CON_ADVERTENCIAS. */
+function rangoGravedad(estado: Pick<EstadoCargaDto, 'resultado' | 'ok'> & Partial<Pick<EstadoCargaDto, 'cancelada'>>): number {
+    if (estaCancelada(estado)) return 1;
     switch (estado.resultado) {
         case 'FALLIDA':
             return 0;
         case 'CON_ADVERTENCIAS':
-            return 1;
+            return 2;
         case 'CON_ERRORES':
-            return estado.ok === 0 ? 2 : 4;
+            return estado.ok === 0 ? 3 : 5;
         case 'SIN_FILAS':
-            return 3;
+            return 4;
         case 'OK':
-            return 5;
-        default:
             return 6;
+        default:
+            return 7;
     }
 }
 
@@ -456,4 +465,147 @@ export function resultadoEsAdvertencia(resultado: unknown): boolean {
 /** Filas de `importerror` que son avisos de la carga y no errores de una fila (rowNumber 0 ≠ aviso: la primera fila de datos también es 0). */
 export function esAvisoDeCarga(errorMsg: unknown): boolean {
     return typeof errorMsg === 'string' && /^\[(aviso|parseo|post-proceso)\]/.test(errorMsg);
+}
+
+// ─── Fase C, entrega 1: carga dividida, cancelar y retomar (docs/imports-progreso-realtime-spec.md §10.8) ───
+// Todo campo nuevo del DTO puede llegar `undefined` desde un backend de la Fase B: se lee con `== null` y
+// siempre a través de estas funciones. El frontend no calcula si algo es cancelable o retomable: lo manda el backend.
+
+/** La carga terminó por una cancelación. */
+export function estaCancelada(estado: Partial<Pick<EstadoCargaDto, 'cancelada'>>): boolean {
+    return estado.cancelada === true;
+}
+
+/** El backend dice que se puede pedir la cancelación ahora. */
+export function esCancelable(estado: Partial<Pick<EstadoCargaDto, 'cancelable'>>): boolean {
+    return estado.cancelable === true;
+}
+
+/** El backend dice que se puede volver a encolar tal cual (no cargó ninguna fila). */
+export function esRetomable(estado: Partial<Pick<EstadoCargaDto, 'retomable'>>): boolean {
+    return estado.retomable === true;
+}
+
+/** Cuándo se pidió cancelar, o null si nadie lo pidió (o el backend no informa el campo). */
+export function cancelacionPedidaAt(estado: Partial<Pick<EstadoCargaDto, 'cancelacionPedidaAt'>>): string | null {
+    return estado.cancelacionPedidaAt ?? null;
+}
+
+export interface DatosDeGrupo {
+    grupoId: string;
+    orden: number | null;
+    total: number | null;
+}
+
+/** Los datos del grupo de una carga dividida, o null si la carga no es de un grupo. */
+export function datosDeGrupo(
+    estado: Partial<Pick<EstadoCargaDto, 'grupoId' | 'grupoOrden' | 'grupoTotal'>>,
+): DatosDeGrupo | null {
+    if (estado.grupoId == null) return null;
+    return { grupoId: estado.grupoId, orden: estado.grupoOrden ?? null, total: estado.grupoTotal ?? null };
+}
+
+/** Cancelar y retomar piden `importacion.ejecutar`, y ser el dueño de la carga o tener `importacion.ver_progreso_otros`. */
+export function puedeGestionarCarga(
+    estado: Pick<EstadoCargaDto, 'usuarioId'>,
+    usuarioId: number | null | undefined,
+    tienePermiso: (key: string) => boolean,
+): boolean {
+    if (!tienePermiso('importacion.ejecutar')) return false;
+    return (usuarioId != null && estado.usuarioId === usuarioId) || tienePermiso('importacion.ver_progreso_otros');
+}
+
+/**
+ * Por qué una carga en curso no se puede cancelar ahora (§10.8.4). Null si no hay nada que explicar: la carga no
+ * está en curso, el backend no informa `cancelable` o es cancelable.
+ */
+export function motivoNoCancelable(
+    estado: Pick<EstadoCargaDto, 'enCurso' | 'fase' | 'tipo'> & Partial<Pick<EstadoCargaDto, 'cancelable' | 'cancelacionPedidaAt'>>,
+): string | null {
+    if (!estado.enCurso || estado.cancelable !== false) return null;
+    if (cancelacionPedidaAt(estado) !== null) return 'Ya se pidió cancelar.';
+    if (estado.fase === 'POST_PROCESO') {
+        return 'La importación ya procesó todas las filas y está cerrando: en este paso no se puede cancelar.';
+    }
+    if (estado.tipo === 'ACCIONES' && estado.fase !== 'EN_COLA' && estado.fase !== 'BORRADOR') {
+        return 'Una acción masiva que ya empezó no se cancela: esperá a que termine y usá Revertir.';
+    }
+    return null;
+}
+
+/**
+ * Minutos (enteros) desde que se pidió cancelar, con la hora del servidor del DTO (como los otros avisos).
+ * Null si nadie pidió cancelar.
+ */
+export function minutosDesdePedidoCancelacion(
+    estado: Partial<Pick<EstadoCargaDto, 'cancelacionPedidaAt' | 'servidorAhora'>>,
+    recibidoEn: number,
+    ahora: number,
+): number | null {
+    return minutosDesdeServidor(estado.servidorAhora, estado.cancelacionPedidaAt, recibidoEn, ahora);
+}
+
+/**
+ * El pedido de cancelación llegó cuando la carga ya estaba cerrando y terminó completa. Una FALLIDA no cuenta: si
+ * murió por una interrupción con el pedido escrito, no "terminó completa".
+ */
+export function cancelacionLlegoTarde(
+    estado: Pick<EstadoCargaDto, 'terminal' | 'resultado'> & Partial<Pick<EstadoCargaDto, 'cancelacionPedidaAt' | 'cancelada'>>,
+): boolean {
+    return estado.terminal && cancelacionPedidaAt(estado) !== null && !estaCancelada(estado) && estado.resultado !== 'FALLIDA';
+}
+
+/** Texto del pedido de cancelación que llegó tarde: solo dice "terminó completa" si el resultado es OK. */
+export function textoCancelacionTardia(resultado: EstadoCargaDto['resultado']): string {
+    return resultado === 'OK'
+        ? 'Se pidió cancelar esta importación cuando ya estaba cerrando: terminó completa.'
+        : 'Se pidió cancelar esta importación cuando ya estaba cerrando: el pedido llegó tarde y la carga terminó igual.';
+}
+
+/** Línea del diálogo de cancelar según la categoría, resumida de los textos de la notificación (§10.5.8). */
+export function lineaCancelarPorCategoria(tipo: string): string {
+    switch (tipo) {
+        case 'DEUDORES':
+        case 'DEUDORES_Y_FACTURAS':
+            return 'Para cargarla completa después, vas a tener que eliminar esta importación desde el Historial y volver a subir el archivo.';
+        case 'ACTUALIZACIONES':
+            return 'Los casos ausentes del archivo no se tocan y los casos no se consolidan. Antes de volver a cargar el archivo, avisá a soporte.';
+        default:
+            return 'Antes de volver a cargar el archivo, avisá a soporte.';
+    }
+}
+
+export type ColorChipEstado = 'default' | 'success' | 'warning' | 'error' | 'info';
+
+/** Estado de una remesa dentro de una carga dividida, en una frase corta (§10.8.3). */
+export function estadoEnGrupo(estado: EstadoCargaDto): { texto: string; color: ColorChipEstado } {
+    if (estado.terminal) {
+        if (estaCancelada(estado)) {
+            return { texto: estado.startedAt == null ? 'Cancelada antes de empezar' : 'Cancelada', color: 'warning' };
+        }
+        if (estado.resultado === 'FALLIDA') {
+            return estado.startedAt == null
+                ? { texto: 'No llegó a empezar', color: 'error' }
+                : { texto: 'Falló', color: 'error' };
+        }
+        const severidad = presentarResultado(estado).severidad;
+        return { texto: 'Finalizada', color: severidad === 'success' ? 'success' : severidad === 'error' ? 'error' : 'warning' };
+    }
+    if (!estado.enCurso) return { texto: 'Borrador', color: 'default' };
+    if (cancelacionPedidaAt(estado) !== null) return { texto: 'Cancelando…', color: 'warning' };
+    if (estado.fase === 'EN_COLA') return { texto: 'En cola', color: 'default' };
+    if (estado.fase === 'PROCESANDO' && !barraIndeterminada(estado)) {
+        return { texto: `Procesando ${estado.progreso} %`, color: 'info' };
+    }
+    return { texto: etiquetaFase(estado).principal, color: 'info' };
+}
+
+/** La remesa que se está mostrando de un grupo: la primera en curso según `grupoOrden`; si no hay, la última. */
+export function remesaActualDelGrupo(remesas: EstadoCargaDto[]): EstadoCargaDto | null {
+    return remesas.find((r) => r.enCurso) ?? remesas[remesas.length - 1] ?? null;
+}
+
+/** Todas las remesas del grupo terminaron (y hay al menos una). */
+export function grupoTerminado(remesas: EstadoCargaDto[]): boolean {
+    return remesas.length > 0 && remesas.every((r) => r.terminal);
 }

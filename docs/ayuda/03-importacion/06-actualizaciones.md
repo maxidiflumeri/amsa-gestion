@@ -1,7 +1,7 @@
 <!--
 seccion: Importación de datos
 resumen: La categoría de mayor impacto del sistema. Qué hace cada opción, qué no protege nada y cómo correrla sin riesgo.
-revisado: 2026-08-20
+revisado: 2026-10-09
 rutas: /carga, /plantillas
 -->
 # Actualizaciones
@@ -149,8 +149,9 @@ La vista previa **no alcanza** para esta categoría, por tres razones concretas:
 3. **Recién entonces**, si el archivo es la foto completa, cambiá la plantilla a la opción de ausentes
    que corresponda y volvé a correr.
 
-Correr dos veces el mismo archivo contra la misma remesa **es seguro**: no duplica pagos ni vuelve a
-desasignar. El peligro no es repetir — es apuntar mal.
+Correr dos veces el mismo archivo contra la misma remesa **es seguro** cuando la carga anterior terminó: no
+duplica pagos ni vuelve a desasignar. El peligro no es repetir — es apuntar mal. **Si la carga anterior se
+canceló o se interrumpió, avisá a soporte antes de volver a correrla**: es lo que dice su motivo.
 
 ---
 
@@ -168,7 +169,15 @@ corrida**, no la que informa el cedente.
 
 ## Si salió mal
 
-**No hay deshacer.** Y hay tres paredes que conviene conocer antes de necesitarlas:
+**Si te das cuenta mientras corre, cancelá antes del cierre.** Los ausentes del archivo (darlos por pagados o
+desasignarlos) se tratan recién en el **cierre** de la carga, después de procesar todas las filas. Con
+**Cancelar importación** (ver [Importar un archivo](/ayuda/importacion/importar-un-archivo), "Cancelar una
+importación") la carga corta y ese cierre **no corre**: los ausentes no se tocan y los casos no se consolidan.
+Lo que las filas ya procesadas aplicaron sobre la remesa de origen **queda aplicado**, y el motivo de la
+cancelación manda a avisar a soporte antes de volver a cargar el archivo. Una vez que la carga entró al
+post-proceso (el cierre) ya no se puede cancelar.
+
+**Una vez terminada, no hay deshacer.** Y hay tres paredes que conviene conocer antes de necesitarlas:
 
 - Los pagos que genera esta categoría **no se pueden borrar** desde la ficha: solo se borran los
   cargados a mano.
@@ -216,13 +225,18 @@ Volvió a aparecer en una corrida posterior, pero para entonces la plantilla ya 
 ## Preguntas frecuentes
 
 **¿Se puede deshacer una carga de actualizaciones?**
-No. Tratala como una operación sin vuelta atrás y usá el procedimiento seguro.
+No una vez terminada (cancelar a tiempo evita el cierre, pero no deshace lo ya procesado). Tratala como una operación sin vuelta atrás y usá el procedimiento seguro.
 
 **¿Los casos nuevos quedan en esta remesa?**
 No: se cuelgan de la **remesa vinculada**, que es donde vive la cartera.
 
 **¿Puedo correr el mismo archivo dos veces?**
-Sí, es seguro. No duplica pagos ni re-desasigna.
+Sí, si la carga anterior terminó: es seguro, no duplica pagos ni re-desasigna. Si la anterior se canceló o se
+interrumpió, avisá a soporte antes.
+
+**¿Puedo cortar una carga de actualizaciones que está corriendo?**
+Sí, hasta que empieza el cierre: con **Cancelar importación**. Lo ya procesado queda aplicado y los ausentes no
+se tocan.
 
 **¿Un pago parcial cambia la situación del caso?**
 Sí: la consolidación posterior lo deja en situación de pago parcial. Y diferencias de hasta un peso

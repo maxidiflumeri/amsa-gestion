@@ -2,15 +2,20 @@ import React, { useRef } from 'react';
 import { Alert, Stack } from '@mui/material';
 import type { EstadoCargaDto } from '../../types/importProgreso';
 import {
+    CANCELACION_SIN_CORTAR_MIN,
     EN_COLA_SIN_TOMAR_MIN,
     SIN_CAMBIOS_MIN,
     SIN_SENAL_AVISAR_MIN,
     SIN_SENAL_MIN,
+    cancelacionPedidaAt,
     firmaDeAvance,
+    minutosDesdePedidoCancelacion,
     minutosEnColaSinTomar,
     minutosSinSenal,
+    puedeGestionarCarga,
 } from '../../utils/estadoCarga';
 import { useAhora } from '../../hooks/useAhora';
+import { useAuth } from '../../context/AuthContext';
 
 interface Props {
     estado: EstadoCargaDto | null;
@@ -21,15 +26,18 @@ interface Props {
 
 /**
  * Avisos de una carga en vivo, compartidos por el paso "Importando" del wizard y el detalle:
- * sin conexión en tiempo real, sin señal del servidor, en cola y nadie la toma, sin cambios y carga reiniciada
- * (docs/imports-progreso-realtime-spec.md §9.8.3).
+ * sin conexión en tiempo real, sin señal del servidor, en cola y nadie la toma, sin cambios, carga reiniciada
+ * (docs/imports-progreso-realtime-spec.md §9.8.3) y cancelación pedida que todavía no cortó (§10.8.4).
  */
 const AvisosCarga: React.FC<Props> = ({
     estado,
     conectado,
     textoSinConexion = 'Sin conexión en tiempo real. El estado se actualiza cada 10 segundos.',
 }) => {
+    const { usuario, tienePermiso } = useAuth();
     const enCurso = estado?.enCurso === true;
+    // "Cancelar desde acá" solo se dice a quien tiene el botón.
+    const puedeCancelar = !!estado && puedeGestionarCarga(estado, usuario?.id, tienePermiso);
     const ahora = useAhora(enCurso);
 
     // Edad del último latido: con la hora del servidor que trae el DTO (más lo que pasó desde que llegó), o,
@@ -78,13 +86,20 @@ const AvisosCarga: React.FC<Props> = ({
             : null;
     const hayAvisoSinCambios = minutosSinCambios !== null && minutosSinCambios >= SIN_CAMBIOS_MIN;
 
+    // Cancelación pedida y la carga sigue en curso: info al principio; a los 2 minutos sin corte, advertencia. La edad
+    // se mide con la hora del servidor, como los otros avisos.
+    const hayCancelacionPedida = !!estado && enCurso && cancelacionPedidaAt(estado) !== null;
+    const minutosCancelacion =
+        estado && hayCancelacionPedida ? minutosDesdePedidoCancelacion(estado, medidaRef.current.recibidoEn, ahora) : null;
+    const cancelacionSinCortar = minutosCancelacion !== null && minutosCancelacion >= CANCELACION_SIN_CORTAR_MIN;
+
     // Sin conexión importa mientras la carga no terminó (o todavía no se sabe), también si aún no empezó.
     const mostrarSinConexion = !conectado && (estado === null || !estado.terminal);
     const hayReinicio = !!estado && estado.intentos > 1;
     // Una remesa heredada (sin fila de progreso, rev 0) no la ve el cierre automático.
     const esHeredada = !!estado && estado.rev === 0;
 
-    if (!mostrarSinConexion && !hayAvisoSinSenal && !hayAvisoEnCola && !hayAvisoSinCambios && !hayReinicio) {
+    if (!mostrarSinConexion && !hayAvisoSinSenal && !hayAvisoEnCola && !hayAvisoSinCambios && !hayReinicio && !hayCancelacionPedida) {
         return null;
     }
 
@@ -103,7 +118,9 @@ const AvisosCarga: React.FC<Props> = ({
             {hayAvisoEnCola && (
                 <Alert severity="warning" sx={{ overflowWrap: 'anywhere' }}>
                     Esta carga es la próxima de la cola y el servidor no la tomó hace {minutosEnCola} min. Si sigue
-                    así, avisá a soporte. Mientras no arranque, la podés eliminar desde el Historial.
+                    así, avisá a soporte. {puedeCancelar
+                        ? ' Mientras no arranque, la podés cancelar desde acá (queda para retomar) o eliminar desde el Historial.'
+                        : ' Mientras no arranque, la podés eliminar desde el Historial.'}
                 </Alert>
             )}
             {hayAvisoSinCambios && (
@@ -113,6 +130,18 @@ const AvisosCarga: React.FC<Props> = ({
                     no se va a marcar como fallida sola.
                 </Alert>
             )}
+            {hayCancelacionPedida &&
+                (cancelacionSinCortar ? (
+                    <Alert severity="warning" sx={{ overflowWrap: 'anywhere' }}>
+                        Se pidió cancelar hace {minutosCancelacion} min y la carga todavía no cortó: puede estar en un
+                        paso que no se puede interrumpir. Si sigue así, avisá a soporte.
+                    </Alert>
+                ) : (
+                    <Alert severity="info" sx={{ overflowWrap: 'anywhere' }}>
+                        Se pidió cancelar esta importación. Se corta al terminar la fila o el lote en curso; lo ya
+                        procesado queda cargado.
+                    </Alert>
+                ))}
             {estado && hayReinicio && (
                 <Alert severity="info">Esta carga se reinició (intento {estado.intentos}).</Alert>
             )}

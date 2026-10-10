@@ -418,6 +418,10 @@ corresponden a la empresa que estás cargando y las demás se destildan.
 Al cargar, el operador ve la tabla de cortes con la cantidad de casos de cada uno antes de crear
 nada. Las N remesas comparten **el mismo archivo**: no se sube ni se guarda varias veces.
 
+> **Si cambiás las columnas de corte de una plantilla, el sistema deja de reconocer las cargas anteriores de ese
+> archivo**: al volver a subirlo, los cortes ya cargados no vienen destildados y hay que destildarlos a mano
+> mirando el Historial.
+
 > Solo hace falta en Telecom y Telecom Personal. Sin estas columnas declaradas, la carga se comporta
 > como siempre: un archivo, una remesa.
 

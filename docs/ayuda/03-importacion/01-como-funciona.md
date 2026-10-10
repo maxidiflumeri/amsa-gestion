@@ -92,11 +92,11 @@ ahí**.
 3. **Vista previa** — el sistema lee las primeras filas y te muestra **cómo quedarían ya
    transformadas**, antes de tocar nada. Es el momento de frenar si algo no cuadra.
 4. **Importando** — corre en segundo plano, en el servidor: si cerrás la pantalla o te vas a otra, la
-   carga sigue y la podés ver en la campanita de la barra superior. **Menos en una carga dividida**:
-   la remesa siguiente la arranca esta pantalla, así que hay que dejarla abierta hasta ver el
-   resultado.
+   carga sigue y la podés ver en la campanita de la barra superior. También una carga dividida: las
+   remesas se confirman juntas y el servidor las carga una después de la otra. Mientras corre se puede
+   **cancelar** (ver [Importar un archivo](/ayuda/importacion/importar-un-archivo)).
 5. **Resultado** — cómo terminó la carga: si salió bien, si hubo filas con error, si no tenía filas, si
-   terminó con advertencias o si falló. Con cuántas filas y, cuando hay un problema, el motivo.
+   terminó con advertencias, si falló o si se canceló. Con cuántas filas y, cuando hay un problema, el motivo.
 
 Hasta que confirmás en el paso 3 **no se carga nada**: una vista previa sin confirmar es un borrador, y
 un borrador que nadie confirma **se borra solo**: la limpieza corre una vez por día, de madrugada, y borra
@@ -115,10 +115,11 @@ hora arreglando después.
 | **Validando** | Con la vista previa hecha y sin confirmar |
 | **Procesando** | Cargando. Está en curso |
 | **Finalizada** | Terminó. Puede haber terminado con filas con error, sin filas o con advertencias |
-| **Fallida** | Se cortó. Si el servidor se reinició o dejó de responder mientras procesaba, la carga se marca sola como fallida a los pocos minutos (normalmente entre 6 y 7) y no se vuelve a ejecutar sola |
+| **Fallida** | Se cortó. Si el servidor se reinició o dejó de responder mientras procesaba, la carga se marca sola como fallida a los pocos minutos (normalmente entre 6 y 7) y no se vuelve a ejecutar sola. **Una carga cancelada también figura como fallida** en el Historial; en su detalle y en la notificación dice **Cancelada** (la notificación no siempre llega: una carga cancelada en la cola notifica solo al dueño y solo si la canceló otra persona) |
 
 En el Historial los estados aparecen en mayúsculas. En el **detalle** de una carga, una que todavía no
-se confirmó dice **Borrador** y una que espera su turno dice **En cola**.
+se confirmó dice **Borrador**, una que espera su turno dice **En cola** y una que se canceló dice
+**Cancelada**.
 
 **Finalizada no quiere decir que salió todo bien**: quiere decir que terminó. El resultado (paso 5)
 dice cómo terminó de verdad: con filas con error, sin filas, o con advertencias porque las filas se
@@ -161,4 +162,4 @@ Es distinto de **Multiarchivo**, que es para archivos de formatos **distintos** 
 ## Una importación por vez
 
 No se pueden correr dos importaciones tuyas en paralelo: si intentás confirmar una mientras tenés otra
-en curso, el sistema avisa *"Ya tenés una importación en curso"*. Hay que esperar a que termine (o, si la otra todavía está en cola y no arrancó, borrarla desde el Historial).
+en curso, el sistema avisa *"Ya tenés una importación en curso"*. Hay que esperar a que termine (o, si la otra todavía está en cola y no arrancó, cancelarla —queda para retomar— o borrarla desde el Historial). Una carga dividida cuenta como una sola: te ocupa hasta que termina su última remesa.
