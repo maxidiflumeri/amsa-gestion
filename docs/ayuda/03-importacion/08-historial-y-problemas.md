@@ -92,6 +92,32 @@ Una carga con advertencias también tiene su notificación (con ícono de advert
 La campanita de la barra superior **no muestra las vistas previas sin confirmar**: en
 **Importaciones en curso** solo figuran las cargas que se confirmaron y todavía no terminaron.
 
+**La campanita y el chip de la barra superior.** Mientras haya cargas en curso, al lado de la campanita aparece un
+chip que las resume: *Importando 43 %* si hay una procesando, *Importación en cola* si todavía no arrancó,
+*Cancelando importación* si se pidió cortarla, y *3 importaciones* si son varias. Tocarlo abre la campanita. En el
+celular el chip se reduce a un ícono (el texto queda como etiqueta del botón) y la campanita se abre a pantalla
+completa, con el botón **Cerrar** arriba a la derecha. La campanita también se cierra sola al ir a otra pantalla, y el
+botón "atrás" del navegador del celular hace las dos cosas: la cierra y vuelve a la pantalla anterior.
+
+Desde la campanita se puede actuar sobre las cargas:
+
+- **En curso:** **Ver detalle** lleva al detalle de esa remesa y cierra la campanita. El ícono de cancelar abre el mismo
+  diálogo del asistente y del Historial; en una carga dividida ofrece **Cancelar todo lo que falta** aunque la remesa
+  que está corriendo ya no se pueda cortar. Solo aparece para quien cargó la importación (o tiene el permiso para ver
+  las de otros) y puede ejecutar importaciones.
+- **Terminadas:** la notificación puede traer **Descargar errores** (cuando dice que hubo errores o avisos) y
+  **Retomar** (solo si la carga se canceló o falló sin haber procesado ninguna fila). Los botones no abren el detalle
+  ni marcan la notificación como leída; tocar el resto de la notificación sí. Antes de hacer algo, el sistema consulta
+  cómo está la carga ahora, porque la notificación puede ser vieja: si la importación ya no existe, dice *"Esta
+  importación ya no existe."*; si ya la retomó otra persona, *"Esta importación ya está en curso."*; si ya no se puede
+  retomar, dice por qué o te manda a mirar el detalle; y si la cargó otra persona y no tenés permiso para ver las
+  importaciones de otros, *"Solo quien la cargó puede retomarla."* **Descargar errores** baja el mismo
+  `errores-remesa-N.csv` que el detalle (con el mismo aviso si son más de 200.000) y, si la carga ya no tiene
+  errores ni avisos, lo dice en vez de bajar un archivo vacío. **Retomar** pide confirmación, deja la carga en la cola
+  (*"Importación retomada: quedó en la cola."*) y la ves aparecer en **Importaciones en curso**.
+- **Retomar desde una notificación retoma solo esa remesa**, aunque sea parte de una carga dividida. Para retomar toda
+  la división de una vez, usá el encabezado de la división en el Historial.
+
 ## Buscar, paginar y cuánto tarda en actualizarse
 
 - **Paginado.** El Historial muestra **25** importaciones por página (se puede elegir 50 o 100), de la más nueva a la
@@ -124,6 +150,14 @@ todos los errores y avisos de la carga; si son más de 200.000, antes avisa que 
 Si la carga dice que hubo errores y no se pueden leer, la tarjeta lo dice (*"No se pudieron leer los errores"*, con
 **Reintentar**) en vez de mostrar que no hay ninguno.
 
+**Mientras la carga corre**, arriba del detalle se ve su progreso: los pasos (**En cola → Procesando → Post-proceso →
+Listo**; en el celular, una línea como *"Paso 2 de 4 · Procesando"*), la fase con el porcentaje, la barra y el botón
+para cancelar. Si hubo errores o avisos, debajo aparecen **los últimos cinco** (*"Fila 1.204 · …"*) con el total
+(*"En total: 1.204 errores de fila y 3 avisos"*). Primero van los de número de fila más alto, y los avisos solo
+completan la lista cuando hay menos de cinco errores de fila; el total cuenta los dos. En una carga dividida se suma
+la barra de la división, *"Remesas terminadas: 2 de 3"*, que avanza sola a medida que terminan las otras remesas.
+Cuando la carga termina, ese bloque deja lugar al resumen.
+
 Los avisos
 (`[aviso]`, `[parseo]`, `[post-proceso]`) figuran con **—** en lugar del número de fila; una fila con error siempre
 lleva su número. **El número cuenta desde 1** y es la posición de la fila entre las que procesó la carga: no cuenta el
@@ -133,7 +167,8 @@ encabezado de la columna lo explica; para ubicar el registro, usá la columna co
 encabezado (si el archivo tiene encabezado, es la línea siguiente). Los avisos
 cuentan aunque ninguna fila haya dado error: incluyen los que escriben las propias categorías al cargar
 (los de Pagos con número de convenio y los de Claves de pago, más abajo). Una carga que falló, que se
-canceló, que terminó con advertencias o que no tenía filas muestra además un cartel arriba con el motivo. Si
+canceló, que terminó con advertencias o que no tenía filas muestra además un cartel arriba con el motivo. El estado grande de arriba del detalle usa las mismas palabras que la grilla (**Finalizada con errores**, **Cancelada**, **En cola**…), y
+los de las otras remesas de la división también. Si
 la remesa es parte de una carga dividida, el detalle lo dice bajo el número (*"Remesa 2 de 5 de una carga
 dividida"*) y enlaza a las otras remesas. En *Información general* aparecen, cuando corresponden, el **Corte** que le
 tocó a la remesa y las **Remesas de origen** con las que se confirmó (*"una remesa eliminada"* si ya no existe).
@@ -327,6 +362,8 @@ vez anterior."*). El botón aparece solo cuando el sistema dice que se puede: si
 remesa que se confirmó después, no aparece y la grilla explica por qué (*"El corte de esta remesa ya figura en la
 remesa N: no se puede retomar. Si esta ya no hace falta, eliminala."*). En una división, el encabezado trae **Retomar
 las N que no se cargaron**; si ninguna se puede, el sistema dice el motivo de cada una.
+También se puede retomar una remesa desde su notificación en la campanita (ver "La campanita y el chip de la barra
+superior"): retoma solo esa remesa.
 
 **Confirmar** manda a la cola un borrador que **ya se había confirmado** y la cola no pudo recibir (el estado
 **No se pudo encolar**). El diálogo (*"Confirmar la importación"* o *"Confirmar las N importaciones"*) lista las remesas

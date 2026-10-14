@@ -6,6 +6,71 @@
 
 ---
 
+## [2026-10-14] — Importaciones, entrega C2b: una sola tarjeta de progreso, la campanita con acciones, el chip y el celular
+
+Segunda mitad de la entrega 2 de la Fase C. Diseño en §16 de
+[docs/imports-progreso-c2-spec.md](docs/imports-progreso-c2-spec.md); lo que cambió al auditar, en su §19 (manda sobre
+§16). **Solo frontend: no hay cambios de backend, schema, permisos ni variables.** Necesita el backend de C2a (usa la
+lectura de errores paginada), que va en el push anterior.
+
+**Estado: implementada y auditada (dos implementers en paralelo y una sola pasada de auditoría, PASA CON
+OBSERVACIONES, sin bloqueantes ni altos; los arreglos, después, cada uno con su test); sin desplegar y sin ver en un
+navegador.** Las tres decisiones de §16.12 se tomaron con su recomendación, sin respuesta del usuario: el chip grande
+del detalle usa la misma etiqueta que el Historial; el "atrás" del navegador con la campanita abierta en el celular la
+cierra y vuelve a la pantalla anterior; "Retomar" desde una notificación retoma solo esa remesa.
+
+### Deploy de C2a: el backend no compilaba
+
+El push de C2a (`c148abd` + `20d4af6`) publicó el frontend a las 16:49 UTC, pero el workflow del backend falló en el
+build de la imagen: `TS2304: Cannot find name 'BadRequestException'` en `imports.controller.ts`, en la validación de
+`?rev=` que se agregó al arreglar la auditoría. Hasta el arreglo (`f5923f3`, con pruebas del controller para un `rev`
+inválido) prod tuvo el Historial nuevo contra el backend de C1, sin las rutas que usa. **Jest no lo podía ver:** el
+backend compila con `isolatedModules` y ts-jest no chequea tipos. Antes de commitear backend, `npm run build`.
+
+### Frontend
+
+- **`TarjetaProgreso`** (`components/import/progreso/`): una sola tarjeta de progreso, presentacional (no consulta ni
+  escucha nada), con tres variantes: completa (paso "Importando" del asistente), detalle y compacta (campanita).
+  Pasos (En cola → Procesando → Post-proceso → Listo; en el celular, una línea), contadores en dos columnas en `xs`,
+  **los últimos cinco errores y avisos en vivo** (`useUltimosErrores`: la lectura de C2a con `orden=desc&pageSize=5`, a
+  lo sumo una cada 5 s, nunca en la campanita) y, en una división, la barra del grupo.
+- **Asistente:** `ImportProgress` cambia solo el cuerpo (la orquestación con el asistente —`onComplete` una vez,
+  `estadoInicial`, remesa no encontrada— no se tocó). `PasoImportandoGrupo` usa un solo hook: antes, con el socket
+  caído, eran dos consultas por tic. **Vigía de `ejecutar-grupo`** (`useVigiaGrupo`): si el pedido no vuelve en 15 s,
+  consulta la primera remesa cada 5 s y sigue al grupo cuando aparece, con el aviso "El servidor está tardando en
+  responder…". Cosméticos de C1 (singulares, punto de miles).
+- **Etiqueta de estado única** (`etiquetaDeEstado`): la usan el Historial, la lista de la división, los chips de las
+  hermanas y el chip grande del detalle (se fue `estadoEnGrupo`; "Falló" pasa a "Fallida").
+- **Detalle:** mientras la carga corre, la tarjeta de detalle arriba; la división se sigue en vivo con `useGrupoCarga`
+  (la auditoría encontró la barra del grupo clavada en lo que valía al abrir la pantalla).
+- **Campanita:** la carga en curso como tarjeta compacta con **Ver detalle** y cancelar; las notificaciones de cargas
+  terminadas con **Descargar errores** y **Retomar**, que consultan el estado real antes de actuar (la notificación
+  puede ser vieja), no navegan ni marcan leída. En el celular, diálogo a pantalla completa con **Cerrar**.
+- **Chip en la barra superior** mientras hay cargas en curso (*Importando 43 %*, *3 importaciones*, *Cancelando
+  importación*), dentro de `NotificacionesBell`: la barra no se redibuja cada segundo.
+- **"Nueva importación"** descarta lo que responda tarde un pedido de la carga anterior y apaga el vigía (antes, la
+  respuesta tardía de C1 podía escribir en la carga nueva).
+- Tests: el arnés gana `FE_TEST_PUERTO` (dos suites a la vez en el mismo árbol). Se portaron del arnés de auditoría de
+  C1 unas 80 pruebas de lo que C2b refactoriza y se sumaron las nuevas: `npm test` **521 pruebas en 35 archivos**
+  (eran 250; ~5,5 min); `npm run test:lento` **26 en 7 archivos** (~20 min). `tsc` con los 4 errores de base y `npm run build` OK.
+
+### Documentación
+
+- Wiki `03-importacion`: `05` (Paso 4 y la campanita), `01` (el chip y los estados de la división) y `08` (la campanita
+  con acciones, el celular y el detalle mientras la carga corre).
+- Spec principal: encabezado y la fila de deuda de C1 en §10.16 (resuelta).
+
+### Deuda y prueba manual
+
+- "Cargar las que faltan" no tiene vigía; los avisos no entran en "los últimos cinco" si hay cinco o más errores de fila
+  (orden del backend, C3); "Se descartaron 1 filas" en la vista previa.
+- **Nada de C2 se vio en un navegador.** Guion mínimo (360 px y 1280, claro y oscuro): una carga con errores en el
+  asistente; una división de 3 con el detalle de la 3.ª abierto en otra pestaña; la campanita en el celular (abrir,
+  "Ver detalle", "atrás", cancelar con el toast por encima); "Retomar" dos veces en la notificación de una cancelada en
+  cola (la segunda no manda nada); "Descargar errores" con la remesa borrada; el chip a 1280 con dos cargas.
+
+---
+
 ## [2026-10-14] — Importaciones, entrega C2a: el Historial dice la verdad y deja actuar; el frontend tiene tests
 
 Primera mitad de la entrega 2 de la Fase C. Diseño en [docs/imports-progreso-c2-spec.md](docs/imports-progreso-c2-spec.md)

@@ -9,10 +9,11 @@
 > [§10.16](#1016-lo-que-cambió-en-la-entrega-1-después-de-la-auditoría-09102026), que manda sobre
 > §10.2 a §10.12; **C2 (interfaz) está diseñada en un documento aparte,
 > [imports-progreso-c2-spec.md](imports-progreso-c2-spec.md)**, partida en C2a (Historial con estados
-> reales y acciones, errores paginados y en CSV, tests del frontend en el repo: diseño ejecutable) y C2b
-> (tarjeta única de progreso, campanita con acciones, celular: esbozada); **C1 desplegada en prod el 14/10/2026
-> (imagen `e11fc73`) y C2a implementada y auditada el 14/10, sin desplegar** (lo que cambió al auditarla, en §18
-> de ese documento); C3 (resumen por
+> reales y acciones, errores paginados y en CSV, tests del frontend en el repo) y C2b
+> (tarjeta única de progreso, campanita con acciones, chip, celular); **C1 desplegada en prod el 14/10/2026
+> (imagen `e11fc73`); C2a commiteada el 14/10 (`c148abd` backend, `20d4af6` frontend) y C2b implementada y
+> auditada el 14/10, las dos sin desplegar al escribir esto** (lo que cambió al auditarlas, en §18 y §19 de ese
+> documento); C3 (resumen por
 > categoría y revertir), esbozada en §10.15 · Fase D sin empezar.** Donde §4, §10.1 y §10.15 dicen "C2",
 > el reparto fino entre C2a y C2b es el de §1 de ese documento (su §17 lista lo que falta actualizar acá).
 > Deploy de la B verificado en prod (solo lecturas): `migrate diff` vacío, columna `fueraDeCorte` creada,
@@ -5778,7 +5779,7 @@ falta de una división con la remesa actual cerrando (primera fila de la tabla d
 | Una carga trabada en un `await`, y una en post-proceso, no se cortan: el pedido queda escrito (o se rechaza) y sale con un reinicio | C3 |
 | El Historial muestra una cancelada como FALLIDA y las remesas en cola de una división como PENDIENTE, igual que un borrador (y se pueden borrar desde ahí); no tiene botones de cancelar ni retomar | C2 |
 | Las remesas que el backend no pudo encolar (residuo mixto) solo se confirman con "Cargar las que faltan" del asistente: si se cerró, hay que eliminarlas y volver a subir esos cortes | C2 |
-| En el detalle de una remesa en cola, la lista del diálogo de cancelar es la foto de cuando se abrió; si la división no se pudo leer nunca, el diálogo no avisa que se cancela solo esa remesa; `ejecutar-grupo` sin respuesta deja "Enviando a la cola…" sin seguimiento (acotado por el tope de 10 s); cosméticos de gramática y de textos | C2 |
+| En el detalle de una remesa en cola, la lista del diálogo de cancelar es la foto de cuando se abrió; si la división no se pudo leer nunca, el diálogo no avisa que se cancela solo esa remesa; `ejecutar-grupo` sin respuesta deja "Enviando a la cola…" sin seguimiento (acotado por el tope de 10 s); cosméticos de gramática y de textos | Resuelto: el diálogo en C2a; el vigía de `ejecutar-grupo` y los cosméticos en C2b (§16.6, §16.7 y §19 de [imports-progreso-c2-spec.md](imports-progreso-c2-spec.md)) |
 | El 409 de corte repetido se reconoce en el frontend por la frase "cortes cargados": conviene un código | C2 |
 | `ejecutar-grupo` y `ejecutar/:id` no comprueban que el borrador sea de quien confirma (anterior a C1) | Backlog |
 | El alta rechazada por corte repetido deja el archivo en `uploads` | Backlog (§9.1) |

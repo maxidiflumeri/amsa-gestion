@@ -1,30 +1,24 @@
 import React from 'react';
-import { Box, LinearProgress, Typography, Chip, useTheme } from '@mui/material';
+import { Box, Typography, useTheme } from '@mui/material';
 import { Link as RouterLink } from 'react-router-dom';
 import type { EstadoCargaDto } from '../../../types/importProgreso';
-import {
-    barraIndeterminada,
-    cancelacionPedidaAt,
-    datosDeGrupo,
-    esperaAbreviada,
-    etiquetaFase,
-    formatearNumero,
-} from '../../../utils/estadoCarga';
+import { BotonCancelarCarga } from '../../import/ImportProgress';
+import TarjetaProgreso from '../../import/progreso/TarjetaProgreso';
 
 interface ImportEnCursoItemProps {
     carga: EstadoCargaDto;
+    /** Las cargas en curso de la misma división (para «Cancelar todo lo que falta»). Sin ellas, solo se ofrece cancelar esta. */
+    hermanasEnCurso?: EstadoCargaDto[];
+    /** Se llama al terminar de cancelar, para que la lista de la campanita se ponga al día. */
+    onRefrescar?: () => void;
+    /** Se llama al ir al detalle (la campanita se cierra). */
+    onNavegar?: () => void;
+    conectado?: boolean;
 }
 
-const chipSx = { height: 18, fontSize: '0.65rem' } as const;
-
-const ImportEnCursoItem: React.FC<ImportEnCursoItemProps> = ({ carga }) => {
+/** Una carga en curso dentro de la campanita: la tarjeta compacta con «Ver detalle» y cancelar. */
+const ImportEnCursoItem: React.FC<ImportEnCursoItemProps> = ({ carga, hermanasEnCurso, onRefrescar, onNavegar, conectado = true }) => {
     const theme = useTheme();
-    const indeterminada = barraIndeterminada(carga);
-    const fase = etiquetaFase(carga);
-    const espera = carga.fase === 'PROCESANDO' ? esperaAbreviada(carga) : null;
-    // Carga dividida: " · 2 de 3". Con la cancelación pedida, "Cancelando…" en vez de la fase (§10.8.6).
-    const grupo = datosDeGrupo(carga);
-    const cancelando = cancelacionPedidaAt(carga) !== null;
 
     return (
         <Box
@@ -35,57 +29,26 @@ const ImportEnCursoItem: React.FC<ImportEnCursoItemProps> = ({ carga }) => {
                 '&:last-child': { borderBottom: 'none' },
             }}
         >
-            <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 0.5 }}>
-                <Typography variant="body2" fontWeight={600} noWrap sx={{ minWidth: 0 }}>
-                    {carga.tipo} · Remesa {carga.numeroRemesa}
-                    {grupo && grupo.orden != null && grupo.total != null ? ` · ${grupo.orden} de ${grupo.total}` : ''}
-                </Typography>
-                <Typography variant="caption" color="text.secondary" noWrap sx={{ ml: 1, flexShrink: 0, maxWidth: 110 }}>
-                    {carga.usuarioNombre}
-                </Typography>
-            </Box>
-
-            <LinearProgress
-                variant={indeterminada ? 'indeterminate' : 'determinate'}
-                value={indeterminada ? undefined : carga.progreso}
-                sx={{ height: 6, borderRadius: 3, mb: 0.75 }}
+            <TarjetaProgreso
+                variante="compacta"
+                carga={carga}
+                conectado={conectado}
+                acciones={
+                    <>
+                        <Typography
+                            component={RouterLink}
+                            to={`/historial-importaciones/${carga.remesaId}`}
+                            onClick={onNavegar}
+                            variant="caption"
+                            color="primary.main"
+                            sx={{ textDecoration: 'none', '&:hover': { textDecoration: 'underline' } }}
+                        >
+                            Ver detalle
+                        </Typography>
+                        <BotonCancelarCarga carga={carga} variante="icono" onGrupoCambio={onRefrescar} grupo={hermanasEnCurso} />
+                    </>
+                }
             />
-
-            <Box sx={{ display: 'flex', gap: 1, alignItems: 'center', flexWrap: 'wrap' }}>
-                <Typography variant="caption" color="text.secondary">
-                    {cancelando ? 'Cancelando…' : fase.principal}
-                    {!indeterminada ? ` · ${carga.progreso}%` : ''}
-                    {espera ? ` · ${espera}` : ''}
-                </Typography>
-                <Chip label={`Procesadas: ${formatearNumero(carga.procesadas)}`} size="small" variant="outlined" sx={chipSx} />
-                <Chip label={`OK: ${formatearNumero(carga.ok)}`} size="small" color="success" variant="outlined" sx={chipSx} />
-                {carga.err > 0 && (
-                    <Chip label={`Err: ${formatearNumero(carga.err)}`} size="small" color="error" variant="outlined" sx={chipSx} />
-                )}
-                {carga.totalEsperado > 0 && (
-                    <Chip label={`Total: ${formatearNumero(carga.totalEsperado)}`} size="small" variant="outlined" sx={chipSx} />
-                )}
-                <Box sx={{ flexGrow: 1 }} />
-                <Typography
-                    component={RouterLink}
-                    to={`/historial-importaciones/${carga.remesaId}`}
-                    variant="caption"
-                    color="primary.main"
-                    sx={{ textDecoration: 'none', '&:hover': { textDecoration: 'underline' } }}
-                >
-                    Ver detalle
-                </Typography>
-            </Box>
-
-            {fase.secundario && (
-                <Typography
-                    variant="caption"
-                    color="text.secondary"
-                    sx={{ mt: 0.25, display: 'block', overflowWrap: 'anywhere' }}
-                >
-                    {fase.secundario}
-                </Typography>
-            )}
         </Box>
     );
 };

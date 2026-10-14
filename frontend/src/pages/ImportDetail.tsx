@@ -39,6 +39,8 @@ import { useConfirm } from '../context/ConfirmContext';
 import { useSocket } from '../context/SocketContext';
 import type { EstadoCargaDto } from '../types/importProgreso';
 import { useEstadoCarga } from '../hooks/useEstadoCarga';
+import { useGrupoCarga } from '../hooks/useGrupoCarga';
+import { useUltimosErrores } from '../hooks/useUltimosErrores';
 import {
     PageHeader,
     SectionCard,
@@ -51,9 +53,9 @@ import type { StatusValue } from '../components/ui';
 import type { DataTableColumn } from '../components/ui';
 import MulticlavesLoteResumen from '../components/import/MulticlavesLoteResumen';
 import AvisosCarga from '../components/import/AvisosCarga';
+import TarjetaProgreso from '../components/import/progreso/TarjetaProgreso';
 import { BotonCancelarCarga } from '../components/import/ImportProgress';
 import {
-    barraIndeterminada,
     cancelacionLlegoTarde,
     casosActualizados,
     casosNuevos,
@@ -62,10 +64,9 @@ import {
     descartadasPorFiltro,
     esRetomable,
     estaCancelada,
-    estadoEnGrupo,
+    etiquetaDeEstado,
     etiquetaFase,
     formatearNumero,
-    lineaDeRitmo,
     motivoNoRetomablePorCorte,
     presentarResultado,
     puedeGestionarCarga,
@@ -201,6 +202,8 @@ export default function ImportDetail() {
     const { conectado } = useSocket();
     // Todo lo que se mueve (estado, contadores, fechas, resultado) sale de acá; la remesa de abajo es lo fijo.
     const { estado: carga, cargando: cargandoCarga, noExiste, aplicar, refrescar } = useEstadoCarga(id ? Number(id) : null);
+    // Los últimos 5 errores solo mientras corre: terminada, la tabla de abajo ya los muestra todos.
+    const ultimos = useUltimosErrores(carga, carga?.enCurso === true);
 
     const [remesa, setRemesa] = useState<RemesaDetalle | null>(null);
     const [loading, setLoading] = useState(true);
@@ -266,6 +269,14 @@ export default function ImportDetail() {
     useEffect(() => {
         void cargarHermanas();
     }, [cargarHermanas, terminal]);
+    // Mientras esta remesa corre, las que terminan son otras: la división se sigue en vivo (socket y, si calla, por
+    // consulta) para que la barra del grupo y los chips no queden con la foto de cuando se abrió la pantalla.
+    const grupoVivo = useGrupoCarga(carga?.enCurso ? grupoIdActual : null);
+    const hermanasVistas = carga?.enCurso && grupoVivo.remesas.length > 0 ? grupoVivo.remesas : hermanas;
+    const refrescarHermanas = () => {
+        void cargarHermanas();
+        if (carga?.enCurso) void grupoVivo.refrescar();
+    };
 
     // Retomar (§10.8.5): vuelve a encolar la misma remesa. La `carga` que devuelve el pedido pasa de terminal a en
     // curso: el hook la aplica y vuelve a seguirla solo.
@@ -307,13 +318,11 @@ export default function ImportDetail() {
 
     const esMulticlaves = remesa?.categoria === 'MULTICLAVES';
 
-    // Chip de estado: "Borrador" si no está en curso ni terminó; "En cola" si espera su turno; si no, el estado de siempre.
+    // Chip de estado: con la carga, la misma etiqueta que el Historial (§16.5); sin ella (una remesa heredada), el `estadoProceso` de la remesa.
     let chipEstado: { status: StatusValue; label: string } | null = null;
     if (carga) {
-        if (!carga.enCurso && !carga.terminal) chipEstado = { status: 'pending', label: 'Borrador' };
-        else if (carga.fase === 'EN_COLA') chipEstado = { status: 'pending', label: 'En cola' };
-        else if (estaCancelada(carga)) chipEstado = { status: 'warning', label: 'Cancelada' };
-        else chipEstado = { status: ESTADO_TO_STATUS[carga.estadoProceso] ?? 'neutral', label: carga.estadoProceso };
+        const e = etiquetaDeEstado(carga);
+        chipEstado = { status: e.status, label: e.etiqueta };
     } else if (remesa && !cargandoCarga) {
         chipEstado = { status: ESTADO_TO_STATUS[remesa.estadoProceso] ?? 'neutral', label: remesa.estadoProceso };
     }
@@ -325,8 +334,6 @@ export default function ImportDetail() {
             ? presentarResultado(carga)
             : null;
     const esBorrador = carga !== null && !carga.enCurso && !carga.terminal;
-    const indeterminada = barraIndeterminada(carga);
-    const ritmo = carga?.enCurso ? lineaDeRitmo(carga) : null;
     // Lo que no entra en las cuatro tarjetas: solo se muestra lo que corresponda. Vale para cargas en curso y terminadas.
     const resumenCasos: string[] = [];
     if (carga && (carga.enCurso || carga.terminal)) {
@@ -436,10 +443,10 @@ export default function ImportDetail() {
                                                 ? `Remesa ${grupoActual.orden} de ${grupoActual.total} de una carga dividida`
                                                 : 'Remesa de una carga dividida'}
                                         </Typography>
-                                        {hermanas.length > 1 && (
+                                        {hermanasVistas.length > 1 && (
                                             <Box display="flex" flexWrap="wrap" gap={0.5} mt={0.5}>
-                                                {hermanas.map((h) => {
-                                                    const est = estadoEnGrupo(h);
+                                                {hermanasVistas.map((h) => {
+                                                    const est = etiquetaDeEstado(h);
                                                     return (
                                                         <Chip
                                                             key={h.remesaId}
@@ -447,7 +454,7 @@ export default function ImportDetail() {
                                                             to={`/historial-importaciones/${h.remesaId}`}
                                                             clickable
                                                             size="small"
-                                                            label={`#${h.numeroRemesa} · ${est.texto}`}
+                                                            label={`#${h.numeroRemesa} · ${est.etiqueta}`}
                                                             color={est.color}
                                                             variant={String(h.remesaId) === id ? 'filled' : 'outlined'}
                                                         />
@@ -488,47 +495,24 @@ export default function ImportDetail() {
                                 {fase.secundario}
                             </Typography>
                         )}
-                        {carga?.enCurso && fase && (
-                            <Box mt={2}>
-                                <LinearProgress
-                                    variant={indeterminada ? 'indeterminate' : 'determinate'}
-                                    value={indeterminada ? undefined : carga.progreso}
-                                    sx={{ borderRadius: 1, height: 8 }}
-                                />
-                                <Typography variant="caption" color="text.secondary" mt={0.5} display="block">
-                                    {fase.principal}
-                                    {!indeterminada ? ` · ${carga.progreso}% completado` : ''}
-                                </Typography>
-                                {fase.secundario && (
-                                    <Typography
-                                        variant="caption"
-                                        color="text.secondary"
-                                        display="block"
-                                        sx={{ overflowWrap: 'anywhere' }}
-                                    >
-                                        {fase.secundario}
-                                    </Typography>
-                                )}
-                                {ritmo && (
-                                    <Typography
-                                        variant="caption"
-                                        color="text.secondary"
-                                        display="block"
-                                        sx={{ overflowWrap: 'anywhere' }}
-                                    >
-                                        {ritmo}
-                                    </Typography>
-                                )}
-                            </Box>
-                        )}
-                        {carga && (carga.enCurso || carga.intentos > 1) && (
-                            <Box mt={2}>
-                                <AvisosCarga estado={carga} conectado={conectado} />
-                            </Box>
-                        )}
                         {carga?.enCurso && (
                             <Box mt={2}>
-                                <BotonCancelarCarga carga={carga} onResultado={aplicar} onGrupoCambio={() => void cargarHermanas()} alineacion="flex-start" grupo={hermanas} />
+                                <TarjetaProgreso
+                                    variante="detalle"
+                                    carga={carga}
+                                    conectado={conectado}
+                                    grupo={hermanasVistas}
+                                    totalGrupo={grupoVivo.total || (grupoActual?.total ?? undefined)}
+                                    ultimos={ultimos}
+                                    acciones={
+                                        <BotonCancelarCarga carga={carga} onResultado={aplicar} onGrupoCambio={refrescarHermanas} alineacion="flex-start" grupo={hermanasVistas} />
+                                    }
+                                />
+                            </Box>
+                        )}
+                        {carga && !carga.enCurso && carga.intentos > 1 && (
+                            <Box mt={2}>
+                                <AvisosCarga estado={carga} conectado={conectado} />
                             </Box>
                         )}
                         {carga && esRetomable(carga) && puedeGestionarCarga(carga, usuario?.id, tienePermiso) && (

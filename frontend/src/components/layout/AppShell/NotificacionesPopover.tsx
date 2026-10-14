@@ -3,13 +3,17 @@ import {
     Box,
     Button,
     CircularProgress,
+    Dialog,
     Divider,
+    IconButton,
     Popover,
     Tab,
     Tabs,
     Typography,
+    useMediaQuery,
     useTheme,
 } from '@mui/material';
+import CloseIcon from '@mui/icons-material/Close';
 import NotificationsOffIcon from '@mui/icons-material/NotificationsOff';
 import NotificacionItem from './NotificacionItem';
 import ImportEnCursoItem from './ImportEnCursoItem';
@@ -31,7 +35,8 @@ const NotificacionesPopover: React.FC<NotificacionesPopoverProps> = ({
     onClose,
 }) => {
     const theme = useTheme();
-    const { noLeidas, importsEnCurso, marcarLeida, marcarTodas, nonce } = useNotificaciones();
+    const celular = useMediaQuery(theme.breakpoints.down('sm'));
+    const { noLeidas, importsEnCurso, marcarLeida, marcarTodas, nonce, refrescar } = useNotificaciones();
     const { conectado } = useSocket();
 
     const [tab, setTab] = useState(0); // 0 = sin leer, 1 = leídas
@@ -89,6 +94,124 @@ const NotificacionesPopover: React.FC<NotificacionesPopoverProps> = ({
         await marcarTodas();
     };
 
+    // Lo que cambia entre el popover (escritorio) y la pantalla completa (celular) es solo el marco y la cabecera.
+    const cuerpo = (
+        <>
+            {/* Importaciones en curso (transitorio, fuera de los tabs) */}
+            {importsEnCurso.length > 0 && (
+                <>
+                    <Divider />
+                    <Box sx={{ px: 2, py: 1, bgcolor: theme.palette.action.hover }}>
+                        <Typography
+                            variant="caption"
+                            fontWeight={700}
+                            color="text.secondary"
+                            sx={{ textTransform: 'uppercase', letterSpacing: 0.5 }}
+                        >
+                            Importaciones en curso ({importsEnCurso.length})
+                        </Typography>
+                    </Box>
+                    {importsEnCurso.map((imp) => (
+                        <ImportEnCursoItem
+                            key={imp.remesaId}
+                            carga={imp}
+                            conectado={conectado}
+                            hermanasEnCurso={imp.grupoId != null ? importsEnCurso.filter((i) => i.grupoId === imp.grupoId) : undefined}
+                            onRefrescar={() => void refrescar()}
+                            onNavegar={onClose}
+                        />
+                    ))}
+                    {!conectado && (
+                        <Typography
+                            variant="caption"
+                            color="text.secondary"
+                            sx={{ display: 'block', px: 2, py: 0.75 }}
+                        >
+                            Sin conexión en tiempo real — actualizando cada 15 s.
+                        </Typography>
+                    )}
+                </>
+            )}
+
+            {/* Tabs */}
+            <Tabs
+                value={tab}
+                onChange={(_, v) => setTab(v)}
+                variant="fullWidth"
+                sx={{ borderTop: `1px solid ${theme.palette.divider}`, minHeight: 40 }}
+            >
+                <Tab label={`Sin leer${noLeidas > 0 ? ` (${noLeidas})` : ''}`} sx={{ minHeight: 40, fontSize: '0.8rem' }} />
+                <Tab label="Leídas" sx={{ minHeight: 40, fontSize: '0.8rem' }} />
+            </Tabs>
+            <Divider />
+
+            {/* Lista scrolleable */}
+            <Box ref={scrollRef} onScroll={handleScroll} sx={{ overflowY: 'auto', flexGrow: 1, minHeight: 0 }}>
+                {items.length === 0 && !loading && (
+                    <Box
+                        sx={{
+                            display: 'flex',
+                            flexDirection: 'column',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            py: 5,
+                            gap: 1.5,
+                            color: 'text.secondary',
+                        }}
+                    >
+                        <NotificationsOffIcon sx={{ fontSize: 40, opacity: 0.4 }} />
+                        <Typography variant="body2" color="text.secondary">
+                            {tab === 0 ? 'No tenés notificaciones sin leer' : 'No hay notificaciones leídas'}
+                        </Typography>
+                    </Box>
+                )}
+
+                {items.map((n) => (
+                    <NotificacionItem key={n.id} notificacion={n} onMarcarLeida={handleMarcarLeida} onNavegar={onClose} />
+                ))}
+
+                {loading && (
+                    <Box sx={{ display: 'flex', justifyContent: 'center', py: 2 }}>
+                        <CircularProgress size={20} />
+                    </Box>
+                )}
+            </Box>
+        </>
+    );
+
+    if (celular) {
+        return (
+            <Dialog fullScreen open={open} onClose={onClose} aria-labelledby="notificaciones-titulo">
+                <Box
+                    sx={{
+                        px: 2,
+                        py: 1,
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: 1,
+                        flexShrink: 0,
+                        borderBottom: `1px solid ${theme.palette.divider}`,
+                    }}
+                >
+                    <Typography id="notificaciones-titulo" variant="subtitle1" fontWeight={700} sx={{ flexGrow: 1 }}>
+                        Notificaciones
+                    </Typography>
+                    {noLeidas > 0 && (
+                        <Button size="small" onClick={handleMarcarTodas} sx={{ fontSize: '0.75rem' }}>
+                            Marcar todas
+                        </Button>
+                    )}
+                    <IconButton aria-label="Cerrar" onClick={onClose} edge="end">
+                        <CloseIcon />
+                    </IconButton>
+                </Box>
+                <Box sx={{ display: 'flex', flexDirection: 'column', flexGrow: 1, minHeight: 0 }}>
+                    {cuerpo}
+                </Box>
+            </Dialog>
+        );
+    }
+
     return (
         <Popover
             open={open}
@@ -98,7 +221,7 @@ const NotificacionesPopover: React.FC<NotificacionesPopoverProps> = ({
             transformOrigin={{ vertical: 'top', horizontal: 'right' }}
             PaperProps={{
                 sx: {
-                    width: 380,
+                    width: { xs: '100%', sm: 380 },
                     maxWidth: 'calc(100vw - 16px)',
                     maxHeight: 560,
                     display: 'flex',
@@ -130,78 +253,7 @@ const NotificacionesPopover: React.FC<NotificacionesPopoverProps> = ({
                 )}
             </Box>
 
-            {/* Importaciones en curso (transitorio, fuera de los tabs) */}
-            {importsEnCurso.length > 0 && (
-                <>
-                    <Divider />
-                    <Box sx={{ px: 2, py: 1, bgcolor: theme.palette.action.hover }}>
-                        <Typography
-                            variant="caption"
-                            fontWeight={700}
-                            color="text.secondary"
-                            sx={{ textTransform: 'uppercase', letterSpacing: 0.5 }}
-                        >
-                            Importaciones en curso ({importsEnCurso.length})
-                        </Typography>
-                    </Box>
-                    {importsEnCurso.map((imp) => (
-                        <ImportEnCursoItem key={imp.remesaId} carga={imp} />
-                    ))}
-                    {!conectado && (
-                        <Typography
-                            variant="caption"
-                            color="text.secondary"
-                            sx={{ display: 'block', px: 2, py: 0.75 }}
-                        >
-                            Sin conexión en tiempo real — actualizando cada 15 s.
-                        </Typography>
-                    )}
-                </>
-            )}
-
-            {/* Tabs */}
-            <Tabs
-                value={tab}
-                onChange={(_, v) => setTab(v)}
-                variant="fullWidth"
-                sx={{ borderTop: `1px solid ${theme.palette.divider}`, minHeight: 40 }}
-            >
-                <Tab label={`Sin leer${noLeidas > 0 ? ` (${noLeidas})` : ''}`} sx={{ minHeight: 40, fontSize: '0.8rem' }} />
-                <Tab label="Leídas" sx={{ minHeight: 40, fontSize: '0.8rem' }} />
-            </Tabs>
-            <Divider />
-
-            {/* Lista scrolleable */}
-            <Box ref={scrollRef} onScroll={handleScroll} sx={{ overflowY: 'auto', flexGrow: 1 }}>
-                {items.length === 0 && !loading && (
-                    <Box
-                        sx={{
-                            display: 'flex',
-                            flexDirection: 'column',
-                            alignItems: 'center',
-                            justifyContent: 'center',
-                            py: 5,
-                            gap: 1.5,
-                            color: 'text.secondary',
-                        }}
-                    >
-                        <NotificationsOffIcon sx={{ fontSize: 40, opacity: 0.4 }} />
-                        <Typography variant="body2" color="text.secondary">
-                            {tab === 0 ? 'No tenés notificaciones sin leer' : 'No hay notificaciones leídas'}
-                        </Typography>
-                    </Box>
-                )}
-
-                {items.map((n) => (
-                    <NotificacionItem key={n.id} notificacion={n} onMarcarLeida={handleMarcarLeida} />
-                ))}
-
-                {loading && (
-                    <Box sx={{ display: 'flex', justifyContent: 'center', py: 2 }}>
-                        <CircularProgress size={20} />
-                    </Box>
-                )}
-            </Box>
+            {cuerpo}
         </Popover>
     );
 };

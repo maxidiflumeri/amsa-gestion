@@ -13,7 +13,7 @@ if (typeof window.scrollTo !== 'function') window.scrollTo = () => {};
 beforeAll(() => {
     // Seguro: el arnés jamás le pega a un backend que no sea el falso.
     const url = String(import.meta.env.VITE_API_URL);
-    if (!/^http:\/\/127\.0\.0\.1:47831\/api$/.test(url)) {
+    if (url !== `http://127.0.0.1:${Number(process.env.FE_TEST_PUERTO || 47831)}/api`) {
         throw new Error(`VITE_API_URL inesperada (${url}): el arnés solo habla con el backend falso`);
     }
 });

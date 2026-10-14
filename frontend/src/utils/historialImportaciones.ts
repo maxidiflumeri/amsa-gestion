@@ -1,90 +1,21 @@
 // Funciones puras del Historial de importaciones (docs/imports-progreso-c2-spec.md §6.3 y §6.4).
 // Todo campo que puede faltar (un backend anterior, una remesa heredada) se lee con `== null`.
-import type { StatusValue } from '../components/ui';
-import type { EstadoCargaDto } from '../types/importProgreso';
 import type { GrupoHistorialDto, HistorialItemDto } from '../types/importHistorial';
 import {
-    cancelacionPedidaAt,
-    esperaAbreviada,
     esRetomable,
-    estaCancelada,
-    etiquetaFase,
-    formatearNumero,
+    etiquetaDeEstado,
     motivoNoCancelable,
     plural,
-    presentarResultado,
     puedeGestionarCarga,
+    type EtiquetaDeEstado,
 } from './estadoCarga';
 
-export interface EstadoDeFila {
-    etiqueta: string;
-    status: StatusValue;
-    /** Segunda línea bajo el chip. */
-    secundaria: string | null;
-    /** Título (y primera línea del motivo) para el tooltip del chip, en las terminales con algo que decir. */
-    tooltip: string | null;
-}
+/** Lo que el Historial dibuja de una fila: la etiqueta única de la carga (utils/estadoCarga.ts). */
+export type EstadoDeFila = EtiquetaDeEstado;
 
-const sinTooltip = (etiqueta: string, status: StatusValue, secundaria: string | null = null): EstadoDeFila => ({
-    etiqueta,
-    status,
-    secundaria,
-    tooltip: null,
-});
-
-/** Título del resultado y primera línea de su motivo (el porqué entero está en el detalle). */
-function tooltipDeResultado(carga: EstadoCargaDto): string {
-    const r = presentarResultado(carga);
-    const primera = (r.detalle ?? '').split('\n').find((l) => l.trim() !== '');
-    return primera ? `${r.titulo}. ${primera.trim()}` : r.titulo;
-}
-
-/**
- * Qué dice el Historial de una remesa (tabla de §6.3). Se evalúa en orden y gana la primera que se cumple. Nunca
- * muestra el `estadoProceso` crudo: no distingue un borrador de una en cola ni una cancelada de una fallida.
- */
+/** Qué dice el Historial de una remesa (tabla de §6.3): la etiqueta única, más si quedó pendiente de encolar. */
 export function estadoParaHistorial(item: Pick<HistorialItemDto, 'carga' | 'pendienteDeEncolar'>): EstadoDeFila {
-    const c = item.carga;
-    if (!c.enCurso && !c.terminal) {
-        if (item.pendienteDeEncolar != null) {
-            return sinTooltip('No se pudo encolar', 'warning', 'Se confirmó y la cola de trabajos no respondió. No se cargó nada.');
-        }
-        return sinTooltip('Borrador', 'pending', 'Vista previa sin confirmar.');
-    }
-    if (c.enCurso) {
-        if (cancelacionPedidaAt(c) !== null) return sinTooltip('Cancelando…', 'warning');
-        if (c.fase === 'EN_COLA') return sinTooltip('En cola', 'pending', etiquetaFase(c).secundario);
-        if (c.fase === 'PROCESANDO' && c.totalEsperado > 0) {
-            const partes = [`${formatearNumero(c.procesadas)} de ${formatearNumero(c.totalEsperado)}`];
-            const espera = esperaAbreviada(c);
-            if (espera !== null) partes.push(espera);
-            return sinTooltip(`Procesando ${c.progreso} %`, 'running', partes.join(' · '));
-        }
-        const f = etiquetaFase(c);
-        return sinTooltip(f.principal, 'running', f.secundario);
-    }
-    // Terminal.
-    const conTooltip = (etiqueta: string, status: StatusValue): EstadoDeFila => ({
-        etiqueta,
-        status,
-        secundaria: null,
-        tooltip: tooltipDeResultado(c),
-    });
-    if (estaCancelada(c)) return conTooltip(c.startedAt == null ? 'Cancelada antes de empezar' : 'Cancelada', 'warning');
-    switch (c.resultado) {
-        case 'FALLIDA':
-            return c.startedAt == null ? conTooltip('No llegó a empezar', 'failed') : conTooltip('Fallida', 'failed');
-        case 'CON_ADVERTENCIAS':
-            return conTooltip('Con advertencias', 'warning');
-        case 'CON_ERRORES':
-            return c.ok > 0 ? conTooltip('Finalizada con errores', 'warning') : conTooltip('Sin filas cargadas', 'failed');
-        case 'SIN_FILAS':
-            return conTooltip('Sin filas', 'warning');
-        case 'OK':
-            return sinTooltip('Finalizada', 'completed');
-        default:
-            return sinTooltip('Finalizada', 'neutral');
-    }
+    return etiquetaDeEstado(item.carga, { pendienteDeEncolar: item.pendienteDeEncolar });
 }
 
 /**

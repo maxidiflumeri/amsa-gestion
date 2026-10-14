@@ -1,26 +1,32 @@
-import React, { useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Badge, IconButton, Tooltip } from '@mui/material';
 import NotificationsIcon from '@mui/icons-material/Notifications';
+import { useLocation } from 'react-router-dom';
 import { useNotificaciones } from '../../../context/NotificacionesContext';
+import ChipImportaciones from './ChipImportaciones';
 import NotificacionesPopover from './NotificacionesPopover';
 
 const NotificacionesBell: React.FC = () => {
     const { noLeidas } = useNotificaciones();
-    const [anchorEl, setAnchorEl] = useState<HTMLElement | null>(null);
+    const [abierta, setAbierta] = useState(false);
+    const botonRef = useRef<HTMLButtonElement | null>(null);
+    const { pathname } = useLocation();
 
-    const handleOpen = (event: React.MouseEvent<HTMLElement>) => {
-        setAnchorEl(event.currentTarget);
-    };
+    const abrir = useCallback(() => setAbierta(true), []);
+    const cerrar = useCallback(() => setAbierta(false), []);
 
-    const handleClose = () => {
-        setAnchorEl(null);
-    };
+    // Cambiar de página cierra la campanita (también el "atrás" del navegador, que cambia la ruta): D2.
+    useEffect(() => {
+        setAbierta(false);
+    }, [pathname]);
 
     return (
         <>
+            <ChipImportaciones onAbrir={abrir} />
             <Tooltip title="Notificaciones">
                 <IconButton
-                    onClick={handleOpen}
+                    ref={botonRef}
+                    onClick={abrir}
                     size="small"
                     aria-label="Notificaciones"
                     color="inherit"
@@ -37,9 +43,9 @@ const NotificacionesBell: React.FC = () => {
             </Tooltip>
 
             <NotificacionesPopover
-                anchorEl={anchorEl}
-                open={Boolean(anchorEl)}
-                onClose={handleClose}
+                anchorEl={botonRef.current}
+                open={abierta}
+                onClose={cerrar}
             />
         </>
     );

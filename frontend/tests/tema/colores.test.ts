@@ -14,6 +14,11 @@ const ARCHIVOS = [
     'utils/historialImportaciones.ts',
     'utils/descargas.ts',
     'types/importHistorial.ts',
+    // C2b (paquete A)
+    'components/import/progreso/TarjetaProgreso.tsx',
+    'hooks/useUltimosErrores.ts',
+    'hooks/useVigiaGrupo.ts',
+    'components/import/PreviewTable.tsx',
 ];
 const COLOR_A_MANO = /#[0-9a-fA-F]{3,8}\b|\brgba?\(|\bhsla?\(/;
 
@@ -29,7 +34,7 @@ describe('FX-1 — sin colores escritos a mano', () => {
     }
 
     it('lo nuevo de ImportProgress (BotonCancelarCarga) y DataTableResponsive tampoco trae ninguno', () => {
-        for (const rel of ['components/import/ImportProgress.tsx', 'components/ui/DataTableResponsive.tsx']) {
+        for (const rel of ['components/import/ImportProgress.tsx', 'components/ui/DataTableResponsive.tsx', 'pages/ImportWizard.tsx', 'pages/ImportDetail.tsx']) {
             const texto = fs.readFileSync(path.join(RAIZ_FE, 'src', rel), 'utf8');
             expect(texto.split('\n').filter((l) => !/^\s*(\/\/|\*|\/\*)/.test(l) && COLOR_A_MANO.test(l))).toEqual([]);
         }

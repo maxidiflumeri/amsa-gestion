@@ -230,14 +230,18 @@ empresa**.
 
 ## Paso 4 — Importando
 
-La pantalla se llama **"Ejecutando importación"** y muestra en qué fase está la carga:
+La pantalla se llama **"Ejecutando importación"**. Arriba tiene cuatro pasos: **En cola**, **Procesando**,
+**Post-proceso** y **Listo**. El paso en que está la carga queda marcado, con su detalle (la posición en la cola,
+*Leyendo el archivo*, el porcentaje) y, cuando termina, **Listo** lleva el estado final: *Finalizada*,
+*Finalizada con errores*, *Fallida*, *Cancelada*… En un celular los pasos son una sola línea, por ejemplo
+*Paso 2 de 4 · Procesando · 43 %*. Debajo, la barra, los contadores y la fase:
 
 | Fase | Qué dice la pantalla |
 |---|---|
 | Recién confirmada | *Enviando a la cola…* |
 | En cola | **En cola**, con la posición: *Esperando que termine otra importación.* si no se sabe, *Es la próxima: empieza en instantes.*, *Hay 1 importación antes que esta.* o *Hay N importaciones antes que esta.* Barra sin porcentaje |
 | Leyendo el archivo | **Leyendo el archivo** — *Todavía no se procesó ninguna fila.* Barra sin porcentaje. Se ve solo en los archivos Excel y en Multirregistro, Multiarchivo y Claves de pago; un CSV o un TXT se leen a medida que se procesan y pasan directo a Procesando |
-| Procesando | **Procesando**, con el porcentaje y los contadores: **Total**, **Procesadas**, **OK**, **Errores** y **Descartadas** (los dos últimos solo si son más de cero) y, en las categorías que lo informan, **Nuevos** y **Actualizados**. Si todavía no se sabe cuántas filas son, la barra no muestra porcentaje. Debajo de los contadores, el ritmo: *≈ 34 filas/s · faltan ~4 min para terminar las filas* (sin la segunda parte cuando todavía no se puede estimar el tiempo) |
+| Procesando | **Procesando**, con el porcentaje y los contadores (en el celular, de a dos por renglón): **Total**, **Procesadas**, **OK**, **Errores** y **Descartadas** (los dos últimos solo si son más de cero) y, en las categorías que lo informan, **Nuevos** y **Actualizados**. Si todavía no se sabe cuántas filas son, la barra no muestra porcentaje. Debajo de los contadores, el ritmo: *≈ 34 filas/s · faltan ~4 min para terminar las filas* (sin la segunda parte cuando todavía no se puede estimar el tiempo) |
 | Post-proceso | **Post-proceso** — el paso en que está, por ejemplo *Consolidando la remesa de origen: 1.500 de 8.875*. Si el sistema todavía no informa el paso, dice *Consolidando y cerrando la carga. Puede tardar varios minutos.* Barra sin porcentaje |
 
 **Descartadas** es lo que descartó el filtro de la plantilla: no son errores. En una carga dividida no
@@ -254,6 +258,15 @@ solo caso. Es el primer síntoma del problema que describe "El control que nunca
 
 El porcentaje no llega a 100% hasta que la carga termina.
 
+**Últimos errores y avisos.** Si la carga ya tiene filas con error o avisos, la tarjeta suma una sección con
+**los últimos 5**, que se actualiza sola mientras la carga corre (como mucho una vez cada 5 segundos), y una
+línea con los totales: *"En total: 1.204 errores de fila y 3 avisos"*. Cada línea dice qué fila fue
+(*Fila 1.234 · DNI inválido*) o que es un aviso de la carga (*Aviso · …*). Las más nuevas son **las filas de
+número más alto**, que son las que el sistema procesó último; **los avisos aparecen solo si hay menos de
+cinco errores de fila**, porque van detrás de las filas. Por eso la línea de totales siempre cuenta los dos.
+Si no se pudieron leer, dice *"No se pudieron leer los últimos errores."* y lo vuelve a intentar solo. La lista
+completa está en el detalle de la importación, en el Historial.
+
 La carga corre **en el servidor**: si cerrás la pantalla o te vas a otra, sigue. La podés ver en la
 campanita de la barra superior, en **Importaciones en curso**, o entrando a su detalle desde el
 Historial. **También la carga dividida**: las N remesas se confirman juntas con un solo pedido y quedan en
@@ -261,19 +274,28 @@ la cola del servidor, que las carga en orden; esta pantalla no arranca ninguna.
 
 **Carga dividida.** El título dice *"Carga dividida: remesa 2 de 5"* y, debajo, el texto *"Las remesas se
 cargan una después de la otra en el servidor. Podés cerrar esta pantalla: siguen igual, y las ves en la
-campanita y en el Historial."* Después hay una lista con una línea por remesa —número, corte y estado— y,
-abajo, la barra de la remesa que se está cargando. Los estados de la lista son:
+campanita y en el Historial."* Después hay **una sola tarjeta**: arriba los pasos y la barra de la remesa que
+se está cargando, con sus contadores, y abajo el bloque de la división, con una barra del grupo
+(*"Remesas terminadas: 1 de 3"*) y una línea por remesa —número, corte, estado y su barra finita—. Los
+estados de la lista son los mismos que dice el Historial:
 
 | Estado | Cuándo |
 |---|---|
 | **En cola** | Todavía no le tocó |
 | **Procesando 43 %** | Es la que se está cargando (sin porcentaje mientras no se sabe el total) |
 | **Leyendo el archivo** · **Post-proceso** | Las fases de siempre (ver la tabla de arriba) |
-| **Finalizada** | Terminó, con el resultado que sea |
-| **Falló** | Se cortó después de empezar |
+| **Finalizada** | Terminó sin errores |
+| **Finalizada con errores** | Terminó y cargó filas, pero algunas dieron error |
+| **Sin filas cargadas** | Terminó, pero todas las filas dieron error: no se cargó ninguna |
+| **Sin filas** | Terminó y el archivo no tenía filas para esa remesa |
+| **Con advertencias** | Las filas se cargaron pero el post-proceso no terminó |
+| **Fallida** | Se cortó después de empezar |
 | **Cancelando…** | Se pidió cancelarla y todavía no cortó |
 | **Cancelada** · **Cancelada antes de empezar** | Alguien la canceló (ver "Cancelar una importación") |
 | **No llegó a empezar** | Falló sin haber empezado. Por ejemplo, quedó en la cola sin un trabajo que la procese y el sistema la cerró como fallida |
+
+Los estados terminales dicen **lo mismo en el Historial y en el detalle de la importación**; ver [Historial y
+problemas](/ayuda/importacion/historial-y-problemas).
 
 Si una remesa falla, se cancela o se elimina, **las demás siguen**: cada una se carga o no por su cuenta.
 Cuando todas terminaron, la pantalla pasa al resultado con las N. Si alguna remesa se eliminó mientras se
@@ -288,6 +310,14 @@ archivo (ver [Historial y problemas](/ayuda/importacion/historial-y-problemas), 
 
 El botón **Cancelar importación** está abajo de la barra, en las cargas comunes y en las divididas. Ver
 "Cancelar una importación".
+
+**Si el servidor tarda en responder al confirmar una división.** Al confirmar, el sistema manda las N remesas
+a la cola con un solo pedido. Si pasan 15 segundos y el pedido no volvió, la pantalla empieza a mirar el estado
+de la primera remesa cada 5 segundos y avisa: *"El servidor está tardando en responder. Si la carga ya empezó,
+aparece acá en unos segundos; no vuelvas a confirmar."* En cuanto la ve en curso, pasa sola a la carga dividida,
+sin que hagas nada. **No vuelvas a confirmar**: las remesas ya están en la cola y una segunda confirmación no
+corresponde. Esto cubre la confirmación; el botón **Cargar las que faltan** del resultado no tiene esa
+vigilancia y puede quedar ocupado hasta un minuto.
 
 La pantalla se actualiza sola. Si se corta la conexión, igual se entera de cómo terminó la carga.
 Estos avisos pueden aparecer abajo:
@@ -329,16 +359,27 @@ Estos avisos pueden aparecer abajo:
 - *"Esta carga se reinició (intento N)."* — ya no se ve en cargas nuevas: una carga que se interrumpe no se
   vuelve a ejecutar sola. Puede seguir apareciendo en remesas viejas.
 
-**La campanita.** En **Importaciones en curso** cada carga muestra la fase, el porcentaje, el "faltan" y los
-contadores **Procesadas**, **OK**, **Err** y **Total**: por ejemplo, la posición en la cola, el paso del
-post-proceso o *Procesando · 43% · faltan ~4 min*. En una carga dividida el encabezado agrega la posición,
-por ejemplo *· 2 de 3*, y si se pidió cancelar, la fase se reemplaza por *Cancelando…*. No muestra Descartadas, Nuevos ni Actualizados, ni el ritmo
-en filas por segundo, ni los avisos de esta pantalla: para eso, entrá al detalle. Cuando una carga de
-adelante termina, la posición de las que esperan puede tardar unos segundos en actualizarse. Si una carga se
-interrumpe, además llega una notificación **"Importación fallida"** con la primera oración del motivo y cuántas
-filas se habían procesado. Si se cancela, la notificación (es de error, no de advertencia) se llama **"Importación cancelada"** y dice
-cuántas filas quedaron cargadas (o que no se cargó ninguna). **No siempre llega**: una carga cancelada en la
-cola notifica solo al dueño y solo si la canceló otra persona.
+**La campanita.** Mientras hay cargas en curso, la barra superior muestra al lado de la campanita un chip que
+las resume: *Importando 43 %*, *Importación en cola*, *Cancelando importación* o, si son varias, *3
+importaciones*. Tocarlo abre la campanita. En **Importaciones en curso** cada carga muestra la fase, el
+porcentaje, el "faltan" y los contadores **Procesadas**, **OK**, **Err** y **Total**: por ejemplo, la posición
+en la cola, el paso del post-proceso o *Procesando · 43% · faltan ~4 min*. En una carga dividida el encabezado
+agrega la posición, por ejemplo *· 2 de 3*, y si se pidió cancelar, la fase se reemplaza por *Cancelando…*. No
+muestra Descartadas, Nuevos ni Actualizados, ni el ritmo en filas por segundo, ni los avisos de esta pantalla:
+para eso, entrá al detalle. Cada carga tiene **Ver detalle** y un ícono para cancelar (el mismo diálogo de
+este paso; en una carga dividida ofrece **Cancelar todo lo que falta**, aunque la remesa que corre ya no se
+pueda cortar). Cuando una carga de adelante termina, la posición de las que esperan puede tardar unos segundos
+en actualizarse. Si una carga se interrumpe, además llega una notificación **"Importación fallida"** con la
+primera oración del motivo y cuántas filas se habían procesado. Si se cancela, la notificación (es de error,
+no de advertencia) se llama **"Importación cancelada"** y dice cuántas filas quedaron cargadas (o que no se
+cargó ninguna). **No siempre llega**: una carga cancelada en la cola notifica solo al dueño y solo si la
+canceló otra persona. Las notificaciones de una carga con errores o avisos traen **Descargar errores**, y las
+de una carga cancelada o fallida que no procesó ninguna fila traen **Retomar**; el botón no abre el detalle ni
+marca la notificación como leída. Antes de hacer algo, el sistema consulta cómo está la carga en ese momento
+(la notificación puede ser vieja) y, si ya no corresponde, te lo dice. Retomar desde una notificación vuelve a
+encolar solo esa remesa, aunque sea parte de una carga dividida. En el celular la campanita ocupa toda la
+pantalla, con un botón **Cerrar**, y el chip se reduce a un ícono; el botón "atrás" del navegador la cierra y
+vuelve a la pantalla anterior.
 
 ## Paso 5 — Resultado
 

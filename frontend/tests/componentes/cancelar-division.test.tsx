@@ -190,7 +190,8 @@ describe('desde el DETALLE de una remesa en cola, con la que corre cerrando', ()
         expect(cuerpo()).not.toMatch(/3081/);
         b.cancelar = (id) => { const c = canceladaEnCola(b!.estados[id]); b!.estados[id] = c; return { status: 200, body: { message: 'ok', efecto: 'CANCELADA', carga: c } }; };
         await clic(boton('Cancelar solo esta remesa', dlg()!), 'solo esta');
-        await esperar(() => chips(b!.v.contenedor).includes('Cancelada'), { que: 'cancelada' });
+        // C2b (D1, §16.5): el chip grande dice lo mismo que el Historial; una cancelada en cola es «Cancelada antes de empezar».
+        await esperar(() => chips(b!.v.contenedor).includes('Cancelada antes de empezar'), { que: 'cancelada' });
         expect(b.srv.de('POST', /cancelar/).map((p) => p.ruta)).toEqual(['/import/remesas/142/cancelar']);
     });
 
@@ -200,7 +201,8 @@ describe('desde el DETALLE de una remesa en cola, con la que corre cerrando', ()
         expect(botonesDlg()).toEqual(['Volver', 'Cancelar importación']);
         b.cancelar = (id) => { const c = canceladaEnCola(b!.estados[id]); b!.estados[id] = c; return { status: 200, body: { message: 'ok', efecto: 'CANCELADA', carga: c } }; };
         await clic(boton('Cancelar importación', dlg()!), 'confirmar');
-        await esperar(() => chips(b!.v.contenedor).includes('Cancelada'), { que: 'cancelada' });
+        // C2b (D1, §16.5): el chip grande dice lo mismo que el Historial; una cancelada en cola es «Cancelada antes de empezar».
+        await esperar(() => chips(b!.v.contenedor).includes('Cancelada antes de empezar'), { que: 'cancelada' });
         expect(b.srv.de('POST', /cancelar/).map((p) => p.ruta)).toEqual(['/import/remesas/142/cancelar']);
     });
 

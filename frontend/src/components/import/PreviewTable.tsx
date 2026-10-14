@@ -16,6 +16,7 @@ import {
 } from "@mui/material";
 import CheckCircleOutlineIcon from "@mui/icons-material/CheckCircleOutline";
 import ErrorOutlineIcon from "@mui/icons-material/ErrorOutline";
+import { formatearNumero, plural } from "../../utils/estadoCarga";
 
 interface PreviewRow {
     row: number;
@@ -152,7 +153,7 @@ export default function PreviewTable({ preview, total, ok, err }: Props) {
     return (
         <Box>
             <Typography variant="h6" sx={{ mb: 2, fontWeight: 600 }}>
-                Vista previa (muestra de {preview.length} filas de {total})
+                Vista previa (muestra de {preview.length} {plural(preview.length, "fila", "filas")} de {formatearNumero(total)})
             </Typography>
 
             {/* Resumen de chips */}
@@ -187,9 +188,9 @@ export default function PreviewTable({ preview, total, ok, err }: Props) {
 
             {err > 0 && (
                 <Alert severity="warning" sx={{ mb: 2 }}>
-                    Se detectaron {err} filas con errores. Podés continuar con
-                    la importación — las filas con error serán omitidas y
-                    quedarán registradas para su revisión.
+                    {err === 1
+                        ? "Se detectó 1 fila con errores. Podés continuar con la importación — la fila con error será omitida y quedará registrada para su revisión."
+                        : `Se detectaron ${formatearNumero(err)} filas con errores. Podés continuar con la importación — las filas con error serán omitidas y quedarán registradas para su revisión.`}
                 </Alert>
             )}
 

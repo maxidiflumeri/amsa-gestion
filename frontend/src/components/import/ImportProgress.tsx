@@ -4,8 +4,6 @@ import {
     Box,
     Button,
     Typography,
-    LinearProgress,
-    Chip,
     CircularProgress,
     Dialog,
     DialogActions,
@@ -15,29 +13,23 @@ import {
     Tooltip,
 } from "@mui/material";
 import { useNavigate } from "react-router-dom";
-import HourglassTopIcon from "@mui/icons-material/HourglassTop";
 import CancelOutlinedIcon from "@mui/icons-material/CancelOutlined";
 import { SectionCard } from "../ui";
-import AvisosCarga from "./AvisosCarga";
+import TarjetaProgreso from "./progreso/TarjetaProgreso";
 import { cancelarCarga, cancelarGrupo } from "../../api/imports";
 import { useAuth } from "../../context/AuthContext";
 import { useSocket } from "../../context/SocketContext";
 import { useEstadoCarga } from "../../hooks/useEstadoCarga";
 import { useGrupoCarga } from "../../hooks/useGrupoCarga";
 import { useNotify } from "../../hooks/useNotify";
+import { useUltimosErrores } from "../../hooks/useUltimosErrores";
 import type { EstadoCargaDto } from "../../types/importProgreso";
 import {
-    barraIndeterminada,
     cancelacionPedidaAt,
-    casosActualizados,
-    casosNuevos,
     datosDeGrupo,
-    descartadasPorFiltro,
     esCancelable,
-    etiquetaFase,
     formatearNumero,
     lineaCancelarPorCategoria,
-    lineaDeRitmo,
     motivoNoCancelable,
     plural,
     puedeGestionarCarga,
@@ -113,9 +105,7 @@ export default function ImportProgress({
         onCompleteRef.current?.(estado);
     }, [estado]);
 
-    const indeterminada = barraIndeterminada(estado);
-    const fase = etiquetaFase(estado, "wizard");
-    const ritmo = estado ? lineaDeRitmo(estado) : null;
+    const ultimos = useUltimosErrores(estado);
 
     return (
         <Box>
@@ -123,130 +113,36 @@ export default function ImportProgress({
                 Ejecutando importación
             </Typography>
 
-            <SectionCard
-                sx={{
-                    textAlign: "center",
-                    display: "flex",
-                    flexDirection: "column",
-                    alignItems: "center",
-                }}
-            >
-                <Box
-                    sx={{
-                        display: "flex",
-                        flexDirection: "column",
-                        alignItems: "center",
-                        gap: 2,
-                        py: 2,
-                        width: "100%",
-                    }}
-                >
-                    {noExiste && (
-                        <Alert
-                            severity="error"
-                            sx={{ width: "100%", textAlign: "left" }}
-                            action={
-                                <Box sx={{ display: "flex", gap: 1, flexWrap: "wrap" }}>
-                                    <Button color="inherit" size="small" onClick={() => navigate("/historial-importaciones")}>
-                                        Ir al historial
+            {noExiste ? (
+                <SectionCard>
+                    <Alert
+                        severity="error"
+                        sx={{ width: "100%", textAlign: "left" }}
+                        action={
+                            <Box sx={{ display: "flex", gap: 1, flexWrap: "wrap" }}>
+                                <Button color="inherit" size="small" onClick={() => navigate("/historial-importaciones")}>
+                                    Ir al historial
+                                </Button>
+                                {onNuevaImportacion && (
+                                    <Button color="inherit" size="small" onClick={onNuevaImportacion}>
+                                        Nueva importación
                                     </Button>
-                                    {onNuevaImportacion && (
-                                        <Button color="inherit" size="small" onClick={onNuevaImportacion}>
-                                            Nueva importación
-                                        </Button>
-                                    )}
-                                </Box>
-                            }
-                        >
-                            {MENSAJE_NO_SEGUIDA}
-                        </Alert>
-                    )}
-
-                    {!noExiste && (
-                    <HourglassTopIcon
-                        sx={{
-                            fontSize: 48,
-                            color: "primary.main",
-                            animation: "spin 2s linear infinite",
-                            "@keyframes spin": {
-                                "0%": { transform: "rotate(0deg)" },
-                                "100%": { transform: "rotate(360deg)" },
-                            },
-                        }}
-                    />
-                    )}
-
-                    {!indeterminada && estado && (
-                        <Typography variant="h4" fontWeight={700} color="primary.main">
-                            {estado.progreso}%
-                        </Typography>
-                    )}
-
-                    {!noExiste && (
-                    <LinearProgress
-                        variant={indeterminada ? "indeterminate" : "determinate"}
-                        value={indeterminada ? undefined : estado?.progreso ?? 0}
-                        sx={{
-                            width: "100%",
-                            height: 8,
-                            borderRadius: 4,
-                        }}
-                    />
-                    )}
-
-                    {estado && (
-                        <Box sx={{ display: "flex", gap: 1, flexWrap: "wrap", justifyContent: "center" }}>
-                            {estado.totalEsperado > 0 && (
-                                <Chip label={`Total: ${formatearNumero(estado.totalEsperado)}`} variant="outlined" size="small" />
-                            )}
-                            <Chip label={`Procesadas: ${formatearNumero(estado.procesadas)}`} variant="outlined" size="small" />
-                            <Chip label={`OK: ${formatearNumero(estado.ok)}`} color="success" variant="outlined" size="small" />
-                            {estado.err > 0 && (
-                                <Chip label={`Errores: ${formatearNumero(estado.err)}`} color="error" variant="outlined" size="small" />
-                            )}
-                            {descartadasPorFiltro(estado) > 0 && (
-                                <Chip
-                                    label={`Descartadas: ${formatearNumero(descartadasPorFiltro(estado))}`}
-                                    color="warning"
-                                    variant="outlined"
-                                    size="small"
-                                />
-                            )}
-                            {casosNuevos(estado) !== null && (
-                                <Chip label={`Nuevos: ${formatearNumero(casosNuevos(estado) as number)}`} variant="outlined" size="small" />
-                            )}
-                            {casosActualizados(estado) !== null && (
-                                <Chip
-                                    label={`Actualizados: ${formatearNumero(casosActualizados(estado) as number)}`}
-                                    variant="outlined"
-                                    size="small"
-                                />
-                            )}
-                        </Box>
-                    )}
-
-                    {ritmo && (
-                        <Typography variant="body2" color="text.secondary" sx={{ overflowWrap: "anywhere" }}>
-                            {ritmo}
-                        </Typography>
-                    )}
-
-                    <Box sx={{ maxWidth: "100%" }}>
-                        <Typography variant="body1" fontWeight={600}>
-                            {fase.principal}
-                        </Typography>
-                        {fase.secundario && (
-                            <Typography variant="body2" color="text.secondary" sx={{ overflowWrap: "anywhere" }}>
-                                {fase.secundario}
-                            </Typography>
-                        )}
-                    </Box>
-
-                    <AvisosCarga estado={estado} conectado={conectado} />
-
-                    <BotonCancelarCarga carga={estado} onResultado={aplicar} onGrupoCambio={onGrupoCambio} grupo={grupo} />
-                </Box>
-            </SectionCard>
+                                )}
+                            </Box>
+                        }
+                    >
+                        {MENSAJE_NO_SEGUIDA}
+                    </Alert>
+                </SectionCard>
+            ) : (
+                <TarjetaProgreso
+                    variante="completa"
+                    carga={estado}
+                    conectado={conectado}
+                    ultimos={ultimos}
+                    acciones={<BotonCancelarCarga carga={estado} onResultado={aplicar} onGrupoCambio={onGrupoCambio} grupo={grupo} />}
+                />
+            )}
         </Box>
     );
 }

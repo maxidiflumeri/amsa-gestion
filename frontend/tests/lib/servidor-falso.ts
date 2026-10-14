@@ -1,9 +1,9 @@
-// Backend falso: HTTP de verdad (node:http) + socket.io de verdad en el namespace /rt, en 127.0.0.1:47831.
+// Backend falso: HTTP de verdad (node:http) + socket.io de verdad en el namespace /rt, en 127.0.0.1:47831 (o `FE_TEST_PUERTO`).
 // El frontend bajo prueba le habla con su axios y su socket.io-client reales.
 import http from 'node:http';
 import { Server, type Socket } from 'socket.io';
 
-export const PUERTO = 47831;
+export const PUERTO = Number(process.env.FE_TEST_PUERTO || 47831);
 
 export interface Pedido { metodo: string; ruta: string; t: number; cuerpo: Buffer; tipo: string; autorizacion: string }
 export type Respuesta = {

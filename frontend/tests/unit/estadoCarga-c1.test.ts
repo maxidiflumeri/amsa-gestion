@@ -100,18 +100,18 @@ describe('segunda pasada: texto del pedido tardío y «Cancelando…» en la lis
         expect(visto.OK).toBe('Se pidió cancelar esta importación cuando ya estaba cerrando: terminó completa.');
         for (const [k, x] of Object.entries(visto)) if (k !== 'OK') expect(x, k).toBe('Se pidió cancelar esta importación cuando ya estaba cerrando: el pedido llegó tarde y la carga terminó igual.');
     });
-    it('`estadoEnGrupo` con la cancelación pedida: «Cancelando…» en cualquier fase en curso; nunca en una terminada', () => {
+    it('`etiquetaDeEstado` con la cancelación pedida: «Cancelando…» en cualquier fase en curso; nunca en una terminada', () => {
         const pedido = { cancelacionPedidaAt: iso(T0) };
-        expect(U.estadoEnGrupo(dtoC1(pedido))).toEqual({ texto: 'Cancelando…', color: 'warning' });
-        expect(U.estadoEnGrupo(enColaC1(pedido)).texto).toBe('Cancelando…');
-        expect(U.estadoEnGrupo(dtoC1({ ...pedido, fase: 'POST_PROCESO' })).texto).toBe('Cancelando…');
-        expect(U.estadoEnGrupo(terminalC1('OK', pedido)).texto).toBe('Finalizada');
-        expect(U.estadoEnGrupo(canceladaC1()).texto).toBe('Cancelada');
-        expect(U.estadoEnGrupo(terminalC1('FALLIDA', { ...pedido, error: 'x' })).texto).toBe('Falló');
+        expect(U.etiquetaDeEstado(dtoC1(pedido))).toMatchObject({ etiqueta: 'Cancelando…', color: 'warning' });
+        expect(U.etiquetaDeEstado(enColaC1(pedido)).etiqueta).toBe('Cancelando…');
+        expect(U.etiquetaDeEstado(dtoC1({ ...pedido, fase: 'POST_PROCESO' })).etiqueta).toBe('Cancelando…');
+        expect(U.etiquetaDeEstado(terminalC1('OK', pedido)).etiqueta).toBe('Finalizada');
+        expect(U.etiquetaDeEstado(canceladaC1()).etiqueta).toBe('Cancelada');
+        expect(U.etiquetaDeEstado(terminalC1('FALLIDA', { ...pedido, error: 'x' })).etiqueta).toBe('Fallida');
     });
 });
 
-describe('estadoEnGrupo (§10.8.3)', () => {
+describe('etiquetaDeEstado (§10.8.3, §16.5)', () => {
     it('una frase por estado', () => {
         const casos: Array<[string, any]> = [
             ['en cola', enColaC1()],
@@ -132,16 +132,17 @@ describe('estadoEnGrupo (§10.8.3)', () => {
             ['fase nueva', dtoC1({ fase: 'FASE_NUEVA' })],
             ['resultado desconocido', terminalC1('ALGO_NUEVO')],
         ];
-        const visto = Object.fromEntries(casos.map(([n, d]) => [n, U.estadoEnGrupo(d)]));
-        expect(visto['en cola'].texto).toBe('En cola');
-        expect(visto['procesando 43'].texto).toBe('Procesando 43 %');
-        expect(visto['ok']).toEqual({ texto: 'Finalizada', color: 'success' });
-        expect(visto['fallida'].texto).toBe('Falló');
-        expect(visto['fallida sin arrancar'].texto).toBe('No llegó a empezar');
-        expect(visto['cancelada'].texto).toBe('Cancelada');
+        const visto = Object.fromEntries(casos.map(([n, d]) => [n, U.etiquetaDeEstado(d)]));
+        expect(visto['en cola'].etiqueta).toBe('En cola');
+        expect(visto['procesando 43'].etiqueta).toBe('Procesando 43 %');
+        expect(visto['ok']).toMatchObject({ etiqueta: 'Finalizada', color: 'success' });
+        expect(visto['con errores'].etiqueta).toBe('Finalizada con errores');
+        expect(visto['fallida'].etiqueta).toBe('Fallida');
+        expect(visto['fallida sin arrancar'].etiqueta).toBe('No llegó a empezar');
+        expect(visto['cancelada'].etiqueta).toBe('Cancelada');
         expect(visto['cancelada']).not.toMatchObject({ color: 'success' });
         expect(visto['cancelada sin arrancar']).not.toMatchObject({ color: 'success' });
-        for (const x of Object.values(visto)) expect((x as any).texto).not.toMatch(BASURA);
+        for (const x of Object.values(visto)) expect((x as any).etiqueta).not.toMatch(BASURA);
     });
 });
 
@@ -216,8 +217,8 @@ describe('DTO de la Fase B (sin los ocho campos) en las funciones nuevas', () =>
         expect(U.motivoNoCancelable(b)).toBeNull();
         expect(U.cancelacionLlegoTarde(t)).toBe(false);
         expect(U.minutosDesdePedidoCancelacion(b, 0, 0)).toBeNull();
-        expect(U.estadoEnGrupo(b).texto).not.toMatch(BASURA);
-        expect(U.estadoEnGrupo(t).texto).not.toMatch(BASURA);
+        expect(U.etiquetaDeEstado(b).etiqueta).not.toMatch(BASURA);
+        expect(U.etiquetaDeEstado(t).etiqueta).not.toMatch(BASURA);
         expect(U.presentarResultado(t).titulo).toBe('La importación falló');
     });
 });
@@ -231,7 +232,7 @@ describe('textos del frontend contra §10 (carácter por carácter donde el spec
         const fs = await import('node:fs');
         const { RAIZ_FE: FE } = await import('../lib/raiz');
         const leer = (r: string) => fs.readFileSync(`${FE}/src/${r}`, 'utf8').replace(/\s*\n\s*/g, ' ');
-        const fuentes = ['pages/ImportWizard.tsx', 'pages/ImportDetail.tsx', 'components/import/ImportProgress.tsx', 'components/import/ImportSummary.tsx', 'components/import/AvisosCarga.tsx', 'utils/estadoCarga.ts', 'components/layout/AppShell/ImportEnCursoItem.tsx'].map(leer).join('\n');
+        const fuentes = ['pages/ImportWizard.tsx', 'pages/ImportDetail.tsx', 'components/import/ImportProgress.tsx', 'components/import/progreso/TarjetaProgreso.tsx', 'components/import/ImportSummary.tsx', 'components/import/AvisosCarga.tsx', 'utils/estadoCarga.ts', 'components/layout/AppShell/ImportEnCursoItem.tsx'].map(leer).join('\n');
         const esperados = [
             'Las remesas se cargan una después de la otra en el servidor. Podés cerrar esta pantalla: siguen igual, y las ves en la campanita y en el Historial.',
             'Si lo cargás de nuevo, sus casos quedan duplicados',

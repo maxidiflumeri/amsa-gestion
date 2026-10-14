@@ -2,7 +2,8 @@
 // contextos y los componentes (wizard, detalle, campanita). Textos: docs/imports-progreso-realtime-spec.md §8.8.8 y §9.8.2.
 import { isAxiosError } from 'axios';
 import type { EstadoCargaDto } from '../types/importProgreso';
-import type { CodigoErrorImport } from '../types/importHistorial';
+import type { CodigoErrorImport, ErrorDeCargaDto } from '../types/importHistorial';
+import type { StatusValue } from '../components/ui';
 
 /** Cada cuánto consulta el hook de una carga cuando el socket está caído. */
 export const POLL_MS = 10_000;
@@ -607,27 +608,178 @@ export function lineaCancelarPorCategoria(tipo: string): string {
 
 export type ColorChipEstado = 'default' | 'success' | 'warning' | 'error' | 'info';
 
-/** Estado de una remesa dentro de una carga dividida, en una frase corta (§10.8.3). */
-export function estadoEnGrupo(estado: EstadoCargaDto): { texto: string; color: ColorChipEstado } {
-    if (estado.terminal) {
-        if (estaCancelada(estado)) {
-            return { texto: estado.startedAt == null ? 'Cancelada antes de empezar' : 'Cancelada', color: 'warning' };
-        }
-        if (estado.resultado === 'FALLIDA') {
-            return estado.startedAt == null
-                ? { texto: 'No llegó a empezar', color: 'error' }
-                : { texto: 'Falló', color: 'error' };
-        }
-        const severidad = presentarResultado(estado).severidad;
-        return { texto: 'Finalizada', color: severidad === 'success' ? 'success' : severidad === 'error' ? 'error' : 'warning' };
+/** Qué dice de una remesa la lista de la división, los chips del detalle y el Historial: una sola etiqueta (docs/imports-progreso-c2-spec.md §16.5). */
+export interface EtiquetaDeEstado {
+    etiqueta: string;
+    /** Para `StatusChip` (Historial). */
+    status: StatusValue;
+    /** Para un `Chip` de MUI (asistente y detalle). */
+    color: ColorChipEstado;
+    /** Segunda línea bajo el chip. */
+    secundaria: string | null;
+    /** Título (y primera línea del motivo) para el tooltip del chip, en las terminales con algo que decir. */
+    tooltip: string | null;
+}
+
+function colorDeStatus(status: StatusValue): ColorChipEstado {
+    switch (status) {
+        case 'completed':
+        case 'success':
+            return 'success';
+        case 'failed':
+        case 'error':
+            return 'error';
+        case 'warning':
+            return 'warning';
+        case 'running':
+        case 'info':
+            return 'info';
+        default:
+            return 'default';
     }
-    if (!estado.enCurso) return { texto: 'Borrador', color: 'default' };
-    if (cancelacionPedidaAt(estado) !== null) return { texto: 'Cancelando…', color: 'warning' };
-    if (estado.fase === 'EN_COLA') return { texto: 'En cola', color: 'default' };
-    if (estado.fase === 'PROCESANDO' && !barraIndeterminada(estado)) {
-        return { texto: `Procesando ${estado.progreso} %`, color: 'info' };
+}
+
+/** Título del resultado y primera línea de su motivo (el porqué entero está en el detalle). */
+function tooltipDeResultado(carga: EstadoCargaDto): string {
+    const r = presentarResultado(carga);
+    const primera = (r.detalle ?? '').split('\n').find((l) => l.trim() !== '');
+    return primera ? `${r.titulo}. ${primera.trim()}` : r.titulo;
+}
+
+/**
+ * Qué dice el Historial de una remesa (tabla de §6.3 de docs/imports-progreso-c2-spec.md). Se evalúa en orden y gana
+ * la primera que se cumple. Nunca muestra el `estadoProceso` crudo: no distingue un borrador de una en cola ni una
+ * cancelada de una fallida. `pendienteDeEncolar` solo lo conoce el Historial.
+ */
+export function etiquetaDeEstado(
+    carga: EstadoCargaDto,
+    opciones: { pendienteDeEncolar?: unknown | null } = {},
+): EtiquetaDeEstado {
+    const armar = (etiqueta: string, status: StatusValue, secundaria: string | null = null, tooltip: string | null = null): EtiquetaDeEstado => ({
+        etiqueta,
+        status,
+        color: colorDeStatus(status),
+        secundaria,
+        tooltip,
+    });
+    const c = carga;
+    if (!c.enCurso && !c.terminal) {
+        if (opciones.pendienteDeEncolar != null) {
+            return armar('No se pudo encolar', 'warning', 'Se confirmó y la cola de trabajos no respondió. No se cargó nada.');
+        }
+        return armar('Borrador', 'pending', 'Vista previa sin confirmar.');
     }
-    return { texto: etiquetaFase(estado).principal, color: 'info' };
+    if (c.enCurso) {
+        if (cancelacionPedidaAt(c) !== null) return armar('Cancelando…', 'warning');
+        if (c.fase === 'EN_COLA') return armar('En cola', 'pending', etiquetaFase(c).secundario);
+        if (c.fase === 'PROCESANDO' && c.totalEsperado > 0) {
+            const partes = [`${formatearNumero(c.procesadas)} de ${formatearNumero(c.totalEsperado)}`];
+            const espera = esperaAbreviada(c);
+            if (espera !== null) partes.push(espera);
+            return armar(`Procesando ${c.progreso} %`, 'running', partes.join(' · '));
+        }
+        const f = etiquetaFase(c);
+        return armar(f.principal, 'running', f.secundario);
+    }
+    // Terminal.
+    const conTooltip = (etiqueta: string, status: StatusValue) => armar(etiqueta, status, null, tooltipDeResultado(c));
+    if (estaCancelada(c)) return conTooltip(c.startedAt == null ? 'Cancelada antes de empezar' : 'Cancelada', 'warning');
+    switch (c.resultado) {
+        case 'FALLIDA':
+            return c.startedAt == null ? conTooltip('No llegó a empezar', 'failed') : conTooltip('Fallida', 'failed');
+        case 'CON_ADVERTENCIAS':
+            return conTooltip('Con advertencias', 'warning');
+        case 'CON_ERRORES':
+            return c.ok > 0 ? conTooltip('Finalizada con errores', 'warning') : conTooltip('Sin filas cargadas', 'failed');
+        case 'SIN_FILAS':
+            return conTooltip('Sin filas', 'warning');
+        case 'OK':
+            return armar('Finalizada', 'completed');
+        default:
+            return armar('Finalizada', 'neutral');
+    }
+}
+
+// ─── Fase C, entrega 2b: la tarjeta de progreso (docs/imports-progreso-c2-spec.md §16.4) ───
+
+export type EstadoPaso = 'hecho' | 'actual' | 'pendiente';
+export interface PasoDeCarga {
+    clave: 'EN_COLA' | 'PROCESANDO' | 'POST_PROCESO' | 'LISTO';
+    etiqueta: string;
+    detalle: string | null;
+    estado: EstadoPaso;
+    error: boolean;
+}
+
+/** Los cuatro pasos de una carga y en cuál está. Null si la fase es una que el cliente no conoce: no se dibujan pasos. */
+export function pasosDeCarga(carga: EstadoCargaDto | null): PasoDeCarga[] | null {
+    const etiquetas: Array<[PasoDeCarga['clave'], string]> = [
+        ['EN_COLA', 'En cola'],
+        ['PROCESANDO', 'Procesando'],
+        ['POST_PROCESO', 'Post-proceso'],
+        ['LISTO', 'Listo'],
+    ];
+    let actual = -1;
+    let detalle: string | null = null;
+    if (carga === null || (!carga.terminal && carga.fase === 'BORRADOR')) {
+        actual = 0;
+        detalle = 'Enviando a la cola…';
+    } else if (carga.terminal) {
+        actual = 3;
+    } else {
+        switch (carga.fase) {
+            case 'EN_COLA':
+                actual = 0;
+                detalle = etiquetaFase(carga).secundario;
+                break;
+            case 'LEYENDO':
+                actual = 1;
+                detalle = 'Leyendo el archivo';
+                break;
+            case 'PROCESANDO':
+                actual = 1;
+                detalle = barraIndeterminada(carga) ? null : `${carga.progreso} %`;
+                break;
+            case 'POST_PROCESO':
+                actual = 2;
+                break;
+            default:
+                return null;
+        }
+    }
+    const etiquetaListo = carga !== null && carga.terminal ? etiquetaDeEstado(carga).etiqueta : null;
+    const fallo = carga !== null && carga.terminal && (carga.resultado === 'FALLIDA' || estaCancelada(carga));
+    return etiquetas.map(([clave, etiqueta], i) => ({
+        clave,
+        etiqueta: clave === 'LISTO' && etiquetaListo !== null ? etiquetaListo : etiqueta,
+        detalle: i === actual ? detalle : null,
+        estado: i < actual ? 'hecho' : i === actual ? 'actual' : 'pendiente',
+        error: clave === 'LISTO' && fallo,
+    }));
+}
+
+/** La barra del grupo de una división: cuántas terminaron de las que la división tiene (aunque alguna se haya eliminado). */
+export function resumenDeGrupo(remesas: EstadoCargaDto[], total: number): { terminadas: number; total: number; porcentaje: number } {
+    const terminadas = remesas.filter((r) => r.terminal).length;
+    return { terminadas, total, porcentaje: total > 0 ? Math.round((terminadas / total) * 100) : 0 };
+}
+
+/** La barra fina de cada remesa de la división. */
+export function barraDeRemesa(r: EstadoCargaDto): { variante: 'determinate' | 'indeterminate'; valor: number } {
+    if (r.terminal) return { variante: 'determinate', valor: 100 };
+    if (r.fase === 'EN_COLA' || r.fase === 'BORRADOR' || (!r.enCurso && !r.terminal)) return { variante: 'determinate', valor: 0 };
+    if (!barraIndeterminada(r)) return { variante: 'determinate', valor: r.progreso };
+    return { variante: 'indeterminate', valor: 0 };
+}
+
+const LARGO_ULTIMO_ERROR = 160;
+
+/** Una línea de "Últimos errores y avisos": el rótulo (fila o aviso) y la primera línea del mensaje, recortada. */
+export function lineaDeUltimoError(e: ErrorDeCargaDto): { rotulo: string; texto: string } {
+    const rotulo = e.tipo === 'FILA' && e.fila != null ? `Fila ${formatearNumero(e.fila)}` : e.tipo === 'AVISO' ? 'Aviso' : 'Fila';
+    const primera = (typeof e.errorMsg === 'string' ? e.errorMsg : '').split('\n').map((l) => l.trim()).find((l) => l !== '') ?? '';
+    const texto = primera.length > LARGO_ULTIMO_ERROR ? `${primera.slice(0, LARGO_ULTIMO_ERROR - 1).trimEnd()}…` : primera;
+    return { rotulo, texto };
 }
 
 /** La remesa que se está mostrando de un grupo: la primera en curso según `grupoOrden`; si no hay, la última. */

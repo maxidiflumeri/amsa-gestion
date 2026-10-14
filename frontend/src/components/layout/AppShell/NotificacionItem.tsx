@@ -9,10 +9,13 @@ import { useNavigate } from 'react-router-dom';
 import { fechaRelativa } from '../../../utils/fechaRelativa';
 import { NotificacionDto } from '../../../api/notificaciones';
 import { resultadoEsAdvertencia } from '../../../utils/estadoCarga';
+import AccionesNotificacion from './AccionesNotificacion';
 
 interface NotificacionItemProps {
     notificacion: NotificacionDto;
     onMarcarLeida: (id: number) => void;
+    /** Se llama después de navegar a la ruta de la notificación (la campanita se cierra). */
+    onNavegar?: () => void;
 }
 
 function iconoPorTipo(tipo: string, payload?: Record<string, unknown> | null): React.ReactElement {
@@ -39,7 +42,7 @@ function iconoPorTipo(tipo: string, payload?: Record<string, unknown> | null): R
     }
 }
 
-const NotificacionItem: React.FC<NotificacionItemProps> = ({ notificacion, onMarcarLeida }) => {
+const NotificacionItem: React.FC<NotificacionItemProps> = ({ notificacion, onMarcarLeida, onNavegar }) => {
     const theme = useTheme();
     const navigate = useNavigate();
 
@@ -49,6 +52,7 @@ const NotificacionItem: React.FC<NotificacionItemProps> = ({ notificacion, onMar
         }
         if (notificacion.rutaAccion) {
             navigate(notificacion.rutaAccion);
+            onNavegar?.();
         }
     };
 
@@ -87,6 +91,7 @@ const NotificacionItem: React.FC<NotificacionItemProps> = ({ notificacion, onMar
                 >
                     {notificacion.mensaje}
                 </Typography>
+                <AccionesNotificacion notificacion={notificacion} />
                 <Typography variant="caption" color="text.disabled" sx={{ mt: 0.25, display: 'block' }}>
                     {fechaRelativa(notificacion.creadoEn)}
                 </Typography>

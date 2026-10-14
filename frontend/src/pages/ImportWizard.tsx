@@ -6,7 +6,6 @@ import {
     AlertTitle,
     Box,
     Button,
-    Chip,
     Step,
     StepLabel,
     Stepper,
@@ -44,6 +43,9 @@ import { useEmpresas } from "../hooks/useEmpresas";
 import { useNotify } from "../hooks/useNotify";
 import { useConfirm } from "../context/ConfirmContext";
 import { useGrupoCarga } from "../hooks/useGrupoCarga";
+import { useUltimosErrores } from "../hooks/useUltimosErrores";
+import { useVigiaGrupo } from "../hooks/useVigiaGrupo";
+import { useSocket } from "../context/SocketContext";
 import { PageContainer, PageHeader, SectionCard } from "../components/ui";
 import { etiquetaRemesa } from "../utils/remesa";
 
@@ -51,7 +53,8 @@ import CategorySelector from "../components/import/CategorySelector";
 import FileDropZone from "../components/import/FileDropZone";
 import MultiarchivoDropZone, { paqueteCompleto } from "../components/import/MultiarchivoDropZone";
 import PreviewTable from "../components/import/PreviewTable";
-import ImportProgress, { MENSAJE_NO_SEGUIDA } from "../components/import/ImportProgress";
+import ImportProgress, { BotonCancelarCarga, MENSAJE_NO_SEGUIDA } from "../components/import/ImportProgress";
+import TarjetaProgreso from "../components/import/progreso/TarjetaProgreso";
 import {
     ejecutarGrupo,
     obtenerEstadoCarga,
@@ -66,10 +69,10 @@ import {
     descartadasPorFiltroEnVistaPrevia,
     esEstadoCarga,
     esRetomable,
-    estadoEnGrupo,
     formatearNumero,
     grupoTerminado,
     oracionesSinFilas,
+    plural,
     remesaActualDelGrupo,
     textoSubida,
     type ProgresoSubida,
@@ -135,6 +138,11 @@ function corteBloquea(y?: CorteYaCargado): boolean {
     return y != null && y.situacion !== "SIN_CARGAR";
 }
 
+/** La primera letra en minúscula, para seguir a «Remesa 3081:» (las oraciones de `oracionesSinFilas` empiezan con mayúscula o con un número). */
+function enMinusculaInicial(texto: string): string {
+    return texto === "" ? "" : texto.charAt(0).toLowerCase() + texto.slice(1);
+}
+
 /** El corte en una frase corta: "3082 · Gestión 1". */
 function etiquetaCorte(valores: Record<string, string>): string {
     return Object.values(valores).filter(Boolean).join(" · ") || "—";
@@ -146,7 +154,7 @@ function textoEstadoCorte(y: CorteYaCargado, categoria: string): string {
         case "EN_CURSO":
             return `Se está cargando en la remesa ${y.numeroRemesa}`;
         case "CARGADA":
-            return `Ya está cargado en la remesa ${y.numeroRemesa} (${formatearNumero(y.casos)} casos)`;
+            return `Ya está cargado en la remesa ${y.numeroRemesa} (${formatearNumero(y.casos)} ${plural(y.casos, "caso", "casos")})`;
         case "A_MEDIAS":
             // Eliminar la remesa solo deshace lo cargado en Deudores y en Deudores y Facturas.
             return categoria === "DEUDORES" || categoria === "DEUDORES_Y_FACTURAS"
@@ -180,6 +188,8 @@ function PasoImportandoGrupo({ grupoId, cortes, noEncoladas, omitidas, onTermina
     const navigate = useNavigate();
     const { remesas, total, noExiste, refrescar } = useGrupoCarga(grupoId);
     const actual = remesaActualDelGrupo(remesas);
+    const { conectado } = useSocket();
+    const ultimos = useUltimosErrores(actual);
     // `total > 0` = ya llegó la primera respuesta del grupo: antes, "todas terminales" podría ser solo lo que
     // alcanzaron a traer los eventos.
     const terminaron = total > 0 && grupoTerminado(remesas);
@@ -243,58 +253,30 @@ function PasoImportandoGrupo({ grupoId, cortes, noEncoladas, omitidas, onTermina
                 </Alert>
             )}
 
-            {remesas.length === 0 && !noExiste && (
-                <Box sx={{ mb: 2 }}>
-                    <Typography variant="body2" fontWeight={600} sx={{ mb: 1 }}>
-                        Enviando a la cola…
-                    </Typography>
-                    <LinearProgress sx={{ borderRadius: 1 }} />
-                </Box>
+            <Typography variant="h6" sx={{ mb: 3, fontWeight: 600 }}>
+                Ejecutando importación
+            </Typography>
+
+            {!noExiste && (
+                <TarjetaProgreso
+                    variante="completa"
+                    carga={actual}
+                    conectado={conectado}
+                    grupo={remesas}
+                    totalGrupo={total > 0 ? total : undefined}
+                    cortes={cortes}
+                    ultimos={ultimos}
+                    // Con `key`, al pasar a la siguiente remesa el botón se remonta y un diálogo abierto de la anterior se cierra (nunca queda un pedido apuntando a la remesa equivocada).
+                    acciones={<BotonCancelarCarga key={actual?.remesaId ?? "sin-remesa"} carga={actual} onGrupoCambio={() => void refrescar()} grupo={remesas} />}
+                />
             )}
 
-            {remesas.length > 0 && (
-                <Box sx={{ mb: 2 }}>
-                    {remesas.map((r) => {
-                        const est = estadoEnGrupo(r);
-                        const esActual = actual?.remesaId === r.remesaId;
-                        return (
-                            <Box
-                                key={r.remesaId}
-                                sx={{
-                                    display: "flex",
-                                    alignItems: "center",
-                                    gap: 1,
-                                    flexWrap: "wrap",
-                                    py: 1,
-                                    borderTop: 1,
-                                    borderColor: "divider",
-                                }}
-                            >
-                                <Typography variant="body2" fontWeight={esActual ? 700 : 600}>
-                                    Remesa {r.numeroRemesa}
-                                </Typography>
-                                {cortes[r.remesaId] && (
-                                    <Typography variant="body2" color="text.secondary" sx={{ overflowWrap: "anywhere" }}>
-                                        {cortes[r.remesaId]}
-                                    </Typography>
-                                )}
-                                <Box sx={{ flexGrow: 1 }} />
-                                <Chip label={est.texto} color={est.color} size="small" variant="outlined" />
-                            </Box>
-                        );
-                    })}
-                    {eliminadas > 0 && (
-                        <Typography variant="caption" color="text.secondary" sx={{ display: "block", mt: 1 }}>
-                            {eliminadas === 1
-                                ? "1 remesa de esta división se eliminó."
-                                : `${eliminadas} remesas de esta división se eliminaron.`}
-                        </Typography>
-                    )}
-                </Box>
-            )}
-
-            {actual && (
-                <ImportProgress key={actual.remesaId} remesaId={actual.remesaId} onGrupoCambio={() => void refrescar()} grupo={remesas} />
+            {eliminadas > 0 && remesas.length > 0 && (
+                <Typography variant="caption" color="text.secondary" sx={{ display: "block", mt: 1 }}>
+                    {eliminadas === 1
+                        ? "1 remesa de esta división se eliminó."
+                        : `${eliminadas} remesas de esta división se eliminaron.`}
+                </Typography>
             )}
         </Box>
     );
@@ -435,8 +417,17 @@ export default function ImportWizard() {
     const [resultadosPrevios, setResultadosPrevios] = useState<EstadoCargaDto[]>([]);
     // true cuando el paso "Importando" ya vio la carga en curso o terminada.
     const seguimientoRef = useRef(false);
+    /** La primera remesa de una división recién confirmada mientras `ejecutar-grupo` no responde (§16.6): el vigía la mira. */
+    const [esperandoGrupo, setEsperandoGrupo] = useState<number | null>(null);
+    const { tardando: ejecutarGrupoTarda } = useVigiaGrupo(grupoId === null ? esperandoGrupo : null, (g) => {
+        seguimientoRef.current = true;
+        setNoEncoladas([]);
+        setGrupoId(g);
+    });
     // true si la última consulta del estado real, tras un fallo de ejecutar, dijo que la remesa sigue siendo un borrador.
     const borradorConfirmadoRef = useRef(false);
+    // Cada "Nueva importación" empieza una carga nueva: lo que responda tarde un pedido de la anterior no la toca.
+    const cargaNroRef = useRef(0);
 
     // ─── Carga de plantillas ─────────────────────────────────
     useEffect(() => {
@@ -786,36 +777,55 @@ export default function ImportWizard() {
     /**
      * Confirma las remesas: una sola con `ejecutar/:id`; dos o más con un único pedido, `ejecutar-grupo`, que las
      * encola juntas y en orden (§10.8.2). Si el pedido falla, se mira el estado real de la primera: si está en curso o
-     * terminó, se sigue al grupo; si es un borrador, se vuelve a la vista previa con el error.
+     * terminó, se sigue al grupo; si es un borrador, se vuelve a la vista previa con el error. Devuelve false, sin tocar
+     * nada, si mientras tanto se empezó otra carga con "Nueva importación".
      */
-    const confirmarRemesas = async (ids: number[]): Promise<void> => {
+    const confirmarRemesas = async (ids: number[], opciones: { conVigia?: boolean } = {}): Promise<boolean> => {
+        const nro = cargaNroRef.current;
+        const vigente = () => cargaNroRef.current === nro;
         if (ids.length === 1) {
-            const carga = await ejecutarRemesa(ids[0]);
+            let carga: EstadoCargaDto | null;
+            try {
+                carga = await ejecutarRemesa(ids[0]);
+            } catch (err) {
+                if (!vigente()) return false;
+                throw err;
+            }
+            if (!vigente()) return false;
             setGrupoId(null);
             setNoEncoladas([]);
             setCargaInicial(carga);
-            return;
+            return true;
         }
+        if (opciones.conVigia) setEsperandoGrupo(ids[0]);
         try {
             const respuesta = await ejecutarGrupo({ remesaIds: ids, ...origenParaEjecutar() });
+            if (!vigente()) return false;
             setNoEncoladas(respuesta.noEncoladas ?? []);
             setGrupoId(respuesta.grupoId);
+            return true;
         } catch (err) {
+            if (!vigente()) return false;
             try {
                 const real = await obtenerEstadoCarga(ids[0]);
+                if (!vigente()) return false;
                 if (esEstadoCarga(real)) {
                     const datos = datosDeGrupo(real);
                     if ((real.enCurso || real.terminal) && datos) {
                         setNoEncoladas([]);
                         setGrupoId(datos.grupoId);
-                        return;
+                        return true;
                     }
                     if (!real.enCurso && !real.terminal) borradorConfirmadoRef.current = true;
                 }
             } catch {
                 // Sin poder consultar, se muestra el error original.
             }
+            if (!vigente()) return false;
             throw err;
+        } finally {
+            // Si ya se empezó otra carga, su vigía no es este: no se apaga.
+            if (opciones.conVigia && vigente()) setEsperandoGrupo(null);
         }
     };
 
@@ -830,7 +840,7 @@ export default function ImportWizard() {
         setActiveStep(3);
 
         try {
-            await confirmarRemesas(colaRemesas.length > 0 ? colaRemesas : [remesaId]);
+            await confirmarRemesas(colaRemesas.length > 0 ? colaRemesas : [remesaId], { conVigia: true });
         } catch (err: any) {
             // Si la carga ya se está siguiendo (en curso o terminada), un fallo tardío del POST no puede volver atrás.
             // Salvo que la consulta del estado real haya dicho que sigue siendo un borrador: esa es la verdad.
@@ -849,7 +859,7 @@ export default function ImportWizard() {
         seguimientoRef.current = false;
         borradorConfirmadoRef.current = false;
         try {
-            await confirmarRemesas(ids);
+            if (!(await confirmarRemesas(ids))) return;
             setResultadosPrevios((prev) => [...prev, ...resultados.filter((r) => !prev.some((p) => p.remesaId === r.remesaId))]);
             setColaRemesas(ids);
             setRemesaId(ids[0]);
@@ -921,6 +931,8 @@ export default function ImportWizard() {
     }, []);
 
     const handleNewImport = () => {
+        cargaNroRef.current += 1;
+        setEsperandoGrupo(null);
         setActiveStep(0);
         setCategoria("");
         setPlantillas([]);
@@ -1384,9 +1396,7 @@ export default function ImportWizard() {
                                         {remesasSinFilas.map((r) => (
                                             <Typography key={r.remesaId} variant="body2" sx={{ overflowWrap: "anywhere" }}>
                                                 Remesa {r.numeroRemesa}:
-                                                {r.descartadas > 0 && ` el filtro de la plantilla descartó las ${formatearNumero(r.descartadas)} filas.`}
-                                                {r.deOtrosCortes > 0 && ` ${formatearNumero(r.deOtrosCortes)} filas son de otros cortes de la división.`}
-                                                {r.descartadas === 0 && r.deOtrosCortes === 0 && " el archivo no trae filas para este corte."}
+                                                {` ${enMinusculaInicial(oracionesSinFilas(r.descartadas, r.deOtrosCortes).join(" ")) || "el archivo no trae filas para este corte."}`}
                                             </Typography>
                                         ))}
                                     </Alert>
@@ -1532,6 +1542,11 @@ export default function ImportWizard() {
                                     Enviando a la cola…
                                 </Typography>
                                 <LinearProgress sx={{ borderRadius: 1 }} />
+                                {ejecutarGrupoTarda && (
+                                    <Typography variant="body2" color="text.secondary" sx={{ mt: 1, overflowWrap: "anywhere" }}>
+                                        El servidor está tardando en responder. Si la carga ya empezó, aparece acá en unos segundos; no vuelvas a confirmar.
+                                    </Typography>
+                                )}
                             </Box>
                         ) : (
                             <ImportProgress

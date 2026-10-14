@@ -13,7 +13,7 @@ import { DataTableResponsive, SectionCard, StatusChip } from '../ui';
 import type { DataTableColumn } from '../ui';
 
 /** Tope de líneas del CSV que arma el backend (§5.4). */
-const TOPE_CSV = 200_000;
+export const TOPE_CSV = 200_000;
 const TAMANOS = [25, 50, 100];
 
 type Pestana = 'FILA' | 'AVISO';
@@ -153,7 +153,7 @@ export default function ErroresDeCarga({ remesaId, numeroRemesa, carga, esMultic
             label: 'Mensaje de error',
             primary: true,
             render: (row) => (
-                <Box sx={{ maxWidth: 320, wordBreak: 'break-word' }}>
+                <Box sx={{ maxWidth: { xs: '100%', sm: 320 }, wordBreak: 'break-word' }}>
                     <StatusChip status="failed" label={String(row.errorMsg)} sx={{ height: 'auto', '& .MuiChip-label': { whiteSpace: 'normal' } }} />
                 </Box>
             ),

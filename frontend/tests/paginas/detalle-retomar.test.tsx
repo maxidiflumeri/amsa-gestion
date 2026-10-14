@@ -109,7 +109,7 @@ describe('MC-9 — detalle: después de retomar vuelve a seguir la carga sola', 
         b.pub('import:progreso', dtoC1({ ...base, rev: 11, procesadas: 7000, ok: 7000, err: 0, progreso: 48 }));
         await esperar(() => /Procesando · 48% completado/.test(b!.texto()), { ms: 3000, que: 'procesando' });
         b.pub('import:finalizada', terminalC1('OK', { ...base, rev: 12, procesadas: 14466, ok: 14466, err: 0 }));
-        await esperar(() => chips(b!.v.contenedor).includes('FINALIZADA'), { ms: 3000, que: 'finalizada' });
+        await esperar(() => chips(b!.v.contenedor).includes('Finalizada'), { ms: 3000, que: 'finalizada' });
         await pasar(300);
         expect(Array.from(document.querySelectorAll('.MuiCard-root .MuiTypography-h4')).map((e) => limpio(e.textContent ?? ''))).toEqual(['14.466', '14.466', '0', '100%']);
         expect(b.srv.cuantos('GET', /^\/import\/remesas\/141$/) - remesaAntes).toBeGreaterThanOrEqual(1);

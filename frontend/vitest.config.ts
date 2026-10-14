@@ -4,8 +4,8 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const AQUI = path.dirname(fileURLToPath(import.meta.url));
-/** El servidor falso (HTTP + socket.io) escucha siempre acá. Nunca la API real. */
-export const PUERTO = 47831;
+/** El servidor falso (HTTP + socket.io) escucha acá. Nunca la API real. Con `FE_TEST_PUERTO` se corren dos suites a la vez en el mismo árbol. */
+export const PUERTO = Number(process.env.FE_TEST_PUERTO || 47831);
 
 export default defineConfig({
     resolve: { alias: [{ find: /^@fe\//, replacement: `${AQUI}/src/` }] },

@@ -43,12 +43,13 @@ npm run dev        # vite dev server en localhost:5173 (strictPort)
 npm run build      # vite build (NO chequea tipos)
 npm run preview    # preview del build
 npx tsc --noEmit -p tsconfig.json   # chequeo de tipos: es la red que no da vite build
-npm test           # vitest + jsdom (frontend/tests/, config en vitest.config.ts), ~2 min
-npm run test:lento # pruebas con polling real (~5 min)
+npm test           # vitest + jsdom (frontend/tests/, config en vitest.config.ts), ~5 min
+npm run test:lento # pruebas con polling real (~20 min)
 ```
 
 No hay lint en el frontend. Los tests montan los módulos reales contra un servidor HTTP y socket.io falsos en
-`127.0.0.1:47831` (ver `frontend/tests/lib/`); `vite.config.ts` y `tsconfig.json` no los conocen.
+`127.0.0.1:47831` (ver `frontend/tests/lib/`); `vite.config.ts` y `tsconfig.json` no los conocen. Para correr dos
+suites a la vez en el mismo árbol, cada una con su puerto: `FE_TEST_PUERTO=47841 npm test`.
 
 ## Convenciones críticas (no negociables)
 

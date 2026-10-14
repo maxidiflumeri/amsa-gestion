@@ -94,7 +94,9 @@ ahí**.
 4. **Importando** — corre en segundo plano, en el servidor: si cerrás la pantalla o te vas a otra, la
    carga sigue y la podés ver en la campanita de la barra superior. También una carga dividida: las
    remesas se confirman juntas y el servidor las carga una después de la otra. Mientras corre se puede
-   **cancelar** (ver [Importar un archivo](/ayuda/importacion/importar-un-archivo)).
+   **cancelar** (ver [Importar un archivo](/ayuda/importacion/importar-un-archivo)). Mientras haya cargas en
+   curso, la barra superior muestra un chip (*Importando 43 %*, o *3 importaciones* si hay varias) que abre la
+   campanita.
 5. **Resultado** — cómo terminó la carga: si salió bien, si hubo filas con error, si no tenía filas, si
    terminó con advertencias, si falló o si se canceló. Con cuántas filas y, cuando hay un problema, el motivo.
 

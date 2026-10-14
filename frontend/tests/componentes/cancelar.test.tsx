@@ -155,13 +155,14 @@ describe('después de pedir la cancelación', () => {
         expect(b.texto()).not.toMatch(BASURA);
     });
 
-    it('efecto CANCELADA (en cola): toast, chip «Cancelada», alerta con el motivo, y Retomar si el backend dice `retomable`', async () => {
+    it('efecto CANCELADA (en cola): toast, chip «Cancelada antes de empezar», alerta con el motivo, y Retomar si el backend dice `retomable`', async () => {
         b = await armarDetalle(enColaC1());
         b.cancelar = (id) => { const c = canceladaC1({ rev: 3, startedAt: null, heartbeatAt: null, procesadas: 0, ok: 0, err: 0, progreso: 0, error: TXT_CANCELADA_SIN_ARRANCAR, retomable: true }); b!.estados[id] = c; return { status: 200, body: { message: 'ok', efecto: 'CANCELADA', carga: c } }; };
         await clic(btnCancelar(), 'Cancelar importación');
         await esperar(() => !!dlg(), { que: 'el diálogo' });
         await clic(boton('Cancelar importación', dlg()!), 'confirmar');
-        await esperar(() => chips(b!.v.contenedor).includes('Cancelada'), { que: 'la cancelada' });
+        // C2b (D1, §16.5): el chip grande dice lo mismo que el Historial; una cancelada en cola es «Cancelada antes de empezar».
+        await esperar(() => chips(b!.v.contenedor).includes('Cancelada antes de empezar'), { que: 'la cancelada' });
         await pasar(250);
         expect(toasts()).toContainEqual({ variante: 'info', texto: 'Importación cancelada.' });
         expect(alertas()).toContainEqual({ severidad: 'warning', texto: 'Importación cancelada' + TXT_CANCELADA_SIN_ARRANCAR.replace(/\n\n/g, ' ') });

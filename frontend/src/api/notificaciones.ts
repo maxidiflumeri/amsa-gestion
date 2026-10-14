@@ -7,6 +7,9 @@ export interface NotificacionDto {
     mensaje: string;
     payload?: Record<string, unknown> | null;
     rutaAccion?: string | null;
+    /** La fila entera de la notificación: las de importación traen `REMESA` y el id de la remesa. */
+    entidadTipo?: string | null;
+    entidadId?: number | null;
     leida: boolean;
     creadoEn: string;
 }

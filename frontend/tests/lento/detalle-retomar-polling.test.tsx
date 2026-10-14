@@ -35,7 +35,7 @@ describe('detalle: después de retomar con el socket caído', () => {
         await esperar(() => /Procesando · 48% completado/.test(b!.texto()), { ms: 14_000, que: 'procesando, visto por polling' });
         const tProcesando = Date.now() - t0;
         b.estados[141] = terminalC1('OK', { rev: 12, procesadas: 14466, ok: 14466, err: 0 });
-        await esperar(() => chips(b!.v.contenedor).includes('FINALIZADA'), { ms: 14_000, que: 'finalizada, vista por polling' });
+        await esperar(() => chips(b!.v.contenedor).includes('Finalizada'), { ms: 14_000, que: 'finalizada, vista por polling' });
         const tFin = Date.now() - t0;
         const cuando = b.srv.de('GET', PROGRESO).slice(base).map((p) => p.t - t0);
         await pasar(11_500);

@@ -1,8 +1,13 @@
 # Progreso de las importaciones — Fase C, entrega 2 (C2): la interfaz
 
-> **Estado: diseñada el 09/10/2026; sin implementar.** Architect, sobre el árbol de trabajo de `main`
-> con HEAD `58bb9e1` **más la entrega 1 (C1) sin commitear** (38 archivos). Toda referencia
-> `archivo:línea` de este documento se leyó contra ese árbol, no contra `HEAD`.
+> **Estado: C2a implementada, auditada y commiteada el 14/10/2026** (`c148abd` backend, `20d4af6` frontend y
+> wiki; lo que cambió al auditar, en [§18](#18-lo-que-cambió-en-c2a-después-de-la-auditoría-14102026)). **C2b diseñada,
+> implementada y auditada el 14/10/2026** ([§16](#16-c2b-diseño-ejecutable); su plan va al final del documento), sin
+> desplegar; lo que cambió al auditarla, en [§19](#19-lo-que-cambió-en-c2b-después-de-la-auditoría-14102026), que manda
+> sobre §16.
+>
+> §1 a §15 se diseñaron el 09/10/2026 sobre el árbol de `main` con HEAD `58bb9e1` **más C1 sin commitear**: sus
+> referencias `archivo:línea` son de ese árbol. Las de §16 se leyeron contra `20d4af6`.
 >
 > Documento principal: [imports-progreso-realtime-spec.md](imports-progreso-realtime-spec.md) ("el spec
 > principal"). Este archivo va aparte para no mezclarse con los cambios de C1 que ese documento tiene
@@ -1875,68 +1880,534 @@ Sigue abierta y no bloquea: §5.5 del spec principal (cargas ajenas), que es de 
 
 ---
 
-## 16. C2b: alcance, dependencias y riesgos
+## 16. C2b: diseño ejecutable
 
-No se diseña en detalle acá: se diseña cuando le toque, sobre lo que deje la auditoría de C2a.
+> Diseñada el 14/10/2026 sobre `main` en `20d4af6` (C2a commiteada, árbol limpio). Toda referencia
+> `archivo:línea` de esta sección se leyó contra ese árbol. Reemplaza el esbozo que había acá; lo que el
+> esbozo decidía se conserva salvo donde §16.11 dice lo contrario y por qué. Formato rápido, a pedido del
+> usuario: contratos, archivos, riesgos, pruebas y criterios; dos paquetes en paralelo (§16.10).
 
-**Decisión que sí se toma ahora, porque condiciona a C2a: la tarjeta única es presentacional.** Recibe un
-`EstadoCargaDto` (y, si es una división, la lista de sus remesas) por propiedades, y **no consulta
-nada**. Los tres lugares que la usan conservan de dónde sacan el estado: el asistente y el detalle, sus
-hooks (`useEstadoCarga`, `useGrupoCarga`); la campanita, `NotificacionesContext`. Así no se reescribe
-ningún hook auditado, y de paso desaparece un defecto de C1: en el paso "Importando" de una división,
-`PasoImportandoGrupo` consulta el grupo y el `ImportProgress` que monta adentro vuelve a consultar la
-remesa actual, dos pedidos por cada tic con el socket caído.
+### 16.1 Alcance, en una tabla
 
-**Qué reemplaza y qué no:**
-
-| Hoy | Con C2b | ¿Se reescribe? |
+| Pieza | Qué cambia para el operador | Dónde |
 |---|---|---|
-| `ImportProgress` (paso "Importando"): el cuerpo —reloj, porcentaje, barra, contadores, ritmo, fase, avisos, cancelar— y la orquestación con el asistente (`onComplete` una sola vez, `estadoInicial`, `onNoExiste`, `onSeguimiento`) | La orquestación **queda como está**; el cuerpo pasa a ser la tarjeta en su variante completa | Solo el cuerpo (`ImportProgress.tsx:116-247`) |
-| Detalle: el bloque de progreso de la tarjeta superior (`ImportDetail.tsx:563-605`) | La tarjeta, variante de detalle | Ese bloque |
-| `ImportEnCursoItem` (campanita) | La tarjeta, variante compacta, con acciones | El componente (93 líneas) |
-| `PasoImportandoGrupo`: la lista de remesas y el `ImportProgress` de la actual | La lista y la barra de la división pasan a la tarjeta; deja de montar un segundo hook | En parte |
-| `estadoEnGrupo` (asistente y detalle) y `estadoParaHistorial` (C2a) | Una sola función | Sí: en el asistente y en el detalle "Finalizada" pasa a ser la etiqueta precisa |
-| `AvisosCarga`, `BotonCancelarCarga`, `ErroresDeCarga`, `useEstadoCarga`, `useGrupoCarga`, `ImportSummary`, `NotificacionesContext`, `SocketContext` | Se usan tal cual | **No** |
+| **Tarjeta única de progreso** | Un solo componente para el paso "Importando", el detalle y la campanita, con tres variantes. Agrega los **pasos** (En cola → Procesando → Post-proceso → Listo), los contadores en grilla de 2 columnas en celular, los **últimos 5 errores y avisos en vivo** (completa y detalle) y, en una división, la **barra del grupo y una por remesa** | Paquete A |
+| **Una sola etiqueta de estado** | La lista de la división en el asistente y los chips de las hermanas en el detalle dicen lo mismo que el Historial: "Fallida" en vez de "Falló", y "Finalizada con errores" / "Sin filas" / "Con advertencias" / "Sin filas cargadas" en vez de un "Finalizada" para todo. El chip grande del detalle deja de mostrar `FINALIZADA` crudo (D1, §16.12) | Paquete A |
+| **Vigía de `ejecutar-grupo`** | Si el pedido de confirmar una división no vuelve en 15 s, la pantalla consulta la primera remesa cada 5 s y, si ya está en curso, sigue al grupo en vez de quedarse en "Enviando a la cola…" hasta el 504 del balanceador (60 s) | Paquete A |
+| **Cosméticos del asistente** | Singulares y números con punto de miles en la vista previa y en los cortes (§16.7) | Paquete A |
+| **Campanita con acciones** | En curso: "Ver detalle" y cancelar. Terminadas: "Descargar errores" y "Retomar", ambos **consultando el estado antes** | Paquete B |
+| **Chip en la barra superior** | "Importando 43 %" / "3 importaciones" mientras haya cargas en curso; abre la campanita. En celular, solo el ícono | Paquete B |
+| **Celular** | La campanita es un diálogo a pantalla completa en `xs`; repaso a 360 px de "Importando", "Resultado", el detalle y el Historial | A (asistente y detalle), B (campanita e Historial) |
 
-**Qué trae de nuevo:**
+**Fuera de alcance:** cualquier cambio de backend (no hace falta ninguno: §16.2), el retomar de una división
+desde la campanita (D3), el vigía en "Cargar las que faltan" (§16.6), los alias del DTO (§5.9), el globito de no
+leídas (Fase D).
 
-- En la tarjeta: los pasos (En cola → Leyendo, si aplica → Procesando → Post-proceso → Listo); los
-  contadores en una grilla de dos columnas en `xs`; **los últimos cinco errores y avisos en vivo**, con
-  la lectura de C2a (`orden=desc&pageSize=5`, a lo sumo una cada 5 s, y solo en las variantes completa y
-  de detalle); en una división, la barra del grupo (remesas terminadas sobre el total) y una por remesa.
-- Campanita con acciones. En un ítem en curso: ver detalle y cancelar (la variante de ícono de C2a). En
-  la notificación de una carga terminada: descargar los errores si los hubo, y retomar **solo después de
-  consultar el estado** (el `payload` de la notificación es una foto vieja; `retomable` se pregunta, no
-  se deduce).
-- Chip en la barra superior mientras haya cargas en curso ("Importando 43 %" con una, "3 importaciones"
-  con varias), que abre la campanita. En `xs`, solo un ícono.
-- Celular: la campanita como diálogo a pantalla completa en `xs`; el repaso de los pasos 3 y 4 del
-  asistente, y del Historial y el detalle de C2a, a 360 px.
-- La deuda que queda de C1: `ejecutar-grupo` sin respuesta (un vigía: si el pedido no volvió en 15 s,
-  consultar la primera remesa cada 5 s y seguir al grupo si aparece), y los cosméticos de texto del
-  asistente.
+### 16.2 Backend: ninguna lectura nueva
 
-**Dependencias.** C2a entera: el arnés (su FE-0 es portar el resto de las pruebas de C1, unas 170, que
-son la red de lo que C2b refactoriza —**si para entonces todavía existen**: §7.3—), la lectura de
-errores, la variante de ícono del botón de cancelar, la descarga por blob y `estadoParaHistorial`.
-Backend: ninguno, hasta donde se diseñó.
+Todo lo que C2b necesita ya existe. Se verificó leyendo el código:
 
-**Riesgos.**
+| Necesidad | Lectura existente |
+|---|---|
+| Últimos 5 errores y avisos | `GET /api/import/errores/:remesaId?tipo=TODOS&orden=desc&page=1&pageSize=5` (C2a; `ErroresQueryDto`, `dtos/import.dto.ts:141-162`). Ordena por `[rowNumber, id]` (`imports.service.ts:4647`): ver la consecuencia en §16.4.3 |
+| Saber de qué remesa es una notificación | La lista de notificaciones devuelve la fila entera (`notificaciones.service.ts:132-137`, `findMany` sin `select`), que trae `entidadTipo: 'REMESA'` y `entidadId` (`imports.service.ts:4272-4273`). El tipo del frontend no los declara (`api/notificaciones.ts:3-12`): se agregan opcionales. Respaldo: `rutaAccion` = `/historial-importaciones/{id}` (`imports.service.ts:4292`) |
+| Consultar antes de retomar o descargar | `GET /api/import/remesas/:id/progreso` (con `retomable`, `numeroRemesa`, `err`, `advertencias`, `corteRepetidoEn`) |
+| Retomar, cancelar, CSV | `POST remesas/:id/retomar`, `BotonCancelarCarga` (C1/C2a), `GET errores/:id/csv` por blob (C2a) |
 
-1. **El contrato de `ImportProgress` con el asistente** es lo más auditado del frontend (`onComplete`
-   exactamente una vez, la siembra con `estadoInicial`, la alerta de remesa no encontrada). Se cambia el
-   cuerpo, no la orquestación; las pruebas portadas de C1 son la condición para tocarlo.
-2. **Unificar las etiquetas de estado** cambia textos en dos pantallas auditadas y en la wiki.
-3. **El chip en la barra superior** recibe un evento por segundo: si no está aislado en su propio
-   componente, toda la barra se vuelve a dibujar cada segundo, en todas las pantallas.
-4. **La campanita como diálogo en celular:** foco, botón "atrás" del navegador, y que no tape un toast.
-5. **Los últimos errores en vivo** son un pedido por tarjeta visible: con varias cargas en la campanita
-   sería un pedido por cada una cada 5 s. Por eso la variante compacta no los trae.
-6. **Si al diseñarlo aparece una lectura que falta**, deja de ser un solo push.
-7. Como siempre: nada se vio en un navegador hasta C2a. Si la prueba manual de C2a encuentra problemas
-   de aspecto, cambian el alcance de C2b.
+Permisos: `progreso` y `errores` heredan `importacion.ver_historial` de la clase (`imports.controller.ts:29`);
+`retomar` pide `importacion.ejecutar`. **Ningún permiso nuevo.**
 
-**Estimación gruesa:** 3 a 4 días de frontend y 1,5 a 2 de auditoría.
+### 16.3 Contrato de la tarjeta (lo fija el paquete A; el B lo usa)
+
+Archivo nuevo `frontend/src/components/import/progreso/TarjetaProgreso.tsx`, export por defecto. **Presentacional**:
+no hace pedidos HTTP ni escucha el socket. Puede montar `AvisosCarga` (que solo usa `useAuth` y un reloj).
+
+```ts
+export type VarianteTarjeta = 'completa' | 'detalle' | 'compacta';
+
+export interface UltimosErrores {
+    /** Hasta 5, en el orden de la lectura (`orden=desc`). */
+    items: ErrorDeCargaDto[];
+    /** De toda la carga. null si el backend no los trae. */
+    totales: { filas: number; avisos: number } | null;
+    /** La última lectura falló (se conservan los items de la anterior). */
+    fallo: boolean;
+}
+
+export interface TarjetaProgresoProps {
+    variante: VarianteTarjeta;
+    /** null = todavía no hay estado (recién confirmada): "Enviando a la cola…", barra indeterminada. */
+    carga: EstadoCargaDto | null;
+    conectado: boolean;
+    /** División: las remesas por `grupoOrden`. Con 2 o más se dibuja el bloque de la división. */
+    grupo?: EstadoCargaDto[];
+    /** `grupoTotal`; si falta, `grupo.length`. */
+    totalGrupo?: number;
+    /** Corte de cada remesa por `remesaId` (solo el asistente lo tiene). */
+    cortes?: Record<number, string>;
+    /** Solo completa y detalle. `undefined` = la sección no se dibuja; `null` = todavía no hay lectura. */
+    ultimos?: UltimosErrores | null;
+    /** El pie: cancelar, "Ver detalle". La tarjeta no decide permisos ni llama a la API. */
+    acciones?: React.ReactNode;
+    /** Se pasa tal cual a `AvisosCarga`. */
+    textoSinConexion?: string;
+}
+```
+
+**Qué dibuja cada variante** (todo lo que hoy existe conserva su texto exacto: las pruebas portadas lo afirman):
+
+| Bloque | completa (asistente) | detalle | compacta (campanita) |
+|---|---|---|---|
+| Encabezado | — (el título "Ejecutando importación" queda en `ImportProgress`) | — | `{tipo} · Remesa {n}` + `· 2 de 3` + usuario (como `ImportEnCursoItem.tsx:39-46`) |
+| Pasos (§16.4.1) | Sí | Sí | No |
+| Porcentaje grande (`h4`) | Sí, si la barra es determinada | No | No |
+| Barra | Sí (alto 8) | Sí (alto 8) | Sí (alto 6) |
+| Fase | Principal + secundario (como `ImportProgress.tsx:234-243`) | `{principal} · {N}% completado` + secundario (como `ImportDetail.tsx:498-512`) | `{principal o "Cancelando…"} · {N}% · {faltan}` + secundario (como `ImportEnCursoItem.tsx:56-90`) |
+| Contadores | **Chips con el mismo texto de hoy** (`Total: 5.000`, `Procesadas: …`, `OK`, `Errores`, `Descartadas`, `Nuevos`, `Actualizados`) dentro de un `Grid container`, cada uno `Grid item xs={6} sm="auto"`: 2 columnas en `xs` | No (el detalle tiene sus `StatCard` y su renglón de casos) | Los cuatro chips chicos de hoy (`Procesadas`, `OK`, `Err`, `Total`) |
+| Ritmo | Sí | Sí | No (va el "faltan" abreviado en la línea de fase) |
+| `AvisosCarga` | Si `carga.enCurso` | Si `carga.enCurso` | No |
+| Últimos errores (§16.4.3) | Si `ultimos !== undefined` y `err + advertencias > 0` | Ídem | Nunca |
+| Bloque de la división (§16.4.2) | Barra del grupo + una fila por remesa con su barra | Solo la barra del grupo (las hermanas siguen como chips enlazados en la tarjeta superior) | No (el `· 2 de 3` del encabezado) |
+| `acciones` | Al pie, centrado | Al pie, a la izquierda | Al pie de la fila, a la derecha |
+
+**Sin colores escritos a mano**: todo por `theme.palette` / props `color` de MUI (lo afirma una prueba, §16.9).
+
+### 16.4 Lógica de la tarjeta
+
+Funciones puras nuevas en `frontend/src/utils/estadoCarga.ts` (paquete A). La tarjeta solo las dibuja.
+
+#### 16.4.1 Pasos
+
+```ts
+export type EstadoPaso = 'hecho' | 'actual' | 'pendiente';
+export interface PasoDeCarga { clave: 'EN_COLA' | 'PROCESANDO' | 'POST_PROCESO' | 'LISTO'; etiqueta: string; detalle: string | null; estado: EstadoPaso; error: boolean }
+/** null = no se dibujan pasos (fase que el cliente no conoce). */
+export function pasosDeCarga(carga: EstadoCargaDto | null): PasoDeCarga[] | null;
+```
+
+| Situación | Paso actual | `detalle` del paso actual |
+|---|---|---|
+| `carga === null` o `BORRADOR` | En cola | "Enviando a la cola…" |
+| `EN_COLA` | En cola | `etiquetaFase(c).secundario` ("Hay 1 importación antes que esta.") |
+| `LEYENDO` | Procesando | "Leyendo el archivo" |
+| `PROCESANDO` | Procesando | `"{progreso} %"` si `!barraIndeterminada(c)`, si no null |
+| `POST_PROCESO` | Post-proceso | null (el paso del post-proceso va en la línea de fase) |
+| `terminal` | Listo, todos los anteriores `hecho` | null; la `etiqueta` de "Listo" pasa a ser `etiquetaDeEstado(c).etiqueta` y `error = c.resultado === 'FALLIDA' \|\| estaCancelada(c)` |
+| Otra fase en curso | — | `null` (no se dibujan pasos) |
+
+Cancelación pedida: los pasos no cambian; la línea de fase dice "Cancelando…" (como hoy en la campanita).
+
+Dibujo: `sm` en adelante, `Stepper` horizontal con `alternativeLabel` y `StepLabel optional={detalle}`/`error`.
+En `xs` (con `useMediaQuery(theme.breakpoints.down('sm'))`), una línea: **"Paso 2 de 4 · Procesando · 43 %"**.
+
+#### 16.4.2 Bloque de la división
+
+```ts
+export function resumenDeGrupo(remesas: EstadoCargaDto[], total: number): { terminadas: number; total: number; porcentaje: number };
+export function barraDeRemesa(r: EstadoCargaDto): { variante: 'determinate' | 'indeterminate'; valor: number };
+```
+
+- `total = totalGrupo ?? grupo.length`; `terminadas` = las de `grupo` con `terminal`; `porcentaje =
+  round(terminadas / total × 100)` (0 si `total` es 0). Texto: **"Remesas terminadas: 1 de 3"** (con 1: "Remesa
+  terminada: 1 de 1" no aplica: el bloque solo se dibuja con 2 o más).
+- `barraDeRemesa`: terminal → determinada 100; `EN_COLA` o borrador → determinada 0; en curso con
+  `!barraIndeterminada` → determinada `progreso`; si no, indeterminada.
+- Cada fila (solo completa): `Remesa {n}` (en negrita la actual, `remesaActualDelGrupo`), el corte si viene en
+  `cortes`, el chip con `etiquetaDeEstado(r)` (`.etiqueta`, `.color`) y su barra fina (alto 4). La fila hace
+  `flexWrap: 'wrap'` y el corte `overflowWrap: 'anywhere'` (cortes largos en 360 px).
+- La línea "N remesas de esta división se eliminaron" sigue en `PasoImportandoGrupo` (depende de `noEncoladas`,
+  que es del asistente).
+
+#### 16.4.3 Últimos errores y avisos
+
+```ts
+export function lineaDeUltimoError(e: ErrorDeCargaDto): { rotulo: string; texto: string };
+```
+
+- `rotulo`: `"Fila {formatearNumero(fila)}"` si `tipo === 'FILA'` y `fila != null`; `"Aviso"` si `tipo === 'AVISO'`;
+  `"Fila"` en otro caso. `texto`: primera línea no vacía de `errorMsg`, recortada a 160 caracteres con "…".
+- Título de la sección: **"Últimos errores y avisos"**; debajo, la línea de totales cuando vienen:
+  **"En total: 1.204 errores de fila y 3 avisos"** (con `plural`; se omite la parte que es 0).
+- Sin lectura todavía (`ultimos === null`): no se dibuja nada. Con `fallo` y sin items: *"No se pudieron leer los
+  últimos errores."* (caption, sin botón: la próxima lectura lo reintenta).
+- **Orden real de la lectura** (`imports.service.ts:4647`, `[rowNumber desc, id desc]`): primero las filas de número
+  más alto (las más recientes de la carga) y los avisos —que se guardan con `rowNumber` 0— solo completan si hay
+  menos de cinco errores de fila. Es lo que se quiere ver mientras corre; la wiki lo dice así, y los totales
+  siempre muestran los dos números. No se cambia el backend por esto.
+
+#### 16.4.4 `useUltimosErrores` (hook nuevo, paquete A)
+
+`frontend/src/hooks/useUltimosErrores.ts`:
+
+```ts
+export function useUltimosErrores(carga: EstadoCargaDto | null, activo?: boolean /* default true */): UltimosErrores | null;
+```
+
+Copia la mecánica ya auditada de `ErroresDeCarga.tsx:58-114`:
+
+1. `pedir = activo && carga !== null && (carga.err > 0 || carga.advertencias > 0)`.
+2. Al cambiar `remesaId`: estado a `null`, contadores de pedido a 0.
+3. Primera lectura cuando `pedir` pasa a true. Después, cada vez que cambian `err` o `advertencias` con
+   `carga.enCurso`, `crearRefrescoLimitado(…, REFRESCO_COLA_MS)` (**a lo sumo una cada 5 s**). Una más al pasar a
+   `terminal`, cancelando la pendiente.
+4. `obtenerErrores(id, { tipo: 'TODOS', orden: 'desc', page: 1, pageSize: 5 }, { silencioso: true })`.
+5. Una respuesta más vieja que la última aplicada, o de otra remesa, se descarta. Un fallo deja los items y pone
+   `fallo: true`.
+6. Al desmontar, cancela el refresco pendiente.
+
+**Presupuesto de pedidos:** asistente, uno por ventana de 5 s mientras cambian los contadores; detalle, ese más el
+de `ErroresDeCarga` (dos por ventana); campanita, **cero** (la compacta no lo usa).
+
+### 16.5 Una sola etiqueta de estado
+
+En `utils/estadoCarga.ts` (paquete A):
+
+```ts
+export interface EtiquetaDeEstado {
+    etiqueta: string;
+    status: StatusValue;          // para StatusChip (Historial)
+    color: ColorChipEstado;       // para un Chip de MUI (asistente, detalle)
+    secundaria: string | null;
+    tooltip: string | null;
+}
+export function etiquetaDeEstado(carga: EstadoCargaDto, opciones?: { pendienteDeEncolar?: unknown | null }): EtiquetaDeEstado;
+```
+
+- El cuerpo es **el de `estadoParaHistorial`** (`historialImportaciones.ts:46-91`, la tabla de §6.3, auditada en C2a)
+  movido tal cual, más `color` derivado de `status`: `completed`/`success` → `success`; `failed`/`error` → `error`;
+  `warning` → `warning`; `running`/`info` → `info`; `pending`/`neutral` → `default`.
+- `estadoParaHistorial(item)` queda como **una línea** que llama a `etiquetaDeEstado(item.carga, { pendienteDeEncolar:
+  item.pendienteDeEncolar })`. Así FU-6 (las 18 filas) sigue siendo la red sin tocarse. `tooltipDeResultado` y
+  `sinTooltip` se mudan con la función.
+- `estadoEnGrupo` (`estadoCarga.ts:608-631`) **se borra**. Sus dos usos pasan a `etiquetaDeEstado`:
+  `ImportWizard.tsx:258` (la lista de la división, que ahora dibuja la tarjeta) e `ImportDetail.tsx:442` (chips de
+  las hermanas: `label={`#${h.numeroRemesa} · ${e.etiqueta}`}`, `color={e.color}`).
+- El chip grande del detalle (`ImportDetail.tsx:308-317`) usa `etiquetaDeEstado(carga)` cuando hay `carga`
+  (`status` y `etiqueta`); sin `carga`, sigue el `estadoProceso` de la remesa (heredadas). **D1.**
+- Cambia texto visible: en la lista de la división y en los chips del detalle, "Falló" → "Fallida"; "Finalizada" de
+  una con errores, sin filas o con advertencias → la etiqueta precisa; en el chip grande del detalle, `FINALIZADA` /
+  `FALLIDA` / `PROCESANDO` → la etiqueta del Historial.
+
+### 16.6 Paso "Importando" del asistente
+
+**`ImportProgress.tsx`** — la orquestación (`:78-114`: `useEstadoCarga` con `seguirHastaTerminal`, las cuatro refs,
+`estadoInicial`, `onComplete` una vez, `onNoExiste`, `onSeguimiento`) **no se toca**. El cuerpo (`:116-251`) pasa a:
+
+```tsx
+const ultimos = useUltimosErrores(estado);
+return (
+    <Box>
+        <Typography variant="h6" sx={{ mb: 3, fontWeight: 600 }}>Ejecutando importación</Typography>
+        {noExiste ? <Alert …>{MENSAJE_NO_SEGUIDA}</Alert>   /* el mismo bloque de :144-163 */
+                  : <TarjetaProgreso variante="completa" carga={estado} conectado={conectado} ultimos={ultimos} grupo={grupo}
+                        acciones={<BotonCancelarCarga carga={estado} onResultado={aplicar} onGrupoCambio={onGrupoCambio} grupo={grupo} />} />}
+    </Box>
+);
+```
+
+Las props `grupo` y `onGrupoCambio` se conservan (nadie del asistente las pasa ya, pero no se rompe la firma).
+`BotonCancelarCarga` y `DialogoCancelarCarga` (`:254-519`) **no cambian**.
+
+**`PasoImportandoGrupo`** (`ImportWizard.tsx:164-301`): conserva `useGrupoCarga`, la alerta de no encontrada, el
+encabezado "Carga dividida: remesa X de N", `AlertaNoEncoladas`, "No se retomaron", la línea de eliminadas y el
+`onTerminaron` una vez. Cambia:
+
+- La lista (`:254-293`) y el `ImportProgress` de la actual (`:295-297`) se reemplazan por **una** tarjeta:
+  `variante="completa"`, `carga={actual}`, `grupo={remesas}`, `totalGrupo={total}`, `cortes`, `ultimos` de
+  `useUltimosErrores(actual)`, y `acciones={<BotonCancelarCarga carga={actual} onGrupoCambio={refrescar} grupo={remesas} />}`
+  (sin `onResultado`: el grupo se vuelve a pedir). **Se va el segundo hook**: un pedido por tic con el socket caído,
+  no dos.
+- "Enviando a la cola…" (`:244-252`) pasa a ser la tarjeta con `carga={null}`.
+
+**Vigía de `ejecutar-grupo`** (hook nuevo `frontend/src/hooks/useVigiaGrupo.ts`, paquete A):
+
+```ts
+export const VIGIA_ESPERA_MS = 15_000;
+export const VIGIA_CADA_MS = 5_000;
+/** Mientras `primeraRemesaId` no sea null: a los 15 s empieza a consultar esa remesa cada 5 s; la primera vez que la ve
+ *  en curso o terminada y con grupo, llama `onGrupo(grupoId)` y se apaga. Devuelve si ya pasaron los 15 s. */
+export function useVigiaGrupo(primeraRemesaId: number | null, onGrupo: (grupoId: string) => void): { tardando: boolean };
+```
+
+En `ImportWizard`:
+
+1. Estado nuevo `esperandoGrupo: number | null`. `confirmarRemesas` (`:791-814`) gana un segundo parámetro opcional
+   `{ conVigia?: boolean }`, que solo pasa `handleEjecutar` (`:823-841`). En la rama de dos o más, con `conVigia`:
+   `setEsperandoGrupo(ids[0])` antes del `await ejecutarGrupo` y `setEsperandoGrupo(null)` en un `finally`. "Cargar las que faltan" (`handleCargarFaltantes`) no lo activa: se
+   queda en "Resultado" con el botón ocupado, acotado por los 60 s del balanceador (deuda, §16.13).
+2. `useVigiaGrupo(grupoId === null ? esperandoGrupo : null, (g) => { seguimientoRef.current = true; setNoEncoladas([]); setGrupoId(g); })`.
+3. Con `tardando`, debajo de "Enviando a la cola…" (`:1528-1535`): *"El servidor está tardando en responder. Si
+   la carga ya empezó, aparece acá en unos segundos; no vuelvas a confirmar."*
+4. Si después vuelve el 201: `setNoEncoladas(respuesta.noEncoladas)` y `setGrupoId` con el **mismo** id (la `key`
+   de `PasoImportandoGrupo` no cambia: no se remonta). Si vuelve un error: el `catch` de `confirmarRemesas` ya
+   consulta el estado real y sigue al grupo; y si esa consulta también falla, `seguimientoRef.current === true` hace
+   que `handleEjecutar` no vuelva a la vista previa (`:837`).
+5. El vigía ignora 404, errores de red y una remesa todavía en borrador (sigue intentando). No adopta nada sin
+   `datosDeGrupo(real)`.
+
+El caso `HALLAZGO` del arnés de C1 (`14-c1-confirmar.test.tsx:215`) se porta como `it.fails` en FE-0 y pasa a verde
+con el vigía (TV-1).
+
+### 16.7 Cosméticos del asistente
+
+| Dónde | Hoy | Queda |
+|---|---|---|
+| `PreviewTable.tsx:155` | "Vista previa (muestra de 1 filas de 5000)" | `muestra de {n} {plural(n,'fila','filas')} de {formatearNumero(total)}` |
+| `PreviewTable.tsx:190-192` | "Se detectaron 1 filas con errores. … las filas con error serán omitidas y quedarán registradas…" | con 1: "Se detectó 1 fila con errores. … la fila con error será omitida y quedará registrada…"; con más, como hoy y con `formatearNumero` |
+| `ImportWizard.tsx:1387-1388` | "el filtro de la plantilla descartó las 1 filas." / "1 filas son de otros cortes…" | `oracionesSinFilas(r.descartadas, r.deOtrosCortes)` (C2a, ya con singulares) |
+| `ImportWizard.tsx:149` | "(1 casos)" | `plural(y.casos, 'caso', 'casos')` |
+
+`PreviewTable` también lo usa el asistente solamente (`pages/reportes/…/PreviewTable` es otro archivo).
+
+### 16.8 Campanita, chip y celular (paquete B)
+
+**Funciones puras** en un archivo nuevo `frontend/src/utils/campanita.ts` (para no tocar `estadoCarga.ts`, que es del A):
+
+```ts
+/** null sin cargas. 1: "Importando 43 %" (PROCESANDO con total), "Importación en cola" (EN_COLA), "Cancelando importación"
+ *  (pedida), si no "Importando…". 2 o más: "3 importaciones". */
+export function textoChipImportaciones(cargas: EstadoCargaDto[]): string | null;
+/** Remesa de una notificación de importación terminada: `entidadId` si `entidadTipo === 'REMESA'`; si no, el número de
+ *  `rutaAccion` `/historial-importaciones/{id}`. null para cualquier otro tipo. */
+export function remesaDeNotificacion(n: NotificacionDto): number | null;
+/** Lo que se OFRECE (se decide con el payload, que es una foto vieja; lo que se HACE se decide al consultar). */
+export function accionesDeNotificacion(n: NotificacionDto, tienePermiso: (p: string) => boolean): { descargar: boolean; retomar: boolean };
+```
+
+- `accionesDeNotificacion`: solo `IMPORTACION_FINALIZADA` / `IMPORTACION_ERROR` con remesa. `descargar` =
+  `ver_historial` y (`payload.err ?? payload.errFilas` > 0 o `payload.advertencias` > 0). `retomar` = `ver_historial` y
+  `ejecutar` y `payload.procesadas === 0` y (`payload.cancelada === true` o `payload.resultado === 'FALLIDA'`). Un
+  campo que falta o no es número cuenta como "no ofrecer".
+
+**`AccionesNotificacion.tsx`** (nuevo, `components/layout/AppShell/`). Botones `size="small"` con texto (no íconos
+solos: en el celular no hay tooltip). Cada clic hace `stopPropagation` (la fila navega) y queda deshabilitado
+mientras corre:
+
+- **Descargar errores**: `obtenerEstadoCarga(id)` → 404: `notify.warning('Esta importación ya no existe.')`. Si
+  `err + advertencias > TOPE_CSV` (`ErroresDeCarga.tsx:16`, **se exporta**), el mismo `confirm` que `ErroresDeCarga.tsx:180-187`.
+  Después `descargarErroresCsv(id)` → `descargarBlob(blob, `errores-remesa-${numeroRemesa}.csv`)` (mismo nombre que
+  el detalle); error → `notify.error(await mensajeDeErrorDeBlob(e))`.
+- **Retomar**: `obtenerEstadoCarga(id)` → 404: igual que arriba. Si `real.enCurso`: `notify.info('Esta importación ya
+  está en curso.')`. Si `!esRetomable(real)`: `notify.info(motivoNoRetomablePorCorte(real) ?? 'Esta importación ya no se
+  puede retomar. Mirá su detalle.')`. Si `!puedeGestionarCarga(real, usuario.id, tienePermiso)`: `notify.info('Solo
+  quien la cargó puede retomarla.')`. Si no, `confirm(TEXTO_RETOMAR_UNA)` → `retomarRemesa(id)` →
+  `notify.info('Importación retomada: quedó en la cola.')` y `refrescar()` del contexto (aparece en curso). Error →
+  `notify.error(err)` (el 409 del backend trae el texto). **Retoma solo esa remesa**, aunque sea de una división (D3).
+
+**`NotificacionItem.tsx`**: prop nueva `onNavegar?: () => void` que se llama después de `navigate` (`:45-52`) para
+cerrar la campanita; debajo del mensaje, `<AccionesNotificacion notificacion={n} />` cuando `accionesDeNotificacion`
+ofrece algo.
+
+**`ImportEnCursoItem.tsx`**: pasa a `<TarjetaProgreso variante="compacta" carga={carga} conectado={conectado}
+acciones={…} />`. Acciones: "Ver detalle" (el `RouterLink` de hoy, `:73-81`, que además llama `onNavegar`) y
+`<BotonCancelarCarga carga={carga} variante="icono" onGrupoCambio={refrescar} grupo={hermanasEnCurso} />`, con
+`hermanasEnCurso = importsEnCurso.filter(i => i.grupoId != null && i.grupoId === carga.grupoId)` (así "Cancelar todo
+lo que falta" funciona desde la campanita). Si la carga termina con el diálogo de cancelar abierto, el ítem se
+desmonta y el diálogo se cierra: es correcto (ya no hay nada que cancelar).
+
+**`ChipImportaciones.tsx`** (nuevo): `useNotificaciones().importsEnCurso` → `textoChipImportaciones`. `null` → no
+dibuja nada. `sm` en adelante: `Chip` con ícono `CloudUpload`, `color="info"`, `variant="outlined"`, `onClick`. En
+`xs`: `IconButton` con el mismo ícono y `aria-label` = el texto. **Vive dentro de `NotificacionesBell`**, que ya
+consume el contexto (`NotificacionesBell.tsx:7`) y es dueño del estado de apertura: el chip llama al mismo `abrir`.
+`AppBar.tsx` **no se toca** y no consume el contexto (riesgo 3 del esbozo; lo afirma una prueba).
+
+**`NotificacionesBell.tsx`**: guarda `abierto` (y el ancla para el popover). Cierra la campanita cuando cambia la
+ruta (`useLocation().pathname`). Renderiza `<ChipImportaciones onAbrir={abrir} />`, el `IconButton` de hoy y la
+campanita.
+
+**`NotificacionesPopover.tsx`**: el contenido de hoy (`:113-206`) pasa a un componente interno `Contenido` sin
+cambios de lógica. En `sm` en adelante, el `Popover` de hoy (`:96-111`). En `xs`, `Dialog fullScreen` con una barra
+propia: título "Notificaciones", "Marcar todas" y un `IconButton` "Cerrar" (`aria-label="Cerrar"`). La sección
+"Importaciones en curso" y los ítems reciben `onNavegar={onClose}`. El `width: 380` se escribe `{ xs: '100%', sm: 380 }`.
+Foco: `Dialog` lo atrapa y lo devuelve al botón que lo abrió (default de MUI). Toasts: notistack queda por encima
+(`zIndex.snackbar` 1400 > `zIndex.modal` 1300); se verifica a mano (M-7).
+
+**`api/notificaciones.ts`**: `entidadTipo?: string | null; entidadId?: number | null;` en `NotificacionDto` (solo tipo).
+
+**Historial a 360 px** (paquete B, solo si el repaso de §16.9 encuentra algo): `ImportHistory.tsx` y
+`components/import/historial/*`. Lo leído no muestra anchos fijos que desborden (filtros en columna en `xs`,
+`ImportHistory.tsx:375`; `minWidth` 220 y 260). Lo pendiente es lo que C2a dejó para la prueba manual (MH-17).
+
+### 16.9 Plan de pruebas
+
+**Línea de base:** `npm test` en verde antes de empezar (C2a cerró con 250 + 7 lentas). Cada paquete anota la suya
+después de su FE-0.
+
+**FE-0 de cada paquete: portar del arnés de C1** (`~/.claude/projects/-home-maxi-Documentos-GitHub-amsa-gestion/arneses-auditoria/auditoria-fe-c1/tests/`)
+**antes de tocar `frontend/src`**, con las reglas de §7.1-§7.3 (sin `any` en `lib/`, sin `console.log`, `HALLAZGO` →
+`it.fails` con la referencia, lo que espera intervalos reales a `tests/lento/`):
+
+| Paquete | Qué se porta | A dónde |
+|---|---|---|
+| A | `04-componentes` (bloque "ImportProgress" y "formatearNumero…"), `07-wizard-flujo` (carga simple y dividida de punta a punta), `14-c1-confirmar` (todo; el `HALLAZGO` de `:215` como `it.fails`), `18-c1-mentiras` (asistente y detalle), `19-c1-bordes`, `22-c1-resumen-acumulado` | `tests/componentes/progreso-asistente.test.tsx`, `tests/paginas/asistente-importando.test.tsx`, `tests/paginas/asistente-confirmar.test.tsx` |
+| B | `04-componentes` (bloque "ImportEnCursoItem" y "DTO sin procesadas"), `10-campanita`, `11-campanita-cola`, `18-c1-mentiras` (bloque campanita) | `tests/componentes/campanita-en-curso.test.tsx`, `tests/paginas/campanita-contexto.test.tsx` (lo que espere 15-30 s reales, a `tests/lento/campanita.test.tsx`) |
+
+Una prueba portada que falla se clasifica (§7.3): texto que cambió después de la auditoría (se actualiza con la
+referencia) o regresión (se para). **Asserts existentes que C2b puede cambiar, y solo estos:**
+`unit/estadoCarga-c1.test.ts:103-140` (pasan a `etiquetaDeEstado`: "Falló" → "Fallida", la forma `{texto, color}` →
+`{etiqueta, color}`, "Finalizada" de una con errores → "Finalizada con errores"); `paginas/detalle-retomar.test.tsx:112`
+y `lento/detalle-retomar-polling.test.tsx:38` (`FINALIZADA` → `Finalizada`, por D1); la lista de fuentes de
+`unit/estadoCarga-c1.test.ts:234` y la de `tema/colores.test.ts` **se amplían** con los archivos nuevos (no se saca
+ningún texto esperado). Cualquier otro assert que haya que tocar: parar.
+
+**Pruebas nuevas, paquete A:**
+
+| Archivo | Casos |
+|---|---|
+| `tests/unit/estadoCarga-c2b.test.ts` | **TU-1** `etiquetaDeEstado` da lo mismo que FU-6 en las 18 filas y `color` según el mapa; **TU-2** `estadoParaHistorial(item)` ≡ `etiquetaDeEstado(item.carga, {pendienteDeEncolar})`; **TU-3** `pasosDeCarga` en las 7 filas de §16.4.1 (incluye `null`, BORRADOR, LEYENDO con detalle "Leyendo el archivo", PROCESANDO sin total sin "%", fase desconocida → null, cancelada → "Listo" con `error` y etiqueta "Cancelada"); **TU-4** `resumenDeGrupo` con total > remesas (eliminadas) y total 0; **TU-5** `barraDeRemesa` en las 4 ramas; **TU-6** `lineaDeUltimoError`: fila con punto de miles, aviso, `fila` null, mensaje con saltos y de 500 caracteres; **TU-7** ninguna devuelve `BASURA` |
+| `tests/componentes/tarjeta-progreso.test.tsx` (sin servidor) | **TP-1** completa con PROCESANDO: `h4` "43%", chips con los textos de hoy, ritmo, fase; **TP-2** detalle: sin `h4` ni chips de contadores, "Procesando · 43% completado"; **TP-3** compacta: encabezado, "Err: 3", sin pasos ni últimos errores aunque se pasen; **TP-4** `carga={null}`: "Enviando a la cola…" y barra indeterminada; **TP-5** `fijarAncho(360)`: cada contador está en un `.MuiGrid-grid-xs-6` y los pasos son la línea "Paso 2 de 4 · Procesando · 43 %"; a 1280, `Stepper` con 4 pasos; **TP-6** grupo de 3 (1 terminada, 1 procesando, 1 en cola): "Remesas terminadas: 1 de 3", tres barras, chips con `etiquetaDeEstado`, corte largo sin desbordar (`overflowWrap`); en detalle, solo la barra del grupo; **TP-7** últimos: 5 líneas "Fila 1.234 · …" / "Aviso · …", la línea de totales con singular ("1 aviso"), `fallo` sin items → el caption, `ultimos === undefined` → no hay sección; **TP-8** `acciones` se dibuja en las tres; **TP-9** modo oscuro monta sin errores |
+| `tests/componentes/ultimos-errores.test.tsx` (servidor falso) | **TE-1** sin errores ni avisos: 0 pedidos; **TE-2** con `err` > 0: un pedido con `tipo=TODOS&orden=desc&page=1&pageSize=5`; **TE-3** 10 eventos de progreso en 2 s con `err` subiendo: **a lo sumo 1 pedido más** en 5 s; **TE-4** al pasar a terminal: uno más; **TE-5** respuesta vieja que llega después de una nueva: se descarta; **TE-6** cambio de remesa: se limpia y pide la nueva; **TE-7** 500: conserva los items y `fallo: true`; **TE-8** `activo=false`: 0 pedidos |
+| `tests/paginas/asistente-importando.test.tsx` (banco de C1) | **TW-1** carga simple: `onComplete` una sola vez (contar las veces que se pasa a "Resultado" con eventos repetidos); **TW-2** `estadoInicial` siembra sin GET; **TW-3** remesa borrada: la alerta de `MENSAJE_NO_SEGUIDA` una vez; **TW-4** división: **con el socket caído, un solo `GET grupos/:id` por tic y ningún `GET remesas/:id/progreso`** (hoy son dos); **TW-5** división: un `import:progreso` de la actual mueve la barra y el porcentaje en el siguiente render; **TW-6** la lista dice "Fallida" (no "Falló") y "Finalizada con errores"; **TW-7** cancelar desde la tarjeta de una división (botón "Cancelar todo lo que falta" con la actual en post-proceso) sigue funcionando; **TW-8** cosméticos: "muestra de 1 fila de 5.000", "Se detectó 1 fila con errores", "1 caso", oraciones singulares de un corte sin filas |
+| `tests/paginas/asistente-confirmar.test.tsx` (vigía) | **TV-1** el `HALLAZGO` portado pasa a verde: POST colgado 40 s, el servidor ya tiene el grupo → a los ≤ 20 s "Carga dividida: remesa 1 de 3" y la consulta empezó después de los 15 s (ninguna antes); **TV-2** el POST vuelve a los 25 s con `noEncoladas` → la alerta aparece y la pantalla no se remonta (el número de `GET grupos/:id` no se reinicia); **TV-3** el POST vuelve 504 a los 60 s después de adoptar el grupo y la consulta del estado también falla → **no vuelve a la vista previa**; **TV-4** el POST responde a los 3 s → ninguna consulta del vigía; **TV-5** la primera remesa sigue en borrador → sigue en "Enviando…" con el texto de "tardando" y no adopta nada; **TV-6** desmontar ("Nueva importación") corta el vigía (0 pedidos después). TV-1, TV-2, TV-3 y TV-5 esperan los 15 s reales: van en `tests/lento/vigia-grupo.test.tsx` (el intervalo no se acorta para las pruebas: §7.2, regla 4); TV-4 y TV-6, en `npm test` |
+| `tests/paginas/detalle-c2b.test.tsx` | **TD-1** chip grande: "Finalizada con errores" / "Cancelada" / "En cola" (D1); sin `carga` (heredada), `estadoProceso`; **TD-2** chips de hermanas con `etiquetaDeEstado`; **TD-3** en curso: la tarjeta de detalle con pasos y los últimos 5; el `ErroresDeCarga` de abajo sigue igual; **TD-4** terminada con `intentos > 1`: `AvisosCarga` sigue apareciendo (fuera de la tarjeta) |
+
+**Pruebas nuevas, paquete B:**
+
+| Archivo | Casos |
+|---|---|
+| `tests/unit/campanita.test.ts` | **TC-1** `textoChipImportaciones`: 0, 1 procesando 43, 1 sin total, 1 en cola, 1 cancelando, 3 → "3 importaciones"; **TC-2** `remesaDeNotificacion`: `entidadId`, sin `entidadId` con `rutaAccion`, otro tipo → null, `rutaAccion` rara → null; **TC-3** `accionesDeNotificacion`: cancelada con 0 procesadas → retomar; FALLIDA con procesadas > 0 → no; OK con err → descargar; sin permiso `ver_historial` → nada; payload viejo (`errFilas`) → descargar; payload ausente → nada |
+| `tests/componentes/campanita-acciones.test.tsx` (servidor falso, `conNotificaciones`) | **TC-4** retomar: **el GET de progreso va antes del POST**; con `retomable: false` y `corteRepetidoEn: ['00150']` → el motivo por corte y **0 POST**; en curso → "ya está en curso", 0 POST; ajena sin `ver_progreso_otros` → 0 POST; retomable → confirm, POST, toast, re-hidrata `en-curso`; 409 → toast con el texto del backend; **TC-5** descargar: GET de progreso, después el CSV, archivo `errores-remesa-00141.csv`; 404 → "ya no existe" y 0 pedidos de CSV; CSV 500 con cuerpo JSON en Blob → el mensaje del backend; más de 200.000 → confirm; **TC-6** clic en un botón de acción **no navega** ni marca leída; clic en la fila sí, y cierra la campanita; **TC-7** ítem en curso: "Ver detalle" navega y cierra; el ícono de cancelar abre el diálogo de C1 y, en una división con la actual en post-proceso, ofrece "Cancelar todo lo que falta" |
+| `tests/componentes/chip-importaciones.test.tsx` | **TH-1** sin cargas no hay chip; con un `import:progreso` aparece "Importando 43 %" y se actualiza con el siguiente; con 3, "3 importaciones"; al terminar la última, desaparece; **TH-2** clic en el chip abre la campanita; **TH-3** a 360 px: `IconButton` con `aria-label` "Importando 43 %" y sin texto visible; **TH-4** `AppBar.tsx` no importa `useNotificaciones` (lectura del fuente) |
+| `tests/componentes/campanita-celular.test.tsx` | **T360-1** a 360: la campanita es un `role="dialog"` con `.MuiDialog-paperFullScreen`, botón "Cerrar" y Escape la cierran; a 1280, `Popover` (`.MuiPopover-paper`); **T360-2** cambiar de ruta con la campanita abierta la cierra (D2); **T360-3** sin colores escritos a mano en los archivos nuevos y tocados de B |
+| `tests/tema/ancho-360.test.ts` (lo escribe B, cubre los dos) | **T360-4** en `TarjetaProgreso.tsx`, `ImportProgress.tsx`, `ImportWizard.tsx` (pasos 3 y 4), `ImportSummary.tsx`, `ImportDetail.tsx`, `ImportHistory.tsx`, `historial/*`, `ErroresDeCarga.tsx`, `NotificacionesPopover.tsx`, `ImportEnCursoItem.tsx`, `ChipImportaciones.tsx`: ningún `width`/`minWidth`/`maxWidth` numérico mayor que 280 fuera de un objeto por breakpoint (`{ xs: …, sm: … }`). Si encuentra uno, se arregla en el paquete dueño del archivo |
+
+**Qué no puede afirmar jsdom** (§7.4): layout real, desbordes, contraste, tamaño táctil, el teclado en pantalla, el
+"atrás" del navegador del celular y que un toast quede por encima del diálogo. Va a la prueba manual.
+
+**Prueba manual** (Chrome con el modo de dispositivo a 360 × 740 y a 1280; claro y oscuro; contra el backend local con
+un archivo real de varios miles de filas, uno con errores y uno dividido en 3):
+
+| # | Pasos | Qué tiene que verse |
+|---|---|---|
+| M-1 | Importar un CSV de 5.000 filas con errores | Pasos En cola → Procesando 43 % → Post-proceso; contadores en 2 columnas a 360; "Últimos errores y avisos" se mueve cada ≥5 s con los números de fila más altos; "En total: N errores de fila…" |
+| M-2 | Importar un Excel | El paso 2 dice "Leyendo el archivo" antes de "Procesando" |
+| M-3 | Importar el archivo dividido en 3 | Una sola tarjeta: "Remesas terminadas: 0 de 3", tres barras; en la pestaña de red, un solo pedido por tic con el socket caído (cortar el backend 30 s) |
+| M-4 | Con un proxy que demore la respuesta de `ejecutar-grupo` (o el backend pausado con el depurador después de encolar) | A los ~20 s la pantalla pasa a la división sola; nunca vuelve a la vista previa |
+| M-5 | Mientras corre, mirar la barra superior | Chip "Importando 43 %" que sube; con dos cargas, "2 importaciones"; a 360, solo el ícono. Clic → campanita |
+| M-6 | Campanita a 360 | Pantalla completa, "Cerrar", la lista se desplaza, "Ver detalle" la cierra y navega; el "atrás" del navegador la cierra y vuelve a la página anterior (D2) |
+| M-7 | Cancelar desde la campanita a 360 | El diálogo de cancelar queda encima; el toast "Importación cancelada." se ve por encima de la campanita |
+| M-8 | Notificación de una carga cancelada en cola | "Retomar" consulta (se ve el GET en la red) y la vuelve a encolar; en una que ya se retomó, avisa y no manda nada |
+| M-9 | Notificación de una carga con errores | "Descargar errores" baja `errores-remesa-N.csv`; en una remesa borrada, "Esta importación ya no existe." |
+| M-10 | Detalle de una carga en curso y de una terminada con errores | Chip grande con la etiqueta del Historial; chips de hermanas; tarjeta con pasos y últimos 5; la tabla de abajo igual que en C2a |
+| M-11 | Historial y "Resultado" del asistente a 360 | MH-17 de C2a (§10.6) más: nada se desborda, los íconos se tocan sin errar, el motivo de lo deshabilitado se lee |
+
+### 16.10 Paquetes de trabajo
+
+Dos implementers en paralelo, **sin archivos en común**. El único punto de contacto es el contrato de §16.3: el A lo
+entrega primero (paso A-2) y el B lo usa en su último paso de código (B-5).
+
+| | Paquete A — tarjeta, asistente, detalle, etiqueta, vigía | Paquete B — campanita, chip, celular |
+|---|---|---|
+| **Crea** | `components/import/progreso/TarjetaProgreso.tsx` (y subcomponentes en esa carpeta si hacen falta), `hooks/useUltimosErrores.ts`, `hooks/useVigiaGrupo.ts`; tests de la tabla A | `components/layout/AppShell/ChipImportaciones.tsx`, `components/layout/AppShell/AccionesNotificacion.tsx`, `utils/campanita.ts`; tests de la tabla B, `tests/lib/banco-campanita.tsx`, `tests/tema/ancho-360.test.ts` |
+| **Modifica** | `utils/estadoCarga.ts`, `utils/historialImportaciones.ts`, `components/import/ImportProgress.tsx` (solo el cuerpo), `pages/ImportWizard.tsx`, `components/import/PreviewTable.tsx`, `pages/ImportDetail.tsx`, `components/import/ImportSummary.tsx` (solo si el repaso a 360 lo pide); `tests/lib/fabricas.ts`; `tests/unit/estadoCarga-c1.test.ts`, `tests/tema/colores.test.ts`, los dos asserts de D1; wiki `05` y `01` | `components/layout/AppShell/{ImportEnCursoItem,NotificacionesPopover,NotificacionItem,NotificacionesBell}.tsx`, `api/notificaciones.ts` (tipo), `components/import/ErroresDeCarga.tsx` (solo `export` de `TOPE_CSV`), `pages/ImportHistory.tsx` y `components/import/historial/*` (solo si el repaso a 360 lo pide); wiki `08` |
+| **No toca** | Nada de `AppShell/`, `api/notificaciones.ts`, `ErroresDeCarga.tsx`, `ImportHistory.tsx`, `historial/*`, wiki `08` | Nada de `utils/estadoCarga.ts`, `utils/historialImportaciones.ts`, `ImportProgress.tsx`, `ImportWizard.tsx`, `ImportDetail.tsx`, `tests/lib/fabricas.ts` (sus fábricas van en `banco-campanita.tsx`), wiki `05`/`01` |
+| **Ninguno toca** | `AppBar.tsx`, `NotificacionesContext.tsx`, `SocketContext.tsx`, `useEstadoCarga.ts`, `useGrupoCarga.ts`, `AvisosCarga.tsx`, `BotonCancelarCarga` / `DialogoCancelarCarga`, `ImportSummary` salvo anchos, `vite.config.ts`, `tsconfig.json`, `package.json`, todo `backend/` | |
+| **Estimación** (agente; C2a FE tardó 47 min) | 70 a 100 min | 45 a 70 min |
+
+**Integración** (la hace el A al terminar los dos, o quien orquesta): `npm test` y `npm run test:lento` completos,
+`npx tsc --noEmit -p tsconfig.json` (los 4 errores de base, ni uno más) y `-p tests/tsconfig.json` (0), `npm run
+build`, `npm run verificar-ayuda`, y el párrafo "La campanita" de la wiki `05` (§16.11) con el texto que el B deja
+en su entrega. Después, **una** pasada de auditor para los dos paquetes y la wiki (~30-40 min), y los arreglos sin otra
+ronda, cada uno con su test (como C2a, §18).
+
+### 16.11 Documentación, y lo que cambió respecto del esbozo
+
+**Wiki** (`docs/ayuda/03-importacion/`, `revisado: 2026-10-14` en cada página tocada, `npm run verificar-ayuda`):
+
+| Página | Qué cambia | Paquete |
+|---|---|---|
+| `05-importar-un-archivo.md` "Paso 4 — Importando" (`:231-282`) | Los pasos; contadores en 2 columnas en celular; "Últimos errores y avisos" y su orden (§16.4.3); la división como una sola tarjeta con la barra del grupo; la tabla de estados de la lista (`:268-277`): "Falló" → **Fallida**, "Finalizada" → las cinco terminales con lo que quiere decir cada una; el texto de "tardando" del vigía y que no hay que volver a confirmar | A |
+| `05` "La campanita" (`:332-340`) | Las acciones (ver detalle, cancelar; descargar errores, retomar consultando antes), el chip de la barra superior, pantalla completa en el celular, el "atrás" (D2) | B redacta, A lo pega en la integración |
+| `01-como-funciona.md` (`:95`, `:119-125`) | Que el chip de la barra superior muestra las cargas en curso; los estados ya están (no cambian) | A |
+| `08-historial-y-problemas.md` (`:92-101` y la sección del detalle) | La campanita y el chip; el chip grande del detalle con la etiqueta del Historial (D1); "retomar desde la notificación" | B |
+
+**CHANGELOG.md**: una entrada fechada "Importaciones — Fase C, entrega 2b" con Frontend (tarjeta, etiqueta única,
+vigía, campanita, chip, celular, cosméticos), Tests (cuántas pruebas nuevas y portadas, la línea de base nueva) y
+Deuda (§16.13). Sin sección Backend: "sin cambios".
+
+**Spec principal** (`imports-progreso-realtime-spec.md` §10.16, fila de deuda de `:5781`): marcar "`ejecutar-grupo` sin
+respuesta" y los cosméticos como resueltos en C2b, con el enlace a este documento.
+
+**Lo que cambió respecto del esbozo:**
+
+1. **"Leyendo" no es un paso aparte sino el detalle del paso "Procesando".** El DTO no dice de antemano si va a
+   haber lectura (depende de que sea Excel o paquete, y el DTO no trae el formato): un `Stepper` que gana un paso a
+   mitad de la carga es peor que una etiqueta que cambia.
+2. **El chip vive dentro de `NotificacionesBell`, no en `AppBar`.** El aislamiento que pedía el riesgo 3 se cumple
+   igual (la barra no consume el contexto) y el chip comparte el estado de apertura sin subir estado a `AppBar`.
+3. **Descargar errores desde la campanita también consulta antes**: el `payload` no trae el número de remesa (el
+   nombre del archivo) y la remesa puede no existir (en prod hay 288 notificaciones huérfanas).
+4. **`estadoParaHistorial` no desaparece**: queda como envoltorio de una línea para que FU-6 siga siendo la red.
+   `estadoEnGrupo`, sí.
+5. **Contadores como chips dentro de una grilla**, no celdas nuevas: mismo texto (lo afirman las pruebas portadas y
+   la wiki) y 2 columnas en `xs`.
+
+### 16.12 Lo que necesita el OK del usuario
+
+Tres decisiones. Si no responde, se sigue con la recomendada.
+
+| # | Decisión | Opciones | Recomendada |
+|---|---|---|---|
+| **D1** | El chip grande del detalle (`ImportDetail.tsx:308-317`) | (a) Usa la etiqueta única: "Finalizada con errores", "Cancelada", "En cola"… (b) Sigue mostrando `FINALIZADA` / `FALLIDA` crudos | **(a)**: es el mismo defecto que C2a sacó del Historial (una con errores dice "FINALIZADA" a secas). Cambia 2 asserts de C2a, listados |
+| **D2** | El "atrás" del navegador con la campanita abierta en el celular | (a) Cierra la campanita **y** vuelve a la página anterior (se cierra al cambiar de ruta). (b) Solo cierra la campanita (empujar una entrada al historial del navegador) | **(a)**: (b) mete entradas falsas en el historial que interfieren con `react-router` y con el `navigate(-1)` del detalle; el botón "Cerrar" está siempre a mano |
+| **D3** | "Retomar" desde la notificación de una remesa que es parte de una división | (a) Retoma solo esa remesa, como el botón del detalle. (b) Retoma la división entera | **(a)**: la notificación es de una remesa; retomar la división es una acción grande que ya está en el Historial, con su diálogo y sus omitidas |
+
+### 16.13 Riesgos y fallos silenciosos
+
+| Riesgo | Cómo se nota si pasa | Mitigación |
+|---|---|---|
+| **`onComplete` dos veces o nunca** al cambiar el cuerpo de `ImportProgress` | El asistente salta a "Resultado" dos veces o se queda en "Importando" | La orquestación no se toca (líneas `:78-114` idénticas: el auditor lo compara con `git diff`); TW-1 a TW-3 y lo portado de `07`/`14`/`18` |
+| **La división deja de moverse** al sacar el segundo hook: `useGrupoCarga` ignora eventos sin `grupoId` (`useGrupoCarga.ts:115`) | La barra de la actual se queda quieta hasta el polling de 30 s | El auditor de C1 midió 0 eventos sin `grupoId` en 598; TW-5 lo afirma; si una prueba lo contradice, parar |
+| **Últimos errores: pedidos de más** | Con varias pestañas en el detalle, el doble de lecturas de errores | Tope de una cada 5 s por tarjeta (TE-3); la compacta nunca pide; detalle = 2 por ventana, medido |
+| **Últimos errores: los avisos no aparecen** con más de 5 errores de fila (orden del backend) | El operador cree que no hay avisos | La línea de totales siempre los cuenta; la wiki lo explica (§16.4.3) |
+| **El vigía adopta un grupo que no es** | La pantalla sigue una carga ajena | Consulta solo la primera remesa del alta recién creada y adopta solo con `datosDeGrupo` y en curso o terminada; TV-5 |
+| **El vigía y el 201 tardío pelean** | La pantalla se remonta o pierde `noEncoladas` | Mismo `grupoId` → misma `key`; `noEncoladas` del 201 se aplica después; TV-2 |
+| **Retomar con una foto vieja** | Un botón que responde 409 | Siempre consulta antes y el backend vuelve a comprobar; TC-4 afirma que el GET va antes del POST |
+| **Etiquetas unificadas cambian textos auditados** | Una prueba o la wiki dicen "Falló" | Asserts que pueden cambiar, listados (§16.9); la tabla de `05:268-277` se reescribe en el mismo commit |
+| **El chip redibuja la barra cada segundo** | Lentitud en todas las pantallas | `AppBar` no consume el contexto (TH-4); revisión a mano con "Highlight updates" de React DevTools |
+| **La campanita a pantalla completa tapa un toast o pierde el foco** | No se ve el resultado de cancelar | z-index por defecto de MUI y notistack; M-7 a mano |
+| **Pruebas que corren en la rama de celular sin saberlo** | Verde falso | `fijarAncho` explícito en cada prueba de ancho (T360-1, TP-5, TH-3) y el `matchMedia` del arnés |
+| **`vite build` no chequea tipos** | Un campo `undefined` de un backend viejo rompe la pantalla en producción | `tsc` sobre `src` y `tests` en la integración; todo campo nuevo del payload se lee con `== null` |
+| **Dos implementers en el mismo árbol** | Uno pisa al otro | Archivos disjuntos (§16.10); ninguno usa `git stash` ni corre `npm run lint` |
+
+**Deuda que queda después de C2b:** el vigía no cubre "Cargar las que faltan" (botón ocupado hasta 60 s); los
+últimos errores no muestran avisos si hay 5 errores de fila o más (cambiar el orden es del backend: C3); nada se vio
+en un navegador hasta la prueba manual.
+
+### 16.14 Criterios de aceptación
+
+| # | Afirmación verificable |
+|---|---|
+| C2B-1 | `git diff 20d4af6 -- backend/` está vacío |
+| C2B-2 | `ImportProgress.tsx:78-114` (orquestación) y `BotonCancelarCarga` / `DialogoCancelarCarga` sin cambios en el diff |
+| C2B-3 | `useEstadoCarga.ts`, `useGrupoCarga.ts`, `NotificacionesContext.tsx`, `SocketContext.tsx`, `AvisosCarga.tsx`, `AppBar.tsx` sin cambios en el diff |
+| C2B-4 | `TarjetaProgreso.tsx` no importa nada de `api/` ni usa `useSocket` (lectura del fuente) |
+| C2B-5 | Carga simple: "Resultado" se muestra una sola vez con 3 `import:finalizada` repetidos (TW-1) |
+| C2B-6 | División con el socket caído: por tic, 1 `GET grupos/:id` y 0 `GET remesas/:id/progreso` (TW-4) |
+| C2B-7 | División de 3 con 1 terminada: "Remesas terminadas: 1 de 3" y tres barras (TP-6) |
+| C2B-8 | Con `err` subiendo en 10 eventos en 2 s, a lo sumo 2 lecturas de errores en 5 s; con `err = advertencias = 0`, ninguna; la campanita, ninguna (TE-1, TE-3, TC-*) |
+| C2B-9 | La lectura de últimos errores es exactamente `tipo=TODOS&orden=desc&page=1&pageSize=5` (TE-2) |
+| C2B-10 | A 360 px los contadores están en `.MuiGrid-grid-xs-6` y los pasos son una línea "Paso N de 4 · …" (TP-5) |
+| C2B-11 | `estadoEnGrupo` no existe en `src/`; `estadoParaHistorial` es una línea que llama a `etiquetaDeEstado`; FU-6 pasa sin cambios |
+| C2B-12 | La lista de la división y los chips del detalle nunca dicen "Falló"; una CON_ERRORES con `ok > 0` dice "Finalizada con errores" (TW-6, TD-2) |
+| C2B-13 | Chip grande del detalle con la etiqueta única (si D1 = a) (TD-1) |
+| C2B-14 | Vigía: con el POST colgado y el grupo en el servidor, la pantalla sigue al grupo antes de los 21 s y ninguna consulta antes de los 15 s (TV-1) |
+| C2B-15 | Vigía: un 504 tardío con la consulta también caída no vuelve a la vista previa (TV-3); un POST rápido no dispara consultas (TV-4) |
+| C2B-16 | Los cuatro cosméticos de §16.7 con singular y punto de miles (TW-8) |
+| C2B-17 | Retomar desde una notificación: el GET de progreso precede al POST en todos los casos; con `retomable: false`, 0 POST (TC-4) |
+| C2B-18 | Descargar desde una notificación: `errores-remesa-{numeroRemesa}.csv`; remesa borrada → "Esta importación ya no existe." y 0 pedidos de CSV (TC-5) |
+| C2B-19 | Un clic en un botón de acción no navega ni marca leída (TC-6) |
+| C2B-20 | Desde la campanita se cancela; en una división con la actual en post-proceso se ofrece "Cancelar todo lo que falta" (TC-7) |
+| C2B-21 | Chip: "Importando 43 %" con una, "3 importaciones" con tres, nada sin cargas; abre la campanita; a 360, solo ícono con `aria-label` (TH-1 a TH-3) |
+| C2B-22 | `AppBar.tsx` no importa `useNotificaciones` (TH-4) |
+| C2B-23 | A 360 la campanita es un diálogo a pantalla completa con "Cerrar"; a 1280, popover; cambiar de ruta la cierra (T360-1, T360-2) |
+| C2B-24 | Ningún ancho numérico > 280 fuera de un objeto por breakpoint en los archivos de T360-4 |
+| C2B-25 | Sin colores escritos a mano en los archivos nuevos y tocados (colores ampliado, T360-3) |
+| C2B-26 | `npm test` en verde, con la cantidad de pruebas anotada (base 250 + las portadas + las nuevas); `npm run test:lento` en verde |
+| C2B-27 | Solo cambiaron los asserts listados en §16.9; ninguna prueba portada se borró en silencio |
+| C2B-28 | `tsc` de `src` con los mismos 4 errores de base; `tsc` de `tests` sin errores; `npm run build` OK; `package.json` sin cambios |
+| C2B-29 | `npm run verificar-ayuda` sin errores; `05`, `01` y `08` con `revisado: 2026-10-14` y ninguna mención a "Falló" como estado de la lista |
+| C2B-30 | Entrada en `CHANGELOG.md` y la fila de deuda de §10.16 del spec principal actualizada |
 
 ---
 
@@ -1998,6 +2469,40 @@ encabezado incluye remesas "Sin filas"; las pruebas del frontend leen `../docs/i
 
 Tests al cierre: backend 2.009 en la suite completa (base 1.931); frontend 250 en `npm test` más 7 lentas;
 `tsc` con 4 errores de base (el de `ImportHistory.tsx:423` desapareció con la reescritura).
+
+
+---
+## 19. Lo que cambió en C2b después de la auditoría (14/10/2026)
+
+Mismo formato que C2a: dos implementers en paralelo (paquete A en 36 min, B en 32), una sola pasada de auditoría
+(11 min, veredicto **PASA CON OBSERVACIONES**, sin bloqueantes ni altos) y los arreglos hechos por quien orquesta, sin
+otra pasada, cada uno con su test. Las tres decisiones de §16.12 se tomaron con la recomendada (D1 a, D2 a, D3 a), sin
+respuesta del usuario. Donde §16 y esto se contradicen, vale esto.
+
+| Qué | Cómo quedó | Por qué |
+|---|---|---|
+| **Barra del grupo en el detalle** (MEDIO) | Mientras la remesa propia está en curso, el detalle sigue a la división con `useGrupoCarga` (el mismo hook del asistente, sin cambios) y con esa lista dibuja la barra, los chips de las hermanas y el diálogo de cancelar; terminada, vuelve a la lista que pedía al abrir. TD-5 | La lista de hermanas era la foto de cuando se abrió la pantalla: mientras la propia corre, las que terminan son otras, y la barra quedaba en "0 de 3" (reproducido por el auditor con dos remesas terminadas) |
+| **"Nueva importación" con `ejecutar-grupo` colgado** (BAJO) | Un número de carga (`cargaNroRef`) que "Nueva importación" incrementa: lo que responda tarde un pedido de la carga anterior (éxito, error o la consulta de su `catch`) se descarta y no apaga el vigía de la nueva; "Nueva importación" apaga el vigía. `confirmarRemesas` devuelve `false` en ese caso y "Cargar las que faltan" no sigue. TV-7 (lento) | El vigía se rearmaba al volver `grupoId` a null y podía readoptar la división vieja; el `then`/`catch` tardío de C1 también escribía en la carga nueva |
+| Pasos de la tarjeta | Solo el nombre de cada paso; el `detalle` de §16.4.1 no se dibuja (en `xs`: *"Paso 2 de 4 · Procesando"*). `pasosDeCarga` lo sigue devolviendo. TP-10 | "Enviando a la cola…", la posición en la cola y el porcentaje salían dos veces: en el paso y en la línea de fase |
+| Wiki `08` | Un párrafo con lo que muestra arriba el detalle mientras la carga corre (pasos, últimos cinco, barra de la división) | No estaba documentado en ninguna página |
+| `FE_TEST_PUERTO` | El puerto del servidor falso de los tests se elige con esa variable (47831 si no está): `vitest.config.ts`, `tests/setup.ts`, `tests/lib/servidor-falso.ts` | Para correr dos suites a la vez sobre el mismo árbol (dos implementers, o la suite y la lenta). §16.10 decía que nadie tocaba `vitest.config.ts` |
+
+**Desvíos de los implementers, revisados por el auditor y aceptados:** `key={actual.remesaId}` en el
+`BotonCancelarCarga` de la división; `AvisosCarga` siempre en la variante completa (como antes); "Cancelando…" solo en
+la compacta (en las otras lo dice `AvisosCarga`); la tarjeta del detalle solo con la carga en curso; `ImportEnCursoItem`
+recibe por props lo que §16.8 sacaba del contexto (las pruebas portadas lo montan sin `NotificacionesProvider`); el
+chip prioriza "Cancelando importación"; "Descargar errores" con 0 errores avisa en vez de bajar un CSV vacío; un `ref`
+contra el doble clic en las acciones de la notificación; `ErroresDeCarga.tsx` con `maxWidth` por breakpoint; T360-4
+exime dos patrones (un `maxWidth` junto a `width: '100%'`, y `PageContainer`). Asserts preexistentes que cambiaron
+además de los de §16.9: los dos de `tests/componentes/cancelar*.test.tsx` por D1 (una cancelada que no llegó a empezar
+dice "Cancelada antes de empezar", como en el Historial); y pruebas portadas de C1 que ya no coincidían con el código
+de C1 (`07` contra `ejecutar-grupo`, la regex de `04` sin `$`, el `HALLAZGO` de `14` que es TV-1).
+
+**Deuda conocida:** "Cargar las que faltan" no tiene vigía (el botón queda ocupado hasta 60 s); los avisos no entran en
+"los últimos cinco" si hay cinco o más errores de fila (orden del backend, para C3); "Se descartaron 1 filas" en la
+alerta de la vista previa y `Total`/`Errores` sin punto de miles en sus chips; los chips de las hermanas en el detalle
+de una remesa **terminada** siguen siendo la foto de cuando terminó (se piden al terminar y al abrir); nada de C2 se vio
+en un navegador (guion en el reporte de la auditoría, resumido en el CHANGELOG).
 
 ## PLAN PARA IMPLEMENTER — Fase C, entrega 2a
 
@@ -2065,3 +2570,69 @@ Dos paquetes en paralelo (§13), con el contrato de §4 como único punto de con
 - Si los dos commits se pushean juntos, el frontend llega antes que el backend y el Historial da error hasta que termine el otro deploy.
 
 **Criterios de aceptación:** C2A-1 a C2A-36 de §12.
+
+---
+
+## PLAN PARA IMPLEMENTER — Fase C, entrega 2b
+
+Diseño en §16. Solo frontend, un push. Antes de empezar: las tres decisiones de §16.12 (si el usuario no responde,
+las recomendadas: D1 a, D2 a, D3 a). Dos implementers en paralelo sobre el mismo árbol, con archivos disjuntos
+(§16.10); ninguno usa `git stash`, ninguno corre `npm run lint` ni toca `backend/`.
+
+**Orden de implementación:**
+
+*Paquete A — tarjeta, asistente, detalle, etiqueta única, vigía* (70 a 100 min de agente):
+- A-0 Línea de base (`npm test`, anotar archivos, pruebas y duración) y portar de `arneses-auditoria/auditoria-fe-c1/tests/` lo de la tabla A de §16.9 (`04` ImportProgress, `07`, `14` con el `HALLAZGO` como `it.fails`, `18` asistente y detalle, `19`, `22`). Va primero porque es la red de lo que A refactoriza. **No tocar `frontend/src` hasta tener esto en verde.**
+- A-1 Funciones puras en `utils/estadoCarga.ts` (`etiquetaDeEstado`, `pasosDeCarga`, `resumenDeGrupo`, `barraDeRemesa`, `lineaDeUltimoError`) y `estadoParaHistorial` como envoltorio; borrar `estadoEnGrupo` y migrar sus dos usos. Con `tests/unit/estadoCarga-c2b.test.ts` (TU-1 a TU-7) y los asserts de `estadoCarga-c1.test.ts:103-140` reescritos.
+- A-2 **`TarjetaProgreso.tsx` con las tres variantes, exactamente con las props de §16.3**, y `tests/componentes/tarjeta-progreso.test.tsx` (TP-1 a TP-9). **Avisar a quien orquesta al terminar este paso: desbloquea B-5.**
+- A-3 `useUltimosErrores` con `tests/componentes/ultimos-errores.test.tsx` (TE-1 a TE-8).
+- A-4 Cuerpo de `ImportProgress` y `PasoImportandoGrupo` (un solo hook en la división) con TW-1 a TW-7.
+- A-5 `useVigiaGrupo` y su cableado en `confirmarRemesas` / `handleEjecutar`; TV-4 y TV-6 en `npm test`, TV-1/2/3/5 en `tests/lento/vigia-grupo.test.tsx`; el `it.fails` portado pasa a `it`.
+- A-6 Cosméticos de §16.7 (TW-8).
+- A-7 Detalle: bloque de progreso → tarjeta de detalle (con `useUltimosErrores(carga)`), chips de hermanas y chip grande con `etiquetaDeEstado` (D1); `AvisosCarga` de una terminada con `intentos > 1` sigue afuera. TD-1 a TD-4 y los dos asserts de D1.
+- A-8 Repaso a 360 de "Importando", "Resultado" y el detalle contra `tests/tema/ancho-360.test.ts` (lo escribe B; si todavía no existe, correrlo en la integración) y la lista de manual de §16.9. Ampliar `tests/tema/colores.test.ts` y la lista de fuentes de `estadoCarga-c1.test.ts:234` con los archivos nuevos de A.
+- A-9 Wiki `05` (Paso 4) y `01`; `revisado`; `npm run verificar-ayuda`.
+
+*Paquete B — campanita, chip, celular* (45 a 70 min de agente):
+- B-0 Línea de base y portar lo de la tabla B de §16.9 (`04` ImportEnCursoItem, `10`, `11`, `18` campanita); lo que espera 15-30 s reales a `tests/lento/campanita.test.tsx`. **No tocar `frontend/src` hasta tenerlo en verde.**
+- B-1 `utils/campanita.ts` con `tests/unit/campanita.test.ts` (TC-1 a TC-3); `entidadTipo`/`entidadId` opcionales en `api/notificaciones.ts`; `export` de `TOPE_CSV` en `ErroresDeCarga.tsx`.
+- B-2 `AccionesNotificacion.tsx` y `NotificacionItem.tsx` (`onNavegar`, acciones con `stopPropagation`); TC-4 a TC-6 en `tests/componentes/campanita-acciones.test.tsx`. Fábricas en `tests/lib/banco-campanita.tsx` (no en `fabricas.ts`).
+- B-3 `ChipImportaciones.tsx` y `NotificacionesBell.tsx` (estado de apertura, chip adentro, cierre al cambiar de ruta); TH-1 a TH-4.
+- B-4 `NotificacionesPopover.tsx`: `Contenido` compartido, `Popover` en `sm`+ y `Dialog fullScreen` en `xs`; T360-1 a T360-3 en `tests/componentes/campanita-celular.test.tsx`; `tests/tema/ancho-360.test.ts` (T360-4).
+- B-5 **Después de A-2:** `ImportEnCursoItem.tsx` con `TarjetaProgreso variante="compacta"` y sus acciones (ver detalle que cierra, cancelar con `hermanasEnCurso`); TC-7; las pruebas portadas de la campanita siguen en verde.
+- B-6 Repaso del Historial a 360 (solo si T360-4 o la lectura encuentran algo). Wiki `08`; redactar el párrafo "La campanita" de `05` y dejarlo en la entrega para que A lo pegue.
+
+*Integración* (A, o quien orquesta): `npm test`, `npm run test:lento`, `tsc` de `src` (4 errores de base) y de `tests` (0), `npm run build`, `npm run verificar-ayuda`, el párrafo de `05`, CHANGELOG y la fila de §10.16 del spec principal. Después, una pasada de auditor sobre los dos paquetes y la wiki.
+
+**Archivos a crear:**
+- A: `frontend/src/components/import/progreso/TarjetaProgreso.tsx` (y subcomponentes en esa carpeta), `frontend/src/hooks/useUltimosErrores.ts`, `frontend/src/hooks/useVigiaGrupo.ts`; `frontend/tests/unit/estadoCarga-c2b.test.ts`, `tests/componentes/{tarjeta-progreso,ultimos-errores,progreso-asistente}.test.tsx`, `tests/paginas/{asistente-importando,asistente-confirmar,detalle-c2b}.test.tsx`, `tests/lento/vigia-grupo.test.tsx`.
+- B: `frontend/src/components/layout/AppShell/{ChipImportaciones,AccionesNotificacion}.tsx`, `frontend/src/utils/campanita.ts`; `frontend/tests/lib/banco-campanita.tsx`, `tests/unit/campanita.test.ts`, `tests/componentes/{campanita-en-curso,campanita-acciones,chip-importaciones,campanita-celular}.test.tsx`, `tests/paginas/campanita-contexto.test.tsx`, `tests/lento/campanita.test.tsx`, `tests/tema/ancho-360.test.ts`.
+
+**Archivos a modificar:**
+- A: `utils/estadoCarga.ts` (funciones nuevas; se va `estadoEnGrupo`), `utils/historialImportaciones.ts` (`estadoParaHistorial` envoltorio), `components/import/ImportProgress.tsx` (solo `:116-251`), `pages/ImportWizard.tsx` (`PasoImportandoGrupo`, vigía, `:149`, `:1387-1388`, "tardando"), `components/import/PreviewTable.tsx` (`:155`, `:190-192`), `pages/ImportDetail.tsx` (`:308-317`, `:442`, `:491-533`), `components/import/ImportSummary.tsx` (solo anchos, si hace falta); `tests/lib/fabricas.ts`, `tests/unit/estadoCarga-c1.test.ts`, `tests/tema/colores.test.ts`, `tests/paginas/detalle-retomar.test.tsx:112`, `tests/lento/detalle-retomar-polling.test.tsx:38`; `docs/ayuda/03-importacion/05-importar-un-archivo.md`, `01-como-funciona.md`; `CHANGELOG.md`; `docs/imports-progreso-realtime-spec.md` (fila de deuda de §10.16).
+- B: `components/layout/AppShell/{ImportEnCursoItem,NotificacionesPopover,NotificacionItem,NotificacionesBell}.tsx`, `api/notificaciones.ts` (tipo), `components/import/ErroresDeCarga.tsx` (`export const TOPE_CSV`), `pages/ImportHistory.tsx` y `components/import/historial/*` (solo si el repaso lo pide); `docs/ayuda/03-importacion/08-historial-y-problemas.md`.
+- Nadie: `AppBar.tsx`, `NotificacionesContext.tsx`, `SocketContext.tsx`, `useEstadoCarga.ts`, `useGrupoCarga.ts`, `AvisosCarga.tsx`, `BotonCancelarCarga`/`DialogoCancelarCarga`, `package.json`, `package-lock.json`, `vite.config.ts`, `tsconfig.json`, `vitest.config.ts`, todo `backend/`.
+
+**Cambios de schema:** ninguno. Sin backfill, sin permisos nuevos, sin variables de entorno, sin dependencias nuevas.
+
+**Tests a escribir:** los de §16.9: portados (A: ~60 de `04`, `07`, `14`, `18`, `19`, `22`; B: ~35 de `04`, `10`, `11`, `18`) y nuevos (A: TU-1 a TU-7, TP-1 a TP-9, TE-1 a TE-8, TW-1 a TW-8, TV-1 a TV-6, TD-1 a TD-4; B: TC-1 a TC-7, TH-1 a TH-4, T360-1 a T360-4).
+
+**Páginas de la wiki a tocar:** `docs/ayuda/03-importacion/05-importar-un-archivo.md` (A; el párrafo de la campanita lo redacta B), `01-como-funciona.md` (A), `08-historial-y-problemas.md` (B). `revisado: 2026-10-14` y `cd frontend && npm run verificar-ayuda`.
+
+**Skills a consultar:** `react-component`, `amsa-general`.
+
+**Riesgos durante la implementación:**
+- Tocar la orquestación de `ImportProgress` (`:78-114`): si un cambio parece necesitarlo, parar.
+- Que la tarjeta haga un pedido o escuche el socket: deja de ser presentacional (C2B-4).
+- Cambiar asserts fuera de la lista de §16.9, o borrar una prueba portada que falla: parar y clasificar.
+- `useGrupoCarga` filtra eventos por `grupoId`: si TW-5 no pasa, no "arreglarlo" con un segundo hook; reportar.
+- Acortar los 15 s del vigía para las pruebas: no; van a `tests/lento/`.
+- Que `AppBar.tsx` termine consumiendo el contexto (redibujo de la barra cada segundo).
+- Un botón de acción de la notificación sin `stopPropagation` navega y marca leída.
+- Retomar o descargar desde el `payload` sin consultar el estado.
+- Pruebas de ancho sin `fijarAncho` explícito: corren en la rama equivocada sin avisar.
+- B-5 antes de A-2: no compila.
+- `vite build` no chequea tipos: `tsc` de `src` y de `tests` en la integración.
+- Las pruebas leen `../docs/…` (deuda de C2a): correrlas desde `frontend/` dentro del repo.
+
+**Criterios de aceptación:** C2B-1 a C2B-30 de §16.14.
