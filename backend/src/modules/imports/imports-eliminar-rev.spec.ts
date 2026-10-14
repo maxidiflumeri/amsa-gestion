@@ -2,7 +2,8 @@
  * Eliminar con el `rev` que mostró la pantalla (hallazgo bloqueante de la auditoría de C2a): si la carga cambió desde
  * entonces —el caso típico, un borrador que alguien confirmó con el diálogo abierto—, 409 y no se toca la cola.
  */
-import { ConflictException, Logger } from '@nestjs/common';
+import { BadRequestException, ConflictException, Logger } from '@nestjs/common';
+import { ImportController } from './imports.controller';
 import { ImportService } from './imports.service';
 
 beforeAll(() => Logger.overrideLogger(false));
@@ -37,3 +38,33 @@ describe('deleteRemesa con revEsperado', () => {
         expect((e as ConflictException).getResponse()).toMatchObject({ code: 'CAMBIO_DE_ESTADO' });
     });
 });
+
+describe('DELETE /import/remesas/:id?rev=N en el controller', () => {
+    const armarCtrl = () => {
+        const service: any = { deleteRemesa: jest.fn().mockResolvedValue({ ok: true }) };
+        return { c: new ImportController(service), service };
+    };
+    const usuario: any = { sub: 1, permisos: ['importacion.eliminar'] };
+
+    it('un rev que no es un entero ≥ 0 es un 400 «rev inválido», sin llegar al servicio (el deploy del 14/10 falló por este import)', () => {
+        for (const malo of ['abc', '-1', '2.5']) {
+            const { c, service } = armarCtrl();
+            expect(() => c.deleteRemesa(7, usuario, malo)).toThrow(BadRequestException);
+            expect(() => c.deleteRemesa(7, usuario, malo)).toThrow('rev inválido');
+            expect(service.deleteRemesa).not.toHaveBeenCalled();
+        }
+    });
+
+    it('sin rev, como siempre; con rev, lo pasa como revEsperado', async () => {
+        const { c, service } = armarCtrl();
+        await c.deleteRemesa(7, usuario, undefined);
+        await c.deleteRemesa(7, usuario, '');
+        await c.deleteRemesa(7, usuario, '5');
+        expect(service.deleteRemesa.mock.calls).toEqual([
+            [7, { sub: 1, permisos: ['importacion.eliminar'] }],
+            [7, { sub: 1, permisos: ['importacion.eliminar'] }],
+            [7, { sub: 1, permisos: ['importacion.eliminar'] }, { revEsperado: 5 }],
+        ]);
+    });
+});
+
