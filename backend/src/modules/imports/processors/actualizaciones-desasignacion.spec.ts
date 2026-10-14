@@ -616,3 +616,165 @@ describe('ActualizacionesProcessor — re-asignación (calcularReasignacion)', (
         expect((proc as any).reasignadosCount).toBe(1);
     });
 });
+
+describe('ActualizacionesProcessor — la protección de ausentes no cuenta los casos que creó la misma carga', () => {
+    /** Un archivo apuntado a una remesa de origen donde NINGUNA fila matchea, con crearNuevosCasos y documentos repetidos. */
+    async function cargaSinCoincidenciasReales(accionAusente: 'PAGO_TODO' | 'DESASIGNAR') {
+        const proc = new ActualizacionesProcessor();
+        const { ctx, prisma, setCartera, setListado, deudorUpdate, deudorCreate } = makeCtx({
+            modoActualizacion: 'RECONCILIAR',
+            accionAusente,
+            crearNuevosCasos: true,
+        } as any);
+        const pagoCreate = jest.fn().mockResolvedValue({});
+        prisma.pago = { create: pagoCreate, aggregate: jest.fn().mockResolvedValue({ _sum: { importe: 0 } }) };
+        prisma.factura.updateMany = jest.fn().mockResolvedValue({ count: 0 });
+        prisma.factura.findMany = jest.fn().mockResolvedValue([]);
+
+        let nextId = 700;
+        deudorCreate.mockImplementation(({ data }: any) =>
+            Promise.resolve({
+                id: ++nextId, documento: data.documento, nroCliente: null, nombre: data.nombre, apellido: '',
+                camposAdicionales: null, estadoGestionId: DEFAULT_GESTION, estadoGestionPrevioAId: null, estadoSituacionId: 100,
+            }),
+        );
+
+        // Lote 1: el documento 'MADRE' aparece dos veces (la primera lo crea, la segunda lo encuentra en el mapa del lote).
+        const f1 = await proc.processBatch(
+            [
+                { row: { documento: 'MADRE', nombre: 'A', montoTotal: '100' } as any, idx: 0 },
+                { row: { documento: 'MADRE', nombre: 'A', montoTotal: '100' } as any, idx: 1 },
+            ],
+            ctx,
+        );
+        expect(f1).toEqual([]);
+        // Lote 2: vuelve a repetirse; el prefetch ya lo lee de la remesa de origen porque lo creó la carga.
+        setCartera([{ id: 701, documento: 'MADRE', nroCliente: null, nombre: 'A', apellido: '', camposAdicionales: null,
+            estadoGestionId: DEFAULT_GESTION, estadoGestionPrevioAId: null, estadoSituacionId: 100 }]);
+        const f2 = await proc.processBatch([{ row: { documento: 'MADRE', nombre: 'A', montoTotal: '100' } as any, idx: 2 }], ctx);
+        expect(f2).toEqual([]);
+
+        // La cartera real de la remesa de origen: casos que el archivo no tocó.
+        setListado([
+            { id: 1, montoTotal: 5000, estadoGestionId: 210, estadoSituacionId: null },
+            { id: 2, montoTotal: 3000, estadoGestionId: 210, estadoSituacionId: null },
+            { id: 701, montoTotal: 100, estadoGestionId: DEFAULT_GESTION, estadoSituacionId: 100 },
+        ]);
+        const resumenes: any[] = [];
+        (ctx as any).progreso = { resumen: (r: any) => resumenes.push(r), subfase: jest.fn(), contadores: jest.fn(), filasDelLote: jest.fn() };
+        await proc.afterAll(ctx);
+        return { proc, ctx, pagoCreate, deudorUpdate, deudorCreate, resumenes };
+    }
+
+    it('PAGO_TODO: 0 coincidencias reales -> aborta, 0 pagos, resumen ABORTADO_SIN_COINCIDENCIAS', async () => {
+        const { proc, pagoCreate, deudorCreate, resumenes } = await cargaSinCoincidenciasReales('PAGO_TODO');
+        expect(deudorCreate).toHaveBeenCalledTimes(1); // las altas siguen igual: un solo caso para el documento repetido
+        expect(pagoCreate).not.toHaveBeenCalled();
+        const ultimo = resumenes[resumenes.length - 1];
+        expect(ultimo.ausentes).toMatchObject({ accion: 'PAGO_TODO', resultado: 'ABORTADO_SIN_COINCIDENCIAS', pagosGenerados: 0 });
+        expect(ultimo.coincidencias).toBe(0);
+        expect(ultimo.casosNuevos).toBe(1);
+        expect((proc as any).altasIds.size).toBe(0); // reset() limpió
+    });
+
+    it('DESASIGNAR: 0 coincidencias reales -> aborta, 0 desasignados, resumen ABORTADO_SIN_COINCIDENCIAS', async () => {
+        const { deudorUpdate, resumenes } = await cargaSinCoincidenciasReales('DESASIGNAR');
+        // (los updates de montoTotal/saldo del caso repetido son de la fila, no desasignaciones)
+        const desasignaciones = deudorUpdate.mock.calls.filter(([a]: any) => a.data?.estadoGestionId === GES_094);
+        expect(desasignaciones).toEqual([]);
+        const ultimo = resumenes[resumenes.length - 1];
+        expect(ultimo.ausentes).toMatchObject({ accion: 'DESASIGNAR', resultado: 'ABORTADO_SIN_COINCIDENCIAS', desasignados: 0 });
+        expect(ultimo.coincidencias).toBe(0);
+    });
+
+    it('un caso normal con coincidencias reales sigue igual: cuenta la existente y no la creada por la carga', async () => {
+        const proc = new ActualizacionesProcessor();
+        const { ctx, setCartera } = makeCtx({ modoActualizacion: 'SOLO_DATOS', accionAusente: 'DESASIGNAR', crearNuevosCasos: true } as any);
+        setCartera([deudorEnCartera({ id: 111, documento: '20000001' })]);
+        await proc.processBatch(
+            [
+                { row: { documento: '20000001', nombre: 'PEDRO' } as any, idx: 0 }, // existente
+                { row: { documento: '30111222', nombre: 'JUANA' } as any, idx: 1 }, // alta (id 777)
+                { row: { documento: '30111222', nombre: 'JUANA' } as any, idx: 2 }, // repetida: la encuentra en el mapa del lote
+            ],
+            ctx,
+        );
+        expect((proc as any).matchedExistingCount).toBe(1);
+        expect((proc as any).processedDeudorIds.has(111)).toBe(true);
+        expect((proc as any).processedDeudorIds.has(777)).toBe(true);
+    });
+});
+
+describe('ActualizacionesProcessor — el resumen del cierre sale antes de consolidar', () => {
+    function progresoFalso() {
+        const resumenes: any[] = [];
+        return { resumenes, progreso: { resumen: (r: any) => resumenes.push(r), subfase: jest.fn(), contadores: jest.fn(), filasDelLote: jest.fn() } };
+    }
+
+    it('PAGO_TODO: si la consolidación falla, el resumen ya tiene los pagos escritos (no queda NO_LLEGO) y el estado se limpia', async () => {
+        const proc = new ActualizacionesProcessor();
+        const { ctx, prisma, setListado } = makeCtx({ modoActualizacion: 'RECONCILIAR', accionAusente: 'PAGO_TODO' } as any);
+        const { resumenes, progreso } = progresoFalso();
+        (ctx as any).progreso = progreso;
+        prisma.pago = { create: jest.fn().mockResolvedValue({}), aggregate: jest.fn().mockResolvedValue({ _sum: { importe: 0 } }) };
+        prisma.factura.updateMany = jest.fn().mockResolvedValue({ count: 0 });
+        (ctx.consolidacion.consolidar as jest.Mock).mockRejectedValue(new Error('consolidación caída'));
+        (proc as any).matchedExistingCount = 1;
+        (proc as any).sawReconciliationData = true;
+        (proc as any).processedDeudorIds.add(1);
+        setListado([
+            { id: 1, montoTotal: 100 },
+            { id: 2, montoTotal: 300 },
+            { id: 3, montoTotal: 400 },
+        ]);
+
+        await expect(proc.afterAll(ctx)).rejects.toThrow('consolidación caída');
+
+        expect(prisma.pago.create).toHaveBeenCalledTimes(2);
+        const ultimo = resumenes[resumenes.length - 1];
+        expect(ultimo.ausentes).toMatchObject({ accion: 'PAGO_TODO', resultado: 'APLICADO', pagosGenerados: 2 });
+        expect((proc as any).matchedExistingCount).toBe(0); // reset() corrió igual
+        expect((proc as any).pagosGeneradosAusentes).toBe(0);
+    });
+
+    it('PAGO_TODO: si el bucle de pagos falla a mitad, el resumen refleja los que llegó a escribir', async () => {
+        const proc = new ActualizacionesProcessor();
+        const { ctx, prisma, setListado } = makeCtx({ modoActualizacion: 'RECONCILIAR', accionAusente: 'PAGO_TODO' } as any);
+        const { resumenes, progreso } = progresoFalso();
+        (ctx as any).progreso = progreso;
+        prisma.pago = {
+            create: jest.fn().mockResolvedValueOnce({}).mockRejectedValueOnce(new Error('se cayó la base')),
+            aggregate: jest.fn().mockResolvedValue({ _sum: { importe: 0 } }),
+        };
+        prisma.factura.updateMany = jest.fn().mockResolvedValue({ count: 0 });
+        (proc as any).matchedExistingCount = 1;
+        (proc as any).sawReconciliationData = true;
+        (proc as any).processedDeudorIds.add(1);
+        setListado([{ id: 1, montoTotal: 100 }, { id: 2, montoTotal: 300 }, { id: 3, montoTotal: 400 }]);
+
+        await expect(proc.afterAll(ctx)).rejects.toThrow('se cayó la base');
+
+        expect(resumenes[resumenes.length - 1].ausentes).toMatchObject({ resultado: 'APLICADO', pagosGenerados: 1 });
+        expect(ctx.consolidacion.consolidar).not.toHaveBeenCalled();
+    });
+
+    it('DESASIGNAR: si la consolidación falla, el resumen ya tiene los desasignados', async () => {
+        const proc = new ActualizacionesProcessor();
+        const { ctx, prisma } = makeCtx({ modoActualizacion: 'RECONCILIAR', accionAusente: 'DESASIGNAR' } as any);
+        const { resumenes, progreso } = progresoFalso();
+        (ctx as any).progreso = progreso;
+        (ctx.consolidacion.consolidar as jest.Mock).mockRejectedValue(new Error('consolidación caída'));
+        prisma.deudor.findMany.mockResolvedValue([
+            { id: 1, estadoGestionId: 210, estadoSituacionId: null },
+            { id: 2, estadoGestionId: 210, estadoSituacionId: null },
+            { id: 4, estadoGestionId: 210, estadoSituacionId: null },
+        ]);
+        (proc as any).matchedExistingCount = 1;
+        (proc as any).sawReconciliationData = true;
+        (proc as any).processedDeudorIds.add(4);
+
+        await expect(proc.afterAll(ctx)).rejects.toThrow('consolidación caída');
+
+        expect(resumenes[resumenes.length - 1].ausentes).toMatchObject({ accion: 'DESASIGNAR', resultado: 'APLICADO', desasignados: 2 });
+    });
+});

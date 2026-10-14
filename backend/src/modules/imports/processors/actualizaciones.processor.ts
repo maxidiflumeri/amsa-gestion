@@ -77,6 +77,7 @@ export class ActualizacionesProcessor implements ICategoryProcessor {
      * guard de seguridad de la desasignación: si ninguna fila del archivo matcheó la cartera
      * (archivo mal mapeado, empresa/remesa equivocada o batch fallido), NO se desasigna a nadie
      * para no borrar la cartera entera. Distinto de `processedDeudorIds`, que además cuenta altas.
+     * No cuenta los casos que creó esta misma carga (`altasIds`).
      */
     private matchedExistingCount = 0;
     /** IDs de deudores a los que se les generó un pago en este batch (para cerrar promesas cumplidas) */
@@ -234,7 +235,11 @@ export class ActualizacionesProcessor implements ICategoryProcessor {
      */
     private async desasignarAusentes(ctx: ProcessContext): Promise<void> {
         const desasignadoId = await this.resolverParametroDesasignado(ctx);
-        if (desasignadoId == null) return; // degradado (ya logueó warn)
+        if (desasignadoId == null) {
+            // Degradado (ya logueó warn): no hay valor propio en el contrato, se informa como hasta ahora.
+            this.informarResumen(ctx, 'APLICADO');
+            return;
+        }
 
         // Guard de seguridad: si NINGUNA fila del archivo matcheó un deudor existente de la
         // remesa origen, el archivo no corresponde a esta cartera (mal mapeado, empresa/remesa
@@ -247,6 +252,7 @@ export class ActualizacionesProcessor implements ICategoryProcessor {
                 `0 filas del archivo matchearon la cartera. No se desasigna a nadie para no borrar la cartera. ` +
                 `Revisá el mapeo/separador/empresa del archivo.`,
             );
+            this.informarResumen(ctx, 'ABORTADO_SIN_COINCIDENCIAS');
             return;
         }
 
@@ -265,27 +271,34 @@ export class ActualizacionesProcessor implements ICategoryProcessor {
             if (d.estadoGestionId === desasignadoId) continue;                  // ya desasignado
             paraDesasignar.push({ id: d.id, previo: d.estadoGestionId ?? null });
         }
-        this.desasignadosAusentes = paraDesasignar.length;
 
         if (paraDesasignar.length === 0) {
             this.logger.log(`Actualización diaria remesa=${ctx.remesaId}: sin deudores nuevos para desasignar.`);
+            this.informarResumen(ctx, 'APLICADO');
             return;
         }
 
         // Un UPDATE por deudor (cada uno guarda un previo distinto) → chunks transaccionales de 500.
         const CHUNK = 500;
         ctx.progreso?.subfase(SUBFASE.DESASIGNANDO_AUSENTES, 0, paraDesasignar.length);
-        for (let i = 0; i < paraDesasignar.length; i += CHUNK) {
-            const chunk = paraDesasignar.slice(i, i + CHUNK);
-            await ctx.prisma.$transaction(
-                chunk.map((d) =>
-                    ctx.prisma.deudor.update({
-                        where: { id: d.id },
-                        data: { estadoGestionId: desasignadoId, estadoGestionPrevioAId: d.previo },
-                    }),
-                ),
-            );
-            ctx.progreso?.subfase(SUBFASE.DESASIGNANDO_AUSENTES, Math.min(i + CHUNK, paraDesasignar.length), paraDesasignar.length);
+        // El resumen sale apenas terminan las escrituras (o si fallan a mitad, con lo que llegó a escribir),
+        // antes de la consolidación y la auditoría: si esas fallan, los números ya están informados.
+        try {
+            for (let i = 0; i < paraDesasignar.length; i += CHUNK) {
+                const chunk = paraDesasignar.slice(i, i + CHUNK);
+                await ctx.prisma.$transaction(
+                    chunk.map((d) =>
+                        ctx.prisma.deudor.update({
+                            where: { id: d.id },
+                            data: { estadoGestionId: desasignadoId, estadoGestionPrevioAId: d.previo },
+                        }),
+                    ),
+                );
+                this.desasignadosAusentes += chunk.length;
+                ctx.progreso?.subfase(SUBFASE.DESASIGNANDO_AUSENTES, Math.min(i + CHUNK, paraDesasignar.length), paraDesasignar.length);
+            }
+        } finally {
+            this.informarResumen(ctx, 'APLICADO');
         }
 
         this.logger.log(
@@ -497,7 +510,11 @@ export class ActualizacionesProcessor implements ICategoryProcessor {
 
                 // Registrar que este deudor existente fue visto en el archivo (presente + match real)
                 this.processedDeudorIds.add(deudor.id);
-                this.matchedExistingCount++;
+                // Coincidencia real = un caso que YA estaba en la remesa origen antes de esta carga. Los que
+                // creó esta misma carga (en este lote o en uno anterior, que el prefetch ya lee de la remesa
+                // origen) no cuentan: si no, un archivo apuntado a la remesa equivocada con un documento
+                // repetido (la cuenta madre y las hijas) esquivaría el guard de "0 coincidencias".
+                if (!this.altasIds.has(deudor.id)) this.matchedExistingCount++;
 
                 // Re-asignación: si venía DESASIGNADO (GES-094) y hoy volvió a aparecer en el
                 // archivo, se le restaura la gestión previa. Solo en modo DESASIGNAR.
@@ -953,6 +970,16 @@ export class ActualizacionesProcessor implements ICategoryProcessor {
      *  - Al final se delega la actualización de saldo y estadoSituacionId al consolidador.
      */
     async afterAll(ctx: ProcessContext): Promise<void> {
+        try {
+            await this.cerrarCarga(ctx);
+        } finally {
+            // También si el cierre falla: el estado acumulado no puede pasar a la carga siguiente
+            // (un `matchedExistingCount` viejo desactivaría el guard de "0 coincidencias").
+            this.reset();
+        }
+    }
+
+    private async cerrarCarga(ctx: ProcessContext): Promise<void> {
         if (!ctx.remesaOrigenId) {
             this.informarResumen(ctx, 'SIN_REMESA_ORIGEN');
             return;
@@ -976,7 +1003,10 @@ export class ActualizacionesProcessor implements ICategoryProcessor {
         // de deuda de los presentes ya corrió fila a fila en processRow; acá solo consolidamos.
         if (ctx.accionAusente === 'DESASIGNAR' || ctx.accionAusente === 'IGNORAR') {
             if (ctx.accionAusente === 'DESASIGNAR') {
+                // Informa su propio resumen (APLICADO / ABORTADO_SIN_COINCIDENCIAS) al terminar de escribir.
                 await this.desasignarAusentes(ctx);
+            } else {
+                this.informarResumen(ctx, 'APLICADO'); // IGNORAR: no hay nada que escribir
             }
 
             if (this.reasignadosCount > 0) {
@@ -1006,8 +1036,6 @@ export class ActualizacionesProcessor implements ICategoryProcessor {
                 }
             }
 
-            this.informarResumen(ctx, 'APLICADO');
-            this.reset();
             return;
         }
 
@@ -1021,7 +1049,6 @@ export class ActualizacionesProcessor implements ICategoryProcessor {
                 `se omite la marcación de ausentes como pagados y la consolidación de deuda.`,
             );
             this.informarResumen(ctx, 'OMITIDO_SOLO_DATOS');
-            this.reset();
             return;
         }
 
@@ -1049,7 +1076,6 @@ export class ActualizacionesProcessor implements ICategoryProcessor {
                 data: { params: { remesaId: ctx.remesaId, remesaOrigenId: ctx.remesaOrigenId ?? null } },
             });
             this.informarResumen(ctx, 'ABORTADO_SIN_COINCIDENCIAS');
-            this.reset();
             return;
         }
 
@@ -1066,44 +1092,50 @@ export class ActualizacionesProcessor implements ICategoryProcessor {
         });
 
         let recorridos = 0;
-        for (const { id: deudorId, montoTotal } of deudoresConMonto) {
-            if (recorridos % 200 === 0) ctx.progreso?.subfase(SUBFASE.CERRANDO_AUSENTES, recorridos, deudoresConMonto.length);
-            recorridos++;
-            if (this.processedDeudorIds.has(deudorId)) continue;  // ya fue procesado en el archivo
+        // El resumen sale apenas terminan los pagos (o si el bucle falla, con lo que llegó a escribir),
+        // antes de consolidar y de cerrar promesas.
+        try {
+            for (const { id: deudorId, montoTotal } of deudoresConMonto) {
+                if (recorridos % 200 === 0) ctx.progreso?.subfase(SUBFASE.CERRANDO_AUSENTES, recorridos, deudoresConMonto.length);
+                recorridos++;
+                if (this.processedDeudorIds.has(deudorId)) continue;  // ya fue procesado en el archivo
 
-            // Este deudor no vino en el archivo → pagó todo. Reconciliar contra Σpagos.
-            const yaPagado = await this.sumPagos(deudorId, ctx);
-            const r = reconciliarAusente(montoTotal == null ? null : Number(montoTotal), yaPagado);
+                // Este deudor no vino en el archivo → pagó todo. Reconciliar contra Σpagos.
+                const yaPagado = await this.sumPagos(deudorId, ctx);
+                const r = reconciliarAusente(montoTotal == null ? null : Number(montoTotal), yaPagado);
 
-            if (r.tipo === 'skip') {
-                this.logger.warn(`Deudor ${deudorId} ausente pero montoTotal 0/nulo — no se reconcilia.`);
-                this.salteadosSinMonto++;
-                continue;
+                if (r.tipo === 'skip') {
+                    this.logger.warn(`Deudor ${deudorId} ausente pero montoTotal 0/nulo — no se reconcilia.`);
+                    this.salteadosSinMonto++;
+                    continue;
+                }
+
+                if (r.tipo === 'pago') {
+                    await ctx.prisma.pago.create({
+                        data: {
+                            deudorId,
+                            fecha: new Date(),
+                            importe: r.importe,
+                            origen: 'IMPORT_ACTUALIZACION',
+                            origenArchivo: `ACTUALIZACION_REMESA_${ctx.remesaId}`,
+                            observacion: `Pago total automático: deudor ausente en actualización`,
+                        },
+                    });
+                    this.pagosDeudorIds.add(deudorId);
+                    this.pagosGeneradosAusentes++;
+                }
+
+                // Marcar facturas pendientes como PAGADA (deudor saldado)
+                if (r.marcarFacturasPagadas) {
+                    await ctx.prisma.factura.updateMany({
+                        where: { deudorId, estado: { not: 'PAGADA' } },
+                        data: { estado: 'PAGADA' },
+                    });
+                }
+                // montoTotal NO se toca (inmutable). La consolidación posterior lleva la situación a SIT-050.
             }
-
-            if (r.tipo === 'pago') {
-                await ctx.prisma.pago.create({
-                    data: {
-                        deudorId,
-                        fecha: new Date(),
-                        importe: r.importe,
-                        origen: 'IMPORT_ACTUALIZACION',
-                        origenArchivo: `ACTUALIZACION_REMESA_${ctx.remesaId}`,
-                        observacion: `Pago total automático: deudor ausente en actualización`,
-                    },
-                });
-                this.pagosDeudorIds.add(deudorId);
-                this.pagosGeneradosAusentes++;
-            }
-
-            // Marcar facturas pendientes como PAGADA (deudor saldado)
-            if (r.marcarFacturasPagadas) {
-                await ctx.prisma.factura.updateMany({
-                    where: { deudorId, estado: { not: 'PAGADA' } },
-                    data: { estado: 'PAGADA' },
-                });
-            }
-            // montoTotal NO se toca (inmutable). La consolidación posterior lleva la situación a SIT-050.
+        } finally {
+            this.informarResumen(ctx, 'APLICADO');
         }
 
         // Consolidar deudores de la remesa origen (escenario C + deudores del archivo que estaban en esa remesa)
@@ -1121,8 +1153,6 @@ export class ActualizacionesProcessor implements ICategoryProcessor {
             ctx.progreso?.subfase(SUBFASE.CERRANDO_PROMESAS);
             await ctx.promesas.cerrarCumplidas([...this.pagosDeudorIds]);
         }
-        this.informarResumen(ctx, 'APLICADO');
-        this.reset();
     }
 
     private async upsertContacto(deudorId: number, data: any, ctx: ProcessContext): Promise<void> {
