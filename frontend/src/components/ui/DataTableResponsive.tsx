@@ -16,7 +16,7 @@ import {
 
 export interface DataTableColumn<T = Record<string, unknown>> {
     key: string;
-    label: string;
+    label: React.ReactNode;
     render?: (row: T) => React.ReactNode;
     /** Columna que actúa como título principal en vista mobile */
     primary?: boolean;
@@ -34,6 +34,8 @@ interface DataTableResponsiveProps<T extends Record<string, unknown>> {
     rowKey?: (row: T) => string;
     emptyMessage?: string;
     onRowClick?: (row: T) => void;
+    /** Si devuelve algo para una fila, se dibuja antes de ella ocupando todo el ancho (un encabezado de bloque). */
+    encabezadoAntesDe?: (row: T, index: number) => React.ReactNode | null;
 }
 
 function DataTableResponsive<T extends Record<string, unknown>>({
@@ -42,6 +44,7 @@ function DataTableResponsive<T extends Record<string, unknown>>({
     rowKey,
     emptyMessage = 'No hay datos para mostrar',
     onRowClick,
+    encabezadoAntesDe,
 }: DataTableResponsiveProps<T>) {
     const theme = useTheme();
     const isDesktop = useMediaQuery(theme.breakpoints.up('md'));
@@ -82,20 +85,29 @@ function DataTableResponsive<T extends Record<string, unknown>>({
                     </TableRow>
                 </TableHead>
                 <TableBody>
-                    {rows.map((row, idx) => (
-                        <TableRow
-                            key={getKey(row, idx)}
-                            hover={Boolean(onRowClick)}
-                            onClick={onRowClick ? () => onRowClick(row) : undefined}
-                            sx={{ cursor: onRowClick ? 'pointer' : 'default' }}
-                        >
-                            {columns.map((col) => (
-                                <TableCell key={col.key} align={col.align ?? 'left'}>
-                                    {getCellValue(col, row)}
-                                </TableCell>
-                            ))}
-                        </TableRow>
-                    ))}
+                    {rows.map((row, idx) => {
+                        const encabezado = encabezadoAntesDe ? encabezadoAntesDe(row, idx) : null;
+                        return (
+                            <React.Fragment key={getKey(row, idx)}>
+                                {encabezado != null && (
+                                    <TableRow data-encabezado-de-bloque>
+                                        <TableCell colSpan={columns.length}>{encabezado}</TableCell>
+                                    </TableRow>
+                                )}
+                                <TableRow
+                                    hover={Boolean(onRowClick)}
+                                    onClick={onRowClick ? () => onRowClick(row) : undefined}
+                                    sx={{ cursor: onRowClick ? 'pointer' : 'default' }}
+                                >
+                                    {columns.map((col) => (
+                                        <TableCell key={col.key} align={col.align ?? 'left'}>
+                                            {getCellValue(col, row)}
+                                        </TableCell>
+                                    ))}
+                                </TableRow>
+                            </React.Fragment>
+                        );
+                    })}
                 </TableBody>
             </Table>
         );
@@ -104,9 +116,12 @@ function DataTableResponsive<T extends Record<string, unknown>>({
     // Mobile: lista de Cards
     return (
         <Stack spacing={1.5}>
-            {rows.map((row, idx) => (
+            {rows.map((row, idx) => {
+                const encabezado = encabezadoAntesDe ? encabezadoAntesDe(row, idx) : null;
+                return (
+                <React.Fragment key={getKey(row, idx)}>
+                {encabezado != null && <Box data-encabezado-de-bloque>{encabezado}</Box>}
                 <Card
-                    key={getKey(row, idx)}
                     variant="outlined"
                     onClick={onRowClick ? () => onRowClick(row) : undefined}
                     sx={{
@@ -148,7 +163,9 @@ function DataTableResponsive<T extends Record<string, unknown>>({
                         )}
                     </CardContent>
                 </Card>
-            ))}
+                </React.Fragment>
+                );
+            })}
         </Stack>
     );
 }

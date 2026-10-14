@@ -103,6 +103,10 @@ export interface EstadoCargaDto {
     /** Terminó sin haber cargado ninguna fila y se puede volver a encolar tal cual. Lo calcula el
      *  backend (§10.4.1); el endpoint lo vuelve a comprobar. */
     retomable: boolean;
+    /** Números de las remesas donde ya figura el corte de esta (confirmadas después de que esta se creó). Con algún
+     *  valor, `retomable` es false. Lo calculan solo las lecturas HTTP; en los eventos de socket y en cualquier otro
+     *  caso es null (y un backend anterior a la entrega 2a no lo manda: se lee con `== null`). */
+    corteRepetidoEn: string[] | null;
 
     /** @deprecated Alias para las pestañas que quedaron abiertas con el frontend anterior.
      *  El código nuevo NO los lee. Se quitan en la Fase C. */

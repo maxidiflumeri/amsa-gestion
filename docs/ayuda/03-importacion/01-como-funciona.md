@@ -1,7 +1,7 @@
 <!--
 seccion: Importación de datos
 resumen: Qué es una remesa, qué hace falta antes de importar y cuál es el ciclo completo.
-revisado: 2026-10-09
+revisado: 2026-10-14
 rutas: /carga
 -->
 # Cómo funciona una importación
@@ -111,15 +111,16 @@ hora arreglando después.
 
 | Estado | Qué significa |
 |---|---|
-| **Pendiente** | Creada (subiste el archivo), o confirmada y esperando su turno en la cola |
-| **Validando** | Con la vista previa hecha y sin confirmar |
-| **Procesando** | Cargando. Está en curso |
-| **Finalizada** | Terminó. Puede haber terminado con filas con error, sin filas o con advertencias |
-| **Fallida** | Se cortó. Si el servidor se reinició o dejó de responder mientras procesaba, la carga se marca sola como fallida a los pocos minutos (normalmente entre 6 y 7) y no se vuelve a ejecutar sola. **Una carga cancelada también figura como fallida** en el Historial; en su detalle y en la notificación dice **Cancelada** (la notificación no siempre llega: una carga cancelada en la cola notifica solo al dueño y solo si la canceló otra persona) |
+| **Borrador** | Subiste el archivo y viste la vista previa, pero no confirmaste. No se cargó nada |
+| **No se pudo encolar** | Confirmaste y la cola de trabajos no respondió. No se cargó nada; se confirma desde el Historial |
+| **En cola** | Confirmada y esperando su turno |
+| **Leyendo el archivo** · **Procesando N %** · **Post-proceso** | Cargando. Está en curso |
+| **Cancelando…** · **Cancelada** · **Cancelada antes de empezar** | Alguien pidió cortarla. La notificación no siempre llega: una carga cancelada en la cola notifica solo al dueño y solo si la canceló otra persona |
+| **Finalizada** · **Finalizada con errores** · **Sin filas cargadas** · **Sin filas** · **Con advertencias** | Terminó. Cada una dice cómo |
+| **Fallida** · **No llegó a empezar** | Se cortó. Si el servidor se reinició o dejó de responder mientras procesaba, la carga se marca sola como fallida a los pocos minutos (normalmente entre 6 y 7) y no se vuelve a ejecutar sola |
 
-En el Historial los estados aparecen en mayúsculas. En el **detalle** de una carga, una que todavía no
-se confirmó dice **Borrador**, una que espera su turno dice **En cola** y una que se canceló dice
-**Cancelada**.
+El Historial y el **detalle** de una carga dicen el mismo estado, y el Historial se actualiza solo. La tabla
+completa, con lo que dice debajo de cada estado, está en [Historial y problemas](/ayuda/importacion/historial-y-problemas).
 
 **Finalizada no quiere decir que salió todo bien**: quiere decir que terminó. El resultado (paso 5)
 dice cómo terminó de verdad: con filas con error, sin filas, o con advertencias porque las filas se

@@ -1,7 +1,7 @@
 <!--
 seccion: Importación de datos
 resumen: Ver qué pasó con una carga, revisar los errores fila por fila, y qué se puede deshacer y qué no.
-revisado: 2026-10-09
+revisado: 2026-10-14
 rutas: /historial-importaciones
 rutaPrincipal: /historial-importaciones
 -->
@@ -19,39 +19,64 @@ puede, a deshacerlo.
   borrar y revertir.
 - Para borrar, además **Eliminar importaciones** — y **solo podés borrar las tuyas**, salvo que tengas
   el permiso para ver importaciones de otros.
+- Para **Cancelar**, **Retomar** y **Confirmar**, el permiso para ejecutar importaciones, y que la carga sea
+  tuya o que tengas el permiso para ver importaciones de otros.
 - Para revertir acciones masivas, el permiso de **acciones masivas**.
 - Para consolidar, **Ejecutar consolidación de situación**.
 
 ---
 
-## Los estados
+## Cómo se ve cada carga
+
+La grilla dice el estado **real** de cada carga, el mismo que ves en su detalle, y se actualiza sola mientras la
+mirás (ver "Cuánto tarda en actualizarse", más abajo). Por cada importación muestra el nombre, el número, el corte
+si lo tiene, el nombre del archivo si el sistema lo guardó (hoy, solo en las cargas de varios archivos), la
+categoría, el estado, las filas, la fecha, la política y los botones.
 
 | Estado | Qué significa |
 |---|---|
-| **Pendiente** | Creada (subiste el archivo), o confirmada y esperando su turno en la cola |
-| **Validando** | Con la vista previa hecha y sin confirmar |
-| **Procesando** | En curso |
-| **Finalizada** | Terminó. Puede ser con filas con error, sin filas o con advertencias |
-| **Fallida** | Se cortó. Si el servidor se reinició o dejó de responder mientras procesaba, la carga se marca sola como fallida a los pocos minutos. **Una carga cancelada también figura como fallida** (ver abajo) |
+| **Borrador** | Subiste el archivo y viste la vista previa, pero no confirmaste. No se cargó nada. Debajo dice *"Vista previa sin confirmar."* |
+| **No se pudo encolar** | Confirmaste y la cola de trabajos no respondió. No se cargó nada. Se manda a la cola desde el Historial con **Confirmar** (ver más abajo) |
+| **En cola** | Confirmada y esperando su turno. Debajo dice la posición: *"Es la próxima: empieza en instantes."* o *"Hay N importaciones antes que esta."* |
+| **Leyendo el archivo** · **Procesando N %** · **Post-proceso** | En curso. Procesando muestra *"3.000 de 14.466"* y, si se puede calcular, cuánto falta. Debajo del estado hay una barra fina |
+| **Cancelando…** | Alguien pidió cancelarla y todavía no cortó: se corta al terminar la fila o el lote en curso |
+| **Cancelada** · **Cancelada antes de empezar** | La cortó una persona. Lo ya procesado quedó cargado (en la que se canceló antes de empezar, no se cargó nada) |
+| **No llegó a empezar** · **Fallida** | Se cortó sin una cancelación. La primera no cargó ninguna fila. Si el servidor se reinició o dejó de responder mientras procesaba, la carga se marca sola como fallida a los pocos minutos |
+| **Con advertencias** | Las filas se cargaron, pero el cierre de la carga (el post-proceso) no terminó |
+| **Finalizada con errores** | Cargó filas y algunas dieron error |
+| **Sin filas cargadas** | Terminó, pero todas las filas dieron error |
+| **Sin filas** | El archivo no tenía filas para procesar |
+| **Finalizada** | Terminó sin problemas |
 
-En la grilla aparecen en mayúsculas. Al entrar al **detalle**, una carga que no se confirmó dice
-**Borrador** (*"Vista previa sin confirmar. No se cargó nada."*) y una que espera su turno dice **En
-cola** (*"Esperando que termine otra importación."*, o la posición: *"Es la próxima: empieza en instantes."* /
-*"Hay N importaciones antes que esta."*). Una que se canceló dice **Cancelada**.
+En las que ya terminaron mal o con salvedades (de **Cancelada** a **Sin filas**), pasando el mouse por el estado ves
+el título del resultado y la primera línea del motivo; el motivo entero está en el detalle. Si una carga no se
+puede retomar porque su corte ya figura en otra remesa, la grilla lo dice debajo del estado.
 
-**Una carga cancelada figura como FALLIDA en el Historial** —y en los reportes que usan el estado de la
-remesa—: la grilla todavía no la distingue. En su detalle y en la notificación sí dice **Cancelada** (es una notificación de error, no de advertencia, y no
-siempre llega: una carga cancelada en la cola notifica solo al dueño y solo si la canceló otra persona). Los
-botones **Cancelar importación** y **Retomar** no están en la grilla: están en el detalle de la carga y en
-el asistente (ver [Importar un archivo](/ayuda/importacion/importar-un-archivo), "Cancelar una importación"
-y "Retomar una importación").
+La columna **Filas** muestra, en las cargas que terminaron, el total de filas procesadas, cuántas entraron y cuántas
+dieron error (*"Filas: total / OK / con error"*; en Claves de pago, *"Trámites: total / válidos / rechazados"*). En
+una carga interrumpida son un piso: lo que se alcanzó a contar. En las demás dice **—**.
 
-**Una remesa PENDIENTE no siempre es un borrador.** Las remesas de una carga dividida que esperan su turno en la
-cola también figuran PENDIENTE y se pueden borrar. Antes de borrar una, entrá a su detalle: dice **Borrador** o
-**En cola**. Borrar una en cola saca ese corte de la carga.
+**Finalizada no significa "salió bien"**: significa que terminó. Mirá siempre la columna de filas y el
+resultado que mostró el paso 5 (ver [Importar un archivo](/ayuda/importacion/importar-un-archivo)). Una carga
+cancelada dice **Cancelada**, no fallida; en su detalle y en la notificación también (es una notificación de error,
+no de advertencia, y no siempre llega: una carga cancelada en la cola notifica solo al dueño y solo si la canceló otra
+persona).
 
-**Las vistas previas sin confirmar se borran solas.** Una remesa que quedó en **Pendiente** o **Validando**
-porque nunca se confirmó (un borrador) se elimina automáticamente cuando tiene más de **24 horas**. La
+**Las cargas en cola se pueden eliminar, y el sistema te lo dice.** Una remesa **En cola** está confirmada: eliminarla
+la saca de la cola y no se carga. Por eso el diálogo de eliminar dice qué estás borrando en cada caso (ver "Borrar la
+remesa", más abajo). Si lo que querés es frenarla y poder retomarla después, usá **Cancelar**.
+
+**Una carga dividida se muestra agrupada.** Las remesas que se confirmaron juntas aparecen una abajo de la otra, en
+el orden de la división, con un encabezado que ocupa todo el ancho:
+**Carga dividida · 5 remesas** — *3 finalizadas · 1 en curso · 1 fallida o cancelada*. Esos números cuentan **todas** las
+remesas de la división, estén o no en la página que estás mirando. Si en la página están solo algunas, el encabezado
+dice *(2 de las 5 están en esta página)*, y si alguna se eliminó, *(1 se eliminó)*. Cada remesa lleva su corte y
+*"Remesa 2 de 5 de una carga dividida"*. Si hay dos o más que no se cargaron y se pueden retomar, el encabezado
+trae el botón **Retomar las N que no se cargaron**. Las remesas de una división que no se confirmaron como grupo
+(borradores, o divisiones anteriores a este cambio) no llevan encabezado, pero muestran su corte.
+
+**Las vistas previas sin confirmar se borran solas.** Una remesa que quedó como **Borrador**
+porque nunca se confirmó se elimina automáticamente cuando tiene más de **24 horas**. La
 limpieza corre una vez por día, de madrugada (04:30, hora de Argentina), así que en la práctica un borrador
 dura entre uno y dos días. Hasta entonces sigue ocupando su número: si querés liberarlo antes, borralo a mano
 desde el Historial. Una vez borrada no se recupera: si todavía querías esa carga, hay que volver a subir el
@@ -62,31 +87,56 @@ dos días. Las remesas de una carga dividida ya confirmada no son vistas previas
 limpieza no las toca. Las remesas creadas
 hasta el 05/10/2026 inclusive no entran en esta limpieza: esas se eliminan desde el Historial.
 
-El Historial **no distingue** una carga "con advertencias": la muestra como FINALIZADA a secas (y a una
-cancelada, como FALLIDA). Lo que
-queda es la notificación (con ícono de advertencia, la de una carga con advertencias) y el cartel arriba del detalle.
-
-**Finalizada no significa "salió bien"**: significa que terminó. Mirá siempre la columna de filas con
-error, y el resultado que mostró el paso 5 (ver [Importar un archivo](/ayuda/importacion/importar-un-archivo)).
+Una carga con advertencias también tiene su notificación (con ícono de advertencia) y el cartel arriba del detalle.
 
 La campanita de la barra superior **no muestra las vistas previas sin confirmar**: en
 **Importaciones en curso** solo figuran las cargas que se confirmaron y todavía no terminaron.
 
+## Buscar, paginar y cuánto tarda en actualizarse
+
+- **Paginado.** El Historial muestra **25** importaciones por página (se puede elegir 50 o 100), de la más nueva a la
+  más vieja. Cambiar de empresa o de búsqueda vuelve a la primera página.
+- **Búsqueda.** El campo *Buscar por número o nombre* filtra la lista. Mientras hay una búsqueda activa aparece
+  *"Buscando «x»"* con el botón **Quitar**.
+- **Importaciones en curso que no ves.** Si hay cargas en curso de esta empresa que quedaron en otra página, arriba
+  de la tabla dice *"Hay N importaciones en curso que no están en esta página: #151, #152."* con el botón **Ir al
+  principio**.
+- **Se actualiza sola.** Una carga que corre cambia su porcentaje en vivo. Las cargas de otros usuarios las ves en vivo
+  solo si tenés el permiso para ver importaciones de otros; si no, la lista se actualiza consultando al servidor:
+  **hasta 30 segundos** después de un cambio mientras haya una carga en curso a la vista, y **cada minuto** si no hay
+  ninguna (solo en la primera página y sin búsqueda: en las demás páginas, o con una búsqueda puesta, no se
+  actualiza sola si no hay ninguna carga en curso a la vista). Si la conexión en tiempo real está caída y hay una
+  carga en curso a la vista, consulta cada 15 segundos.
+  Una carga que otra persona crea o elimina puede tardar eso en aparecer o desaparecer. El botón **Actualizar** de la
+  barra superior fuerza la lectura.
+- **Si no carga.** Si el servidor no responde, la pantalla dice *"No se pudo cargar el historial"* con el botón
+  **Reintentar**; no te muestra una lista vacía.
+
 ## Ver el detalle y los errores
 
 Entrando a una remesa ves el resumen y, si hubo filas rechazadas, **el detalle fila por fila**: qué
-número de fila era, qué traía y por qué falló. Muestra **solo los primeros 100**. Si la carga solo tuvo
-avisos y ninguna fila con error, la tabla se llama **Avisos de la carga**. Los avisos
-(`[aviso]`, `[parseo]`, `[post-proceso]`) figuran con **—** en lugar del número de fila y salen
-primeros; una fila con error siempre lleva su número (la primera fila de datos es la 0; el número no cuenta el
-encabezado ni las filas descartadas por filtro). Con varios archivos, el mensaje trae el
+número de fila era, qué traía y por qué falló. La tarjeta tiene **dos pestañas con su cantidad**: **Errores de fila
+(483)** y **Avisos (2)** (en Claves de pago, **Trámites rechazados**). Si una está en cero no se muestra. Cada una
+está **paginada** (25, 50 o 100 por página), así que se ven **todos** los errores, y una carga con muchos avisos no
+tapa los errores de fila. Mientras la carga corre, la tabla se va actualizando sola a medida que aparecen errores
+(a lo sumo una vez cada 5 segundos) y una vez más al terminar. El botón **Descargar CSV** baja el archivo con
+todos los errores y avisos de la carga; si son más de 200.000, antes avisa que el archivo trae los primeros 200.000.
+Si la carga dice que hubo errores y no se pueden leer, la tarjeta lo dice (*"No se pudieron leer los errores"*, con
+**Reintentar**) en vez de mostrar que no hay ninguno.
+
+Los avisos
+(`[aviso]`, `[parseo]`, `[post-proceso]`) figuran con **—** en lugar del número de fila; una fila con error siempre
+lleva su número. **El número cuenta desde 1** y es la posición de la fila entre las que procesó la carga: no cuenta el
+encabezado ni las filas descartadas por un filtro, así que no es la línea del archivo (pasando el mouse por el
+encabezado de la columna lo explica; para ubicar el registro, usá la columna con el contenido de la fila). Con varios archivos, el mensaje trae el
 `[archivo:línea]`: la línea es la fila de datos dentro de ese archivo, contando desde 1 y sin el
 encabezado (si el archivo tiene encabezado, es la línea siguiente). Los avisos
 cuentan aunque ninguna fila haya dado error: incluyen los que escriben las propias categorías al cargar
 (los de Pagos con número de convenio y los de Claves de pago, más abajo). Una carga que falló, que se
 canceló, que terminó con advertencias o que no tenía filas muestra además un cartel arriba con el motivo. Si
 la remesa es parte de una carga dividida, el detalle lo dice bajo el número (*"Remesa 2 de 5 de una carga
-dividida"*) y enlaza a las otras remesas.
+dividida"*) y enlaza a las otras remesas. En *Información general* aparecen, cuando corresponden, el **Corte** que le
+tocó a la remesa y las **Remesas de origen** con las que se confirmó (*"una remesa eliminada"* si ya no existe).
 
 Debajo de las cuatro tarjetas (total, OK, con error y tasa de éxito) hay una línea con lo que no entra en
 ellas, y muestra solo lo que corresponde: *Casos nuevos*, *Casos actualizados* (las categorías que los
@@ -196,7 +246,19 @@ Se puede borrar una remesa en cualquier estado **salvo mientras está corriendo*
 terminó) y salvo que sea demasiado grande (ver "No me deja borrar la remesa"). Una carga **en cola que todavía no arrancó sí se puede borrar** (o cancelar, que la deja retomable): el sistema la saca de la cola
 y borra la remesa. Si está corriendo, si su trabajo está activo o si la cola no se puede consultar, el
 sistema la rechaza con *"No se puede eliminar una importación en curso"*.
-En la grilla el botón solo se deshabilita en las que están procesando. Pero:
+En la grilla el botón de eliminar queda **deshabilitado** en las que ya están corriendo (*"No se puede eliminar una importación en curso. Para frenarla, usá Cancelar."*) y en las que no son tuyas si no tenés el permiso para ver importaciones de otros (*"Solo podés eliminar tus importaciones."*); el motivo está en el mensaje del botón y, en el celular, escrito debajo de los botones. Antes de borrar, el diálogo dice qué se elimina:
+
+| Qué estás eliminando | Qué dice el diálogo |
+|---|---|
+| Un **borrador** | *Eliminar vista previa*: no cargó nada, se libera su número de remesa |
+| Uno que **no se pudo encolar** | Lo mismo, y avisa que si lo que querés es cargarlo uses **Confirmar** en vez de eliminarlo |
+| Una **En cola** | *Eliminar una importación en cola*: está confirmada y espera su turno; si la eliminás sale de la cola y no se carga. Si es parte de una división, dice *"Es la remesa N de M de una carga dividida: las demás siguen."*. Si solo querés frenarla, usá **Cancelar**. El botón dice **Eliminar igual** |
+| Una terminada de **Deudores**, **Deudores y Facturas**, **Multirregistro** o **Multiarchivo** | Elimina la importación junto con sus casos y lo que cargó, si ninguno tiene gestión |
+| Una terminada de **Facturas**, **Pagos**, **Contactos**, **Enriquecimiento** o **Actualizaciones** | Borra su registro y su lista de errores. **No deshace lo que aplicó** |
+| Una de **Acciones masivas** | **Eliminarla no revierte la acción** y deja sin efecto el botón Revertir para siempre |
+| Una de **Claves de pago** | Elimina las claves que cargó; si alguna ya tiene convenio o cupón emitido, no se puede |
+
+Pero:
 
 **1. No se puede borrar si alguien ya trabajó los casos** — pero solo aplica a las remesas que
 **crearon** casos. Si algún caso de la remesa tiene un comentario, un convenio, un pago, una llamada o
@@ -252,6 +314,30 @@ que una hora arreglando después.
 
 ## Otras acciones del historial
 
+**Cancelar** frena una carga en curso. Aparece en las filas que están **En cola**, **Leyendo el archivo**, **Procesando**
+o en **Post-proceso**; si en ese momento no se puede cortar (por ejemplo, ya está cerrando), el botón queda
+deshabilitado con el motivo. Abre el mismo diálogo que el asistente y el detalle (ver
+[Importar un archivo](/ayuda/importacion/importar-un-archivo), "Cancelar una importación"). En una carga dividida el
+diálogo ofrece **Cancelar solo esta remesa** o **Cancelar todo lo que falta**, y la lista de las remesas que no
+empezaron se mantiene al día mientras el diálogo está abierto.
+
+**Retomar** vuelve a encolar una carga que no llegó a cargar ninguna fila (por ejemplo, una cancelada antes de
+empezar). Pide confirmación (*"Se vuelve a encolar la misma remesa, con el mismo archivo. No se cargó ninguna fila la
+vez anterior."*). El botón aparece solo cuando el sistema dice que se puede: si el corte de la remesa ya figura en otra
+remesa que se confirmó después, no aparece y la grilla explica por qué (*"El corte de esta remesa ya figura en la
+remesa N: no se puede retomar. Si esta ya no hace falta, eliminala."*). En una división, el encabezado trae **Retomar
+las N que no se cargaron**; si ninguna se puede, el sistema dice el motivo de cada una.
+
+**Confirmar** manda a la cola un borrador que **ya se había confirmado** y la cola no pudo recibir (el estado
+**No se pudo encolar**). El diálogo (*"Confirmar la importación"* o *"Confirmar las N importaciones"*) lista las remesas
+con su corte y la **remesa de origen** con la que se confirmaron, y avisa que se mandan a la cola tal como se habían
+confirmado: **la vista previa no se vuelve a mostrar**. Si la remesa de origen ya no existe, no se puede confirmar. Si el
+mismo archivo ya figura en otra remesa que se confirmó después, el diálogo lo advierte (*"Este archivo ya figura en la
+remesa N, que se confirmó después. Si confirmás esta, se carga otra vez."*): con corte, el botón queda deshabilitado; sin
+corte, dice **Confirmar igual**. Es lo mismo que el botón **Cargar las que faltan** del resultado del asistente, que
+sigue existiendo; la diferencia es que desde acá se puede hacer aunque ya hayas cerrado el asistente, mientras el
+borrador exista.
+
 **Consolidar** recalcula el saldo y el código de situación de los casos de una remesa según los pagos
 registrados. En la grilla es un **ícono sin texto** (tooltip *"Consolidar situacion de deudores de esta
 remesa"*) y **solo aparece con el permiso** Ejecutar consolidación de situación. Abre una ventana
@@ -280,6 +366,9 @@ Hay varias causas, cada una con su mensaje:
 - **Alguien ya trabajó sus casos**: hay comentarios, pagos, convenios o llamadas. Es intencional — borrarla
   se llevaría ese trabajo puesto.
 - **Está corriendo**: *"No se puede eliminar una importación en curso"*. Esperá a que termine o falle.
+- **Cambió mientras mirabas**: *"La importación cambió desde que abriste este diálogo (por ejemplo, alguien la
+  confirmó). Revisala antes de eliminarla."* Pasa si, con el diálogo abierto, otra persona confirmó esa vista previa
+  o la carga avanzó. No se borró nada: mirá en qué estado está ahora antes de volver a intentar.
 - **No es tuya**: *"No tenés permiso para eliminar esta importación"*. Solo la borra quien la cargó o alguien
   con permiso para ver las importaciones de otros.
 - **Es demasiado grande**: *"No se pudo eliminar: la remesa es demasiado grande para borrarla desde la
@@ -321,8 +410,8 @@ procesado hasta ahí quedó aplicado. Si pasaron **15 minutos** sin señal y la 
 pasa a decir *"El servidor no da señales de esta carga hace N min y todavía no se marcó como fallida. Avisá a
 soporte."*: el cierre automático no está ocurriendo, y hay que avisar a soporte.
 
-Para ver que la carga ya figura como fallida (y que se habilite el tacho para eliminarla), apretá **Actualizar**
-en el Historial: la grilla no se refresca sola.
+El Historial se actualiza solo: en cuanto la carga figure como fallida, el estado cambia y se habilita el tacho para
+eliminarla (puede tardar hasta 30 segundos; el botón **Actualizar** de la barra superior fuerza la lectura).
 
 **El servidor trabaja pero la carga no avanza.** Es la excepción: **esta carga no se cierra sola**. Si la
 pantalla lleva 10 minutos sin ver cambiar la fase, el paso ni los contadores, avisa *"El servidor sigue

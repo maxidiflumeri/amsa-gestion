@@ -1,5 +1,6 @@
 import api from './axios';
 import type { EstadoCargaDto } from '../types/importProgreso';
+import type { ErroresRespuesta, HistorialRespuesta, TipoErrorDeCarga } from '../types/importHistorial';
 
 /** Estado de una carga. Liviano a propósito: es lo que consultan los hooks cuando hacen polling. */
 export async function obtenerEstadoCarga(remesaId: number): Promise<EstadoCargaDto> {
@@ -74,6 +75,8 @@ export interface RetomarGrupoRespuesta {
     grupoId: string;
     cargas: EstadoCargaDto[];
     omitidas: Array<{ remesaId: number; numeroRemesa: string; motivo: string }>;
+    /** Las que el backend no pudo mandar a la cola (siguen como borrador). */
+    noEncoladas?: RemesaNoEncolada[];
 }
 
 /** Qué se sabe de un corte de la vista de cortes que ya está cargado (o a medias) en otra remesa. */
@@ -119,4 +122,68 @@ export async function retomarRemesa(remesaId: number): Promise<RetomarRemesaResp
 export async function retomarGrupo(grupoId: string): Promise<RetomarGrupoRespuesta> {
     const { data } = await api.post<RetomarGrupoRespuesta>(`/import/grupos/${encodeURIComponent(grupoId)}/retomar`);
     return data;
+}
+
+// ─── Fase C, entrega 2a (docs/imports-progreso-c2-spec.md §4.4) ───────────────────────────────────
+
+export interface HistorialParams {
+    empresaId: number;
+    page: number;
+    pageSize: number;
+    /** Busca en número y nombre. */
+    q?: string;
+}
+
+/** Una página del Historial con el estado real de cada carga. Consulta de fondo: la pantalla muestra su propio error. */
+export async function obtenerHistorial(params: HistorialParams, opciones: { silencioso?: boolean } = {}): Promise<HistorialRespuesta> {
+    const { empresaId, page, pageSize, q } = params;
+    const { data } = await api.get<HistorialRespuesta>('/import/historial', {
+        params: { empresaId, page, pageSize, ...(q ? { q } : {}) },
+        silencioso: opciones.silencioso ?? false,
+    });
+    return data;
+}
+
+export interface ErroresParams {
+    page?: number;
+    pageSize?: number;
+    tipo?: 'TODOS' | TipoErrorDeCarga;
+    orden?: 'asc' | 'desc';
+}
+
+/** Una página de los errores de una carga, con los totales de toda la carga. */
+export async function obtenerErrores(remesaId: number, params: ErroresParams = {}, opciones: { silencioso?: boolean } = {}): Promise<ErroresRespuesta> {
+    const { data } = await api.get<ErroresRespuesta>(`/import/errores/${remesaId}`, {
+        params,
+        silencioso: opciones.silencioso ?? false,
+    });
+    return data;
+}
+
+/** El CSV de errores y avisos de una carga, con la sesión del usuario (no se abre una pestaña: la API pide el token). */
+export async function descargarErroresCsv(remesaId: number, tipo: 'TODOS' | TipoErrorDeCarga = 'TODOS'): Promise<Blob> {
+    const { data } = await api.get<Blob>(`/import/errores/${remesaId}/csv`, {
+        params: { tipo },
+        responseType: 'blob',
+        silencioso: true,
+    });
+    return data;
+}
+
+export interface ConfirmarPendientesRespuesta {
+    message: string;
+    grupoId: string | null;
+    cargas: EstadoCargaDto[];
+    noEncoladas?: RemesaNoEncolada[];
+}
+
+/** Manda a la cola los borradores que ya se habían confirmado y el servidor no pudo encolar, tal como se confirmaron. */
+export async function confirmarPendientes(remesaIds: number[]): Promise<ConfirmarPendientesRespuesta> {
+    const { data } = await api.post<ConfirmarPendientesRespuesta>('/import/remesas/confirmar-pendientes', { remesaIds });
+    return data;
+}
+
+/** `rev`: el de la carga que la pantalla le mostró al operador. Si cambió, el servidor responde 409 CAMBIO_DE_ESTADO. */
+export async function eliminarRemesa(remesaId: number, rev?: number): Promise<void> {
+    await api.delete(`/import/remesas/${remesaId}`, rev != null ? { params: { rev } } : undefined);
 }

@@ -1,7 +1,7 @@
 <!--
 seccion: Importación de datos
 resumen: El asistente de carga, paso a paso, y qué mirar en la vista previa antes de confirmar.
-revisado: 2026-10-09
+revisado: 2026-10-14
 rutas: /carga
 rutaPrincipal: /carga
 -->
@@ -178,7 +178,7 @@ el filtro de la plantilla y cuántas son de otros cortes de la división. Hay qu
 de la plantilla.
 
 Si la validación de una de las remesas falla mientras se arma la vista previa, la pantalla muestra el error
-y no avanza. Las remesas que ya se habían creado quedan como borradores sin confirmar (PENDIENTE o VALIDANDO)
+y no avanza. Las remesas que ya se habían creado quedan como borradores sin confirmar (**Borrador** en el Historial)
 y las limpia el sistema (ver "Si el archivo no tiene filas").
 
 ### Si el archivo no tiene filas
@@ -189,7 +189,7 @@ plantilla descartó todas, el aviso agrega *"El filtro de la plantilla descartó
 dividida, las filas que pertenecen a otros cortes no cuentan como descartadas por el filtro: el aviso las
 separa y agrega *"N filas son de otros cortes de la división."* Hay que
 revisar el archivo o el filtro de la plantilla. Ojo: la remesa ya se creó al pasar al paso 3, así que si
-volvés atrás **queda en el Historial como PENDIENTE o VALIDANDO, ocupando su número**. Si no la vas a
+volvés atrás **queda en el Historial como Borrador, ocupando su número**. Si no la vas a
 usar, borrala: es la forma de liberar el número. Si nadie la confirma, el sistema la borra solo (la limpieza de cada madrugada borra las de más de 24
 horas; ver [Historial y problemas](/ayuda/importacion/historial-y-problemas)), pero hasta entonces el número
 sigue ocupado. Si intentás confirmar una vista previa que ya se borró sola, la pantalla responde *"Remesa no
@@ -281,9 +281,10 @@ cargaba, una línea lo dice: *"N remesas de esta división se eliminaron."*
 
 Si el sistema no pudo encolar alguna remesa del lote, la pantalla muestra un cartel fijo, *"N remesas no se
 pudieron encolar y quedaron sin confirmar"*, con sus números. Esas quedan sin cargar y se confirman después
-con el botón **Cargar las que faltan** del resultado (ver "Paso 5"). Ese botón vive **solo en el asistente**: si
-lo cerraste, esas remesas quedaron como vistas previas sin confirmar (PENDIENTE o VALIDANDO, y se borran solas
-en uno o dos días); hay que eliminarlas y volver a subir esos cortes.
+con el botón **Cargar las que faltan** del resultado (ver "Paso 5"). Si cerraste el asistente, esas remesas
+quedan en el Historial como **No se pudo encolar** (y se borran solas en uno o dos días): se mandan a la cola con el
+botón **Confirmar** de su fila, tal como se habían confirmado, sin volver a ver la vista previa ni subir el
+archivo (ver [Historial y problemas](/ayuda/importacion/historial-y-problemas), "Otras acciones del historial").
 
 El botón **Cancelar importación** está abajo de la barra, en las cargas comunes y en las divididas. Ver
 "Cancelar una importación".
@@ -392,11 +393,12 @@ e **Ir al historial**.
 **Que diga "finalizada" no quiere decir que salió todo bien.** Si el título habla de filas con error,
 sin filas o advertencias, entrá al detalle y mirá el motivo fila por fila.
 
-En el **detalle** de la carga, las filas con error figuran en **Errores de fila**; si la carga solo
-tuvo avisos, la tabla se llama **Avisos de la carga**. Los avisos van con **—** en lugar del número de
-fila y salen primeros; una fila con error siempre lleva su número (la primera fila de datos es la 0).
+En el **detalle** de la carga, las filas con error figuran en la pestaña **Errores de fila** y los avisos en la
+pestaña **Avisos**, cada una con su cantidad y paginada: se ven todos. Los avisos van con **—** en lugar del número de
+fila; una fila con error siempre lleva su número, que cuenta desde 1 la posición entre las filas que procesó la carga
+(no cuenta el encabezado ni las filas descartadas por un filtro). El botón **Descargar CSV** baja todos los errores y avisos.
 Una carga que falló, se canceló, terminó con advertencias o no tenía filas muestra arriba un cartel con el
-motivo. El detalle muestra **solo los primeros 100** errores o avisos.
+motivo.
 
 El detalle de una **cancelada** muestra el estado **Cancelada**, y el de una remesa de una carga dividida
 agrega, bajo el número, *"Remesa 2 de 5 de una carga dividida"* con las otras remesas como enlaces (número y
@@ -423,8 +425,9 @@ ya se procesaron quedan cargadas, y el cierre de la carga —consolidar, cerrar 
 **no corre**. Si pedís cancelar cuando ya se procesaron todas las filas pero el cierre todavía no empezó, el
 cierre tampoco corre: la carga queda cancelada con todas sus filas y sin cierre.
 
-**Dónde está.** El botón **Cancelar importación** está en el paso "Importando" y en el detalle de la carga.
-En el Historial no hay botón: se entra al detalle. Lo ve quien tiene el permiso **Ejecutar importaciones** y
+**Dónde está.** El botón **Cancelar importación** está en el paso "Importando", en el detalle de la carga y en
+cada fila del Historial (un ícono, con el mismo diálogo; si no se puede cancelar, el ícono queda deshabilitado
+con el motivo). Lo ve quien tiene el permiso **Ejecutar importaciones** y
 es el dueño de la carga, o tiene además **Ver importaciones de otros usuarios**.
 
 **Qué dice antes de cancelar.** El diálogo explica qué va a pasar, con el número del momento:
@@ -528,8 +531,8 @@ no corresponde, el sistema responde, por ejemplo, *"Esta importación ya proces�
 Mirá el motivo de la falla para saber qué hacer."* Re-ejecutar una remesa sobre lo que ya se cargó **no
 existe**.
 
-**Dónde está.** El botón **Retomar** está en el detalle de la carga, con los mismos permisos que Cancelar, y
-en el paso "Resultado" del asistente: **Retomar** con una remesa, y en una carga dividida **Retomar las N que
+**Dónde está.** El botón **Retomar** está en el detalle de la carga y en la fila del Historial, con los mismos
+permisos que Cancelar, y en el paso "Resultado" del asistente: **Retomar** con una remesa, y en una carga dividida **Retomar las N que
 no se cargaron** (solo las retomables; las demás no se tocan). Antes de pedirlo la pantalla confirma: *"Se
 vuelve a encolar la misma remesa, con el mismo archivo. No se cargó ninguna fila la vez anterior."* Si en una
 división alguna remesa fallida no se pudo retomar, la pantalla las lista con su motivo (*No se retomaron*);
@@ -606,7 +609,7 @@ ninguna. Eliminá estas vistas previas."*), otra persona —u otra pestaña tuya
 mismo archivo mientras mirabas la vista previa. No se cargó nada tuyo y **no sirve insistir**: la pantalla
 vuelve a la vista previa y el botón sigue habilitado, pero va a responder lo mismo. En una división no se
 confirma ninguna remesa, tampoco las de los cortes que no chocaban. Borrá esas vistas previas desde el
-Historial (figuran PENDIENTE o VALIDANDO; así liberás sus números) y, si te quedaban cortes sin cargar,
+Historial (figuran como Borrador; así liberás sus números) y, si te quedaban cortes sin cargar,
 volvé a subir el archivo: los que ya figuran en otra remesa vienen destildados.
 
 ### La carga está "En cola" y no avanza
@@ -696,9 +699,8 @@ y el segundo, con qué hacer. En una carga confirmada después de que existiera 
 cargó ninguna fila: volvé a importar el archivo.*, que para ella es lo correcto porque no se puede retomar. Si
 esa remesa es un corte de un archivo dividido, agrega: *Esta remesa es un corte de un archivo dividido: al volver a subirlo, los cortes que ya están cargados aparecen destildados; dejalos así. Si no aparece ninguno destildado, el sistema no reconoció el archivo: destildá a mano los que ya figuran cargados en el Historial.*
 
-En el Historial la grilla **no se refresca sola**: el tacho de eliminar está siempre a la vista, pero se
-deshabilita mientras la carga procesa. Para que se habilite en una carga que se acaba de marcar como fallida,
-apretá **Actualizar**.
+El Historial se actualiza solo: el tacho de eliminar está a la vista, pero se deshabilita mientras la carga procesa,
+y se habilita cuando la carga figura como fallida (puede tardar hasta 30 segundos; **Actualizar** fuerza la lectura).
 
 Si el motivo no lo entendés, avisá a soporte con el número de remesa.
 
@@ -709,18 +711,17 @@ confirmás, así que cerrar o recargar la pantalla no deja ninguna sin arrancar.
 por estas razones:
 
 - **No llegó a empezar.** Quedó en la cola sin un trabajo que la procese y el sistema la cerró como fallida
-  (ver "La importación falló: qué hacer"). En el Historial figura FALLIDA. Si se confirmó después de que existiera Retomar (octubre de 2026), se puede
-  **retomar** desde su detalle o desde el resultado.
+  (ver "La importación falló: qué hacer"). En el Historial figura **No llegó a empezar**. Si se confirmó después de que existiera Retomar (octubre de 2026), se puede
+  **retomar** desde el Historial, desde su detalle o desde el resultado.
 - **No se pudo encolar.** El resultado y el paso "Importando" la muestran en el cartel *"N remesas no se
-  pudieron encolar y quedaron sin confirmar"*. El botón **Cargar las que faltan** las confirma de nuevo, pero
-  vive solo en el asistente: si lo cerraste, quedaron como vistas previas sin confirmar y hay que eliminarlas y
-  volver a subir esos cortes.
-- **Una remesa en cola puede confundirse con un borrador.** En el Historial las remesas de una división que
-  esperan su turno figuran **PENDIENTE**, igual que una vista previa sin confirmar, y se pueden borrar. Antes de
-  borrar una PENDIENTE, entrá a su detalle: dice **Borrador** o **En cola**. Borrar una en cola saca ese
-  corte de la carga.
+  pudieron encolar y quedaron sin confirmar"*. El botón **Cargar las que faltan** las confirma de nuevo. Si
+  cerraste el asistente, en el Historial figuran como **No se pudo encolar** y se confirman desde ahí con el botón
+  **Confirmar** de la fila, mientras el borrador exista (se borran solos al día o dos de creados).
+- **Una remesa en cola no es un borrador.** En el Historial las remesas de una división que esperan su turno
+  figuran **En cola** y los borradores figuran **Borrador**. Se pueden borrar las dos, pero el diálogo de eliminar dice
+  que una en cola está confirmada: borrarla saca ese corte de la carga. Para frenarla sin perderla, usá **Cancelar**.
 - **Falló la validación de la vista previa.** Las remesas ya creadas quedan como borradores
-  (PENDIENTE o VALIDANDO) sin confirmar. No se pueden lanzar desde ningún lado: las limpia el sistema, o las
+  (**Borrador**) sin confirmar. No se pueden lanzar desde ningún lado: las limpia el sistema, o las
   podés **borrar** vos para liberar sus números.
 - **Se canceló.** Ver "Cancelar una importación".
 

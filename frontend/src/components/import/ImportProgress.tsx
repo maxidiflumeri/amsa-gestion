@@ -11,16 +11,19 @@ import {
     DialogActions,
     DialogContent,
     DialogTitle,
+    IconButton,
+    Tooltip,
 } from "@mui/material";
 import { useNavigate } from "react-router-dom";
 import HourglassTopIcon from "@mui/icons-material/HourglassTop";
 import CancelOutlinedIcon from "@mui/icons-material/CancelOutlined";
 import { SectionCard } from "../ui";
 import AvisosCarga from "./AvisosCarga";
-import { cancelarCarga, cancelarGrupo, obtenerGrupo } from "../../api/imports";
+import { cancelarCarga, cancelarGrupo } from "../../api/imports";
 import { useAuth } from "../../context/AuthContext";
 import { useSocket } from "../../context/SocketContext";
 import { useEstadoCarga } from "../../hooks/useEstadoCarga";
+import { useGrupoCarga } from "../../hooks/useGrupoCarga";
 import { useNotify } from "../../hooks/useNotify";
 import type { EstadoCargaDto } from "../../types/importProgreso";
 import {
@@ -36,6 +39,7 @@ import {
     lineaCancelarPorCategoria,
     lineaDeRitmo,
     motivoNoCancelable,
+    plural,
     puedeGestionarCarga,
 } from "../../utils/estadoCarga";
 
@@ -257,6 +261,9 @@ interface BotonCancelarCargaProps {
     alineacion?: "center" | "flex-start";
     /** Las remesas de la división, si quien lo usa ya las tiene: sirve para saber si alguna se puede cancelar aunque la actual no. */
     grupo?: EstadoCargaDto[];
+    /** `boton` (default): el botón con el motivo debajo cuando no se puede. `icono`: un IconButton con tooltip, para una fila de tabla;
+     *  si no se puede cancelar, el tooltip es el motivo. */
+    variante?: "boton" | "icono";
 }
 
 /** Remesas de un grupo con el número a la vista: "3, 4 y 5". */
@@ -275,45 +282,95 @@ function explicarNoCancelable(carga: EstadoCargaDto): string {
 }
 
 /**
- * "Cancelar importación" (docs/imports-progreso-realtime-spec.md §10.8.4). Lo comparten el paso "Importando" y el
- * detalle. Se muestra solo con `importacion.ejecutar` y siendo el dueño (o con `importacion.ver_progreso_otros`) y si
- * el backend informa `cancelable`; si la carga está en curso y nada se puede cancelar, va deshabilitado con el motivo.
+ * "Cancelar importación" (docs/imports-progreso-realtime-spec.md §10.8.4). Lo comparten el paso "Importando", el
+ * detalle y el Historial. Se muestra solo con `importacion.ejecutar` y siendo el dueño (o con `importacion.ver_progreso_otros`)
+ * y si el backend informa `cancelable`; si la carga está en curso y nada se puede cancelar, va deshabilitado con el motivo.
  * En una división, mientras alguna remesa sea cancelable se ofrece "Cancelar todo lo que falta", aunque la que está
  * en curso no se pueda cortar. Cancelar no se deshace: el diálogo dice qué va a pasar y pide confirmar.
+ * El diálogo existe solo mientras está abierto (en el Historial hay una fila por remesa): ahí lee la división en vivo.
  */
-export function BotonCancelarCarga({ carga, onResultado, onGrupoCambio, alineacion = "center", grupo: grupoProp }: BotonCancelarCargaProps) {
+export function BotonCancelarCarga({ carga, onResultado, onGrupoCambio, alineacion = "center", grupo: grupoProp, variante = "boton" }: BotonCancelarCargaProps) {
     const { usuario, tienePermiso } = useAuth();
-    const notify = useNotify();
     const [abierto, setAbierto] = useState(false);
-    const [enviando, setEnviando] = useState(false);
-    const [grupoLeido, setGrupoLeido] = useState<EstadoCargaDto[] | null>(null);
-    const [cargandoGrupo, setCargandoGrupo] = useState(false);
 
     // `cancelable` ausente = un backend sin esta función: no hay nada que ofrecer.
     if (!carga || !carga.enCurso || carga.cancelable == null) return null;
     if (!puedeGestionarCarga(carga, usuario?.id, tienePermiso)) return null;
 
     const datos = datosDeGrupo(carga);
-    // Las del diálogo son las leídas al abrirlo; si no se pudieron leer, las que ya tenía quien lo usa.
-    const grupo = grupoLeido ?? grupoProp ?? null;
     const hermanasCancelables = (grupoProp ?? []).filter((r) => r.enCurso && r.remesaId !== carga.remesaId && esCancelable(r));
     const puede = esCancelable(carga) || (datos !== null && hermanasCancelables.length > 0);
     const motivo = motivoNoCancelable(carga) ?? "No se puede cancelar en este momento.";
+    const etiqueta = datos !== null && !esCancelable(carga) ? "Cancelar todo lo que falta" : "Cancelar importación";
 
-    const abrir = async () => {
-        setAbierto(true);
-        setGrupoLeido(null);
-        if (!datos) return;
-        // Las hermanas del momento: cuáles faltan y cuáles no empezaron.
-        setCargandoGrupo(true);
-        try {
-            setGrupoLeido((await obtenerGrupo(datos.grupoId)).remesas);
-        } catch {
-            setGrupoLeido(null);
-        } finally {
-            setCargandoGrupo(false);
-        }
-    };
+    return (
+        <>
+            {variante === "icono" ? (
+                <Tooltip title={puede ? etiqueta : motivo}>
+                    <span>
+                        <IconButton
+                            color="error"
+                            size="small"
+                            aria-label={etiqueta}
+                            disabled={!puede}
+                            onClick={() => setAbierto(true)}
+                        >
+                            <CancelOutlinedIcon />
+                        </IconButton>
+                    </span>
+                </Tooltip>
+            ) : (
+                <Box sx={{ display: "flex", flexDirection: "column", alignItems: alineacion, gap: 0.5, maxWidth: "100%" }}>
+                    <Button
+                        color="error"
+                        variant="outlined"
+                        size="small"
+                        startIcon={<CancelOutlinedIcon />}
+                        disabled={!puede}
+                        onClick={() => setAbierto(true)}
+                    >
+                        {etiqueta}
+                    </Button>
+                    {!puede && (
+                        <Typography variant="caption" color="text.secondary" sx={{ overflowWrap: "anywhere" }}>
+                            {motivo}
+                        </Typography>
+                    )}
+                </Box>
+            )}
+
+            {abierto && (
+                <DialogoCancelarCarga
+                    carga={carga}
+                    grupoProp={grupoProp}
+                    onCerrar={() => setAbierto(false)}
+                    onResultado={onResultado}
+                    onGrupoCambio={onGrupoCambio}
+                />
+            )}
+        </>
+    );
+}
+
+interface DialogoCancelarCargaProps {
+    carga: EstadoCargaDto;
+    grupoProp?: EstadoCargaDto[];
+    onCerrar: () => void;
+    onResultado?: (carga: EstadoCargaDto) => void;
+    onGrupoCambio?: () => void;
+}
+
+/** El diálogo de cancelar. Lee la división con `useGrupoCarga`: la lista de «las que no empezaron» se mantiene al día con el diálogo abierto. */
+function DialogoCancelarCarga({ carga, grupoProp, onCerrar, onResultado, onGrupoCambio }: DialogoCancelarCargaProps) {
+    const notify = useNotify();
+    const [enviando, setEnviando] = useState(false);
+    const datos = datosDeGrupo(carga);
+    const vivo = useGrupoCarga(datos?.grupoId ?? null);
+
+    // Las del diálogo son las leídas en vivo; mientras no hay lectura, las que ya tenía quien lo usa.
+    const delGrupo = vivo.remesas.length > 0 ? vivo.remesas : null;
+    const grupo = delGrupo ?? ((grupoProp ?? []).length > 0 ? (grupoProp ?? []) : null);
+    const cargandoGrupo = datos !== null && vivo.cargando;
 
     const cancelarSoloEsta = async () => {
         setEnviando(true);
@@ -322,7 +379,7 @@ export function BotonCancelarCarga({ carga, onResultado, onGrupoCambio, alineaci
             onResultado?.(r.carga);
             onGrupoCambio?.();
             if (r.efecto === "CANCELADA") notify.info("Importación cancelada.");
-            setAbierto(false);
+            onCerrar();
         } catch (err) {
             notify.error(err as Error);
             onGrupoCambio?.();
@@ -342,7 +399,7 @@ export function BotonCancelarCarga({ carga, onResultado, onGrupoCambio, alineaci
                 if (x.efecto === "RECHAZADA") notify.warning(`Remesa ${x.numeroRemesa}: ${x.motivo ?? "no se pudo cancelar"}`);
             }
             onGrupoCambio?.();
-            setAbierto(false);
+            onCerrar();
         } catch (err) {
             notify.error(err as Error);
             onGrupoCambio?.();
@@ -364,119 +421,99 @@ export function BotonCancelarCarga({ carga, onResultado, onGrupoCambio, alineaci
     const porOrden = (a: EstadoCargaDto, b: EstadoCargaDto) => (a.grupoOrden ?? 0) - (b.grupoOrden ?? 0);
     const enProcesoTodas = [...(propiaCancelable && !enCola ? [carga] : []), ...enProceso].sort(porOrden);
     const sinEmpezarTodas = [...(propiaCancelable && enCola ? [carga] : []), ...sinEmpezar].sort(porOrden);
-    // La división no se pudo leer: lo único que se puede hacer es cortar esta remesa, y hay que decirlo.
+    // La división no se pudo leer (ni en vivo ni la que tenía quien lo usa): lo único que se puede hacer es cortar esta remesa, y hay que decirlo.
     const grupoIlegible = datos !== null && grupo === null && !cargandoGrupo;
 
     return (
-        <>
-            <Box sx={{ display: "flex", flexDirection: "column", alignItems: alineacion, gap: 0.5, maxWidth: "100%" }}>
-                <Button
-                    color="error"
-                    variant="outlined"
-                    size="small"
-                    startIcon={<CancelOutlinedIcon />}
-                    disabled={!puede}
-                    onClick={() => void abrir()}
-                >
-                    {datos !== null && !esCancelable(carga) ? "Cancelar todo lo que falta" : "Cancelar importación"}
-                </Button>
-                {!puede && (
-                    <Typography variant="caption" color="text.secondary" sx={{ overflowWrap: "anywhere" }}>
-                        {motivo}
+        <Dialog open onClose={() => !enviando && onCerrar()} maxWidth="sm" fullWidth>
+            <DialogTitle>{propiaCancelable ? "Cancelar importación" : "Cancelar todo lo que falta"}</DialogTitle>
+            <DialogContent dividers sx={{ textAlign: "left" }}>
+                {!propiaCancelable ? (
+                    <Typography variant="body2" sx={{ overflowWrap: "anywhere" }}>
+                        {explicarNoCancelable(carga)}
+                        {sinEmpezar.length > 0 &&
+                            ` ${sinEmpezar.length === 1 ? "Se cancela la que no empezó" : `Se cancelan las ${sinEmpezar.length} que no empezaron`} (${listarNumeros(sinEmpezar)}).`}
                     </Typography>
+                ) : enCola ? (
+                    <Typography variant="body2" sx={{ overflowWrap: "anywhere" }}>
+                        Esta importación todavía no empezó. Si la cancelás no se carga ninguna fila, y después la
+                        podés retomar desde su detalle.
+                    </Typography>
+                ) : leyendo ? (
+                    <Typography variant="body2" sx={{ overflowWrap: "anywhere" }}>
+                        Todavía está leyendo el archivo y no se procesó ninguna fila. Si la cancelás ahora no
+                        debería cargarse ninguna; el resultado lo dice con el número exacto y, si no se cargó
+                        ninguna, la podés retomar desde su detalle.
+                    </Typography>
+                ) : (
+                    <>
+                        <Typography variant="body2" sx={{ overflowWrap: "anywhere" }}>
+                            {carga.totalEsperado > 0
+                                ? `Lleva ${formatearNumero(carga.procesadas)} de ${formatearNumero(carga.totalEsperado)} ${plural(carga.totalEsperado, "fila", "filas")}.`
+                                : `Lleva ${formatearNumero(carga.procesadas)} ${plural(carga.procesadas, "fila", "filas")}.`}{" "}
+                            Si la cancelás, <strong>las filas ya procesadas quedan cargadas</strong> —no se
+                            deshacen— y el cierre de la carga no corre. Se corta al terminar la fila o el lote en
+                            curso.
+                        </Typography>
+                        <Typography variant="body2" sx={{ mt: 1, overflowWrap: "anywhere" }}>
+                            {lineaCancelarPorCategoria(carga.tipo)}
+                        </Typography>
+                    </>
                 )}
-            </Box>
 
-            <Dialog open={abierto} onClose={() => !enviando && setAbierto(false)} maxWidth="sm" fullWidth>
-                <DialogTitle>{propiaCancelable ? "Cancelar importación" : "Cancelar todo lo que falta"}</DialogTitle>
-                <DialogContent dividers sx={{ textAlign: "left" }}>
-                    {!propiaCancelable ? (
-                        <Typography variant="body2" sx={{ overflowWrap: "anywhere" }}>
-                            {explicarNoCancelable(carga)}
-                            {sinEmpezar.length > 0 &&
-                                ` ${sinEmpezar.length === 1 ? "Se cancela la que no empezó" : `Se cancelan las ${sinEmpezar.length} que no empezaron`} (${listarNumeros(sinEmpezar)}).`}
+                {datos && cargandoGrupo && (
+                    <Box sx={{ display: "flex", alignItems: "center", gap: 1, mt: 2 }}>
+                        <CircularProgress size={16} />
+                        <Typography variant="caption" color="text.secondary">
+                            Buscando las otras remesas de la división…
                         </Typography>
-                    ) : enCola ? (
-                        <Typography variant="body2" sx={{ overflowWrap: "anywhere" }}>
-                            Esta importación todavía no empezó. Si la cancelás no se carga ninguna fila, y después la
-                            podés retomar desde su detalle.
-                        </Typography>
-                    ) : leyendo ? (
-                        <Typography variant="body2" sx={{ overflowWrap: "anywhere" }}>
-                            Todavía está leyendo el archivo y no se procesó ninguna fila. Si la cancelás ahora no
-                            debería cargarse ninguna; el resultado lo dice con el número exacto y, si no se cargó
-                            ninguna, la podés retomar desde su detalle.
-                        </Typography>
-                    ) : (
-                        <>
-                            <Typography variant="body2" sx={{ overflowWrap: "anywhere" }}>
-                                {carga.totalEsperado > 0
-                                    ? `Lleva ${formatearNumero(carga.procesadas)} de ${formatearNumero(carga.totalEsperado)} filas.`
-                                    : `Lleva ${formatearNumero(carga.procesadas)} filas.`}{" "}
-                                Si la cancelás, <strong>las filas ya procesadas quedan cargadas</strong> —no se
-                                deshacen— y el cierre de la carga no corre. Se corta al terminar la fila o el lote en
-                                curso.
-                            </Typography>
-                            <Typography variant="body2" sx={{ mt: 1, overflowWrap: "anywhere" }}>
-                                {lineaCancelarPorCategoria(carga.tipo)}
-                            </Typography>
-                        </>
-                    )}
+                    </Box>
+                )}
 
-                    {datos && cargandoGrupo && (
-                        <Box sx={{ display: "flex", alignItems: "center", gap: 1, mt: 2 }}>
-                            <CircularProgress size={16} />
-                            <Typography variant="caption" color="text.secondary">
-                                Buscando las otras remesas de la división…
-                            </Typography>
-                        </Box>
-                    )}
+                {conOpciones && propiaCancelable && (
+                    <Alert severity="info" sx={{ mt: 2 }}>
+                        Esta remesa es parte de una carga dividida. «Cancelar todo lo que falta» cancela
+                        {enProcesoTodas.length > 0 && ` la remesa en curso (${listarNumeros(enProcesoTodas)})`}
+                        {enProcesoTodas.length > 0 && sinEmpezarTodas.length > 0 && " y"}
+                        {sinEmpezarTodas.length > 0 &&
+                            ` ${sinEmpezarTodas.length === 1 ? "la que no empezó" : `las ${sinEmpezarTodas.length} que no empezaron`} (${listarNumeros(sinEmpezarTodas)})`}
+                        .
+                    </Alert>
+                )}
 
-                    {conOpciones && propiaCancelable && (
-                        <Alert severity="info" sx={{ mt: 2 }}>
-                            Esta remesa es parte de una carga dividida. «Cancelar todo lo que falta» cancela
-                            {enProcesoTodas.length > 0 && ` la remesa en curso (${listarNumeros(enProcesoTodas)})`}
-                            {enProcesoTodas.length > 0 && sinEmpezarTodas.length > 0 && " y"}
-                            {sinEmpezarTodas.length > 0 &&
-                                ` ${sinEmpezarTodas.length === 1 ? "la que no empezó" : `las ${sinEmpezarTodas.length} que no empezaron`} (${listarNumeros(sinEmpezarTodas)})`}
-                            .
-                        </Alert>
-                    )}
-
-                    {grupoIlegible && (
-                        <Alert severity="warning" sx={{ mt: 2 }}>
-                            Es una carga dividida en {datos?.total ?? "varias"} remesas y no se pudieron leer las
-                            demás: esto cancela solo esta remesa; las otras siguen.
-                        </Alert>
-                    )}
-                </DialogContent>
-                <DialogActions sx={{ flexWrap: "wrap", gap: 1 }}>
-                    <Button color="inherit" onClick={() => setAbierto(false)} disabled={enviando}>
-                        Volver
-                    </Button>
-                    {conOpciones ? (
-                        <>
-                            {propiaCancelable && (
-                                <Button color="warning" variant="outlined" onClick={() => void cancelarSoloEsta()} disabled={enviando}>
-                                    Cancelar solo esta remesa
-                                </Button>
-                            )}
-                            <Button color="error" variant="contained" onClick={() => void cancelarTodoLoQueFalta()} disabled={enviando}>
-                                Cancelar todo lo que falta
+                {grupoIlegible && (
+                    <Alert severity="warning" sx={{ mt: 2 }}>
+                        Es una carga dividida en {datos?.total ?? "varias"} remesas y no se pudieron leer las
+                        demás: esto cancela solo esta remesa; las otras siguen.
+                    </Alert>
+                )}
+            </DialogContent>
+            <DialogActions sx={{ flexWrap: "wrap", gap: 1 }}>
+                <Button color="inherit" onClick={onCerrar} disabled={enviando}>
+                    Volver
+                </Button>
+                {conOpciones ? (
+                    <>
+                        {propiaCancelable && (
+                            <Button color="warning" variant="outlined" onClick={() => void cancelarSoloEsta()} disabled={enviando}>
+                                Cancelar solo esta remesa
                             </Button>
-                        </>
-                    ) : (
-                        <Button
-                            color="error"
-                            variant="contained"
-                            onClick={() => void cancelarSoloEsta()}
-                            disabled={enviando || cargandoGrupo || !propiaCancelable}
-                        >
-                            Cancelar importación
+                        )}
+                        <Button color="error" variant="contained" onClick={() => void cancelarTodoLoQueFalta()} disabled={enviando}>
+                            Cancelar todo lo que falta
                         </Button>
-                    )}
-                </DialogActions>
-            </Dialog>
-        </>
+                    </>
+                ) : (
+                    <Button
+                        color="error"
+                        variant="contained"
+                        onClick={() => void cancelarSoloEsta()}
+                        disabled={enviando || cargandoGrupo || !propiaCancelable}
+                    >
+                        Cancelar importación
+                    </Button>
+                )}
+            </DialogActions>
+        </Dialog>
     );
 }

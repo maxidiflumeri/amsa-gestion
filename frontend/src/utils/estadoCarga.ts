@@ -1,6 +1,8 @@
 // Funciones puras del progreso de las importaciones. Las comparten el hook useEstadoCarga, los
 // contextos y los componentes (wizard, detalle, campanita). Textos: docs/imports-progreso-realtime-spec.md §8.8.8 y §9.8.2.
+import { isAxiosError } from 'axios';
 import type { EstadoCargaDto } from '../types/importProgreso';
+import type { CodigoErrorImport } from '../types/importHistorial';
 
 /** Cada cuánto consulta el hook de una carga cuando el socket está caído. */
 export const POLL_MS = 10_000;
@@ -54,6 +56,14 @@ export function crearRefrescoLimitado(accion: () => void, minMs: number) {
             timer = null;
         },
     };
+}
+
+/** Cada cuánto consulta el Historial cuando no hay ninguna carga en curso a la vista (primera página, sin búsqueda). */
+export const REFRESCO_HISTORIAL_QUIETO_MS = 60_000;
+
+/** La palabra en singular si `n` es 1; si no, en plural ("fila" / "filas"). */
+export function plural(n: number, uno: string, varios: string): string {
+    return n === 1 ? uno : varios;
 }
 
 /** Número con separador de miles (es-AR). */
@@ -287,6 +297,29 @@ export function pendientePostProceso(tipo: string): string {
     }
 }
 
+/**
+ * Las oraciones de «el archivo no tenía filas»: las que descartó el filtro de la plantilla y las de otros cortes de la
+ * división, cada una con su singular. Las usan `presentarResultado` y el cartel de la vista previa del asistente.
+ */
+export function oracionesSinFilas(porFiltro: number, fuera: number): string[] {
+    const oraciones: string[] = [];
+    if (porFiltro > 0) {
+        oraciones.push(
+            porFiltro === 1
+                ? 'El filtro de la plantilla descartó la única fila.'
+                : `El filtro de la plantilla descartó las ${formatearNumero(porFiltro)} filas.`,
+        );
+    }
+    if (fuera > 0) {
+        oraciones.push(
+            fuera === 1
+                ? '1 fila es de otro corte de la división.'
+                : `${formatearNumero(fuera)} filas son de otros cortes de la división.`,
+        );
+    }
+    return oraciones;
+}
+
 /** Título, severidad y detalle del resultado de una carga terminada (§8.8.8). */
 export function presentarResultado(
     estado: Pick<
@@ -308,20 +341,16 @@ export function presentarResultado(
                 return {
                     severidad: 'warning',
                     titulo: 'Importación finalizada con filas con error',
-                    detalle: `${formatearNumero(estado.err)} de ${formatearNumero(estado.procesadas)} filas no se cargaron. Mirá el motivo de cada una en el detalle.`,
+                    detalle: `${formatearNumero(estado.err)} de ${formatearNumero(estado.procesadas)} filas ${estado.err === 1 ? 'no se cargó' : 'no se cargaron'}. Mirá el motivo de cada una en el detalle.`,
                 };
             }
             return {
                 severidad: 'error',
                 titulo: 'No se cargó ninguna fila',
-                detalle: `Las ${formatearNumero(estado.err)} filas dieron error.`,
+                detalle: estado.err === 1 ? 'La única fila dio error.' : `Las ${formatearNumero(estado.err)} filas dieron error.`,
             };
         case 'SIN_FILAS': {
-            const porFiltro = descartadasPorFiltro(estado);
-            const fuera = descartadasFueraDeCorte(estado);
-            const oraciones: string[] = [];
-            if (porFiltro > 0) oraciones.push(`El filtro de la plantilla descartó las ${formatearNumero(porFiltro)} filas.`);
-            if (fuera > 0) oraciones.push(`${formatearNumero(fuera)} filas son de otros cortes de la división.`);
+            const oraciones = oracionesSinFilas(descartadasPorFiltro(estado), descartadasFueraDeCorte(estado));
             return {
                 severidad: 'warning',
                 titulo: 'El archivo no tenía filas para procesar',
@@ -330,10 +359,11 @@ export function presentarResultado(
         }
         case 'CON_ADVERTENCIAS': {
             const motivo = estado.errorPostProceso ? `: ${sinPuntoFinal(estado.errorPostProceso)}` : '';
+            const cargadas = `${estado.ok === 1 ? 'Se cargó' : 'Se cargaron'} ${formatearNumero(estado.ok)} ${plural(estado.ok, 'fila', 'filas')}`;
             const filas =
                 estado.err > 0
-                    ? `Se cargaron ${formatearNumero(estado.ok)} filas y ${formatearNumero(estado.err)} dieron error.`
-                    : `Se cargaron ${formatearNumero(estado.ok)} filas.`;
+                    ? `${cargadas} y ${formatearNumero(estado.err)} ${plural(estado.err, 'dio', 'dieron')} error.`
+                    : `${cargadas}.`;
             return {
                 severidad: 'warning',
                 titulo: 'Importación finalizada con advertencias',
@@ -346,7 +376,7 @@ export function presentarResultado(
             // traer varios párrafos (\n\n); esta oración va en el suyo.
             const cargadas =
                 estado.ok > 0
-                    ? `\n\nAntes del corte se cargaron al menos ${formatearNumero(estado.ok)} filas${estado.err > 0 ? ` y ${formatearNumero(estado.err)} dieron error` : ''}; el cierre de la carga no corrió.`
+                    ? `\n\nAntes del corte ${estado.ok === 1 ? 'se cargó' : 'se cargaron'} al menos ${formatearNumero(estado.ok)} ${plural(estado.ok, 'fila', 'filas')}${estado.err > 0 ? ` y ${formatearNumero(estado.err)} ${plural(estado.err, 'dio', 'dieron')} error` : ''}; el cierre de la carga no corrió.`
                     : '';
             return {
                 severidad: 'error',
@@ -608,4 +638,41 @@ export function remesaActualDelGrupo(remesas: EstadoCargaDto[]): EstadoCargaDto 
 /** Todas las remesas del grupo terminaron (y hay al menos una). */
 export function grupoTerminado(remesas: EstadoCargaDto[]): boolean {
     return remesas.length > 0 && remesas.every((r) => r.terminal);
+}
+
+// ─── Fase C, entrega 2a: el Historial y los errores de una carga (docs/imports-progreso-c2-spec.md §6.1) ───
+
+const CODIGOS_DE_ERROR: readonly string[] = ['CORTE_YA_CARGADO', 'CORTE_YA_CONFIRMADO', 'NINGUNA_RETOMABLE', 'NO_ES_PENDIENTE', 'ORIGEN_DISTINTO'];
+
+/** El `code` que el backend agrega al cuerpo de un 409 que la pantalla reconoce. Null si no hay, no se conoce o no es un error de axios. */
+export function codigoDeError(err: unknown): CodigoErrorImport | null {
+    if (!isAxiosError(err)) return null;
+    const data: unknown = err.response?.data;
+    if (typeof data !== 'object' || data === null) return null;
+    const code = (data as { code?: unknown }).code;
+    return typeof code === 'string' && CODIGOS_DE_ERROR.includes(code) ? (code as CodigoErrorImport) : null;
+}
+
+/** El diálogo de confirmación de retomar una remesa (el detalle y el Historial). */
+export const TEXTO_RETOMAR_UNA = {
+    title: 'Retomar la remesa',
+    description: 'Se vuelve a encolar la misma remesa, con el mismo archivo. No se cargó ninguna fila la vez anterior.',
+    confirmLabel: 'Retomar',
+};
+
+/** El diálogo de confirmación de retomar varias remesas de una carga dividida. */
+export const TEXTO_RETOMAR_VARIAS = {
+    title: 'Retomar las remesas',
+    description: 'Se vuelven a encolar las mismas remesas, con el mismo archivo. No se cargó ninguna fila la vez anterior.',
+    confirmLabel: 'Retomar',
+};
+
+/**
+ * Por qué una carga terminada ya no se puede retomar aunque su fila diga que sí: el corte figura en otra remesa
+ * confirmada después. Null si no hay nada que explicar. Es el texto del 409, sin «desde el Historial» (acá ya se está ahí).
+ */
+export function motivoNoRetomablePorCorte(carga: Partial<Pick<EstadoCargaDto, 'corteRepetidoEn'>>): string | null {
+    const remesas = carga.corteRepetidoEn;
+    if (!Array.isArray(remesas) || remesas.length === 0) return null;
+    return `El corte de esta remesa ya figura en la remesa ${remesas.join(', ')}: no se puede retomar. Si esta ya no hace falta, eliminala.`;
 }

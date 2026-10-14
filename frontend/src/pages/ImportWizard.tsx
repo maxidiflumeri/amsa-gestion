@@ -61,6 +61,7 @@ import {
     type RemesaNoEncolada,
 } from "../api/imports";
 import {
+    codigoDeError,
     datosDeGrupo,
     descartadasPorFiltroEnVistaPrevia,
     esEstadoCarga,
@@ -68,6 +69,7 @@ import {
     estadoEnGrupo,
     formatearNumero,
     grupoTerminado,
+    oracionesSinFilas,
     remesaActualDelGrupo,
     textoSubida,
     type ProgresoSubida,
@@ -744,7 +746,8 @@ export default function ImportWizard() {
                 divisiones?.length &&
                 isAxiosError(err) &&
                 err.response?.status === 409 &&
-                mensajeDeError(err).includes("cortes cargados")
+                // El código manda; la frase queda de respaldo por si el backend es anterior y no lo trae.
+                (codigoDeError(err) === "CORTE_YA_CARGADO" || mensajeDeError(err).includes("cortes cargados"))
             ) {
                 await handlePrevisualizarDivision(cortes ?? divisiones);
             }
@@ -1564,10 +1567,10 @@ export default function ImportWizard() {
             {activeStep === 2 && previewStats.total === 0 && remesasPreview.length <= 1 && (
                 <Alert severity="warning" sx={{ mt: 2 }}>
                     El archivo no tiene filas para importar.
-                    {!!resumenArchivos && descartadasPorFiltroEnVistaPrevia(resumenArchivos) > 0 &&
-                        ` El filtro de la plantilla descartó las ${formatearNumero(descartadasPorFiltroEnVistaPrevia(resumenArchivos))} filas.`}
-                    {!!resumenArchivos?.fueraDeCorte && resumenArchivos.fueraDeCorte > 0 &&
-                        ` ${formatearNumero(resumenArchivos.fueraDeCorte)} filas son de otros cortes de la división.`}
+                    {oracionesSinFilas(
+                        resumenArchivos ? descartadasPorFiltroEnVistaPrevia(resumenArchivos) : 0,
+                        resumenArchivos?.fueraDeCorte ?? 0,
+                    ).map((o) => ` ${o}`)}
                 </Alert>
             )}
 

@@ -1,0 +1,9 @@
+{
+  "extends": "../tsconfig.json",
+  "compilerOptions": {
+    "types": ["node", "vite/client"],
+    "baseUrl": "..",
+    "paths": { "@fe/*": ["src/*"] }
+  },
+  "include": [".", "../src/vite-env.d.ts"]
+}

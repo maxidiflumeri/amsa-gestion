@@ -39,12 +39,16 @@ npx ts-node prisma/seed-codigos-curados.ts
 ### Frontend (`cd frontend`)
 
 ```bash
-npm run dev      # vite dev server en localhost:5173 (strictPort)
-npm run build    # vite build
-npm run preview  # preview del build
+npm run dev        # vite dev server en localhost:5173 (strictPort)
+npm run build      # vite build (NO chequea tipos)
+npm run preview    # preview del build
+npx tsc --noEmit -p tsconfig.json   # chequeo de tipos: es la red que no da vite build
+npm test           # vitest + jsdom (frontend/tests/, config en vitest.config.ts), ~2 min
+npm run test:lento # pruebas con polling real (~5 min)
 ```
 
-No hay lint ni tests configurados en el frontend.
+No hay lint en el frontend. Los tests montan los módulos reales contra un servidor HTTP y socket.io falsos en
+`127.0.0.1:47831` (ver `frontend/tests/lib/`); `vite.config.ts` y `tsconfig.json` no los conocen.
 
 ## Convenciones críticas (no negociables)
 

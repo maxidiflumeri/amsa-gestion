@@ -31,6 +31,8 @@ import {
 } from 'recharts';
 import api from '../api/axios';
 import { obtenerGrupo, retomarRemesa } from '../api/imports';
+import type { OrigenDeCargaDto } from '../types/importHistorial';
+import ErroresDeCarga from '../components/import/ErroresDeCarga';
 import { useNotify } from '../hooks/useNotify';
 import { useAuth } from '../context/AuthContext';
 import { useConfirm } from '../context/ConfirmContext';
@@ -58,27 +60,20 @@ import {
     datosDeGrupo,
     descartadasFueraDeCorte,
     descartadasPorFiltro,
-    esAvisoDeCarga,
     esRetomable,
     estaCancelada,
     estadoEnGrupo,
     etiquetaFase,
     formatearNumero,
     lineaDeRitmo,
+    motivoNoRetomablePorCorte,
     presentarResultado,
     puedeGestionarCarga,
     textoCancelacionTardia,
+    TEXTO_RETOMAR_UNA,
 } from '../utils/estadoCarga';
 
 // ─── Tipos ───────────────────────────────────────────────────────────────────
-
-interface ImportError {
-    id: number;
-    rowNumber: number;
-    errorMsg: string;
-    rawRow: unknown;
-    createdAt: string;
-}
 
 interface EmpresaRef { id: number; nombre: string }
 interface PlantillaRef { id: number; nombre: string; categoria: string }
@@ -101,9 +96,11 @@ interface RemesaDetalle {
     usuarioCreador: UsuarioRef | null;
     politica: PoliticaRef | null;
     tasaExitoPct: number | null;
+    /** Corte de la división que le tocó. Un backend anterior no lo manda. */
+    corte?: string | null;
+    /** Remesas de origen con las que se confirmó. Un backend anterior no lo manda. */
+    origen?: OrigenDeCargaDto[] | null;
 }
-
-type ErrorRow = ImportError & Record<string, unknown>;
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -206,7 +203,6 @@ export default function ImportDetail() {
     const { estado: carga, cargando: cargandoCarga, noExiste, aplicar, refrescar } = useEstadoCarga(id ? Number(id) : null);
 
     const [remesa, setRemesa] = useState<RemesaDetalle | null>(null);
-    const [errors, setErrors] = useState<ImportError[]>([]);
     const [loading, setLoading] = useState(true);
     const [noEncontrada, setNoEncontrada] = useState(false);
 
@@ -274,20 +270,16 @@ export default function ImportDetail() {
     // Retomar (§10.8.5): vuelve a encolar la misma remesa. La `carga` que devuelve el pedido pasa de terminal a en
     // curso: el hook la aplica y vuelve a seguirla solo.
     const [retomando, setRetomando] = useState(false);
+    const [vueltas, setVueltas] = useState(0);
     const handleRetomar = async () => {
         if (!carga || retomando) return;
-        const acepta = await confirm({
-            title: 'Retomar la remesa',
-            description: 'Se vuelve a encolar la misma remesa, con el mismo archivo. No se cargó ninguna fila la vez anterior.',
-            confirmLabel: 'Retomar',
-        });
+        const acepta = await confirm(TEXTO_RETOMAR_UNA);
         if (!acepta) return;
         setRetomando(true);
         try {
             const r = await retomarRemesa(carga.remesaId);
-            // Lo que se pidió en la corrida anterior (avisos de la lectura) ya no vale.
-            erroresPedidosRef.current = false;
-            setErrors([]);
+            // Lo que se pidió en la corrida anterior (avisos de la lectura) ya no vale: la tarjeta de errores arranca de cero.
+            setVueltas((v) => v + 1);
             aplicar(r.carga);
             void cargarHermanas();
         } catch (err) {
@@ -311,70 +303,9 @@ export default function ImportDetail() {
         ? (carga.procesadas > 0 && carga.resultado !== 'FALLIDA' ? Math.round((carga.ok / carga.procesadas) * 100) : null)
         : (remesa?.tasaExitoPct ?? null);
 
-    // Errores y avisos de la carga. Un aviso ([aviso], [parseo], [post-proceso]) no es una fila con error.
-    // Una remesa terminal heredada (rev 0) no trae el contador de avisos: se piden los errores igual y la
-    // tabla se muestra si vienen filas. Los errores se piden al abrir y al terminar la carga, no en cada tick.
-    const hayAvisos = (carga?.advertencias ?? 0) > 0;
     const enCurso = carga?.enCurso === true;
-    const cargaLista = carga !== null;
-    const heredadaTerminal = carga?.terminal === true && carga.rev === 0;
-    const pedirErrores = errFilas > 0 || hayAvisos || heredadaTerminal;
-    const mostrarErrores = errFilas > 0 || hayAvisos || (heredadaTerminal && errors.length > 0);
-    const erroresPedidosRef = useRef(false);
-    useEffect(() => { erroresPedidosRef.current = false; setErrors([]); }, [id]);
-    const cargarErrores = useCallback(async () => {
-        if (!id) return;
-        try {
-            const res = await api.get(`/import/errores/${id}?pageSize=100`);
-            setErrors(res.data.data);
-        } catch (err) {
-            notifyRef.current.error(err as Error);
-        }
-    }, [id]);
-    useEffect(() => {
-        if (!pedirErrores || !cargaLista) return;
-        // En curso: una vez al abrir (para no afirmar que no hay); después, al terminar.
-        if (enCurso && erroresPedidosRef.current) return;
-        erroresPedidosRef.current = true;
-        void cargarErrores();
-    }, [pedirErrores, enCurso, terminal, cargaLista, cargarErrores]);
 
     const esMulticlaves = remesa?.categoria === 'MULTICLAVES';
-
-    const errorColumns: DataTableColumn<ErrorRow>[] = [
-        {
-            key: 'rowNumber',
-            label: esMulticlaves ? 'Trámite #' : 'Fila #',
-            render: (row) => (esAvisoDeCarga(row.errorMsg) ? '—' : String(row.rowNumber)),
-        },
-        {
-            key: 'errorMsg',
-            label: 'Mensaje de error',
-            primary: true,
-            render: (row) => (
-                <Box sx={{ maxWidth: 320, wordBreak: 'break-word' }}>
-                    <StatusChip
-                        status="failed"
-                        label={String(row.errorMsg)}
-                        sx={{ height: 'auto', '& .MuiChip-label': { whiteSpace: 'normal' } }}
-                    />
-                </Box>
-            ),
-        },
-        {
-            key: 'rawRow',
-            label: 'Fila original (JSON)',
-            secondary: true,
-            render: (row) => (
-                <Typography
-                    variant="caption"
-                    sx={{ fontFamily: 'monospace', color: 'text.secondary', wordBreak: 'break-all' }}
-                >
-                    {JSON.stringify(row.rawRow)}
-                </Typography>
-            ),
-        },
-    ];
 
     // Chip de estado: "Borrador" si no está en curso ni terminó; "En cola" si espera su turno; si no, el estado de siempre.
     let chipEstado: { status: StatusValue; label: string } | null = null;
@@ -433,9 +364,6 @@ export default function ImportDetail() {
     // Una remesa heredada (sin fila de progreso) no tiene fecha de fin: se usa la última modificación.
     const fechaInicio = carga?.startedAt ?? remesa?.createdAt ?? null;
     const fechaFin = carga?.terminal ? (carga.finishedAt ?? remesa?.updatedAt ?? null) : null;
-    const filasDeErrores = [...errors].sort(
-        (a, b) => Number(!esAvisoDeCarga(a.errorMsg)) - Number(!esAvisoDeCarga(b.errorMsg)),
-    );
 
     return (
         <Box sx={{ px: { xs: 2, md: 3 }, py: 3 }}>
@@ -615,6 +543,11 @@ export default function ImportDetail() {
                                     Retomar
                                 </Button>
                             </Box>
+                        )}
+                        {carga && !esRetomable(carga) && motivoNoRetomablePorCorte(carga) !== null && (
+                            <Typography variant="body2" color="text.secondary" sx={{ mt: 2, overflowWrap: 'anywhere' }}>
+                                {motivoNoRetomablePorCorte(carga)}
+                            </Typography>
                         )}
                     </SectionCard>
 
@@ -837,6 +770,26 @@ export default function ImportDetail() {
                                         </Typography>
                                     }
                                 />
+                                {remesa.corte != null && remesa.corte !== '' && (
+                                    <InfoRow
+                                        label="Corte"
+                                        value={<Typography variant="body2" fontWeight={600}>{remesa.corte}</Typography>}
+                                    />
+                                )}
+                                {Array.isArray(remesa.origen) && remesa.origen.length > 0 && (
+                                    <InfoRow
+                                        label="Remesas de origen"
+                                        value={
+                                            <Box textAlign="right">
+                                                {remesa.origen.map((o) => (
+                                                    <Typography key={o.remesaId} variant="body2" fontWeight={600}>
+                                                        {o.numeroRemesa == null ? 'una remesa eliminada' : `${o.numeroRemesa}${o.nombre ? ` · ${o.nombre}` : ''}`}
+                                                    </Typography>
+                                                ))}
+                                            </Box>
+                                        }
+                                    />
+                                )}
                                 <InfoRow
                                     label="Política aplicada"
                                     value={
@@ -860,27 +813,15 @@ export default function ImportDetail() {
                         </Grid>
                     </Grid>
 
-                    {/* F) Tabla de errores */}
-                    {mostrarErrores && (
-                        <SectionCard
-                            title={
-                                errFilas > 0
-                                    ? (esMulticlaves ? 'Trámites rechazados' : 'Errores de fila')
-                                    : 'Avisos de la carga'
-                            }
-                            noPadding
-                        >
-                            <DataTableResponsive<ErrorRow>
-                                columns={errorColumns}
-                                rows={filasDeErrores as ErrorRow[]}
-                                rowKey={(row) => String(row.id)}
-                                emptyMessage={
-                                    enCurso
-                                        ? 'Los errores de una carga en curso se actualizan cuando termina.'
-                                        : (errFilas > 0 ? 'No hay errores registrados.' : 'No hay avisos registrados.')
-                                }
-                            />
-                        </SectionCard>
+                    {/* F) Errores y avisos de la carga */}
+                    {carga && (
+                        <ErroresDeCarga
+                            key={`${remesa.id}-${vueltas}`}
+                            remesaId={remesa.id}
+                            numeroRemesa={remesa.numeroRemesa}
+                            carga={carga}
+                            esMulticlaves={esMulticlaves}
+                        />
                     )}
                 </>
             )}
