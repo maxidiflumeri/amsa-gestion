@@ -441,6 +441,10 @@ model remesa {
   usuarioCreador       usuario?                 @relation("RemesaUsuarioCreador", fields: [usuarioCreadorId], references: [id], onDelete: SetNull)
   snapshotsAcciones    accion_masiva_snapshot[]
   clavesPago           clave_pago[]
+  /// La acción masiva escribió cada caso junto con sus snapshots (C3b): lo aplicado está cubierto entero,
+  /// aunque la carga se haya cortado. false = anterior a C3b (los snapshots se guardaban al final).
+  accionSnapshotsPorCaso Boolean                @default(false)
+  reversion            reversion_accion?
 
   @@unique([empresaId, numeroRemesa], map: "Remesa_empresaId_numeroRemesa_key")
   @@index([empresaId, categoria], map: "Remesa_empresaId_categoria_idx")
@@ -555,12 +559,41 @@ model accion_masiva_snapshot {
   accion       String // 'UPDATE' | 'DELETE' | 'INSERT'
   datosPrevios Json?
   createdAt    DateTime @default(now())
+  /// Caso al que pertenece el cambio (C3b). Null en los snapshots anteriores a C3b.
+  deudorId     Int?
+  /// Cuándo lo deshizo una reversión (C3b). Null = pendiente. Es la marca de idempotencia de revertir.
+  revertidoEn  DateTime?
 
   // Cascade y no SetNull: el snapshot solo sirve para revertir *esa* remesa. Sin la FK, borrar una
   // remesa de acciones dejaba las filas huérfanas para siempre.
   remesa remesa @relation(fields: [remesaId], references: [id], onDelete: Cascade)
 
   @@index([remesaId])
+}
+
+/// Estado de la reversión de una acción masiva (C3b). Una fila por remesa; un nuevo intento la reusa.
+model reversion_accion {
+  remesaId             Int       @id
+  /// EN_COLA | REVIRTIENDO | TERMINADA | FALLIDA | INTERRUMPIDA
+  estado               String    @db.VarChar(20)
+  usuarioId            Int?
+  jobId                String?   @db.VarChar(64)
+  intentos             Int       @default(0)
+  /// Snapshots a revertir: los ya revertidos + los pendientes al arrancar.
+  total                Int       @default(0)
+  hechos               Int       @default(0)
+  deudoresRevertidos   Int       @default(0)
+  contactosRestaurados Int       @default(0)
+  comentariosBorrados  Int       @default(0)
+  casosQueNoExistian   Int       @default(0)
+  contactosSinCaso     Int       @default(0)
+  error                String?   @db.Text
+  encoladaAt           DateTime  @default(now())
+  startedAt            DateTime?
+  heartbeatAt          DateTime?
+  finishedAt           DateTime?
+
+  remesa remesa @relation(fields: [remesaId], references: [id], onDelete: Cascade, map: "ReversionAccion_remesaId_fkey")
 }
 
 enum plantillaimport_categoria {

@@ -191,6 +191,8 @@ export const MODELOS_OCULTOS = new Set<string>([
   'jobimport',
   // Estado interno del progreso de una carga: plomería, igual que jobimport.
   'import_progreso',
+  // Estado de la reversión de una acción masiva (C3b): plomería.
+  'reversion_accion',
   'importerror',
   'formato_telefono',
   'campoextra',
@@ -416,6 +418,7 @@ export const CAMPOS_OCULTOS_POR_PATH = new Set<string>([
   'remesa.hoja',
   'remesa.validarDomicilios',
   'remesa.accionRevertidaEn',
+  'remesa.accionSnapshotsPorCaso',
   // Llamadas: internals de Neotel
   'llamadas.baseNeotel',
   'llamadas.idContactoNeotel',

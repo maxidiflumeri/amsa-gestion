@@ -162,14 +162,18 @@ export function esRetomable(
     return !fila.startedAt || resumen.sinFilasEntregadas === true;
 }
 
-/** Cancelable ⟺ está en curso, nadie pidió cancelar, no está en post-proceso y no es una ACCIONES que ya arrancó (§10.4.1). */
+/**
+ * Cancelable ⟺ está en curso, nadie pidió cancelar y no está en post-proceso. Desde C3b también una ACCIONES que ya
+ * arrancó: cada caso se escribe con sus snapshots en una transacción, así que lo aplicado hasta el corte se revierte.
+ * `categoria` queda en la firma por los llamadores; ya no distingue.
+ */
 export function esCancelable(
-    categoria: string | null | undefined,
+    _categoria: string | null | undefined,
     fila: { fase: string; encoladaAt?: Date | null; finishedAt?: Date | null; startedAt?: Date | null; cancelSolicitadaAt?: Date | null },
 ): boolean {
     const enCurso = fila.encoladaAt != null && fila.finishedAt == null;
     if (!enCurso || fila.cancelSolicitadaAt != null || fila.fase === 'POST_PROCESO') return false;
-    return !(categoria === 'ACCIONES' && fila.startedAt != null);
+    return true;
 }
 
 function resultadoHeredada(r: RemesaParaEstado): ResultadoCarga {
@@ -441,8 +445,9 @@ function remedioDeInterrupcion(categoria: string | null | undefined, conCorte: b
             );
         case 'ACCIONES':
             return (
-                'Las acciones aplicadas hasta el corte quedaron hechas y no se pueden revertir desde la pantalla: ' +
-                'los datos para deshacer se guardan recién al terminar. No vuelvas a cargar el archivo; avisá a soporte.'
+                // Desde C3b cada caso se escribe junto con sus datos para deshacer: lo aplicado hasta el corte se revierte.
+                'Las acciones aplicadas hasta el corte quedaron hechas. Podés deshacerlas con Revertir desde el Historial, ' +
+                'que antes de confirmar dice cuántos casos cubre. No vuelvas a cargar el archivo.'
             );
         default:
             return 'Lo procesado hasta el corte quedó aplicado. Antes de volver a cargar el archivo, avisá a soporte.';

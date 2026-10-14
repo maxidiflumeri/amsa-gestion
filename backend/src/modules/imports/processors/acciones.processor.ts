@@ -12,21 +12,37 @@ import { mergeAdicionales } from '../utils/campos-adicionales';
 import { normalizarTelefonoArgentino } from '../../../common/utils/phone-utils';
 import { AuditEstado, AuditModulo, AuditSeveridad, AuditTipo } from '../../transacciones/audit.enums';
 import { idsSituacionCancelada } from '../utils/situaciones-cerradas';
-import { SUBFASE } from '../utils/reporte-progreso';
 
 type SnapshotRow = {
     remesaId: number;
+    deudorId: number;
     entidad: string;
     entidadId: number;
     accion: string;
     datosPrevios?: Record<string, any>;
 };
 
+/** Cliente de la transacción de un caso: lo único con lo que se escribe adentro de `conCaso`. */
+type Db = Prisma.TransactionClient;
+
+/** Lo que acumula un caso mientras su transacción corre; se suma a los contadores recién después del commit. */
+type BufferCaso = {
+    snapshots: SnapshotRow[];
+    comentarios: number;
+    contactos: number;
+    toco: boolean;
+};
+
+const TX_CASO = { maxWait: 10_000, timeout: 30_000 } as const;
+/** Deadlock o conflicto de escritura de Prisma: se reintenta una vez, el caso hizo rollback entero. */
+const CODIGO_CONFLICTO = 'P2034';
+
 export class AccionesProcessor implements ICategoryProcessor {
     readonly category = 'ACCIONES';
     private readonly logger = new Logger(AccionesProcessor.name);
 
-    private snapshots: SnapshotRow[] = [];
+    /** La remesa ya se marcó con `accionSnapshotsPorCaso` (una vez por carga, antes de la primera escritura). */
+    private marcada = false;
     private deudoresAfectados = new Set<number>();
     private comentariosCreados = 0;
     private contactosEliminados = 0;
@@ -36,7 +52,7 @@ export class AccionesProcessor implements ICategoryProcessor {
     private paramCache = new Map<string, number | null>();
 
     private reset(): void {
-        this.snapshots = [];
+        this.marcada = false;
         this.deudoresAfectados = new Set();
         this.comentariosCreados = 0;
         this.contactosEliminados = 0;
@@ -58,21 +74,66 @@ export class AccionesProcessor implements ICategoryProcessor {
         return [...set];
     }
 
+    /**
+     * Corre `fn` en una transacción propia del caso: los cambios y sus snapshots se confirman juntos o no se confirma
+     * nada (C3b). Un deadlock se reintenta una vez; cualquier otro error sube y el caso queda sin tocar. Los contadores
+     * se suman después del commit: un caso que hizo rollback no cuenta.
+     */
+    private async conCaso<T>(ctx: ProcessContext, fn: (db: Db, buf: BufferCaso) => Promise<T>): Promise<T> {
+        for (let intento = 1; ; intento++) {
+            const buf: BufferCaso = { snapshots: [], comentarios: 0, contactos: 0, toco: false };
+            try {
+                const resultado = await ctx.prisma.$transaction(async (tx) => {
+                    const r = await fn(tx, buf);
+                    if (buf.snapshots.length) {
+                        await tx.accion_masiva_snapshot.createMany({
+                            data: buf.snapshots.map(s => ({
+                                remesaId: s.remesaId,
+                                deudorId: s.deudorId,
+                                entidad: s.entidad,
+                                entidadId: s.entidadId,
+                                accion: s.accion,
+                                datosPrevios: s.datosPrevios === undefined ? Prisma.JsonNull : (s.datosPrevios as Prisma.InputJsonValue),
+                            })),
+                        });
+                    }
+                    return r;
+                }, TX_CASO);
+                this.comentariosCreados += buf.comentarios;
+                this.contactosEliminados += buf.contactos;
+                return resultado;
+            } catch (e: any) {
+                if (e?.code === CODIGO_CONFLICTO && intento === 1) {
+                    this.logger.warn(`ACCIONES remesa=${ctx.remesaId}: conflicto de escritura en un caso, se reintenta una vez`);
+                    continue;
+                }
+                throw e;
+            }
+        }
+    }
+
+    /** Antes de la primera escritura: lo que esta carga aplique queda cubierto por sus snapshots. */
+    private async marcarSnapshotsPorCaso(ctx: ProcessContext): Promise<void> {
+        if (this.marcada) return;
+        await ctx.prisma.remesa.update({ where: { id: ctx.remesaId }, data: { accionSnapshotsPorCaso: true } });
+        this.marcada = true;
+    }
+
     /** Borra los contactos que matchean `where`, grabando snapshot de cada uno (para el undo). */
-    private async eliminarContactos(where: any, ctx: ProcessContext): Promise<number> {
-        const contactos = await ctx.prisma.contacto.findMany({ where });
+    private async eliminarContactos(where: any, ctx: ProcessContext, db: Db, buf: BufferCaso): Promise<number> {
+        const contactos = await db.contacto.findMany({ where });
         if (!contactos.length) return 0;
         for (const c of contactos) {
-            this.snapshots.push({
-                remesaId: ctx.remesaId, entidad: 'contacto', entidadId: c.id, accion: 'DELETE',
+            buf.snapshots.push({
+                remesaId: ctx.remesaId, deudorId: c.deudorId, entidad: 'contacto', entidadId: c.id, accion: 'DELETE',
                 datosPrevios: {
                     deudorId: c.deudorId, tipo: c.tipo, valor: c.valor, subtipo: c.subtipo,
                     prioridad: c.prioridad, validado: c.validado, whatsapp: c.whatsapp,
                 },
             });
         }
-        await ctx.prisma.contacto.deleteMany({ where: { id: { in: contactos.map(c => c.id) } } });
-        this.contactosEliminados += contactos.length;
+        await db.contacto.deleteMany({ where: { id: { in: contactos.map(c => c.id) } } });
+        buf.contactos += contactos.length;
         return contactos.length;
     }
 
@@ -105,12 +166,12 @@ export class AccionesProcessor implements ICategoryProcessor {
         return String(op.valor ?? op.texto ?? '').trim();
     }
 
-    private async resolveParametroId(op: any, row: MappedRow, ctx: ProcessContext): Promise<number | null> {
+    private async resolveParametroId(op: any, row: MappedRow, db: Db): Promise<number | null> {
         if (op.modo === 'ESTATICO') return op.parametroId ?? null;
         const clave = this.raw(row, op.fromIndex);
         if (!clave) return null;
         if (this.paramCache.has(clave)) return this.paramCache.get(clave)!;
-        const p = await ctx.prisma.parametro.findUnique({ where: { clave }, select: { id: true } });
+        const p = await db.parametro.findUnique({ where: { clave }, select: { id: true } });
         const id = p?.id ?? null;
         this.paramCache.set(clave, id);
         return id;
@@ -158,6 +219,7 @@ export class AccionesProcessor implements ICategoryProcessor {
     private async procesarFila(row: MappedRow, ctx: ProcessContext): Promise<void> {
         const cfg = ctx.accionesConfig;
         if (!cfg) throw new Error('ACCIONES sin configuración (mappingJson.acciones)');
+        await this.marcarSnapshotsPorCaso(ctx);
 
         // ── Modo CONTACTO: limpieza global de un teléfono/email de toda la base ──
         if (cfg.matchMode === 'CONTACTO') {
@@ -168,9 +230,9 @@ export class AccionesProcessor implements ICategoryProcessor {
             if (!candidatos.length) return;
             const deudorWhere: any = { empresaId: ctx.empresaId };
             if (ctx.remesaOrigenId) deudorWhere.remesaId = ctx.remesaOrigenId;
-            const borrados = await this.eliminarContactos(
-                { tipo: cv.tipo, valor: { in: candidatos }, deudor: deudorWhere }, ctx,
-            );
+            const borrados = await this.conCaso(ctx, (db, buf) => this.eliminarContactos(
+                { tipo: cv.tipo, valor: { in: candidatos }, deudor: deudorWhere }, ctx, db, buf,
+            ));
             if (borrados === 0) this.sinMatch++;
             return;
         }
@@ -212,14 +274,18 @@ export class AccionesProcessor implements ICategoryProcessor {
                 this.saltadosCancelados++;
                 continue;
             }
-            await this.aplicarOperaciones(d, row, cfg, ctx);
+            // Una transacción por caso: sus cambios y sus snapshots se confirman juntos.
+            const toco = await this.conCaso(ctx, (db, buf) => this.aplicarOperaciones(d, row, cfg, ctx, db, buf));
+            if (toco) this.deudoresAfectados.add(d.id);
         }
     }
 
-    private async aplicarOperaciones(d: any, row: MappedRow, cfg: AccionesConfig, ctx: ProcessContext): Promise<void> {
+    /** Aplica las operaciones a un caso. Adentro de la transacción solo se escribe con `db`, nunca con `ctx.prisma`. */
+    private async aplicarOperaciones(
+        d: any, row: MappedRow, cfg: AccionesConfig, ctx: ProcessContext, db: Db, buf: BufferCaso,
+    ): Promise<boolean> {
         const updateData: Record<string, any> = {};
         const prevData: Record<string, any> = {};
-        let toco = false;
 
         const setCampo = (campo: string, nuevo: any, previoRaw: any) => {
             updateData[campo] = nuevo;
@@ -235,7 +301,7 @@ export class AccionesProcessor implements ICategoryProcessor {
                 case 'SET_MOTIVO': {
                     const campo = op.tipo === 'SET_SITUACION' ? 'estadoSituacionId'
                         : op.tipo === 'SET_GESTION' ? 'estadoGestionId' : 'motivoNoPagoId';
-                    const pid = await this.resolveParametroId(op, row, ctx);
+                    const pid = await this.resolveParametroId(op, row, db);
                     if (pid == null) { this.logger.warn(`Deudor ${d.id}: no se resolvió el parámetro de ${op.tipo}`); break; }
                     if (d[campo] !== pid) setCampo(campo, pid, d[campo]);
                     break;
@@ -268,13 +334,13 @@ export class AccionesProcessor implements ICategoryProcessor {
                 case 'ADD_COMENTARIO': {
                     const texto = this.valorTexto(op, row);
                     if (!texto) break;
-                    const c = await ctx.prisma.comentario.create({
+                    const c = await db.comentario.create({
                         data: { deudorId: d.id, usuarioId: ctx.usuarioId ?? null, texto, origen: 'ACCION_MASIVA' },
                         select: { id: true },
                     });
-                    this.snapshots.push({ remesaId: ctx.remesaId, entidad: 'comentario', entidadId: c.id, accion: 'INSERT' });
-                    this.comentariosCreados++;
-                    toco = true;
+                    buf.snapshots.push({ remesaId: ctx.remesaId, deudorId: d.id, entidad: 'comentario', entidadId: c.id, accion: 'INSERT' });
+                    buf.comentarios++;
+                    buf.toco = true;
                     break;
                 }
                 case 'DELETE_CONTACTO': {
@@ -283,39 +349,40 @@ export class AccionesProcessor implements ICategoryProcessor {
                     if (!candidatos.length) break;
                     const where: any = { deudorId: d.id, valor: { in: candidatos } };
                     if (op.contactoTipo !== 'cualquiera') where.tipo = op.contactoTipo;
-                    const borrados = await this.eliminarContactos(where, ctx);
-                    if (borrados > 0) toco = true;
+                    const borrados = await this.eliminarContactos(where, ctx, db, buf);
+                    if (borrados > 0) buf.toco = true;
                     break;
                 }
             }
         }
 
         if (Object.keys(updateData).length) {
-            await ctx.prisma.deudor.update({ where: { id: d.id }, data: updateData });
-            this.snapshots.push({ remesaId: ctx.remesaId, entidad: 'deudor', entidadId: d.id, accion: 'UPDATE', datosPrevios: prevData });
-            toco = true;
+            await db.deudor.update({ where: { id: d.id }, data: updateData });
+            buf.snapshots.push({ remesaId: ctx.remesaId, deudorId: d.id, entidad: 'deudor', entidadId: d.id, accion: 'UPDATE', datosPrevios: prevData });
+            buf.toco = true;
         }
-        if (toco) this.deudoresAfectados.add(d.id);
+        return buf.toco;
     }
 
     async afterAll(ctx: ProcessContext): Promise<void> {
-        // Flush de snapshots (para el undo).
-        const CHUNK = 500;
-        ctx.progreso?.subfase(SUBFASE.GUARDANDO_DATOS_PARA_REVERTIR, 0, this.snapshots.length);
-        for (let i = 0; i < this.snapshots.length; i += CHUNK) {
-            const chunk = this.snapshots.slice(i, i + CHUNK);
-            await ctx.prisma.accion_masiva_snapshot.createMany({
-                data: chunk.map(s => ({
-                    remesaId: s.remesaId,
-                    entidad: s.entidad,
-                    entidadId: s.entidadId,
-                    accion: s.accion,
-                    datosPrevios: s.datosPrevios === undefined ? Prisma.JsonNull : (s.datosPrevios as Prisma.InputJsonValue),
-                })),
-            });
-            ctx.progreso?.subfase(SUBFASE.GUARDANDO_DATOS_PARA_REVERTIR, Math.min(i + CHUNK, this.snapshots.length), this.snapshots.length);
+        // Una ACCIONES de C3b no puede terminar con `errorPostProceso` por la auditoría: lo aplicado ya tiene sus
+        // snapshots (se escribieron con cada caso), así que un fallo acá no le quita nada a Revertir.
+        try {
+            await this.auditar(ctx);
+        } catch (e: any) {
+            this.logger.warn(`ACCIONES remesa=${ctx.remesaId}: no se pudo registrar la auditoría: ${e?.message}`);
         }
 
+        this.logger.log(
+            `ACCIONES remesa=${ctx.remesaId}: ${this.deudoresAfectados.size} deudores afectados, ` +
+            `${this.comentariosCreados} comentarios, ${this.contactosEliminados} contactos eliminados, ` +
+            `${this.saltadosCancelados} cancelados salteados, ${this.sinMatch} filas sin match.`,
+        );
+        this.informarResumen(ctx);
+        this.reset();
+    }
+
+    private async auditar(ctx: ProcessContext): Promise<void> {
         await ctx.auditoria.log({
             modulo: AuditModulo.IMPORT,
             entidad: 'acciones_masivas',
@@ -338,13 +405,5 @@ export class AccionesProcessor implements ICategoryProcessor {
                 filasSinMatch: this.sinMatch,
             },
         });
-
-        this.logger.log(
-            `ACCIONES remesa=${ctx.remesaId}: ${this.deudoresAfectados.size} deudores afectados, ` +
-            `${this.comentariosCreados} comentarios, ${this.contactosEliminados} contactos eliminados, ` +
-            `${this.saltadosCancelados} cancelados salteados, ${this.sinMatch} filas sin match.`,
-        );
-        this.informarResumen(ctx);
-        this.reset();
     }
 }

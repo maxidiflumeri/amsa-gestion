@@ -185,7 +185,7 @@ describe('cerrarCargaInterrumpida', () => {
     });
 
     it.each([
-        ['ACCIONES', 'No vuelvas a cargar el archivo; avisá a soporte.'],
+        ['ACCIONES', 'Podés deshacerlas con Revertir desde el Historial'],
         ['PAGOS', 'Antes de volver a cargar el archivo, avisá a soporte.'],
     ])('H-5b: el texto depende de la categoría (%s)', async (categoria, fragmento) => {
         const h = armar(arrancada(), { categoria });

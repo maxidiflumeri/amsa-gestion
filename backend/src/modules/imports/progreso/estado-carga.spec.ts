@@ -544,10 +544,11 @@ describe('textoInterrupcion', () => {
         expect(textoInterrupcion('SIN_LATIDO', 'ACCIONES', { conCorte: true })).not.toContain('corte de un archivo dividido');
     });
 
-    it('ACCIONES dice que no se puede revertir y que no se vuelva a cargar', () => {
+    it('ACCIONES (C3b): dice que lo aplicado se deshace con Revertir y que no se vuelva a cargar', () => {
         const t = textoInterrupcion('SIN_LATIDO', 'ACCIONES');
-        expect(t).toContain('no se pueden revertir desde la pantalla');
-        expect(t).toContain('No vuelvas a cargar el archivo; avisá a soporte.');
+        expect(t).toContain('Podés deshacerlas con Revertir desde el Historial');
+        expect(t).not.toContain('no se pueden revertir');
+        expect(t).toContain('No vuelvas a cargar el archivo.');
     });
 
     it('el resto no afirma ningún remedio: avisar a soporte antes de volver a cargar', () => {
@@ -696,14 +697,15 @@ describe('armarEstadoCarga — cancelación, grupo y retomar', () => {
             expect(dto('DEUDORES', 'PENDIENTE', { fase: 'BORRADOR' }).cancelable).toBe(false);
             expect(dto('DEUDORES', 'PROCESANDO', { ...procesando, cancelSolicitadaAt: fin }).cancelable).toBe(false);
         });
-        it('ACCIONES en cola: sí; ACCIONES que ya arrancó: no', () => {
+        it('ACCIONES en cola: sí; ACCIONES que ya arrancó: sí también (C3b), salvo en post-proceso', () => {
             expect(dto('ACCIONES', 'PENDIENTE', enCola).cancelable).toBe(true);
-            expect(dto('ACCIONES', 'PROCESANDO', procesando).cancelable).toBe(false);
-            expect(dto('ACCIONES', 'PROCESANDO', { ...procesando, fase: 'LEYENDO' }).cancelable).toBe(false);
+            expect(dto('ACCIONES', 'PROCESANDO', procesando).cancelable).toBe(true);
+            expect(dto('ACCIONES', 'PROCESANDO', { ...procesando, fase: 'LEYENDO' }).cancelable).toBe(true);
+            expect(dto('ACCIONES', 'PROCESANDO', { ...procesando, fase: 'POST_PROCESO' }).cancelable).toBe(false);
         });
         it('esCancelable es la misma regla sobre una fila suelta', () => {
             expect(esCancelable('PAGOS', { fase: 'PROCESANDO', encoladaAt: ini, startedAt: ini })).toBe(true);
-            expect(esCancelable('ACCIONES', { fase: 'PROCESANDO', encoladaAt: ini, startedAt: ini })).toBe(false);
+            expect(esCancelable('ACCIONES', { fase: 'PROCESANDO', encoladaAt: ini, startedAt: ini })).toBe(true);
         });
     });
 

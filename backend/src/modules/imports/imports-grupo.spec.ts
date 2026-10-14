@@ -547,8 +547,18 @@ describe('cancelarCarga', () => {
             caso(procesando(11, { fase: 'POST_PROCESO' }), /ya procesó todas las filas y está cerrando: en este paso no se puede cancelar\. Esperá a que termine\./));
         it('en post-proceso solo según la memoria del tracker (la escritura de la fase falló)', () =>
             caso(procesando(11, { fase: 'PROCESANDO' }), /está cerrando/, 'POST_PROCESO'));
-        it('una ACCIONES que ya arrancó', () =>
-            caso(procesando(11, {}, { categoria: 'ACCIONES' }), /Una acción masiva que ya empezó no se cancela: los datos para deshacerla se guardan recién al terminar\. Esperá a que termine y usá Revertir, que la deshace completa\./));
+    });
+
+    it('C3b: una ACCIONES que ya arrancó SÍ se cancela: escribe el pedido, sin 409 (cada caso se escribe con sus snapshots)', async () => {
+        const h = armar({ remesas: [procesando(11, {}, { categoria: 'ACCIONES' })] });
+        const tracker = { faseActual: { fase: 'PROCESANDO' }, avisarCancelacion: jest.fn() };
+        (h.service as any).cargasVivas.set(11, tracker);
+
+        const r = await h.service.cancelarCarga(11, DUENO);
+
+        expect(r.efecto).toBe('PEDIDA');
+        expect(h.remesa(11).progreso!.cancelSolicitadaAt).not.toBeNull();
+        expect(tracker.avisarCancelacion).toHaveBeenCalledTimes(1);
     });
 
     it('una ACCIONES en cola sí se puede cancelar', async () => {

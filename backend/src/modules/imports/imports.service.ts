@@ -187,8 +187,6 @@ const PAUSA_TRAS_LECTURA_BLOQUEANTE_MS = 300;
 const MSG_CANCELAR_NO_EN_CURSO = 'Esta importación no está en curso: no hay nada que cancelar. Si es una vista previa que no querés, eliminala.';
 const MSG_CANCELAR_YA_TERMINO = 'Esta importación ya terminó: no hay nada que cancelar.';
 const MSG_CANCELAR_POST_PROCESO = 'La importación ya procesó todas las filas y está cerrando: en este paso no se puede cancelar. Esperá a que termine.';
-const MSG_CANCELAR_ACCIONES =
-    'Una acción masiva que ya empezó no se cancela: los datos para deshacerla se guardan recién al terminar. Esperá a que termine y usá Revertir, que la deshace completa.';
 const MSG_RETOMAR_NO_TERMINO = 'Esta importación no terminó, o terminó bien: no hay nada que retomar.';
 const MSG_RETOMAR_ANTERIOR = 'Esta importación es anterior a la función de retomar. Volvé a subir el archivo.';
 const MSG_RETOMAR_PROCESO_FILAS =
@@ -3024,10 +3022,6 @@ export class ImportService {
                 if (f.fase === 'POST_PROCESO' || enMemoria === 'POST_PROCESO') {
                     this.logger.warn(`Cancelar rechazado: la remesa ${remesaId} está en post-proceso`);
                     throw new ConflictException(MSG_CANCELAR_POST_PROCESO);
-                }
-                if (f.categoria === 'ACCIONES') {
-                    this.logger.warn(`Cancelar rechazado: la remesa ${remesaId} es una acción masiva que ya arrancó`);
-                    throw new ConflictException(MSG_CANCELAR_ACCIONES);
                 }
                 await this.escribirPedidoDeCancelacion(tx, f, cancelacion);
                 return { efecto: 'PEDIDA' as const, escribio: true };

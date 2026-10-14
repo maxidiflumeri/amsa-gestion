@@ -565,16 +565,15 @@ describe('MULTICLAVES', () => {
 
 // ─────────────────────────────────────────────────────────────────────────────────────────────
 describe('ACCIONES', () => {
-    it('Guardando datos para revertir: N de M sobre los snapshots, de a 500', async () => {
-        const e = ctxBase({ accion_masiva_snapshot: { createMany: jest.fn().mockResolvedValue({ count: 0 }) } });
+    it('C3b: el afterAll ya no abre la subfase "Guardando datos para revertir" ni escribe snapshots (van con cada caso)', async () => {
+        const createMany = jest.fn().mockResolvedValue({ count: 0 });
+        const e = ctxBase({ accion_masiva_snapshot: { createMany } });
         const proc = new AccionesProcessor();
-        (proc as any).snapshots = Array.from({ length: 1100 }, (_, i) => ({ remesaId: 10, entidad: 'deudor', entidadId: i, accion: 'UPDATE', datosPrevios: {} }));
 
         await proc.afterAll(e.ctx);
 
-        expect(e.nombres()).toEqual(['Guardando datos para revertir']);
-        expect(e.hechoDe('Guardando datos para revertir')).toEqual([0, 500, 1000, 1100]);
-        expect(e.totalDe('Guardando datos para revertir')).toBe(1100);
+        expect(e.nombres()).toEqual([]);
+        expect(createMany).not.toHaveBeenCalled();
         expect(e.conts()).toHaveLength(0);
     });
 });
@@ -628,10 +627,27 @@ function estable(valor: unknown): string {
 function grabar<T extends object>(falso: T, prefijo: string, llamadas: string[], soloPrimerArg = false): T {
     const anotar = (nombre: string, args: unknown[]) =>
         llamadas.push(`${prefijo}${nombre}(${estable(soloPrimerArg ? args.slice(0, 1) : args)})`);
-    return new Proxy(falso, {
+    const proxy: T = new Proxy(falso, {
         get(target, prop, receptor) {
             const valor = Reflect.get(target, prop, receptor);
             if (typeof prop !== 'string') return valor;
+            if (prop === '$transaction' && typeof valor === 'function') {
+                // La transacción interactiva (C3b): el callback recibe este mismo proxy como `tx`, así que lo que escribe
+                // adentro también queda grabado, entre un `begin` y un `end`.
+                return async (fn: unknown, ...resto: unknown[]) => {
+                    // La forma de arreglo (`$transaction([op1, op2])`) sigue grabándose como una llamada más.
+                    if (typeof fn !== 'function') {
+                        anotar(prop, [fn, ...resto]);
+                        return valor.apply(target, [fn, ...resto]);
+                    }
+                    llamadas.push(`${prefijo}$transaction:begin`);
+                    try {
+                        return await (fn as (tx: T) => Promise<unknown>)(proxy);
+                    } finally {
+                        llamadas.push(`${prefijo}$transaction:end`);
+                    }
+                };
+            }
             if (typeof valor === 'function') {
                 return (...args: unknown[]) => {
                     anotar(prop, args);
@@ -653,6 +669,7 @@ function grabar<T extends object>(falso: T, prefijo: string, llamadas: string[],
             return valor;
         },
     });
+    return proxy;
 }
 
 interface Escenario {
@@ -781,7 +798,10 @@ describe('C3a — el canal `resumen` no cambia lo que el processor le pide a la 
                 update: jest.fn().mockResolvedValue({}),
             },
             parametro: { findMany: jest.fn().mockResolvedValue([{ id: 50, clave: 'SIT-050' }]) },
+            remesa: { update: jest.fn().mockResolvedValue({}) },
             accion_masiva_snapshot: { createMany: jest.fn().mockResolvedValue({ count: 0 }) },
+            // La transacción interactiva: el grabador de `grabar` le pasa su propio proxy como `tx`.
+            $transaction: jest.fn(),
         };
     }
 
@@ -1057,6 +1077,20 @@ describe('C3a — el canal `resumen` no cambia lo que el processor le pide a la 
         const soloDatos = ctxBase(prismaActualizaciones(), { accionAusente: 'PAGO_TODO', modoActualizacion: 'SOLO_DATOS' });
         await new ActualizacionesProcessor().afterAll(soloDatos.ctx);
         expect(soloDatos.ultimoResumen()).toMatchObject({ ausentes: { resultado: 'OMITIDO_SOLO_DATOS' } });
+    });
+
+    it('ACCIONES (C3b): las escrituras de cada caso quedan entre un $transaction:begin y un :end, y la marca va antes de todo', async () => {
+        const { llamadas } = await ejecutar(escenarios['ACCIONES'], true);
+        const primerTx = llamadas.indexOf('prisma.$transaction:begin');
+        expect(primerTx).toBeGreaterThan(-1);
+        expect(llamadas.findIndex((l) => l.startsWith('prisma.remesa.update('))).toBeLessThan(primerTx);
+        let dentro = false;
+        for (const l of llamadas) {
+            if (l === 'prisma.$transaction:begin') dentro = true;
+            else if (l === 'prisma.$transaction:end') dentro = false;
+            else if (/^prisma\.(deudor\.update|accion_masiva_snapshot\.createMany)\(/.test(l)) expect(dentro).toBe(true);
+        }
+        expect(llamadas.some((l) => l.startsWith('prisma.accion_masiva_snapshot.createMany('))).toBe(true);
     });
 
     it('ACCIONES: casos afectados, cancelados salteados y filas sin match', async () => {
