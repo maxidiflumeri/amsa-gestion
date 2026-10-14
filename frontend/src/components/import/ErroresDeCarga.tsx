@@ -130,7 +130,11 @@ export default function ErroresDeCarga({ remesaId, numeroRemesa, carga, esMultic
     if (totales !== null && totales.filas === 0 && totales.avisos === 0 && err === 0 && advertencias === 0) return null;
 
     const etiquetaFila = esMulticlaves ? 'Trámite' : 'Fila';
-    const tooltipFila = `Posición entre ${esMulticlaves ? 'los trámites' : 'las filas'} que procesó esta carga, contando desde 1. No cuenta el encabezado ni las filas descartadas por un filtro. Para ubicar el registro, mirá la columna con el contenido de la fila.`;
+    // Una carga de C3a trae la fila del archivo; una anterior (o un backend anterior), la posición entre las procesadas.
+    const filaDelArchivo = (datos?.data ?? []).some((e) => e.tipo === 'FILA' && e.filaEsDelArchivo === true);
+    const tooltipFila = filaDelArchivo
+        ? 'Fila del archivo (en Excel, el número de fila de la hoja). Con varios archivos, cuál es lo dice el mensaje.'
+        : `Posición entre ${esMulticlaves ? 'los trámites' : 'las filas'} que procesó esta carga, contando desde 1. No cuenta el encabezado ni las filas descartadas por un filtro. Para ubicar el registro, mirá la columna con el contenido de la fila.`;
 
     const columnas: DataTableColumn<FilaDeErrores>[] = [
         {

@@ -115,5 +115,5 @@ export function grupoHistorial(over: Partial<GrupoHistorialDto> = {}): GrupoHist
 }
 
 export function errorDeCarga(over: Partial<ErrorDeCargaDto> = {}): ErrorDeCargaDto {
-    return { id: 1, rowNumber: 0, tipo: 'FILA', fila: 1, errorMsg: 'DNI inválido', rawRow: { dni: 'x' }, createdAt: iso(T0), ...over };
+    return { id: 1, rowNumber: 0, tipo: 'FILA', fila: 1, filaEsDelArchivo: false, errorMsg: 'DNI inválido', rawRow: { dni: 'x' }, createdAt: iso(T0), ...over };
 }

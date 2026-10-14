@@ -400,6 +400,39 @@ procesadas**, **Exitosas**, **Con error** y **Descartadas** (las dos últimas so
 y **Casos actualizados** (solo en las categorías que los informan) y la **Tasa de éxito** cuando se
 procesó alguna fila y la carga no falló.
 
+**Qué hizo la carga.** Debajo de las métricas, una tarjeta con ese título cuenta **qué pasó con los datos**, con
+los números de esa carga y según la categoría. Lo que está en **naranja** es lo que conviene mirar; una línea
+con cero no se muestra, salvo la primera línea de Deudores (*"N casos nuevos"*), de Actualizaciones y de Acciones
+masivas, que sale siempre. Ejemplos de las categorías que más se usan:
+
+- **Deudores:** *"97 casos nuevos"* y, si el archivo repite la identidad de un caso, *"3 filas cayeron sobre un
+  caso que esta misma carga ya había creado: el archivo repite la identidad del caso y la última fila pisó a la
+  anterior"* (en naranja). Esas filas figuran como exitosas, pero no son casos distintos. Si trae contactos de
+  casos anteriores del mismo cliente: *"N contactos copiados de casos anteriores del mismo cliente"*.
+- **Deudores y Facturas:** *"N casos nuevos"*, *"Facturas en N casos"* y, si trae contactos de casos anteriores del
+  mismo cliente, *"N contactos copiados de casos anteriores del mismo cliente"*. Acá lo normal es una fila por
+  factura, así que varias filas sobre el mismo caso no son un aviso y esta categoría no muestra la línea de las filas
+  que cayeron sobre un caso de la misma carga.
+- **Pagos:** *"Pagos en N casos"*, *"N pagos ya estaban cargados y no se duplicaron"*, *"N facturas marcadas
+  como pagadas"* y, en naranja, *"N pagos con importe negativo: aumentan la deuda del caso"*. Si la plantilla
+  trae clave de pago, también las claves que no se pudieron resolver (*"N claves no están cargadas"*, *"N claves
+  son de otra empresa"*, *"N referencias ilegibles"*, *"N casos fuera de las remesas de origen"*).
+- **Actualizaciones:** cuántas filas coincidieron con casos de la cartera, cuántos casos nuevos y cuántos
+  reasignados, y qué pasó con los ausentes del archivo (ver [Actualizaciones](/ayuda/importacion/actualizaciones)).
+- **Contactos y Enriquecimiento:** *"N contactos principales cargados"* y, en naranja, *"N filas no tenían un
+  contacto principal válido (vacío, o un teléfono o mail que no se pudo normalizar): ese contacto no se cargó y la
+  fila no figura como error"*. Habla solo del contacto principal: si la plantilla trae bloques de contacto, esos se
+  graban antes de validar el principal y no entran en estos números.
+- **Acciones masivas:** *"N casos afectados · N comentarios · N contactos eliminados"* y, en naranja, *"N filas no
+  encontraron ningún caso"*.
+- **Facturas, Multirregistro, Multiarchivo y Claves de pago** también la muestran (en las dos de varios registros,
+  las bajas: ver [Multirregistro y Multiarchivo](/ayuda/importacion/multirregistro-y-multiarchivo)).
+
+En una **carga dividida** la tarjeta va **por remesa** (*"Qué hizo la carga · Remesa 00141"*) y no se suman. La
+misma tarjeta está en el detalle de la carga, en el Historial, cuando la carga terminó. **No aparece** en una
+carga que todavía corre, en las anteriores a esta función, ni en una que el sistema cerró por haberse
+interrumpido: ahí los contadores del encabezado son lo único que hay.
+
 Si la carga registró avisos que no son errores de fila, la pantalla agrega *"N avisos del archivo — ver
 el detalle"*. Cuenta los avisos de lectura del archivo (`[parseo]`), los que escriben las propias
 categorías al cargar (`[aviso]`, por ejemplo los de Pagos con número de convenio y los de Claves de
@@ -436,8 +469,11 @@ sin filas o advertencias, entrá al detalle y mirá el motivo fila por fila.
 
 En el **detalle** de la carga, las filas con error figuran en la pestaña **Errores de fila** y los avisos en la
 pestaña **Avisos**, cada una con su cantidad y paginada: se ven todos. Los avisos van con **—** en lugar del número de
-fila; una fila con error siempre lleva su número, que cuenta desde 1 la posición entre las filas que procesó la carga
-(no cuenta el encabezado ni las filas descartadas por un filtro). El botón **Descargar CSV** baja todos los errores y avisos.
+fila; una fila con error siempre lleva su número. En las cargas nuevas de **CSV, Excel y ancho fijo** es **la fila del archivo**,
+contando el encabezado y las filas vacías (en Excel, el número de fila de la hoja; con varios archivos, cuál es lo
+dice el mensaje). **Multirregistro, Multiarchivo y Claves de pago** no traen ese dato: su número sigue siendo la
+posición de siempre, con el mismo tooltip. En las cargas anteriores a esta función también es la posición entre las filas que procesó la carga, contando desde 1 (no cuenta el encabezado ni las
+filas descartadas por un filtro); pasando el mouse por el encabezado de la columna se lee cuál de las dos es. El botón **Descargar CSV** baja todos los errores y avisos.
 Una carga que falló, se canceló, terminó con advertencias o no tenía filas muestra arriba un cartel con el
 motivo.
 

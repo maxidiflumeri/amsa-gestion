@@ -1,7 +1,7 @@
 <!--
 seccion: Importación de datos
 resumen: La categoría de mayor impacto del sistema. Qué hace cada opción, qué no protege nada y cómo correrla sin riesgo.
-revisado: 2026-10-09
+revisado: 2026-10-14
 rutas: /carga, /plantillas
 -->
 # Actualizaciones
@@ -13,7 +13,9 @@ rutas: /carga, /plantillas
 >
 > Si apuntás el archivo a la **remesa equivocada**, el sistema da de alta todas las filas como casos
 > nuevos ahí. Lo que **sí** está protegido es lo peor: si ninguna fila matchea la cartera, ni la
-> desasignación ni la marcación de ausentes se ejecutan — abortan y lo registran.
+> desasignación ni la marcación de ausentes se ejecutan — abortan, y el resultado lo dice (ver "Qué mirar
+> después de correr"). Para esa cuenta **no cuentan los casos que la misma carga crea**: un archivo apuntado a la
+> remesa equivocada no pasa la protección por traer un documento repetido.
 >
 > Pero un archivo que matchea **parcialmente** sigue siendo peligroso: los casos que no vinieron se
 > marcan como pagados. **La vista previa no te va a avisar**: no hay un número de "cuántos casos
@@ -90,7 +92,8 @@ La más importante. Un caso que estaba en la remesa vinculada y **no viene en el
 > ### La red que tienen las dos
 >
 > Si **ninguna** fila del archivo matchea la cartera, las dos opciones destructivas —desasignar y
-> marcar como pagó todo— **abortan solas** y no tocan a nadie. Queda registrado en la auditoría.
+> marcar como pagó todo— **abortan solas** y no tocan a nadie. No cuentan los casos que la misma carga crea.
+> Queda registrado en la auditoría.
 >
 > Ese guard existe por el incidente de los 342.792 deudores desasignados.
 >
@@ -157,6 +160,23 @@ canceló o se interrumpió, avisá a soporte antes de volver a correrla**: es lo
 
 ## Qué mirar después de correr
 
+- **La tarjeta "Qué hizo la carga"**, en el resultado y en el detalle. Su primera línea dice cuántas filas
+  coincidieron con casos de la cartera, cuántos casos nuevos se crearon y cuántos se reasignaron
+  (*"N filas coincidieron con casos de la cartera · N casos nuevos · N reasignados"*). Las siguientes dicen qué
+  pasó con los ausentes del archivo:
+  - *"N casos ausentes del archivo se dieron por pagados"* (opción de darlos por pagados), y en naranja *"N
+    ausentes sin importe no se tocaron"*.
+  - *"N casos ausentes del archivo se desasignaron"* (opción de desasignar).
+  - *"Los casos ausentes del archivo no se tocaron (la plantilla dice ignorarlos)"*.
+  - En naranja, **"No se dio por pagado a ningún ausente: ninguna fila del archivo coincidió con un caso que ya
+    estuviera en la remesa de origen. Revisá el archivo, la plantilla y la remesa de origen."** (con la opción de
+    desasignar dice **"No se desasignó a ningún ausente: …"**, con el mismo resto). Es la red de arriba en acción: el archivo
+    no se parece a la cartera (casi siempre, remesa de origen equivocada) y por eso no se tocó a nadie. Los
+    casos del archivo sí se cargaron como nuevos, así que conviene revisarlo antes de volver a correr.
+  - *"Los ausentes no se tocaron: la plantilla solo actualiza datos, o el archivo no trajo importes"*.
+  - En una carga que se canceló o falló antes del cierre: *"El cierre de los ausentes no corrió"* (en naranja).
+  - En una carga **terminada con advertencias** sin resumen del cierre: *"El cierre de los ausentes no llegó a
+    terminar: mirá el aviso de la carga."* (en naranja).
 - **Casos nuevos creados.** El indicador más confiable de que apuntaste bien o mal.
 - **El detalle de errores**, fila por fila, desde el historial.
 - **La auditoría**: la desasignación y la re-asignación dejan un evento por corrida con el conteo de

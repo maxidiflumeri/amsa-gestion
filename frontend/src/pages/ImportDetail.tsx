@@ -52,6 +52,7 @@ import {
 import type { StatusValue } from '../components/ui';
 import type { DataTableColumn } from '../components/ui';
 import MulticlavesLoteResumen from '../components/import/MulticlavesLoteResumen';
+import ResumenDeCarga from '../components/import/ResumenDeCarga';
 import AvisosCarga from '../components/import/AvisosCarga';
 import TarjetaProgreso from '../components/import/progreso/TarjetaProgreso';
 import { BotonCancelarCarga } from '../components/import/ImportProgress';
@@ -546,6 +547,10 @@ export default function ImportDetail() {
                             <AlertTitle>{resultadoPresentado.titulo}</AlertTitle>
                             {resultadoPresentado.detalle}
                         </Alert>
+                    )}
+
+                    {carga && carga.terminal === true && (
+                        <ResumenDeCarga carga={carga} sx={{ mb: 3 }} />
                     )}
 
                     {/* Claves de pago (solo MULTICLAVES) */}

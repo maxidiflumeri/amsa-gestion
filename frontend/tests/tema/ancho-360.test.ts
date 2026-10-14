@@ -15,6 +15,7 @@ const ARCHIVOS = [
     'pages/ImportDetail.tsx',
     'pages/ImportHistory.tsx',
     'components/import/ErroresDeCarga.tsx',
+    'components/import/ResumenDeCarga.tsx',
     'components/layout/AppShell/NotificacionesPopover.tsx',
     'components/layout/AppShell/NotificacionesBell.tsx',
     'components/layout/AppShell/NotificacionItem.tsx',

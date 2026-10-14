@@ -19,6 +19,7 @@ import ListAltIcon from "@mui/icons-material/ListAlt";
 import VisibilityIcon from "@mui/icons-material/Visibility";
 import { useNavigate } from "react-router-dom";
 import type { RemesaNoEncolada } from "../../api/imports";
+import ResumenDeCarga from "./ResumenDeCarga";
 import type { EstadoCargaDto } from "../../types/importProgreso";
 import {
     casosActualizados,
@@ -262,6 +263,15 @@ export default function ImportSummary({
                     {nuevos !== null && <Metrica valor={nuevos} etiqueta="Casos nuevos" />}
                     {actualizados !== null && <Metrica valor={actualizados} etiqueta="Casos actualizados" />}
                 </Box>
+
+                {/* Qué hizo cada remesa. No se suman: los números de una carga de varios registros o archivos no son sumables con sentido. */}
+                {resultados.map((r) => (
+                    <ResumenDeCarga
+                        key={r.remesaId}
+                        carga={r}
+                        titulo={varias ? `Qué hizo la carga · Remesa ${r.numeroRemesa}` : undefined}
+                    />
+                ))}
 
                 {tasaExito !== null && (
                     <Chip

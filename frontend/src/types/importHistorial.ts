@@ -78,8 +78,12 @@ export interface ErrorDeCargaDto {
      *  para las pestañas viejas; el código nuevo lee `tipo` y `fila`. */
     rowNumber: number;
     tipo: TipoErrorDeCarga;
-    /** Posición de la fila entre las que procesó la carga, contando desde 1. null en un aviso. */
+    /** Lo que se muestra en la columna "Fila": la del archivo si se conoce (`linea`), si no la posición entre las filas
+     *  procesadas contando desde 1 (lo de C2a). null en un aviso. */
     fila: number | null;
+    /** true = `fila` es la fila del archivo (C3a). false = es la posición entre las procesadas (carga anterior, o
+     *  categoría sin filas de archivo). Un backend anterior a C3a no lo manda: se lee con `=== true`. */
+    filaEsDelArchivo: boolean;
     errorMsg: string;
     rawRow: unknown;
     createdAt: string;
@@ -101,4 +105,7 @@ export type CodigoErrorImport =
     | 'NINGUNA_RETOMABLE' // retomar un grupo: ninguna se puede
     | 'NO_ES_PENDIENTE' // confirmar-pendientes: la remesa no es un borrador ya confirmado
     | 'ORIGEN_DISTINTO' // confirmar-pendientes: no se confirmaron con las mismas remesas de origen
-    | 'CAMBIO_DE_ESTADO'; // eliminar: la carga cambió (otro `rev`) desde que la pantalla la mostró
+    | 'CAMBIO_DE_ESTADO' // eliminar: la carga cambió (otro `rev`) desde que la pantalla la mostró
+    | 'REVERTIR_NO_TERMINO' // revertir: la acción masiva no terminó bien
+    | 'REVERTIR_INCOMPLETO' // revertir: los datos para revertir no se guardaron completos
+    | 'REVERSION_EN_CURSO'; // revertir: ya se está revirtiendo

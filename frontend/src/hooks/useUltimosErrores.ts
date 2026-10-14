@@ -5,7 +5,7 @@ import type { ErroresRespuesta } from '../types/importHistorial';
 import type { EstadoCargaDto } from '../types/importProgreso';
 import { REFRESCO_COLA_MS, crearRefrescoLimitado } from '../utils/estadoCarga';
 
-const PARAMS = { tipo: 'TODOS', orden: 'desc', page: 1, pageSize: 5 } as const;
+const PARAMS = { tipo: 'TODOS', orden: 'desc', reciente: true, page: 1, pageSize: 5 } as const;
 
 /**
  * Los últimos 5 errores y avisos de una carga, para la tarjeta de progreso (docs/imports-progreso-c2-spec.md §16.4.4).

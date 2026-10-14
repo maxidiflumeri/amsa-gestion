@@ -1,7 +1,7 @@
 <!--
 seccion: Importación de datos
 resumen: Marcar algo en bloque sobre un listado de casos. Incluye un modo que actúa sobre toda la empresa.
-revisado: 2026-10-09
+revisado: 2026-10-14
 rutas: /carga
 -->
 # Acciones masivas
@@ -97,12 +97,25 @@ de confirmar.
 Es la única categoría con **deshacer**. En el historial de importaciones, una carga de acciones
 finalizada tiene un botón de revertir que deja los casos como estaban.
 
-> **Si la carga terminó "con advertencias", no uses Revertir sin avisar a soporte.** El botón aparece
+> **Si la carga terminó "con advertencias", Revertir no se puede usar: avisá a soporte.** El botón aparece
 > igual, pero los datos para deshacer se guardan en el post-proceso, que en ese caso no terminó: pueden
-> estar parciales, y se puede una sola vez.
+> estar parciales. El sistema lo detecta y responde *"Los datos para revertir esta acción no se guardaron
+> completos: Revertir desharía solo una parte. Avisá a soporte."*, sin tocar nada.
 
 Requiere el permiso de acciones masivas, y solo se puede revertir **una vez**: después queda marcada
 como ya revertida.
+
+**Cuándo el sistema se niega a revertir:**
+
+- La acción **no terminó bien** (falló o sigue en curso): *"Esta acción masiva no terminó bien: los datos para
+  revertirla no se guardaron. Avisá a soporte; no la vuelvas a cargar."*
+- Terminó **con advertencias**: el aviso de arriba.
+- **Ya se está revirtiendo** (otra pestaña u otra persona lo pidió hace un momento): *"Esta acción ya se está
+  revirtiendo. Esperá a que termine y actualizá el Historial."*
+
+Si el servidor no responde mientras se revierte, la pantalla avisa *"No llegó la respuesta del servidor. La
+reversión puede seguir corriendo: actualizá el Historial en unos minutos antes de volver a intentar."* Mirá el
+Historial antes de repetir el pedido.
 
 > **Revertir una acción borra los comentarios que esa acción creó.** Si la acción agregó un
 > comentario, al revertir desaparece. Es coherente —se deshace todo lo que hizo— pero si el gestor
@@ -116,7 +129,7 @@ Una acción masiva **todavía en la cola** se puede cancelar como cualquier carg
 retomar. En cambio, **una que ya empezó no se puede cancelar**: el botón **Cancelar importación** queda
 deshabilitado y dice *"Una acción masiva que ya empezó no se cancela: esperá a que termine y usá Revertir."*
 El motivo: los datos para deshacerla se guardan recién al terminar, así que cancelar a mitad le quitaría el
-único remedio que tiene. Si la acción salió mal, dejala terminar y usá **Revertir**, que la deshace (con las salvedades de más arriba si terminó con advertencias).
+único remedio que tiene. Si la acción salió mal, dejala terminar y usá **Revertir**, que la deshace (salvo que haya terminado con advertencias: ver más arriba).
 Ver [Importar un archivo](/ayuda/importacion/importar-un-archivo), "Cancelar una importación".
 
 ---
@@ -188,8 +201,8 @@ No: pisa el valor con el que estaba antes de la acción. La propia pantalla lo a
 
 **¿Y una carga "finalizada con advertencias"?**
 El botón **Revertir** aparece igual (la carga figura como finalizada), pero los datos para deshacer se
-guardan en el post-proceso, que en ese caso no terminó: pueden estar **parciales**, así que revertir
-puede deshacer solo una parte, y solo se puede **una vez**. Avisá a soporte **antes** de usarlo.
+guardan en el post-proceso, que en ese caso no terminó: pueden estar **parciales**. Por eso el sistema no deja
+revertirla y responde *"Los datos para revertir esta acción no se guardaron completos…"*. Avisá a soporte.
 
 **¿Y si el servidor se reinició mientras corría la acción?**
 Una carga que se interrumpe **ya no se reinicia sola**: a los pocos minutos sin señal queda **fallida** con
@@ -204,7 +217,8 @@ No. Si todavía está en cola, sí; si ya empezó, hay que esperar a que termine
 
 **¿Puedo revertir una carga que quedó fallida?**
 No. El botón solo aparece en las finalizadas, y los datos para deshacer se guardan recién al terminar
-bien. Una acción fallida deja los cambios aplicados y sin vuelta atrás.
+bien. Si se intenta igual, el sistema responde *"Esta acción masiva no terminó bien…"*. Una acción fallida
+deja los cambios aplicados y sin vuelta atrás.
 
 **¿Sirve para cargar pagos o facturas?**
 No. Acciones masivas toca estados, campos, datos adicionales, comentarios y contactos. Para plata están

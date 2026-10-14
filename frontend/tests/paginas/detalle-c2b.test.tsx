@@ -67,7 +67,7 @@ describe('TD-3 — en curso: la tarjeta de detalle', () => {
         expect(t).toContain('En total: 12 errores de fila y 1 aviso');
         await esperar(() => /De la tabla/.test(b!.texto()), { que: 'la tabla de errores de siempre' });
         const asc = b.srv.de('GET', /^\/import\/errores\/141\?/).filter((p) => /orden=asc/.test(p.ruta));
-        const desc = b.srv.de('GET', /^\/import\/errores\/141\?/).filter((p) => /orden=desc&page=1&pageSize=5/.test(p.ruta));
+        const desc = b.srv.de('GET', /^\/import\/errores\/141\?/).filter((p) => /orden=desc&reciente=true&page=1&pageSize=5/.test(p.ruta));
         expect(asc.length).toBeGreaterThanOrEqual(1);
         expect(desc.length).toBeGreaterThanOrEqual(1);
     });

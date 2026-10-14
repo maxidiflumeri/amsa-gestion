@@ -36,7 +36,7 @@ import { AccionesHistorial, DialogoConfirmarPendientes, DialogoEliminarImportaci
 import { CeldaEstado, CeldaFilas, CeldaImportacion } from '../components/import/historial/CeldasHistorial';
 import EncabezadoDivision from '../components/import/historial/EncabezadoDivision';
 import type { HistorialItemDto } from '../types/importHistorial';
-import { TEXTO_RETOMAR_UNA, TEXTO_RETOMAR_VARIAS, codigoDeError, plural } from '../utils/estadoCarga';
+import { TEXTO_RETOMAR_UNA, TEXTO_RETOMAR_VARIAS, TEXTO_REVERSION_SIN_RESPUESTA, codigoDeError, plural, respuestaPerdida } from '../utils/estadoCarga';
 import { accionesDeFila, inicioDeBloque, ordenarParaMostrar, textoEliminar, tramoDeBloque } from '../utils/historialImportaciones';
 
 type FilaHistorial = HistorialItemDto & Record<string, unknown>;
@@ -225,7 +225,8 @@ export default function ImportHistory() {
         if (!revertirId) return;
         setRevirtiendo(true);
         try {
-            const { data } = await api.post(`/import/remesas/${revertirId}/revertir-acciones`);
+            // `silencioso`: el aviso de un corte lo da esta pantalla, con su propio texto (el interceptor global diría solo «Sin conexión»).
+            const { data } = await api.post(`/import/remesas/${revertirId}/revertir-acciones`, undefined, { silencioso: true });
             notify.success(
                 data?.yaRevertida
                     ? 'La acción ya estaba revertida'
@@ -233,7 +234,9 @@ export default function ImportHistory() {
             );
             void refrescar();
         } catch (err) {
-            notify.error(err as Error);
+            // Sin respuesta (o un corte del proxy) la reversión puede seguir corriendo en el servidor: no se ofrece reintentar a ciegas.
+            notify.error(respuestaPerdida(err) ? TEXTO_REVERSION_SIN_RESPUESTA : (err as Error));
+            void refrescar();
         } finally {
             setRevirtiendo(false);
             setRevertirId(null);

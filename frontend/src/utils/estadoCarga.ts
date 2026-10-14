@@ -495,7 +495,7 @@ export function resultadoEsAdvertencia(resultado: unknown): boolean {
 
 /** Filas de `importerror` que son avisos de la carga y no errores de una fila (rowNumber 0 ≠ aviso: la primera fila de datos también es 0). */
 export function esAvisoDeCarga(errorMsg: unknown): boolean {
-    return typeof errorMsg === 'string' && /^\[(aviso|parseo|post-proceso)\]/.test(errorMsg);
+    return typeof errorMsg === 'string' && /^\[(aviso|parseo|post-proceso)\]/i.test(errorMsg);
 }
 
 // ─── Fase C, entrega 1: carga dividida, cancelar y retomar (docs/imports-progreso-realtime-spec.md §10.8) ───
@@ -794,7 +794,7 @@ export function grupoTerminado(remesas: EstadoCargaDto[]): boolean {
 
 // ─── Fase C, entrega 2a: el Historial y los errores de una carga (docs/imports-progreso-c2-spec.md §6.1) ───
 
-const CODIGOS_DE_ERROR: readonly string[] = ['CORTE_YA_CARGADO', 'CORTE_YA_CONFIRMADO', 'NINGUNA_RETOMABLE', 'NO_ES_PENDIENTE', 'ORIGEN_DISTINTO'];
+const CODIGOS_DE_ERROR: readonly string[] = ['CORTE_YA_CARGADO', 'CORTE_YA_CONFIRMADO', 'NINGUNA_RETOMABLE', 'NO_ES_PENDIENTE', 'ORIGEN_DISTINTO', 'REVERTIR_NO_TERMINO', 'REVERTIR_INCOMPLETO', 'REVERSION_EN_CURSO'];
 
 /** El `code` que el backend agrega al cuerpo de un 409 que la pantalla reconoce. Null si no hay, no se conoce o no es un error de axios. */
 export function codigoDeError(err: unknown): CodigoErrorImport | null {
@@ -827,4 +827,17 @@ export function motivoNoRetomablePorCorte(carga: Partial<Pick<EstadoCargaDto, 'c
     const remesas = carga.corteRepetidoEn;
     if (!Array.isArray(remesas) || remesas.length === 0) return null;
     return `El corte de esta remesa ya figura en la remesa ${remesas.join(', ')}: no se puede retomar. Si esta ya no hace falta, eliminala.`;
+}
+
+// ─── Fase C, entrega 3a: Revertir una acción masiva (docs/imports-progreso-c3-spec.md §6.3) ───
+
+/** La reversión no devolvió respuesta, pero puede seguir corriendo en el servidor. */
+export const TEXTO_REVERSION_SIN_RESPUESTA =
+    'No llegó la respuesta del servidor. La reversión puede seguir corriendo: actualizá el Historial en unos minutos antes de volver a intentar.';
+
+/** El pedido no obtuvo respuesta del servidor (corte de red, timeout) o el proxy respondió 502, 503 o 504. */
+export function respuestaPerdida(err: unknown): boolean {
+    if (!isAxiosError(err)) return false;
+    const status = err.response?.status;
+    return !err.response || status === 502 || status === 503 || status === 504;
 }

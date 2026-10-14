@@ -153,18 +153,25 @@ Si la carga dice que hubo errores y no se pueden leer, la tarjeta lo dice (*"No 
 **Mientras la carga corre**, arriba del detalle se ve su progreso: los pasos (**En cola → Procesando → Post-proceso →
 Listo**; en el celular, una línea como *"Paso 2 de 4 · Procesando"*), la fase con el porcentaje, la barra y el botón
 para cancelar. Si hubo errores o avisos, debajo aparecen **los últimos cinco** (*"Fila 1.204 · …"*) con el total
-(*"En total: 1.204 errores de fila y 3 avisos"*). Primero van los de número de fila más alto, y los avisos solo
-completan la lista cuando hay menos de cinco errores de fila; el total cuenta los dos. En una carga dividida se suma
+(*"En total: 1.204 errores de fila y 3 avisos"*). Son los **cinco más nuevos**, errores de fila y avisos juntos,
+del último que apareció al más viejo: un aviso reciente figura entre ellos aunque haya muchos errores de fila.
+El total cuenta los dos. En una carga dividida se suma
 la barra de la división, *"Remesas terminadas: 2 de 3"*, que avanza sola a medida que terminan las otras remesas.
 Cuando la carga termina, ese bloque deja lugar al resumen.
 
 Los avisos
 (`[aviso]`, `[parseo]`, `[post-proceso]`) figuran con **—** en lugar del número de fila; una fila con error siempre
-lleva su número. **El número cuenta desde 1** y es la posición de la fila entre las que procesó la carga: no cuenta el
-encabezado ni las filas descartadas por un filtro, así que no es la línea del archivo (pasando el mouse por el
-encabezado de la columna lo explica; para ubicar el registro, usá la columna con el contenido de la fila). Con varios archivos, el mensaje trae el
+lleva su número. **En las cargas nuevas de CSV, Excel y ancho fijo el número es la fila del archivo**, contando el encabezado y
+las filas vacías: en Excel, el número de fila de la hoja, y el CSV que se descarga trae el mismo número.
+**Multirregistro, Multiarchivo y Claves de pago** no traen ese dato y siguen como las cargas viejas: el número es la
+posición de la fila entre las que procesó la carga, con el mismo tooltip. En las **cargas anteriores a esta función** el número es otra cosa: la posición
+de la fila entre las que procesó la carga, contando desde 1, sin el encabezado ni las filas descartadas por un
+filtro, así que no es la línea del archivo (para ubicar el registro, usá la columna con el contenido de la fila).
+Pasando el mouse por el encabezado de la columna, la pantalla dice cuál de las dos es. Con varios archivos, el mensaje trae el
 `[archivo:línea]`: la línea es la fila de datos dentro de ese archivo, contando desde 1 y sin el
-encabezado (si el archivo tiene encabezado, es la línea siguiente). Los avisos
+encabezado (si el archivo tiene encabezado, es la línea siguiente). Por eso, con varios archivos y encabezado, la
+columna **Fila** y el `[archivo:línea]` del mensaje pueden diferir en 1: la columna cuenta el encabezado y el
+mensaje no. Los avisos
 cuentan aunque ninguna fila haya dado error: incluyen los que escriben las propias categorías al cargar
 (los de Pagos con número de convenio y los de Claves de pago, más abajo). Una carga que falló, que se
 canceló, que terminó con advertencias o que no tenía filas muestra además un cartel arriba con el motivo. El estado grande de arriba del detalle usa las mismas palabras que la grilla (**Finalizada con errores**, **Cancelada**, **En cola**…), y
@@ -269,8 +276,20 @@ Esta es la parte que conviene leer **antes** de necesitarla.
 
 ### Revertir — solo acciones masivas
 
-Una carga de **Acciones masivas** finalizada tiene botón de **revertir**: deja los casos como estaban (con las salvedades de una carga "con advertencias": ver la fila de Acciones masivas de la tabla de advertencias y [Acciones masivas](/ayuda/importacion/acciones-masivas)).
+Una carga de **Acciones masivas** finalizada tiene botón de **revertir**: deja los casos como estaban.
 Se puede una sola vez.
+
+El sistema **se niega a revertir** (y el aviso dice por qué) en estos casos:
+
+| Aviso | Qué pasó | Qué hacer |
+|---|---|---|
+| *"Esta acción masiva no terminó bien: los datos para revertirla no se guardaron. Avisá a soporte; no la vuelvas a cargar."* | La carga no está finalizada (falló, o sigue en curso) | Avisar a soporte |
+| *"Los datos para revertir esta acción no se guardaron completos: Revertir desharía solo una parte. Avisá a soporte."* | La carga terminó **con advertencias**: el cierre que guarda los datos para deshacer no terminó | Avisar a soporte |
+| *"Esta acción ya se está revirtiendo. Esperá a que termine y actualizá el Historial."* | Alguien más (u otra pestaña) ya pidió revertirla y todavía está corriendo | Esperar y actualizar el Historial |
+
+Si revertir tarda y la pantalla no recibe respuesta, el aviso es *"No llegó la respuesta del servidor. La
+reversión puede seguir corriendo: actualizá el Historial en unos minutos antes de volver a intentar."* No
+vuelvas a apretar Revertir enseguida: mirá primero si la fila ya figura como revertida.
 
 **Ninguna otra categoría tiene deshacer.** No hay botón de revertir para deudores, facturas, pagos,
 contactos ni actualizaciones.
@@ -326,7 +345,8 @@ se borra la fila del historial y **los pagos quedan en la base**.
 >
 > El botón solo aparece si la carga quedó **finalizada**. Si se cortó a mitad de camino, los cambios
 > que alcanzó a aplicar quedan aplicados y **no hay información para deshacerlos**: los datos que
-> permiten revertir se guardan recién al terminar bien.
+> permiten revertir se guardan recién al terminar bien. Si igual se intenta (por ejemplo, desde una pestaña
+> que quedó abierta), el sistema responde *"Esta acción masiva no terminó bien…"* y no toca nada.
 
 ### La conclusión práctica
 
@@ -477,7 +497,7 @@ también. La pantalla lo dice (*"Quedó sin hacer…"*); esta es la tabla comple
 | **Deudores y Facturas** | El cálculo del importe de los casos desde sus facturas (salvo que la plantilla diga **«No calcular»**) y la consolidación. Los casos que vinieron sin importe pueden haber quedado sin él | Avisar a soporte |
 | **Multirregistro** | La consolidación de los casos tocados y el cierre de las promesas cumplidas (esta categoría nunca desasigna ausentes) | Avisar a soporte |
 | **Multiarchivo** | El cierre de los ausentes (desasignarlos, solo si la plantilla tiene activada la desasignación), la consolidación de los casos tocados y el cierre de las promesas cumplidas | Avisar a soporte |
-| **Acciones masivas** | Guardar los datos que permiten revertir la acción | Avisar a soporte. **No uses Revertir**: puede deshacer solo una parte y se puede una sola vez |
+| **Acciones masivas** | Guardar los datos que permiten revertir la acción | Avisar a soporte. Revertir no te lo va a permitir: dice *"Los datos para revertir esta acción no se guardaron completos…"* |
 | **Claves de pago** | Pudo quedar sin hacer la re-consolidación de los casos que ya tenían pagos con esas claves | Avisar a soporte |
 | **Deudores** · **Contactos** · **Enriquecimiento** | Nada de lo que se carga: en estas categorías el cierre solo limpia datos internos | Avisar a soporte con el motivo |
 
@@ -535,6 +555,11 @@ verificados.
 
 Tres candidatos: filas descartadas por **filtro** (no cuentan como error), **casos colapsados** porque
 dos filas comparten el documento, o **contactos descartados** en silencio por no poder normalizarse.
+En una carga nueva, la tarjeta **Qué hizo la carga** (en el resultado y en el detalle) pone número a los dos
+últimos: *"N filas cayeron sobre un caso que esta misma carga ya había creado…"* (en Deudores) y *"N filas no
+tenían un contacto principal válido…"* (en Contactos y Enriquecimiento), los dos en naranja. Lo segundo es solo
+el contacto principal: los contactos de bloques descartados en Deudores, Deudores y Facturas o Actualizaciones
+no se cuentan en ningún lado.
 
 Si el cedente manda **varias cuentas por titular** —Telecom y Personal: la cuenta madre y las hijas—,
 el segundo caso es sistemático: con identidad por documento entra una sola cuenta por DNI y las demás

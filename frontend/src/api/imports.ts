@@ -149,6 +149,8 @@ export interface ErroresParams {
     pageSize?: number;
     tipo?: 'TODOS' | TipoErrorDeCarga;
     orden?: 'asc' | 'desc';
+    /** Los `pageSize` (máx. 20) más nuevos, errores y avisos juntos; `page` se ignora (C3a). */
+    reciente?: boolean;
 }
 
 /** Una página de los errores de una carga, con los totales de toda la carga. */

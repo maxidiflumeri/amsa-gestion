@@ -61,7 +61,7 @@ describe('TE-2 — la lectura', () => {
         await pasar(300);
         const pedidos = srv.de('GET', LEIDAS);
         expect(pedidos).toHaveLength(1);
-        expect(pedidos[0].ruta).toBe('/import/errores/141?tipo=TODOS&orden=desc&page=1&pageSize=5');
+        expect(pedidos[0].ruta).toBe('/import/errores/141?tipo=TODOS&orden=desc&reciente=true&page=1&pageSize=5');
         expect(mostrado()).toBe('error 1;fallo=false;totales=1/0');
     });
     it('con solo avisos también pide', async () => {

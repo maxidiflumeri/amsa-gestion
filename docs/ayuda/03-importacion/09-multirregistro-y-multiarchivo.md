@@ -1,7 +1,7 @@
 <!--
 seccion: Importación de datos
 resumen: Las dos categorías para formatos complejos. Qué hacen, qué se configura en la plantilla y qué puede registrar un pago.
-revisado: 2026-08-20
+revisado: 2026-10-14
 rutas: /plantillas, /carga
 -->
 # Multirregistro y Multiarchivo
@@ -128,6 +128,17 @@ entra plata**.
 Es el hecho de negocio más importante de estas dos categorías. Y no es teórico: una lista mal
 declarada ya provocó que **un pago de $82.706,87 se registrara como una anulación**.
 
+**Una baja por pago repetida no duplica el pago.** Si llega una baja por pago sobre una factura que **ya está
+pagada**, no se crea otro pago ni se toca la factura: la baja se cuenta aparte. En el resultado y en el detalle,
+la tarjeta **Qué hizo la carga** lo dice: *"N bajas por pago ya estaban aplicadas y no se volvieron a
+registrar"*. Cargar dos veces el mismo paquete registra los pagos una sola vez. Una baja por pago sobre una
+factura **anulada** sí registra el pago.
+
+La tarjeta también cuenta las altas, actualizados, reasignados y desasignados, las bajas (*"7 bajas: 5 por pago,
+2 retiradas por el cedente"*; el total incluye las bajas por pago que ya estaban aplicadas, aunque no figuren en
+*"por pago"*) y los casos que se quedaron sin facturas vigentes y salieron de gestión. En
+naranja van las bajas que no se pudieron aplicar: *"N bajas sin factura que coincida, N ambiguas"*.
+
 ### 2. Qué pasa con los ausentes
 
 La plantilla puede declarar que todo caso que **deje de venir en el archivo** salga de gestión
@@ -208,7 +219,8 @@ Es el comportamiento: lee un solo archivo por carga. Hacé una carga por archivo
 
 En Multirregistro la baja solo trae el número de aviso. Si **dos deudores de la empresa tienen ese
 mismo número de factura**, no se da de baja a ninguno y hay que resolverlo a mano. En Multiarchivo no
-pasa, porque la baja dice de qué cliente es.
+pasa, porque la baja dice de qué cliente es. La tarjeta **Qué hizo la carga** cuenta cuántas bajas quedaron
+**sin factura que coincida** y cuántas **ambiguas**, en naranja.
 
 ### Los acentos salen rotos
 
