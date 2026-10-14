@@ -1,8 +1,9 @@
 // src/import/import.controller.ts
-import { Body, Controller, Delete, Get, HttpCode, NotFoundException, Param, ParseIntPipe, Post, Put, Query, UploadedFile, UploadedFiles, UseInterceptors } from '@nestjs/common';
+import { Body, Controller, Delete, Get, HttpCode, NotFoundException, Param, ParseIntPipe, Post, Put, Query, Res, UploadedFile, UploadedFiles, UseInterceptors } from '@nestjs/common';
+import type { Response } from 'express';
 import { FileFieldsInterceptor, FileInterceptor } from '@nestjs/platform-express';
 import { ImportService } from './imports.service';
-import { CambiarEmpresaPlantillaDto, ClonarPlantillaDto, CreatePlantillaDto, CreateRemesaDto, EjecutarGrupoDto } from './dtos/import.dto';
+import { CambiarEmpresaPlantillaDto, ClonarPlantillaDto, ConfirmarPendientesDto, CreatePlantillaDto, CreateRemesaDto, EjecutarGrupoDto, ErroresQueryDto, HistorialQueryDto } from './dtos/import.dto';
 import { Permisos, UsuarioActual } from '../../auth/decorators';
 import { Audit } from '../transacciones/audit.decorator';
 import { AuditModulo, AuditTipo } from '../transacciones/audit.enums';
@@ -335,6 +336,23 @@ export class ImportController {
         );
     }
 
+    /**
+     * Confirma desde el Historial las importaciones que ya se habían confirmado y no llegaron a la cola (§5.5). El origen lo lee el
+     * servidor de la fila. Delega en `ejecutar/:id` o `ejecutar-grupo`, que repiten sus validaciones.
+     */
+    @Post('remesas/confirmar-pendientes')
+    @Permisos('importacion.ejecutar')
+    @Audit({
+        modulo: AuditModulo.IMPORT,
+        entidad: 'Remesa',
+        tipo: AuditTipo.IMPORT_START,
+        resumen: (res, req) => `Confirmó importaciones pendientes de encolar (${(req.body?.remesaIds ?? []).length})`,
+        data: (res, req) => ({ params: req.body }),
+    })
+    confirmarPendientes(@Body() dto: ConfirmarPendientesDto, @UsuarioActual() user: UsuarioJwt) {
+        return this.service.confirmarPendientes(dto.remesaIds, { sub: user.sub, permisos: user.permisos });
+    }
+
     /** Una carga dividida: sus remesas por orden, con el estado de cada una. */
     @Get('grupos/:grupoId')
     grupo(@Param('grupoId') grupoId: string) {
@@ -426,18 +444,37 @@ export class ImportController {
         return this.service.progreso(id);
     }
 
+    // --- HISTORIAL ---
+    /** Una página de remesas de la empresa con el estado real de cada carga (docs/imports-progreso-c2-spec.md §5.1). */
+    @Get('historial')
+    historial(@Query() q: HistorialQueryDto) {
+        return this.service.historial(q);
+    }
+
     // --- ERRORES ---
     @Get('errores/:remesaId')
-    getErrors(
+    getErrors(@Param('remesaId', ParseIntPipe) remesaId: number, @Query() q: ErroresQueryDto) {
+        return this.service.getErrors(remesaId, q);
+    }
+
+    /** Todos los errores de la carga en un CSV, en streaming. Se audita: trae datos personales de los casos. */
+    @Get('errores/:remesaId/csv')
+    @Audit({
+        modulo: AuditModulo.IMPORT,
+        entidad: 'Remesa',
+        tipo: AuditTipo.REPORTE_DESCARGAR,
+        entidadIdParam: 'remesaId',
+        resumen: (res, req) => `Descargó el CSV de errores de la remesa ${req.params.remesaId}`,
+        data: (res, req) => ({ tipo: req.query?.tipo ?? 'TODOS' }),
+    })
+    async erroresCsv(
         @Param('remesaId', ParseIntPipe) remesaId: number,
-        @Query('page') page?: string,
-        @Query('pageSize') pageSize?: string,
+        @Query() q: ErroresQueryDto,
+        @Res() res: Response,
     ) {
-        return this.service.getErrors(
-            remesaId,
-            page ? parseInt(page, 10) : 1,
-            pageSize ? parseInt(pageSize, 10) : 50,
-        );
+        // Si falla con la respuesta ya empezada, el servicio la destruye y relanza: el error sigue hasta la auditoría
+        // (queda FALLIDO, no "Descargó") y Nest no intenta contestar porque los encabezados ya salieron.
+        await this.service.erroresCsv(remesaId, q.tipo ?? 'TODOS', res);
     }
 
     // --- POLÍTICA ---
@@ -470,7 +507,12 @@ export class ImportController {
     deleteRemesa(
         @Param('id', ParseIntPipe) id: number,
         @UsuarioActual() user: UsuarioJwt,
+        @Query('rev') rev?: string,
     ) {
-        return this.service.deleteRemesa(id, { sub: user.sub, permisos: user.permisos });
+        const u = { sub: user.sub, permisos: user.permisos };
+        if (rev == null || rev === '') return this.service.deleteRemesa(id, u);
+        const revEsperado = Number(rev);
+        if (!Number.isInteger(revEsperado) || revEsperado < 0) throw new BadRequestException('rev inválido');
+        return this.service.deleteRemesa(id, u, { revEsperado });
     }
 }

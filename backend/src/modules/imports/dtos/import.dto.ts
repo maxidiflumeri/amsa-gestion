@@ -1,7 +1,7 @@
 // src/import/import.dto.ts
 import { FiltroFila, ImportCategoria } from '../mapping-types';
 import { Transform, Type } from 'class-transformer';
-import { ArrayMaxSize, ArrayMinSize, IsArray, IsBoolean, IsInt, IsNotEmpty, IsOptional, IsString } from 'class-validator';
+import { ArrayMaxSize, ArrayMinSize, IsArray, IsBoolean, IsIn, IsInt, IsNotEmpty, IsOptional, IsString, Max, MaxLength, Min } from 'class-validator';
 
 export class CreatePlantillaDto {
     empresaId!: number;
@@ -110,6 +110,65 @@ export class EjecutarGrupoDto {
     @IsInt({ each: true, message: 'Cada remesa de origen tiene que ser un número entero.' })
     @Type(() => Number)
     remesaOrigenIds?: number[];
+}
+
+/** `GET /import/historial` (docs/imports-progreso-c2-spec.md §4.4). */
+export class HistorialQueryDto {
+    @IsInt({ message: 'La empresa tiene que ser un número entero.' })
+    @Type(() => Number)
+    empresaId!: number;
+
+    @IsOptional()
+    @IsInt()
+    @Min(1)
+    @Type(() => Number)
+    page?: number;
+
+    @IsOptional()
+    @IsInt()
+    @Min(1)
+    @Max(100)
+    @Type(() => Number)
+    pageSize?: number;
+
+    @IsOptional()
+    @IsString()
+    @MaxLength(60)
+    q?: string;
+}
+
+/** `GET /import/errores/:remesaId` y su CSV. */
+export class ErroresQueryDto {
+    @IsOptional()
+    @IsInt()
+    @Min(1)
+    @Type(() => Number)
+    page?: number;
+
+    @IsOptional()
+    @IsInt()
+    @Min(1)
+    @Max(200)
+    @Type(() => Number)
+    pageSize?: number;
+
+    @IsOptional()
+    @IsIn(['TODOS', 'FILA', 'AVISO'])
+    tipo?: 'TODOS' | 'FILA' | 'AVISO';
+
+    @IsOptional()
+    @IsIn(['asc', 'desc'])
+    orden?: 'asc' | 'desc';
+}
+
+/** `POST /import/remesas/confirmar-pendientes`. */
+export class ConfirmarPendientesDto {
+    @IsArray({ message: 'Las importaciones tienen que ser una lista.' })
+    @ArrayMinSize(1, { message: 'Indicá al menos una importación.' })
+    @ArrayMaxSize(100, { message: 'Se admiten como máximo 100 importaciones.' })
+    @IsInt({ each: true, message: 'Cada importación tiene que ser un número entero.' })
+    @Type(() => Number)
+    remesaIds!: number[];
 }
 
 export class ClonarPlantillaDto {

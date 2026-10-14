@@ -12,6 +12,7 @@ import * as crypto from 'crypto';
 import * as fastcsv from 'fast-csv';
 import * as xlsx from 'xlsx';
 import { Prisma } from '@prisma/client';
+import type { import_progreso } from '@prisma/client';
 import { PrismaService } from 'src/prisma/prisma.service';
 import { ClonarPlantillaDto, CreatePlantillaDto, CreateRemesaDto } from './dtos/import.dto';
 import { AnchoFijoConfig, FiltroFila, MappingJson } from './mapping-types';
@@ -23,7 +24,7 @@ import { RealtimeService } from '../realtime/realtime.service';
 import { NotificacionesService } from '../notificaciones/notificaciones.service';
 import { CargaCanceladaError, CargaCerradaPorFueraError, ProgresoTracker } from './progreso/progreso-tracker';
 import {
-    armarEstadoCarga, esRetomable, leerResumen, motivoLegible, MotivoInterrupcion, RESULTADO_CANCELADA, textoCancelacion, textoInterrupcion,
+    armarEstadoCarga, conPuntoDeMiles, esRetomable, leerResumen, motivoLegible, MotivoInterrupcion, RESULTADO_CANCELADA, textoCancelacion, textoInterrupcion,
     textoNotificacion,
 } from './progreso/estado-carga';
 import type { EstadoCargaDto } from './progreso/estado-carga.types';
@@ -38,6 +39,11 @@ import {
 import { validarArchivosHomogeneos } from './utils/archivos-homogeneos';
 import { describirFiltros, pasaFiltro } from './utils/filtro-filas';
 import { numeroRemesaMulticlaves, siguienteNumeroRemesa } from './utils/numero-remesa';
+import type {
+    CodigoErrorImport, ErrorDeCargaDto, ErroresRespuesta, GrupoHistorialDto, HistorialItemDto, HistorialRespuesta,
+    OrigenDeCargaDto, PendienteDeEncolarDto, TipoErrorDeCarga,
+} from './historial.types';
+import { MAX_FILAS_CSV_ERRORES, lineaCsv, nombreArchivoCsv, numeroDeFila, tipoDeError, whereAvisos, whereFilas } from './utils/errores-carga';
 import { AcumuladorCortes, claveDeCorte, columnasDeDivision, divide, numerosSugeridos } from './utils/division-remesa';
 import { combinarHashes, hashDeArchivos } from './utils/hash-archivos';
 import { ContadorColisiones, resolverIdentidad } from './utils/identidad-deudor';
@@ -123,6 +129,34 @@ interface FilaBloqueada {
     rev: number | null;
     createdAt: Date | null;
 }
+
+/** Lo que hace falta de una remesa "otra" para decidir si choca con el corte de una. */
+export interface FilaParaChoqueDeCorte {
+    id: number;
+    numeroRemesa: string;
+    estadoProceso: string;
+    filtroFilas: unknown;
+    progreso: { fase?: string | null; encoladaAt?: Date | null; startedAt?: Date | null; finishedAt?: Date | null; resumen?: unknown } | null;
+    _count?: { deudor: number } | null;
+}
+
+/** Lo que `erroresCsv` necesita de la respuesta HTTP (se prueba con un doble). */
+export interface SalidaCsv {
+    setHeader(nombre: string, valor: string): unknown;
+    write(trozo: string): boolean;
+    end(): unknown;
+    destroy(error?: Error): unknown;
+    on(evento: 'drain' | 'close', cb: () => void): unknown;
+    off(evento: 'drain' | 'close', cb: () => void): unknown;
+    readonly destroyed?: boolean;
+    readonly writableEnded?: boolean;
+}
+
+const SELECT_PARA_CHOQUE_DE_CORTE = {
+    id: true, numeroRemesa: true, estadoProceso: true, filtroFilas: true,
+    progreso: { select: { fase: true, encoladaAt: true, startedAt: true, finishedAt: true, resumen: true } },
+    _count: { select: { deudor: true } },
+} as const;
 
 export type SituacionCorte = 'CARGADA' | 'EN_CURSO' | 'A_MEDIAS' | 'SIN_CARGAR';
 
@@ -997,17 +1031,21 @@ export class ImportService {
             // regla que dure, así que `repetir: true` (que el asistente manda solo tras una confirmación) la saltea.
             const yaCargados = await this.cortesYaCargados(dto.empresaId, dto.plantillaId, archivoHash);
             const repetidos409: string[] = [];
+            const cortes409: Array<{ detalle: string; remesaId: number; numeroRemesa: string; situacion: SituacionCorte }> = [];
             for (const { division, filtros, detalle } of plan) {
                 const ya = yaCargados.get(claveDeCorte(filtros));
                 if (ya && ya.situacion !== 'SIN_CARGAR' && division.repetir !== true) {
                     repetidos409.push(`${detalle} en la remesa ${ya.numeroRemesa} (${TEXTO_SITUACION_CORTE[ya.situacion]})`);
+                    cortes409.push({ detalle, remesaId: ya.remesaId, numeroRemesa: ya.numeroRemesa, situacion: ya.situacion });
                 }
             }
             if (repetidos409.length > 0) {
                 this.logger.warn(`Alta rechazada: cortes ya cargados — ${repetidos409.join('; ')}`);
-                throw new ConflictException(
+                throw this.conflicto(
+                    'CORTE_YA_CARGADO',
                     `Este archivo ya tiene cortes cargados: ${repetidos409.join('; ')}. ` +
                     'Destildalos, o confirmá que querés cargarlos de nuevo: sus casos van a quedar duplicados.',
+                    { cortes: cortes409 },
                 );
             }
             const conRepeticion = plan.filter((x) => x.division.repetir === true && yaCargados.has(claveDeCorte(x.filtros)));
@@ -1119,23 +1157,81 @@ export class ImportService {
         if (!this.tieneCortePropio(f.filtroFilas) || !f.archivoHash || f.plantillaId == null || !f.createdAt) return [];
         const otras = await tx.remesa.findMany({
             where: { empresaId: f.empresaId, plantillaId: f.plantillaId, archivoHash: f.archivoHash, id: { not: f.id } },
-            select: {
-                id: true, numeroRemesa: true, estadoProceso: true, filtroFilas: true,
-                progreso: { select: { fase: true, encoladaAt: true, startedAt: true, finishedAt: true, resumen: true } },
-                _count: { select: { deudor: true } },
-            },
+            select: SELECT_PARA_CHOQUE_DE_CORTE,
         });
+        return this.choquesDeCorte(f, otras ?? []).map((o) => o.numeroRemesa);
+    }
+
+    /**
+     * La regla de la guarda de cortes, en un solo lugar: la usan el endpoint (con la fila bloqueada) y la lectura
+     * (`cortesRepetidosDe`, para no ofrecer lo que el endpoint va a rechazar). Mismo corte, confirmada después de que `f` se
+     * creó, situación distinta de SIN_CARGAR. Devuelve esas remesas.
+     */
+    private choquesDeCorte(
+        f: { id: number; filtroFilas: unknown; createdAt?: Date | null },
+        otras: FilaParaChoqueDeCorte[],
+    ): FilaParaChoqueDeCorte[] {
+        if (!this.tieneCortePropio(f.filtroFilas) || !f.createdAt) return [];
         const clave = claveDeCorte(f.filtroFilas);
         const desde = new Date(f.createdAt).getTime();
-        const choques: string[] = [];
-        for (const o of otras ?? []) {
+        const choques: FilaParaChoqueDeCorte[] = [];
+        for (const o of otras) {
+            if (o.id === f.id) continue;
             if (!this.tieneCortePropio(o.filtroFilas) || claveDeCorte(o.filtroFilas) !== clave) continue;
             const confirmada = o.progreso?.encoladaAt ? new Date(o.progreso.encoladaAt).getTime() : null;
             if (confirmada == null || confirmada <= desde) continue;
             const situacion = this.situacionDeCorte(o.estadoProceso, o.progreso, o._count?.deudor ?? 0);
-            if (situacion && situacion !== 'SIN_CARGAR') choques.push(o.numeroRemesa);
+            if (situacion && situacion !== 'SIN_CARGAR') choques.push(o);
         }
         return choques;
+    }
+
+    /**
+     * Para cada remesa retomable por su fila, con corte propio, los números de las remesas donde ya figura ese corte
+     * (§5.2). Una consulta por archivo y plantilla, no por remesa. Solo trae las que tienen algo: el resto no figura.
+     */
+    private async cortesRepetidosDe(
+        remesas: Array<{
+            id: number; empresaId: number; plantillaId: number | null; archivoHash: string | null;
+            filtroFilas: unknown; createdAt?: Date | null; estadoProceso: string; progreso: import_progreso | null;
+        }>,
+    ): Promise<Map<number, string[]>> {
+        const resultado = new Map<number, string[]>();
+        const porArchivo = new Map<string, typeof remesas>();
+        for (const r of remesas) {
+            if (!esRetomable(r.estadoProceso, r.progreso) || !this.tieneCortePropio(r.filtroFilas)) continue;
+            if (!r.archivoHash || r.plantillaId == null || !r.createdAt) continue;
+            const k = `${r.empresaId}|${r.plantillaId}|${r.archivoHash}`;
+            porArchivo.set(k, [...(porArchivo.get(k) ?? []), r]);
+        }
+        for (const grupo of porArchivo.values()) {
+            const base = grupo[0];
+            const otras = await this.prisma.remesa.findMany({
+                where: { empresaId: base.empresaId, plantillaId: base.plantillaId as number, archivoHash: base.archivoHash as string },
+                select: SELECT_PARA_CHOQUE_DE_CORTE,
+            });
+            for (const r of grupo) {
+                const choques = this.choquesDeCorte(r, otras ?? []).map((o) => o.numeroRemesa);
+                if (choques.length > 0) resultado.set(r.id, choques);
+            }
+        }
+        return resultado;
+    }
+
+    /** 409 con código (docs/imports-progreso-c2-spec.md §4.5): superconjunto del cuerpo de siempre, `message` intacto. */
+    private conflicto(code: CodigoErrorImport, message: string, datos: Record<string, unknown> = {}): ConflictException {
+        return new ConflictException({ statusCode: 409, error: 'Conflict', message, code, ...datos });
+    }
+
+    /** Retomar sin ninguna retomable: con los motivos de cada una cuando se conocen. */
+    private ningunaRetomable(omitidas: Array<{ remesaId: number; numeroRemesa: string; motivo: string }>): ConflictException {
+        const mensaje =
+            omitidas.length === 0
+                ? 'Ninguna de las importaciones se puede retomar: ya procesaron filas o no terminaron.'
+                : 'Ninguna de las importaciones se puede retomar. ' +
+                  omitidas.slice(0, 5).map((o) => `Remesa ${o.numeroRemesa}: ${o.motivo}`).join(' ') +
+                  (omitidas.length > 5 ? ` Y ${omitidas.length - 5} más.` : '');
+        return this.conflicto('NINGUNA_RETOMABLE', mensaje, { omitidas });
     }
 
     private textoChoqueAlConfirmar(choques: Array<{ numero: string; otras: string[] }>): string {
@@ -2174,7 +2270,7 @@ export class ImportService {
             });
             if (choques.length > 0) {
                 this.logger.warn(`Encolar rechazado: el corte de la remesa ${remesaId} ya figura en ${choques.join(', ')}`);
-                throw new ConflictException(this.textoChoqueAlConfirmar([{ numero: String(fila.numeroRemesa), otras: choques }]));
+                throw this.conflicto('CORTE_YA_CONFIRMADO', this.textoChoqueAlConfirmar([{ numero: String(fila.numeroRemesa), otras: choques }]));
             }
 
             if (usuarioId) {
@@ -2439,11 +2535,15 @@ export class ImportService {
             throw new NotFoundException('La carga dividida no existe.');
         }
         const posiciones = remesas.some((r) => r.progreso?.fase === 'EN_COLA') ? await this.posicionesEnCola() : null;
+        const repetidos = await this.cortesRepetidosDe(remesas);
         return {
             grupoId,
             total: remesas[0].progreso?.grupoTotal ?? remesas.length,
             remesas: remesas.map((r) =>
-                armarEstadoCarga(r, r.progreso, new Date(), { enColaDelante: posiciones?.get(r.id) ?? null }),
+                armarEstadoCarga(r, r.progreso, new Date(), {
+                    enColaDelante: posiciones?.get(r.id) ?? null,
+                    corteRepetidoEn: repetidos.get(r.id) ?? null,
+                }),
             ),
         };
     }
@@ -2525,11 +2625,11 @@ export class ImportService {
                     }
                     if (choques.length > 0) {
                         this.logger.warn(`Grupo rechazado: ${choques.map((c) => `${c.numero} choca con ${c.otras.join(', ')}`).join('; ')}`);
-                        throw new ConflictException(this.textoChoqueAlConfirmar(choques));
+                        throw this.conflicto('CORTE_YA_CONFIRMADO', this.textoChoqueAlConfirmar(choques));
                     }
                 }
                 if (validas.length === 0) {
-                    throw new ConflictException('Ninguna de las importaciones se puede retomar: ya procesaron filas o no terminaron.');
+                    throw this.ningunaRetomable(omitidas);
                 }
                 ids = validas.map((f) => f.id);
                 // El dueño no cambió entre la lectura sin lock y ahora.
@@ -3171,7 +3271,7 @@ export class ImportService {
         }
         if (candidatas.length === 0) {
             this.logger.warn(`Retomar: ninguna de las remesas se puede retomar (${omitidas.map((o) => o.remesaId).join(', ')})`);
-            throw new ConflictException('Ninguna de las importaciones se puede retomar: ya procesaron filas o no terminaron.');
+            throw this.ningunaRetomable(omitidas);
         }
 
         const r = await this.encolarLote({
@@ -3238,7 +3338,8 @@ export class ImportService {
         const choques = await this.remesasQueChocanConElCorte(tx, f);
         if (choques.length > 0) {
             this.logger.warn(`Retomar rechazado: el corte de la remesa ${f.id} ya figura en ${choques.join(', ')}`);
-            return rechazo(new ConflictException(
+            return rechazo(this.conflicto(
+                'CORTE_YA_CONFIRMADO',
                 `El corte de esta remesa ya figura en la remesa ${choques.join(', ')}: no se puede retomar. ` +
                 'Si esta ya no hace falta, eliminala desde el Historial.',
             ));
@@ -3349,7 +3450,8 @@ export class ImportService {
             throw new NotFoundException('Remesa no encontrada');
         }
         const enColaDelante = r.progreso?.fase === 'EN_COLA' ? await this.enColaDelanteDe(remesaId, r.progreso.encoladaAt) : null;
-        return armarEstadoCarga(r, r.progreso, new Date(), { enColaDelante });
+        const corteRepetidoEn = (await this.cortesRepetidosDe([r])).get(r.id) ?? null;
+        return armarEstadoCarga(r, r.progreso, new Date(), { enColaDelante, corteRepetidoEn });
     }
 
     // --- WORKER DE IMPORTACIÓN LÓGICA PESADA ---
@@ -4235,7 +4337,8 @@ export class ImportService {
         if (!r) throw new NotFoundException();
 
         const enColaDelante = r.progreso?.fase === 'EN_COLA' ? await this.enColaDelanteDe(remesaId, r.progreso.encoladaAt) : null;
-        const carga = armarEstadoCarga(r, r.progreso, new Date(), { enColaDelante });
+        const corteRepetidoEn = (await this.cortesRepetidosDe([r])).get(r.id) ?? null;
+        const carga = armarEstadoCarga(r, r.progreso, new Date(), { enColaDelante, corteRepetidoEn });
 
         const tasaExitoPct = r.totalFilas > 0
             ? Math.round((r.okFilas / r.totalFilas) * 100)
@@ -4262,28 +4365,470 @@ export class ImportService {
             carga,
             duracionMs: carga.duracionMs,
             tasaExitoPct,
+            // Remesas de origen con las que se confirmó la carga: null si es anterior a C1 o un borrador (§5.7).
+            origen: await this.origenDeCarga(r.progreso?.resumen),
+            corte: this.textoDeCorte(r.divisionValores),
         };
     }
 
+    // --- HISTORIAL (docs/imports-progreso-c2-spec.md §5.1) ---
+
+    /** "Nómina 3082 / Gestión 3GH": el mismo formato con el que `createRemesa` arma el nombre de cada corte. null si no es un corte. */
+    private textoDeCorte(divisionValores: unknown): string | null {
+        let v = divisionValores;
+        if (typeof v === 'string') {
+            try {
+                v = JSON.parse(v);
+            } catch {
+                return null;
+            }
+        }
+        if (v === null || typeof v !== 'object' || Array.isArray(v)) return null;
+        const texto = Object.entries(v as Record<string, unknown>)
+            .map(([k, val]) => `${k} ${String(val)}`)
+            .join(' / ');
+        return texto || null;
+    }
+
+    /** Ids de las remesas de origen de un `resumen`, sin repetir y ordenados. null = la carga no tiene `resumen.origen`. */
+    private idsDeOrigen(resumenRaw: unknown): number[] | null {
+        const resumen = leerResumen(resumenRaw);
+        if (resumen?.v !== 1 || !resumen.origen || typeof resumen.origen !== 'object') return null;
+        const ids = [resumen.origen.remesaOrigenId, ...(Array.isArray(resumen.origen.remesaOrigenIds) ? resumen.origen.remesaOrigenIds : [])]
+            .map((n) => (n == null ? NaN : Number(n)))
+            .filter((n) => Number.isInteger(n) && n > 0);
+        return [...new Set(ids)].sort((a, b) => a - b);
+    }
+
+    private async origenDeCarga(resumen: unknown): Promise<OrigenDeCargaDto[] | null> {
+        const ids = this.idsDeOrigen(resumen);
+        if (ids === null) return null;
+        return this.origenesResueltos(ids, await this.remesasPorId(ids));
+    }
+
+    /** Un borrador que ya se confirmó una vez y no llegó a la cola: sin encolar ni terminar, y con `resumen.origen` (§5.5). */
+    private esPendienteDeEncolar(r: { estadoProceso: string; progreso: { encoladaAt?: Date | null; finishedAt?: Date | null; resumen?: unknown } | null }): boolean {
+        if (r.estadoProceso !== 'PENDIENTE' && r.estadoProceso !== 'VALIDANDO') return false;
+        const p = r.progreso;
+        if (!p || p.encoladaAt != null || p.finishedAt != null) return false;
+        return this.idsDeOrigen(p.resumen) !== null;
+    }
+
+    /**
+     * Mismo archivo ya confirmado después, para una remesa SIN corte (§5.5): mismas empresa, plantilla y archivo (lo
+     * garantiza la consulta), sin corte propio, confirmada después de que `f` se creó y con situación distinta de SIN_CARGAR.
+     * Es un aviso, no una guarda.
+     */
+    private mismoArchivoConfirmadoDespues(f: { id: number; createdAt?: Date | null }, otras: FilaParaChoqueDeCorte[]): FilaParaChoqueDeCorte[] {
+        if (!f.createdAt) return [];
+        const desde = new Date(f.createdAt).getTime();
+        return otras.filter((o) => {
+            if (o.id === f.id || this.tieneCortePropio(o.filtroFilas)) return false;
+            const confirmada = o.progreso?.encoladaAt ? new Date(o.progreso.encoladaAt).getTime() : null;
+            if (confirmada == null || confirmada <= desde) return false;
+            const situacion = this.situacionDeCorte(o.estadoProceso, o.progreso, o._count?.deudor ?? 0);
+            return situacion != null && situacion !== 'SIN_CARGAR';
+        });
+    }
+
+    /** Número y nombre de varias remesas en una consulta. */
+    private async remesasPorId(ids: number[]): Promise<Map<number, { numeroRemesa: string; nombre: string }>> {
+        if (ids.length === 0) return new Map();
+        const filas = await this.prisma.remesa.findMany({
+            where: { id: { in: ids } },
+            select: { id: true, numeroRemesa: true, nombre: true },
+        });
+        return new Map((filas ?? []).map((f) => [f.id, { numeroRemesa: f.numeroRemesa, nombre: f.nombre }]));
+    }
+
+    private origenesResueltos(ids: number[], porId: Map<number, { numeroRemesa: string; nombre: string }>): OrigenDeCargaDto[] {
+        return ids.map((id) => ({ remesaId: id, numeroRemesa: porId.get(id)?.numeroRemesa ?? null, nombre: porId.get(id)?.nombre ?? null }));
+    }
+
+    /**
+     * Historial de una empresa: una página de remesas con el estado de cada una, armado con la misma función que las demás
+     * lecturas. El número de consultas no depende del tamaño de la página (§5.1).
+     */
+    async historial(p: { empresaId: number; page?: number; pageSize?: number; q?: string }): Promise<HistorialRespuesta> {
+        const t0 = Date.now();
+        const page = p.page && p.page >= 1 ? p.page : 1;
+        const pageSize = p.pageSize && p.pageSize >= 1 ? p.pageSize : 25;
+        const q = (p.q ?? '').trim();
+        // `contains` arma un LIKE sin escapar: "%" o "_" en la búsqueda serían comodines. Se buscan como texto.
+        const qLike = q.replace(/[\\%_]/g, (c) => `\\${c}`);
+        const where: Prisma.remesaWhereInput = {
+            empresaId: p.empresaId,
+            ...(q ? { OR: [{ numeroRemesa: { contains: qLike } }, { nombre: { contains: qLike } }] } : {}),
+        };
+
+        const [total, filas] = await Promise.all([
+            this.prisma.remesa.count({ where }),
+            this.prisma.remesa.findMany({
+                where,
+                orderBy: { id: 'desc' },
+                skip: (page - 1) * pageSize,
+                take: pageSize,
+                include: {
+                    progreso: true,
+                    usuarioCreador: { select: { id: true, nombre: true } },
+                    plantilla: { select: { id: true, nombre: true } },
+                },
+            }),
+        ]);
+
+        const gids = [...new Set((filas ?? []).map((r) => r.progreso?.grupoId).filter((g): g is string => !!g))];
+        const miembros = gids.length
+            ? ((await this.prisma.remesa.findMany({
+                  where: { progreso: { is: { grupoId: { in: gids } } } },
+                  include: { progreso: true, usuarioCreador: { select: { id: true, nombre: true } } },
+              })) ?? [])
+            : [];
+
+        const todas = [...(filas ?? []), ...miembros];
+        const posiciones = todas.some((r) => r.progreso?.fase === 'EN_COLA') ? await this.posicionesEnCola() : null;
+        const repetidos = await this.cortesRepetidosDe(todas);
+        const ahora = new Date();
+        const cargaDe = (r: (typeof todas)[number]): EstadoCargaDto =>
+            armarEstadoCarga(r, r.progreso, ahora, {
+                enColaDelante: posiciones?.get(r.id) ?? null,
+                corteRepetidoEn: repetidos.get(r.id) ?? null,
+            });
+
+        const pendientes = await this.pendientesDeEncolar((filas ?? []).filter((r) => this.esPendienteDeEncolar(r)), p.empresaId);
+
+        const data: HistorialItemDto[] = (filas ?? []).map((r) => {
+            const nombres = (r.archivos as { nombres?: unknown } | null)?.nombres;
+            const archivos =
+                Array.isArray(nombres) && nombres.length > 0 && nombres.every((n) => typeof n === 'string' && n.length > 0)
+                    ? (nombres as string[])
+                    : null;
+            return {
+                id: r.id,
+                numeroRemesa: r.numeroRemesa,
+                nombre: r.nombre,
+                categoria: r.categoria ?? null,
+                createdAt: r.createdAt.toISOString(),
+                plantilla: r.plantilla ? { id: r.plantilla.id, nombre: r.plantilla.nombre } : null,
+                politicaId: r.politicaId ?? null,
+                accionRevertidaEn: r.accionRevertidaEn ? r.accionRevertidaEn.toISOString() : null,
+                archivos,
+                corte: this.textoDeCorte(r.divisionValores),
+                carga: cargaDe(r),
+                pendienteDeEncolar: pendientes.get(r.id) ?? null,
+            };
+        });
+
+        const grupos: Record<string, GrupoHistorialDto> = {};
+        // Los miembros de la consulta y los de la página, sin repetir: una lectura de miembros que vuelve corta no los pierde.
+        const universo = new Map<number, (typeof todas)[number]>();
+        for (const r of todas) universo.set(r.id, r);
+        for (const gid of gids) {
+            const deGrupo = [...universo.values()].filter((m) => m.progreso?.grupoId === gid);
+            const cargas = deGrupo.map(cargaDe);
+            grupos[gid] = {
+                grupoId: gid,
+                total: Math.max(0, ...deGrupo.map((m) => m.progreso?.grupoTotal ?? 0)) || deGrupo.length,
+                existentes: deGrupo.length,
+                enCurso: cargas.filter((c) => c.enCurso).length,
+                cancelables: cargas.filter((c) => c.cancelable).length,
+                retomables: cargas.filter((c) => c.retomable).length,
+                finalizadas: cargas.filter((c) => c.terminal && c.resultado !== 'FALLIDA').length,
+                noCargadas: cargas.filter((c) => c.terminal && c.resultado === 'FALLIDA').length,
+                usuarioId: deGrupo[0]?.usuarioCreadorId ?? null,
+            };
+        }
+
+        const ms = Date.now() - t0;
+        const linea = `Historial empresa=${p.empresaId} página=${page}/${pageSize} q=${q ? 'sí' : 'no'}: ${data.length} de ${total} en ${ms}ms`;
+        if (ms > 500) this.logger.log(linea);
+        else this.logger.debug(linea);
+
+        return {
+            data,
+            total,
+            page,
+            pageSize,
+            totalPages: Math.ceil(total / pageSize),
+            grupos,
+            servidorAhora: ahora.toISOString(),
+        };
+    }
+
+    /**
+     * Para cada borrador ya confirmado que no llegó a la cola: sus hermanas, el origen resuelto y lo que ya se cargó del mismo
+     * archivo (§5.5). Una consulta de borradores, una de orígenes y una por archivo.
+     */
+    private async pendientesDeEncolar(
+        pendientes: Array<{ id: number; numeroRemesa: string; empresaId: number; plantillaId: number | null; archivoHash: string | null; filtroFilas: unknown; divisionValores: unknown; createdAt: Date; usuarioCreadorId: number | null; progreso: { resumen?: unknown } | null }>,
+        empresaId: number,
+    ): Promise<Map<number, PendienteDeEncolarDto>> {
+        const resultado = new Map<number, PendienteDeEncolarDto>();
+        if (pendientes.length === 0) return resultado;
+
+        const borradores = ((await this.prisma.remesa.findMany({
+            where: {
+                empresaId,
+                estadoProceso: { in: ['PENDIENTE', 'VALIDANDO'] },
+                progreso: { is: { encoladaAt: null, finishedAt: null } },
+            },
+            include: { progreso: true },
+        })) ?? []).filter((b) => this.esPendienteDeEncolar(b));
+
+        const claveDeHermana = (r: { plantillaId: number | null; archivoHash: string | null; usuarioCreadorId: number | null; progreso: { resumen?: unknown } | null }): string =>
+            `${r.plantillaId ?? ''}|${r.archivoHash ?? ''}|${r.usuarioCreadorId ?? ''}|${(this.idsDeOrigen(r.progreso?.resumen) ?? []).join(',')}`;
+
+        const idsOrigen = new Set<number>();
+        for (const r of pendientes) for (const id of this.idsDeOrigen(r.progreso?.resumen) ?? []) idsOrigen.add(id);
+        const origenes = await this.remesasPorId([...idsOrigen]);
+
+        // Lo ya cargado del mismo archivo y plantilla, una consulta por archivo.
+        const porArchivo = new Map<string, FilaParaChoqueDeCorte[]>();
+        for (const r of pendientes) {
+            if (!r.archivoHash || r.plantillaId == null) continue;
+            const k = `${r.plantillaId}|${r.archivoHash}`;
+            if (porArchivo.has(k)) continue;
+            porArchivo.set(
+                k,
+                ((await this.prisma.remesa.findMany({
+                    where: { empresaId, plantillaId: r.plantillaId, archivoHash: r.archivoHash },
+                    select: SELECT_PARA_CHOQUE_DE_CORTE,
+                })) ?? []) as FilaParaChoqueDeCorte[],
+            );
+        }
+
+        for (const r of pendientes) {
+            const conCorte = this.tieneCortePropio(r.filtroFilas);
+            const hermanas = conCorte
+                ? this.unaPorCorte(
+                      borradores.filter((b) => this.tieneCortePropio(b.filtroFilas) && claveDeHermana(b) === claveDeHermana(r)),
+                      r,
+                  )
+                : [r];
+            const ordenadas = [...hermanas].sort((a, b) => a.id - b.id);
+            const otras = r.archivoHash && r.plantillaId != null ? porArchivo.get(`${r.plantillaId}|${r.archivoHash}`) ?? [] : [];
+            const ya = conCorte ? this.choquesDeCorte(r, otras) : this.mismoArchivoConfirmadoDespues(r, otras);
+            resultado.set(r.id, {
+                remesas: ordenadas.map((h) => ({ remesaId: h.id, numeroRemesa: h.numeroRemesa, corte: this.textoDeCorte(h.divisionValores) })),
+                origen: this.origenesResueltos(this.idsDeOrigen(r.progreso?.resumen) ?? [], origenes),
+                yaCargadoEn: ya.map((o) => ({ remesaId: o.id, numeroRemesa: o.numeroRemesa })),
+            });
+        }
+        return resultado;
+    }
+
+    /**
+     * Dos altas del mismo archivo dejan dos borradores del mismo corte, y confirmarlos juntos da siempre 409
+     * (`CORTE_YA_CONFIRMADO`). De cada corte queda uno: el de esta remesa, o el del alta más cercana a ella.
+     */
+    private unaPorCorte<T extends { id: number; filtroFilas: unknown; createdAt: Date }>(hermanas: T[], r: T): T[] {
+        const distancia = (x: T): number => Math.abs(new Date(x.createdAt).getTime() - new Date(r.createdAt).getTime());
+        const porCorte = new Map<string, T>();
+        for (const h of [...hermanas, r]) {
+            const clave = claveDeCorte(h.filtroFilas);
+            const actual = porCorte.get(clave);
+            if (!actual || h.id === r.id || (actual.id !== r.id && distancia(h) < distancia(actual))) porCorte.set(clave, h);
+        }
+        return [...porCorte.values()];
+    }
+
     // --- ERRORES POR REMESA ---
-    async getErrors(remesaId: number, page = 1, pageSize = 50) {
-        const [errors, count] = await Promise.all([
+    async getErrors(
+        remesaId: number,
+        o: { page?: number; pageSize?: number; tipo?: 'TODOS' | TipoErrorDeCarga; orden?: 'asc' | 'desc' } = {},
+    ): Promise<ErroresRespuesta> {
+        const page = o.page && o.page >= 1 ? o.page : 1;
+        const pageSize = o.pageSize && o.pageSize >= 1 ? o.pageSize : 50;
+        const orden = o.orden === 'desc' ? 'desc' : 'asc';
+        const where: Prisma.importerrorWhereInput =
+            o.tipo === 'AVISO' ? whereAvisos(remesaId) : o.tipo === 'FILA' ? whereFilas(remesaId) : { remesaId };
+        const [errors, count, avisos, todos] = await Promise.all([
             this.prisma.importerror.findMany({
-                where: { remesaId },
-                orderBy: { rowNumber: 'asc' },
+                where,
+                orderBy: [{ rowNumber: orden }, { id: orden }],
                 skip: (page - 1) * pageSize,
                 take: pageSize,
             }),
+            this.prisma.importerror.count({ where }),
+            this.prisma.importerror.count({ where: whereAvisos(remesaId) }),
             this.prisma.importerror.count({ where: { remesaId } }),
         ]);
 
         return {
-            data: errors,
+            data: (errors ?? []).map((e) => this.errorDeCarga(e)),
             total: count,
             page,
             pageSize,
             totalPages: Math.ceil(count / pageSize),
+            totales: { filas: todos - avisos, avisos },
         };
+    }
+
+    private errorDeCarga(e: { id: number; rowNumber: number; errorMsg: string; rawRow: unknown; createdAt: Date }): ErrorDeCargaDto {
+        const tipo = tipoDeError(e.rowNumber, e.errorMsg);
+        return {
+            id: e.id,
+            rowNumber: e.rowNumber,
+            tipo,
+            fila: numeroDeFila(e.rowNumber, tipo),
+            errorMsg: e.errorMsg,
+            rawRow: e.rawRow,
+            createdAt: e.createdAt instanceof Date ? e.createdAt.toISOString() : String(e.createdAt),
+        };
+    }
+
+    /**
+     * CSV de los errores de una carga, en streaming (§5.4). Pagina por clave sobre el índice (remesaId, rowNumber), nunca con
+     * `skip`. Una falla después de empezar a escribir destruye la respuesta: un archivo corto que parezca completo es peor.
+     */
+    async erroresCsv(
+        remesaId: number,
+        tipo: 'TODOS' | TipoErrorDeCarga,
+        res: SalidaCsv,
+        tope: number = MAX_FILAS_CSV_ERRORES,
+    ): Promise<void> {
+        const t0 = Date.now();
+        const remesa = await this.prisma.remesa.findUnique({ where: { id: remesaId }, select: { numeroRemesa: true } });
+        if (!remesa) {
+            this.logger.warn(`CSV de errores: la remesa ${remesaId} no existe`);
+            throw new NotFoundException('Remesa no encontrada');
+        }
+        const base: Prisma.importerrorWhereInput =
+            tipo === 'AVISO' ? whereAvisos(remesaId) : tipo === 'FILA' ? whereFilas(remesaId) : { remesaId };
+        this.logger.log(`CSV de errores de la remesa ${remesaId} (${tipo}): empieza`);
+
+        res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+        res.setHeader('Content-Disposition', `attachment; filename="${nombreArchivoCsv(remesa.numeroRemesa)}"`);
+        res.setHeader('Cache-Control', 'no-store');
+
+        const cerrada = (): boolean => res.destroyed === true || res.writableEnded === true;
+        const escribir = async (linea: string): Promise<void> => {
+            if (!res.write(linea) && !cerrada()) {
+                await new Promise<void>((resolve) => {
+                    // Se quitan las dos escuchas al primer evento: si no, cada pausa deja un 'close' colgado y el
+                    // proceso avisa MaxListenersExceededWarning en las descargas grandes.
+                    const fin = (): void => {
+                        res.off('drain', fin);
+                        res.off('close', fin);
+                        resolve();
+                    };
+                    res.on('drain', fin);
+                    res.on('close', fin);
+                });
+            }
+        };
+
+        const LOTE = 2000;
+        let escritas = 0;
+        let cursor: { rowNumber: number; id: number } | null = null;
+        try {
+            await escribir(`﻿${lineaCsv(['Tipo', 'Fila', 'Mensaje', 'Contenido de la fila (una columna por campo)'])}`);
+            let seguir = true;
+            while (seguir && !cerrada() && escritas < tope) {
+                const where: Prisma.importerrorWhereInput = cursor
+                    ? {
+                          AND: [
+                              base,
+                              { OR: [{ rowNumber: { gt: cursor.rowNumber } }, { rowNumber: cursor.rowNumber, id: { gt: cursor.id } }] },
+                          ],
+                      }
+                    : base;
+                const lote = await this.prisma.importerror.findMany({
+                    where,
+                    orderBy: [{ rowNumber: 'asc' }, { id: 'asc' }],
+                    take: LOTE,
+                });
+                for (const e of lote ?? []) {
+                    if (escritas >= tope || cerrada()) break;
+                    const dto = this.errorDeCarga(e);
+                    const campos = dto.tipo === 'AVISO' ? [] : Array.isArray(e.rawRow) ? e.rawRow : e.rawRow && typeof e.rawRow === 'object' ? Object.values(e.rawRow) : e.rawRow == null ? [] : [e.rawRow];
+                    await escribir(lineaCsv([dto.tipo === 'AVISO' ? 'Aviso' : 'Fila', dto.fila, dto.errorMsg, ...campos]));
+                    escritas++;
+                }
+                const ultimo = lote?.[lote.length - 1];
+                if (ultimo) cursor = { rowNumber: ultimo.rowNumber, id: ultimo.id };
+                seguir = (lote?.length ?? 0) >= LOTE;
+            }
+            if (!cerrada() && escritas >= tope) {
+                const totalDelTipo = await this.prisma.importerror.count({ where: base });
+                if (totalDelTipo > escritas) {
+                    await escribir(
+                        lineaCsv(['Aviso', '', `Se omitieron ${conPuntoDeMiles(totalDelTipo - escritas)} registros: este archivo trae los primeros ${conPuntoDeMiles(escritas)} de ${conPuntoDeMiles(totalDelTipo)}.`]),
+                    );
+                }
+            }
+            if (!cerrada()) res.end();
+        } catch (e: any) {
+            this.logger.error(`CSV de errores de la remesa ${remesaId}: falló tras ${escritas} registros: ${e?.message}`, e?.stack);
+            res.destroy(e instanceof Error ? e : undefined);
+            throw e;
+        }
+        this.logger.log(
+            `CSV de errores de la remesa ${remesaId}: ${escritas} registros${cerrada() && res.writableEnded !== true ? ' (el cliente cortó la descarga)' : ''} en ${Date.now() - t0}ms`,
+        );
+    }
+
+    // --- CONFIRMAR LOS QUE NO SE PUDIERON ENCOLAR (§5.5) ---
+    /**
+     * Lo que hace "Cargar las que faltan" del asistente, pero desde el Historial. No escribe por su cuenta: valida con lecturas
+     * y delega en `executeRemesa` / `ejecutarGrupo`, que repiten sus validaciones con la fila bloqueada. El origen sale de la
+     * fila, no del pedido.
+     */
+    async confirmarPendientes(remesaIds: number[], user: UsuarioDeCarga) {
+        const t0 = Date.now();
+        const ids = [...new Set((remesaIds ?? []).map(Number))].filter((n) => Number.isInteger(n) && n > 0).sort((a, b) => a - b);
+        if (ids.length < 1 || ids.length > 100) {
+            this.logger.warn(`Confirmar pendientes rechazado: ${ids.length} remesa(s); tienen que ser entre 1 y 100`);
+            throw new BadRequestException('Indicá entre 1 y 100 importaciones.');
+        }
+        const remesas = (await this.prisma.remesa.findMany({ where: { id: { in: ids } }, include: { progreso: true } })) ?? [];
+        if (remesas.length !== ids.length) {
+            this.logger.warn(`Confirmar pendientes: no existe alguna de las remesas ${ids.join(', ')}`);
+            throw new NotFoundException('Alguna de las importaciones ya no existe.');
+        }
+        remesas.sort((a, b) => a.id - b.id);
+        for (const r of remesas) this.verificarDuenoOPermiso(r.usuarioCreadorId, user, 'confirmar esta importación');
+
+        const noPendiente = remesas.find((r) => !this.esPendienteDeEncolar(r));
+        if (noPendiente) {
+            this.logger.warn(`Confirmar pendientes rechazado: la remesa ${noPendiente.id} no es un borrador ya confirmado`);
+            throw this.conflicto(
+                'NO_ES_PENDIENTE',
+                `La remesa ${noPendiente.numeroRemesa} no es una importación que se haya confirmado y no haya llegado a la cola.`,
+            );
+        }
+
+        const origenes = remesas.map((r) => this.idsDeOrigen(r.progreso?.resumen) ?? []);
+        if (origenes.some((o) => o.join(',') !== origenes[0].join(','))) {
+            this.logger.warn(`Confirmar pendientes rechazado: orígenes distintos entre ${ids.join(', ')}`);
+            throw this.conflicto('ORIGEN_DISTINTO', 'Estas importaciones se confirmaron con remesas de origen distintas: confirmalas por separado.');
+        }
+
+        const vistos = new Map<string, string>();
+        for (const r of remesas) {
+            if (!this.tieneCortePropio(r.filtroFilas)) continue;
+            const clave = claveDeCorte(r.filtroFilas);
+            const previa = vistos.get(clave);
+            if (previa) {
+                this.logger.warn(`Confirmar pendientes rechazado: las remesas ${previa} y ${r.numeroRemesa} son del mismo corte`);
+                throw this.conflicto('CORTE_YA_CONFIRMADO', `Las remesas ${previa} y ${r.numeroRemesa} son del mismo corte: confirmá una sola.`);
+            }
+            vistos.set(clave, r.numeroRemesa);
+        }
+
+        // El origen lo manda la fila, tal como se guardó al confirmar.
+        const origen = leerResumen(remesas[0].progreso?.resumen)?.origen;
+        const remesaOrigenId = origen?.remesaOrigenId ?? undefined;
+        const remesaOrigenIds = origen?.remesaOrigenIds ?? undefined;
+        this.logger.log(`Confirmar pendientes ${ids.join(', ')} usuario=${user.sub} origen=${origenes[0].join(',') || 'ninguno'}`);
+
+        if (ids.length === 1) {
+            const r = await this.executeRemesa(ids[0], user.sub, remesaOrigenId, remesaOrigenIds);
+            this.logger.log(`Confirmar pendientes: remesa ${ids[0]} encolada en ${Date.now() - t0}ms`);
+            return { message: r.message, grupoId: null as string | null, cargas: [r.carga] };
+        }
+        const g = await this.ejecutarGrupo({ remesaIds: ids, remesaOrigenId, remesaOrigenIds }, user.sub);
+        this.logger.log(`Confirmar pendientes: grupo ${g.grupoId} de ${ids.length} remesas en ${Date.now() - t0}ms`);
+        return { message: g.message, grupoId: g.grupoId as string | null, cargas: g.cargas, ...(g.noEncoladas ? { noEncoladas: g.noEncoladas } : {}) };
     }
 
     // --- EMPRESAS ---
@@ -4705,10 +5250,10 @@ export class ImportService {
     }
 
     // --- ELIMINAR REMESA ---
-    async deleteRemesa(remesaId: number, user: { sub: number; permisos: string[] }) {
+    async deleteRemesa(remesaId: number, user: { sub: number; permisos: string[] }, opciones: { revEsperado?: number } = {}) {
         const remesa = await this.prisma.remesa.findUnique({
             where: { id: remesaId },
-            include: { progreso: { select: { encoladaAt: true, startedAt: true, finishedAt: true, jobId: true } } },
+            include: { progreso: { select: { encoladaAt: true, startedAt: true, finishedAt: true, jobId: true, rev: true } } },
         });
         if (!remesa) throw new NotFoundException(`Remesa ${remesaId} no encontrada`);
 
@@ -4716,6 +5261,17 @@ export class ImportService {
         const puedeVerOtros = user.permisos.includes('importacion.ver_progreso_otros');
         if (!puedeVerOtros && remesa.usuarioCreadorId !== user.sub) {
             throw new ForbiddenException('No tenés permiso para eliminar esta importación');
+        }
+
+        // La pantalla manda el `rev` de lo que le mostró al operador. Si la carga cambió desde entonces (el caso típico:
+        // un borrador que alguien confirmó con el diálogo abierto), no se borra algo distinto de lo que se le describió.
+        // Va antes de tocar la cola. Sin `rev` (pestaña vieja, API) el comportamiento es el de siempre.
+        if (opciones.revEsperado != null && (remesa.progreso?.rev ?? 0) !== opciones.revEsperado) {
+            this.logger.warn(`Remesa ${remesaId}: borrado rechazado, la carga cambió (rev ${remesa.progreso?.rev ?? 0}, la pantalla vio ${opciones.revEsperado})`);
+            throw this.conflicto(
+                'CAMBIO_DE_ESTADO',
+                'La importación cambió desde que abriste este diálogo (por ejemplo, alguien la confirmó). Revisala antes de eliminarla.',
+            );
         }
 
         // "En curso" es encolada y sin terminar (#24): una carga EN_COLA tampoco se puede borrar, el

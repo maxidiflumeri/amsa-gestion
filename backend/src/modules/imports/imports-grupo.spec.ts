@@ -1024,6 +1024,21 @@ describe('cortes ya cargados (§10.5.6)', () => {
             expect(creadas).toHaveLength(0);
         });
 
+        it('GR-1: el 409 trae code CORTE_YA_CARGADO, statusCode, error y los cortes; e.message es el de antes', async () => {
+            const { service } = armarCortes([previa(1, 'N1', { casos: 2 })]);
+            const e: any = await service.createRemesa(dto(), [archivo(CSV)]).catch((x) => x);
+            expect(e).toBeInstanceOf(ConflictException);
+            expect(e.getResponse()).toMatchObject({
+                statusCode: 409,
+                error: 'Conflict',
+                code: 'CORTE_YA_CARGADO',
+                cortes: [{ detalle: 'Nómina N1', remesaId: 1, numeroRemesa: 'P1', situacion: 'CARGADA' }],
+            });
+            expect(e.message).toBe(
+                'Este archivo ya tiene cortes cargados: Nómina N1 en la remesa P1 (ya cargada). Destildalos, o confirmá que querés cargarlos de nuevo: sus casos van a quedar duplicados.',
+            );
+        });
+
         it('el 409 nombra TODOS los cortes repetidos, con su situación', async () => {
             const { service } = armarCortes([
                 previa(1, 'N1'),
@@ -1234,6 +1249,13 @@ describe('hallazgo 2: la guarda de cortes también al confirmar', () => {
             expect(h.queue.add).not.toHaveBeenCalled();
         });
 
+        it('GR-2: el 409 de confirmar una remesa trae code CORTE_YA_CONFIRMADO', async () => {
+            const h = armarEjecutar([otraDelMismoCorte(70, 'EN_CURSO', 10)]);
+            const e: any = await h.service.executeRemesa(11, 3).catch((x) => x);
+            expect(e.getResponse()).toMatchObject({ statusCode: 409, error: 'Conflict', code: 'CORTE_YA_CONFIRMADO', message: TEXTO('00011', 'X70') });
+            expect(e.message).toBe(TEXTO('00011', 'X70'));
+        });
+
         it('sin otra que choque confirma, y limpia cancelSolicitadaAt (hallazgo 6)', async () => {
             const h = armarEjecutar([otraDelMismoCorte(70, 'CARGADA', 600), otraDelMismoCorte(71, 'SIN_CARGAR', 10)]);
             await h.service.executeRemesa(11, 3);
@@ -1428,5 +1450,53 @@ describe('hallazgo 10: lo que el frontend necesita, afirmado', () => {
         expect(creadas.map((c) => c.divisionValores['Nómina'])).toEqual(['N3', 'N1', 'N2']);
         expect(r.remesaIds).toEqual([899, 898, 897]);
         expect(r.remesaId).toBe(899);
+    });
+});
+
+describe('C2a: códigos en los 409 (docs/imports-progreso-c2-spec.md §4.5 y §5.6)', () => {
+    it('GR-2: el 409 de confirmar un grupo y el de retomar por corte traen code CORTE_YA_CONFIRMADO', async () => {
+        const g = armar({ remesas: [borrador(11), borrador(12), otraDelMismoCorte(70, 'CARGADA', 10)] });
+        const eg: any = await g.service.ejecutarGrupo({ remesaIds: [11, 12] }, 3).catch((x) => x);
+        expect(eg.getResponse()).toMatchObject({ statusCode: 409, error: 'Conflict', code: 'CORTE_YA_CONFIRMADO' });
+        expect(eg.message).toContain('ya figura en la remesa X70');
+
+        const r = armar({ remesas: [cancelada(11, { createdAt: ahoraMenos(120) }), otraDelMismoCorte(70, 'CARGADA', 30, 'N11')] });
+        const er: any = await r.service.retomarRemesas({ remesaIds: [11] }, DUENO).catch((x) => x);
+        expect(er.getResponse()).toMatchObject({ statusCode: 409, error: 'Conflict', code: 'CORTE_YA_CONFIRMADO' });
+        expect(er.message).toBe('El corte de esta remesa ya figura en la remesa X70: no se puede retomar. Si esta ya no hace falta, eliminala desde el Historial.');
+    });
+
+    it('GR-3: retomar un grupo con dos fallidas cuyo corte figura en otra: NINGUNA_RETOMABLE con omitidas y el mensaje las nombra', async () => {
+        const grupo = { grupoId: 'g1', grupoTotal: 2 };
+        const h = armar({
+            remesas: [
+                cancelada(11, { createdAt: ahoraMenos(120) }, { ...grupo, grupoOrden: 1 }),
+                cancelada(12, { createdAt: ahoraMenos(120), filtroFilas: CORTE('N12') }, { ...grupo, grupoOrden: 2 }),
+                otraDelMismoCorte(70, 'CARGADA', 30, 'N11'),
+                otraDelMismoCorte(71, 'CARGADA', 30, 'N12'),
+            ],
+        });
+        const e: any = await h.service.retomarRemesas({ grupoId: 'g1' }, DUENO).catch((x) => x);
+        expect(e).toBeInstanceOf(ConflictException);
+        const cuerpo = e.getResponse();
+        expect(cuerpo).toMatchObject({ statusCode: 409, error: 'Conflict', code: 'NINGUNA_RETOMABLE' });
+        expect(cuerpo.omitidas).toEqual([
+            { remesaId: 11, numeroRemesa: '00011', motivo: expect.stringContaining('ya figura en la remesa X70') },
+            { remesaId: 12, numeroRemesa: '00012', motivo: expect.stringContaining('ya figura en la remesa X71') },
+        ]);
+        expect(e.message).toMatch(/^Ninguna de las importaciones se puede retomar\. Remesa 00011: .*X70.* Remesa 00012: .*X71/);
+        expect(h.queue.addBulk).not.toHaveBeenCalled();
+    });
+
+    it('GR-4: retomar un grupo donde todas terminaron bien: NINGUNA_RETOMABLE, omitidas vacío y el texto de siempre', async () => {
+        const ok = (id: number, orden: number) =>
+            borrador(id, {
+                estadoProceso: 'FINALIZADA',
+                progreso: filaVacia({ fase: 'TERMINADA', encoladaAt: ahoraMenos(10), startedAt: ahoraMenos(9), finishedAt: ahoraMenos(5), resultado: 'OK', resumen: ORIGEN, grupoId: 'g1', grupoOrden: orden, grupoTotal: 2 }),
+            });
+        const h = armar({ remesas: [ok(11, 1), ok(12, 2)] });
+        const e: any = await h.service.retomarRemesas({ grupoId: 'g1' }, DUENO).catch((x) => x);
+        expect(e.getResponse()).toMatchObject({ code: 'NINGUNA_RETOMABLE', omitidas: [] });
+        expect(e.message).toBe('Ninguna de las importaciones se puede retomar: ya procesaron filas o no terminaron.');
     });
 });

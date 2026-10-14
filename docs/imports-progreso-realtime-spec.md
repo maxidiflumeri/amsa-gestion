@@ -10,7 +10,9 @@
 > §10.2 a §10.12; **C2 (interfaz) está diseñada en un documento aparte,
 > [imports-progreso-c2-spec.md](imports-progreso-c2-spec.md)**, partida en C2a (Historial con estados
 > reales y acciones, errores paginados y en CSV, tests del frontend en el repo: diseño ejecutable) y C2b
-> (tarjeta única de progreso, campanita con acciones, celular: esbozada), sin implementar; C3 (resumen por
+> (tarjeta única de progreso, campanita con acciones, celular: esbozada); **C1 desplegada en prod el 14/10/2026
+> (imagen `e11fc73`) y C2a implementada y auditada el 14/10, sin desplegar** (lo que cambió al auditarla, en §18
+> de ese documento); C3 (resumen por
 > categoría y revertir), esbozada en §10.15 · Fase D sin empezar.** Donde §4, §10.1 y §10.15 dicen "C2",
 > el reparto fino entre C2a y C2b es el de §1 de ese documento (su §17 lista lo que falta actualizar acá).
 > Deploy de la B verificado en prod (solo lecturas): `migrate diff` vacío, columna `fueraDeCorte` creada,

@@ -9,7 +9,7 @@ import {
     textoNotificacion,
 } from './estado-carga';
 import type { EstadoCargaDto } from './estado-carga.types';
-import { esCancelable, esRetomable, leerResumen, textoCancelacion } from './estado-carga';
+import { esCancelable, esRetomable, leerResumen, plural, textoCancelacion, textoInterrupcion } from './estado-carga';
 
 const remesaBase = (o: Partial<RemesaParaEstado> = {}): RemesaParaEstado => ({
     id: 98,
@@ -804,7 +804,7 @@ describe('textoCancelacion', () => {
             'De las 40 filas ya procesadas, 0 quedaron cargadas en esta remesa y 40 dieron error; el cierre de la carga no corrió. Para cargarla completa, eliminá',
         );
         expect(textoCancelacion({ ...base, categoria: 'DEUDORES_Y_FACTURAS', ok: 5, err: 1, total: 500 })).toContain(
-            'De las 6 filas ya procesadas, 5 quedaron cargadas en esta remesa y 1 dieron error; el cierre de la carga no corrió.',
+            'De las 6 filas ya procesadas, 5 quedaron cargadas en esta remesa y 1 dio error; el cierre de la carga no corrió.',
         );
         expect(textoCancelacion({ ...base, categoria: 'ACTUALIZACIONES', ok: 700, err: 20, total: 900 })).toContain(
             'De las 720 filas ya procesadas, 700 quedaron aplicadas sobre la remesa de origen y 20 dieron error. El cierre de la carga no corrió: los casos ausentes del archivo no se tocaron y los casos no se consolidaron. Antes de volver a cargar el archivo, avisá a soporte.',
@@ -871,5 +871,97 @@ describe('textoNotificacion — cancelada', () => {
     it('una FALLIDA común sigue como antes', () => {
         const n = textoNotificacion(armarEstadoCarga(remesaBase({ estadoProceso: 'FALLIDA' }), filaBase({ fase: 'TERMINADA', resultado: 'FALLIDA', error: 'Boom', encoladaAt: new Date(), finishedAt: new Date() })));
         expect(n.titulo).toBe('Importación fallida');
+    });
+});
+
+describe('C2a — corteRepetidoEn y singulares', () => {
+    const retomable = filaBase({
+        fase: 'TERMINADA',
+        resultado: 'FALLIDA',
+        encoladaAt: new Date(),
+        finishedAt: new Date(),
+        resumen: { v: 1, origen: { remesaOrigenId: null, remesaOrigenIds: null }, sinFilasEntregadas: true } as never,
+    });
+    const rem = remesaBase({ estadoProceso: 'FALLIDA' });
+
+    it('ES-1: con el extra sobre una retomable, retomable false y el corte a la vista', () => {
+        const e = armarEstadoCarga(rem, retomable, new Date(), { corteRepetidoEn: ['X70'] });
+        expect(e.retomable).toBe(false);
+        expect(e.corteRepetidoEn).toEqual(['X70']);
+    });
+    it('ES-2: sin el extra, con [] y con null, como hoy', () => {
+        for (const extras of [{}, { corteRepetidoEn: [] }, { corteRepetidoEn: null }]) {
+            const e = armarEstadoCarga(rem, retomable, new Date(), extras);
+            expect(e.retomable).toBe(true);
+            expect(e.corteRepetidoEn).toBeNull();
+        }
+        expect(armarEstadoCarga(remesaBase(), null).corteRepetidoEn).toBeNull();
+    });
+
+    it('plural', () => {
+        expect(plural(1, 'fila', 'filas')).toBe('fila');
+        expect(plural(2, 'fila', 'filas')).toBe('filas');
+        expect(plural(0, 'fila', 'filas')).toBe('filas');
+    });
+
+    const dto = (o: Partial<EstadoCargaDto>): EstadoCargaDto => ({
+        ...armarEstadoCarga(rem, filaBase({ fase: 'TERMINADA', encoladaAt: new Date(), finishedAt: new Date() })),
+        ...o,
+    });
+
+    it('ES-3: cada fila de la tabla de §5.8, con 1 y con 2 (con 2, el texto de hoy)', () => {
+        const sinFilas = (porFiltro: number, otro: number) =>
+            textoNotificacion(dto({ resultado: 'SIN_FILAS', descartadas: porFiltro + otro, fueraDeCorte: otro })).mensaje;
+        expect(sinFilas(1, 1)).toBe('El archivo no tenía filas para procesar. El filtro de la plantilla descartó la única fila. 1 fila es de otro corte de la división.');
+        expect(sinFilas(2, 2)).toBe('El archivo no tenía filas para procesar. El filtro de la plantilla descartó las 2 filas. 2 filas son de otros cortes de la división.');
+
+        const canc = (ok: number, err: number, total: number | null, categoria = 'DEUDORES') =>
+            textoCancelacion({ ok, err, total, categoria, arranco: true, sinFilasEntregadas: false });
+        expect(canc(1, 0, 1)).toContain('cuando llevaba 1 de 1 fila.');
+        expect(canc(1, 0, null)).toContain('cuando llevaba 1 fila.');
+        expect(canc(2, 0, 2)).toContain('cuando llevaba 2 de 2 filas.');
+        expect(canc(0, 1, 1)).toContain('La única fila ya procesada dio error; el cierre de la carga no corrió.');
+        expect(canc(1, 0, 1)).toContain('La única fila ya procesada quedó cargada en esta remesa y el cierre de la carga no corrió.');
+        expect(canc(5, 1, 6)).toContain('De las 6 filas ya procesadas, 5 quedaron cargadas en esta remesa y 1 dio error;');
+        expect(canc(1, 5, 6)).toContain('De las 6 filas ya procesadas, 1 quedó cargada en esta remesa y 5 dieron error;');
+        expect(canc(2, 0, 2)).toContain('Las 2 filas ya procesadas quedaron cargadas en esta remesa y el cierre de la carga no corrió.');
+        expect(canc(1, 0, 1, 'ACTUALIZACIONES')).toContain('La única fila ya procesada quedó aplicada sobre la remesa de origen.');
+        expect(canc(1, 0, 1, 'PAGOS')).toContain('La única fila ya procesada quedó aplicada y el cierre de la carga no corrió.');
+
+        const n = (o: Partial<EstadoCargaDto>) => textoNotificacion(dto(o)).mensaje;
+        expect(n({ cancelada: true, error: 'Cancelada.', ok: 1 })).toBe('Cancelada. La única fila ya procesada quedó cargada.');
+        expect(n({ cancelada: true, error: 'Cancelada.', ok: 2 })).toBe('Cancelada. Las 2 filas ya procesadas quedaron cargadas.');
+        expect(n({ resultado: 'OK', ok: 1 })).toBe('Se procesó 1 fila correctamente.');
+        expect(n({ resultado: 'OK', ok: 2 })).toBe('Se procesaron 2 filas correctamente.');
+        expect(n({ resultado: 'CON_ERRORES', ok: 1, err: 1 })).toBe('Se cargó 1 fila y 1 dio error.');
+        expect(n({ resultado: 'CON_ERRORES', ok: 2, err: 3 })).toBe('Se cargaron 2 filas y 3 dieron error.');
+        expect(n({ resultado: 'CON_ERRORES', ok: 0, err: 1 })).toBe('La única fila del archivo dio error: no se cargó.');
+        expect(n({ resultado: 'CON_ERRORES', ok: 0, err: 2 })).toBe('Las 2 filas del archivo dieron error: no se cargó ninguna.');
+        expect(n({ resultado: 'CON_ADVERTENCIAS', ok: 1, err: 1, errorPostProceso: 'Boom' })).toBe('Se cargó 1 fila y 1 dio error, pero el post-proceso no terminó: Boom.');
+        expect(n({ resultado: 'FALLIDA', error: 'Boom', procesadas: 1 })).toBe('Boom. Se había procesado 1 fila.');
+        expect(n({ resultado: 'FALLIDA', error: 'Boom', procesadas: 3 })).toBe('Boom. Se habían procesado 3 filas.');
+    });
+
+    it('ES-4: con todos los contadores en 1, ningún texto dice "1 filas", "las 1 ", "1 dieron", "1 quedaron" ni "1 son "', () => {
+        const prohibido = /1 filas|las 1 |1 dieron|1 quedaron|1 son /i;
+        const textos: string[] = [];
+        const uno: Partial<EstadoCargaDto> = { ok: 1, err: 1, procesadas: 1, descartadas: 2, fueraDeCorte: 1, error: 'Boom', errorPostProceso: 'Boom' };
+        for (const resultado of ['OK', 'CON_ERRORES', 'SIN_FILAS', 'CON_ADVERTENCIAS', 'FALLIDA'] as const) {
+            textos.push(textoNotificacion(dto({ ...uno, resultado })).mensaje);
+        }
+        textos.push(textoNotificacion(dto({ ...uno, resultado: 'CON_ERRORES', ok: 0 })).mensaje);
+        textos.push(textoNotificacion(dto({ ...uno, resultado: 'SIN_FILAS', descartadas: 1, fueraDeCorte: null })).mensaje);
+        textos.push(textoNotificacion(dto({ ...uno, cancelada: true })).mensaje);
+        for (const categoria of ['DEUDORES', 'ACTUALIZACIONES', 'PAGOS']) {
+            for (const [ok, err] of [[1, 0], [0, 1], [1, 1]]) {
+                for (const total of [1, null]) {
+                    textos.push(textoCancelacion({ ok, err, total, categoria, arranco: true, sinFilasEntregadas: false, conCorte: true }));
+                }
+            }
+        }
+        for (const motivo of ['SIN_LATIDO', 'SIN_JOB', 'REENTREGA'] as const) {
+            for (const categoria of ['DEUDORES', 'ACCIONES', 'PAGOS']) textos.push(textoInterrupcion(motivo, categoria, { conCorte: true }));
+        }
+        for (const t of textos) expect(t).not.toMatch(prohibido);
     });
 });

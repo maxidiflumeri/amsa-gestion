@@ -1976,6 +1976,29 @@ Lo que conviene cambiar ahí, para que lo haga quien orquesta:
   puede agregar como paso previo al build.
 
 ---
+## 18. Lo que cambió en C2a después de la auditoría (14/10/2026)
+
+Por pedido de ir más rápido, una sola pasada de auditoría por paquete (backend; frontend y wiki juntos) y
+los arreglos hechos sin otra pasada, cada uno con su test. Donde §2 a §13 y esto se contradicen, vale esto.
+
+| Qué | Cómo quedó | Por qué |
+|---|---|---|
+| **Eliminar con el diálogo abierto** (bloqueante) | El diálogo muestra la fila viva (no la del clic) y avisa si cambió; el `DELETE` lleva el `rev` de la carga que se mostró (`?rev=N`) y el servidor responde 409 `CAMBIO_DE_ESTADO` si cambió, antes de tocar la cola. Sin `rev` (pestaña vieja, API), como siempre | Con el diálogo abierto sobre una vista previa, si alguien la confirmaba, "Eliminar" borraba la carga ya en cola: el servidor la abortaba, porque borrar una carga en cola que no arrancó es legítimo. Reproducido contra el backend real |
+| Encabezado de una división | "N fallidas o canceladas" en vez de "N no cargadas" | `noCargadas` cuenta también una cancelada a mitad, que sí cargó filas |
+| `pendienteDeEncolar.remesas` | Una remesa por corte: la de esa remesa o la del alta más cercana | Dos altas del mismo archivo juntaban cuatro remesas de dos cortes, y "Confirmar" sobre ellas daba siempre 409 `CORTE_YA_CONFIRMADO` |
+| CSV de errores | Las escuchas de la contrapresión se quitan al reanudar; una descarga que falla a mitad queda auditada como fallida, con el `tipo` pedido | Cada pausa dejaba un `close` colgado (`MaxListenersExceededWarning` en descargas grandes); la auditoría decía "Descargó" aunque fallara |
+| Búsqueda del Historial | `%` y `_` se buscan como texto | `contains` arma un LIKE sin escapar |
+| Wiki `08` | El polling sin cargas en curso solo en la primera página y sin búsqueda; "Cargar las que faltan" sigue existiendo; el mensaje nuevo de eliminar | La página afirmaba de más |
+| Permisos (§4.4) | Sin cambio de código | El `PermisosGuard` usa el permiso del método **en lugar** del de la clase, no además: quien tiene `importacion.ejecutar` y no `ver_historial` pasa el guard de las acciones (y lo frena el chequeo de dueño). Ya era así en `ejecutar/:id` y `retomar`: es el texto de §4.4 el que estaba mal |
+
+**Deuda conocida:** el CSV deja como número los valores con ceros a la izquierda y Excel se los borra al
+abrirlo con doble clic; una descarga que el cliente corta queda auditada como hecha; "Finalizadas" en el
+encabezado incluye remesas "Sin filas"; las pruebas del frontend leen `../docs/imports-progreso-realtime-spec.md`
+(fallan con `frontend/` suelto); nada se vio en un navegador.
+
+Tests al cierre: backend 2.009 en la suite completa (base 1.931); frontend 250 en `npm test` más 7 lentas;
+`tsc` con 4 errores de base (el de `ImportHistory.tsx:423` desapareció con la reescritura).
+
 ## PLAN PARA IMPLEMENTER — Fase C, entrega 2a
 
 Diseño completo en este documento (§2 a §15). Antes de empezar: el OK del usuario a los diez puntos de

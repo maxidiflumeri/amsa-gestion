@@ -435,3 +435,16 @@ Diseño: `docs/imports-progreso-realtime-spec.md` (§10). Lo que cambia en este 
 - **Cuándo se manda:** si la carga la cierra el runner vivo (cancelada mientras procesaba), como cualquier resultado: al dueño y a quienes tienen `importacion.ver_progreso_otros`. Si se cancela una carga **en cola** (no procesó nada), solo al dueño y solo si la canceló otra persona: quien cancela ya lo sabe, y avisar a todos los que ven importaciones de otros serían cuatro avisos por persona en una división de cinco.
 - **Una carga que se cierra "no llegó a empezar" y es retomable** (el reaper, o un encolado que falló al retomar) usa el texto que manda a «Retomar» en el detalle en vez de pedir que se vuelva a subir el archivo. Las cargas anteriores a esta entrega conservan el texto de siempre.
 - **Eventos:** `import:progreso` sale también al aceptarse un pedido de cancelación, al confirmar una división (una por remesa) y al retomar; `import:finalizada` lo emite además el runner al cortar una carga cancelada. Ver §3.2.
+
+### 2026-10-14 — Progreso en tiempo real de las importaciones, Fase C entrega 2a (backend)
+
+Diseño: `docs/imports-progreso-c2-spec.md` (§5.8). C2a no cambia cuándo ni a quién se notifica; lo único que toca a este documento son los **singulares** de los textos que se guardan en `notificacion.mensaje` y en `import_progreso.error`. Con cualquier cantidad distinta de 1 el texto es idéntico al de antes:
+
+- OK: "Se procesó 1 fila correctamente." (antes "Se procesaron 1 filas…").
+- Con errores: "Se cargó 1 fila y 1 dio error." (cada mitad por separado); todo con error: "La única fila del archivo dio error: no se cargó."
+- Con advertencias: "Se cargó 1 fila y 1 dio error, pero el post-proceso no terminó: …".
+- Sin filas: "El filtro de la plantilla descartó la única fila." y "1 fila es de otro corte de la división."
+- Fallida: "Se había procesado 1 fila."
+- Cancelada: "La única fila ya procesada quedó cargada." y, en el motivo guardado, "cuando llevaba 1 de 1 fila" / "La única fila ya procesada dio error; …".
+
+Las notificaciones ya guardadas no se modifican.

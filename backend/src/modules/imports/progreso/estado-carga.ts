@@ -29,6 +29,14 @@ export interface RemesaParaEstado {
 export interface ExtrasEstado {
     /** Cargas en curso confirmadas antes que esta. Solo se usa si la fase es EN_COLA. */
     enColaDelante?: number | null;
+    /** Números de las remesas donde ya figura el corte de esta (confirmadas después). Con algún valor,
+     *  `retomable` es false. Solo lo calculan las lecturas HTTP (C2a §5.2). */
+    corteRepetidoEn?: string[] | null;
+}
+
+/** Singular o plural según la cantidad: `plural(n, 'fila', 'filas')`. */
+export function plural(n: number, uno: string, varios: string): string {
+    return n === 1 ? uno : varios;
 }
 
 /** Separador de miles propio (sin `toLocaleString`: no se depende del ICU del contenedor). */
@@ -243,6 +251,7 @@ export function armarEstadoCarga(
             canceladaPor: null,
             cancelable: false,
             retomable: false,
+            corteRepetidoEn: null,
         };
     }
 
@@ -305,7 +314,8 @@ export function armarEstadoCarga(
         cancelada,
         canceladaPor: typeof resumen?.cancelacion?.nombre === 'string' ? resumen.cancelacion.nombre : null,
         cancelable: esCancelable(r.categoria, fila),
-        retomable: esRetomable(estadoProceso, fila),
+        retomable: esRetomable(estadoProceso, fila) && !(extras.corteRepetidoEn && extras.corteRepetidoEn.length > 0),
+        corteRepetidoEn: extras.corteRepetidoEn && extras.corteRepetidoEn.length > 0 ? extras.corteRepetidoEn : null,
     };
 }
 
@@ -370,8 +380,16 @@ function mensajeSinFilas(e: EstadoCargaDto): string {
     const porFiltro = Math.max(0, e.descartadas - deOtroCorte);
     return (
         'El archivo no tenía filas para procesar.' +
-        (porFiltro > 0 ? ` El filtro de la plantilla descartó las ${porFiltro} filas.` : '') +
-        (deOtroCorte > 0 ? ` ${deOtroCorte} filas son de otros cortes de la división.` : '')
+        (porFiltro > 0
+            ? porFiltro === 1
+                ? ' El filtro de la plantilla descartó la única fila.'
+                : ` El filtro de la plantilla descartó las ${porFiltro} filas.`
+            : '') +
+        (deOtroCorte > 0
+            ? deOtroCorte === 1
+                ? ' 1 fila es de otro corte de la división.'
+                : ` ${deOtroCorte} filas son de otros cortes de la división.`
+            : '')
     );
 }
 
@@ -467,24 +485,33 @@ export function textoCancelacion(d: EntradaTextoCancelacion): string {
     let primera: string;
     if (!d.arranco) primera = `La importación fue cancelada${por} antes de empezar.`;
     else if (total != null) {
-        primera = `La importación fue cancelada${por} cuando llevaba ${conPuntoDeMiles(procesadas)} de ${conPuntoDeMiles(total)} filas.`;
-    } else primera = `La importación fue cancelada${por} cuando llevaba ${conPuntoDeMiles(procesadas)} filas.`;
+        primera = `La importación fue cancelada${por} cuando llevaba ${conPuntoDeMiles(procesadas)} de ${conPuntoDeMiles(total)} ${plural(total, 'fila', 'filas')}.`;
+    } else primera = `La importación fue cancelada${por} cuando llevaba ${conPuntoDeMiles(procesadas)} ${plural(procesadas, 'fila', 'filas')}.`;
     if (primera.length > MAX_PRIMERA_LINEA) primera = `${primera.slice(0, MAX_PRIMERA_LINEA - 1).trimEnd()}…`;
 
     if (!d.arranco || d.sinFilasEntregadas) return `${primera}\n\n${QUE_HACER_SIN_FILAS}`;
 
     // Con filas con error el "ok" solo no dice la verdad ("Las 0 filas ya procesadas (40 dieron error) quedaron cargadas").
     const conError = d.err > 0;
-    const de = `De las ${conPuntoDeMiles(procesadas)} filas ya procesadas, ${conPuntoDeMiles(d.ok)}`;
+    const unica = procesadas === 1;
     const err = conPuntoDeMiles(d.err);
+    // "Quedó cargada" / "quedaron cargadas": con una sola fila procesada, "La única fila ya procesada".
+    const sinError = (cargadas: string, cargada: string, resto: string): string =>
+        unica
+            ? `La única fila ya procesada quedó ${cargada}${resto}`
+            : `Las ${conPuntoDeMiles(d.ok)} filas ya procesadas quedaron ${cargadas}${resto}`;
+    const conErrorTxt = (cargadas: string, cargada: string, resto: string): string =>
+        unica
+            ? `La única fila ya procesada dio error${resto}`
+            : `De las ${conPuntoDeMiles(procesadas)} filas ya procesadas, ${conPuntoDeMiles(d.ok)} ${d.ok === 1 ? `quedó ${cargada}` : `quedaron ${cargadas}`} y ${err} ${d.err === 1 ? 'dio' : 'dieron'} error${resto}`;
     let segundo: string;
     switch (d.categoria) {
         case 'DEUDORES':
         case 'DEUDORES_Y_FACTURAS':
             segundo =
                 (conError
-                    ? `${de} quedaron cargadas en esta remesa y ${err} dieron error; el cierre de la carga no corrió. `
-                    : `Las ${conPuntoDeMiles(d.ok)} filas ya procesadas quedaron cargadas en esta remesa y el cierre de la carga no corrió. `) +
+                    ? conErrorTxt('cargadas en esta remesa', 'cargada en esta remesa', '; el cierre de la carga no corrió. ')
+                    : sinError('cargadas en esta remesa', 'cargada en esta remesa', ' y el cierre de la carga no corrió. ')) +
                 'Para cargarla completa, eliminá esta importación desde el Historial y volvé a subir el archivo. ' +
                 'Si no se puede eliminar (porque algún caso ya tiene gestión o porque la remesa es muy grande), ' +
                 'avisá a soporte antes de volver a subirlo.' +
@@ -493,16 +520,16 @@ export function textoCancelacion(d: EntradaTextoCancelacion): string {
         case 'ACTUALIZACIONES':
             segundo =
                 (conError
-                    ? `${de} quedaron aplicadas sobre la remesa de origen y ${err} dieron error. `
-                    : `Las ${conPuntoDeMiles(d.ok)} filas ya procesadas quedaron aplicadas sobre la remesa de origen. `) +
+                    ? conErrorTxt('aplicadas sobre la remesa de origen', 'aplicada sobre la remesa de origen', '. ')
+                    : sinError('aplicadas sobre la remesa de origen', 'aplicada sobre la remesa de origen', '. ')) +
                 'El cierre de la carga no corrió: los casos ausentes del archivo no se tocaron y los casos no se consolidaron. ' +
                 'Antes de volver a cargar el archivo, avisá a soporte.';
             break;
         default:
             segundo =
                 (conError
-                    ? `${de} quedaron aplicadas y ${err} dieron error; el cierre de la carga no corrió. `
-                    : `Las ${conPuntoDeMiles(d.ok)} filas ya procesadas quedaron aplicadas y el cierre de la carga no corrió. `) +
+                    ? conErrorTxt('aplicadas', 'aplicada', '; el cierre de la carga no corrió. ')
+                    : sinError('aplicadas', 'aplicada', ' y el cierre de la carga no corrió. ')) +
                 'Antes de volver a cargar el archivo, avisá a soporte.';
     }
     return `${primera}\n\n${segundo}`;
@@ -518,7 +545,11 @@ export function textoNotificacion(e: EstadoCargaDto, opciones: { sinRegistrar?: 
             titulo: 'Importación cancelada',
             mensaje:
                 conPunto(primeraLineaDelMotivo(e.error)) +
-                (e.ok > 0 ? ` Las ${conPuntoDeMiles(e.ok)} filas ya procesadas quedaron cargadas.` : ' No se cargó ninguna fila.'),
+                (e.ok > 0
+                    ? e.ok === 1
+                        ? ' La única fila ya procesada quedó cargada.'
+                        : ` Las ${conPuntoDeMiles(e.ok)} filas ya procesadas quedaron cargadas.`
+                    : ' No se cargó ninguna fila.'),
         };
         return aplicarNota(r, opciones.sinRegistrar === true);
     }
@@ -527,7 +558,7 @@ export function textoNotificacion(e: EstadoCargaDto, opciones: { sinRegistrar?: 
             r = {
                 tipo: 'IMPORTACION_FINALIZADA',
                 titulo: 'Importación finalizada',
-                mensaje: `Se procesaron ${e.ok} filas correctamente.`,
+                mensaje: e.ok === 1 ? 'Se procesó 1 fila correctamente.' : `Se procesaron ${e.ok} filas correctamente.`,
             };
             break;
         case 'CON_ERRORES':
@@ -535,12 +566,14 @@ export function textoNotificacion(e: EstadoCargaDto, opciones: { sinRegistrar?: 
                 ? {
                     tipo: 'IMPORTACION_FINALIZADA',
                     titulo: 'Importación finalizada con errores',
-                    mensaje: `Se cargaron ${e.ok} filas y ${e.err} dieron error.`,
+                    mensaje: `Se ${e.ok === 1 ? 'cargó' : 'cargaron'} ${e.ok} ${plural(e.ok, 'fila', 'filas')} y ${e.err} ${e.err === 1 ? 'dio' : 'dieron'} error.`,
                 }
                 : {
                     tipo: 'IMPORTACION_ERROR',
                     titulo: 'Importación sin filas cargadas',
-                    mensaje: `Las ${e.err} filas del archivo dieron error: no se cargó ninguna.`,
+                    mensaje: e.err === 1
+                        ? 'La única fila del archivo dio error: no se cargó.'
+                        : `Las ${e.err} filas del archivo dieron error: no se cargó ninguna.`,
                 };
             break;
         case 'SIN_FILAS':
@@ -555,7 +588,7 @@ export function textoNotificacion(e: EstadoCargaDto, opciones: { sinRegistrar?: 
                 tipo: 'IMPORTACION_FINALIZADA',
                 titulo: 'Importación finalizada con advertencias',
                 mensaje:
-                    `Se cargaron ${e.ok} filas${e.err > 0 ? ` y ${e.err} dieron error` : ''}, ` +
+                    `Se ${e.ok === 1 ? 'cargó' : 'cargaron'} ${e.ok} ${plural(e.ok, 'fila', 'filas')}${e.err > 0 ? ` y ${e.err} ${e.err === 1 ? 'dio' : 'dieron'} error` : ''}, ` +
                     `pero el post-proceso no terminó: ${conPunto(primeraLineaDelMotivo(e.errorPostProceso))}`,
             };
             break;
@@ -566,7 +599,11 @@ export function textoNotificacion(e: EstadoCargaDto, opciones: { sinRegistrar?: 
                 titulo: 'Importación fallida',
                 mensaje:
                     conPunto(primeraLineaDelMotivo(e.error)) +
-                    (e.procesadas > 0 ? ` Se habían procesado ${e.procesadas} filas.` : ''),
+                    (e.procesadas > 0
+                        ? e.procesadas === 1
+                            ? ' Se había procesado 1 fila.'
+                            : ` Se habían procesado ${e.procesadas} filas.`
+                        : ''),
             };
             break;
     }

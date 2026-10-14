@@ -6,6 +6,85 @@
 
 ---
 
+## [2026-10-14] — Importaciones, entrega C2a: el Historial dice la verdad y deja actuar; el frontend tiene tests
+
+Primera mitad de la entrega 2 de la Fase C. Diseño en [docs/imports-progreso-c2-spec.md](docs/imports-progreso-c2-spec.md)
+(C2 se partió en C2a, esta, y C2b: tarjeta única de progreso, campanita con acciones y celular, sin
+empezar). Ese mismo día se desplegó C1, cuyo deploy del 09/10 había fallado por **disco lleno en la EC2**
+(abajo, en Infra).
+
+**Estado: implementada y auditada (una pasada por paquete, por pedido de ir más rápido; backend PASA CON
+OBSERVACIONES y frontend NO PASA por un hallazgo bloqueante, todos corregidos después y cubiertos por tests,
+sin otra pasada); sin desplegar y sin ver en un navegador.** Las diez decisiones de producto de §15 del diseño se tomaron con su
+recomendación, sin respuesta del usuario.
+
+### Decisiones y cambios de comportamiento
+
+- **El Historial muestra el estado real de cada carga** (Borrador, No se pudo encolar, En cola, Procesando
+  N %, Cancelada, Con advertencias, Finalizada con errores, Sin filas…) en vez del estado crudo de la
+  remesa, agrupa las cargas divididas, se actualiza solo y pasa a **paginado de a 25** (50 o 100), con
+  búsqueda por número o nombre.
+- **Acciones desde la fila**: cancelar, retomar, confirmar las remesas que no se pudieron encolar (sin
+  volver a mostrar la vista previa; quien confirma pasa a ser el dueño) y eliminar. **Eliminar una remesa
+  en cola sigue permitido**, con un diálogo que dice qué es y ofrece cancelar; el diálogo cambia según la
+  categoría (en pagos y parecidas, eliminar no deshace nada; en acciones masivas, se pierde el Revertir).
+- **Errores de una carga**: pestañas "Errores de fila" y "Avisos", paginadas y vivas mientras la carga
+  corre, y **descarga en CSV** con la sesión (antes el botón abría la API sin token y daba 401). El CSV
+  trae el contenido de cada fila (datos personales) con el mismo permiso que ya deja verlos, y cada
+  descarga queda auditada. **El número de fila de un error se cuenta desde 1** (antes desde 0).
+- `retomable` deja de ofrecer lo que el servidor va a rechazar (un corte que ya figura en otra remesa), y
+  los 409 traen un `code` legible por máquina; el texto no cambia.
+
+### Backend
+
+- `GET /import/historial`: una página de remesas con la misma `carga` que `…/progreso`, el corte, los
+  archivos, la plantilla, el resumen de cada división y lo pendiente de encolar. El número de consultas no
+  depende del tamaño de la página. La búsqueda trata `%` y `_` como texto.
+- `GET /import/errores/:remesaId` con `tipo` (fila / aviso: una sola definición, `utils/errores-carga.ts`),
+  orden, paginado y totales; `GET /import/errores/:remesaId/csv` en streaming (BOM, `;`, fórmulas
+  neutralizadas sin romper importes negativos, tope de 200.000 avisado). Una descarga que falla a mitad
+  queda auditada como fallida.
+- `POST /import/remesas/confirmar-pendientes`: lee el origen de la fila y delega en `executeRemesa` o en la
+  confirmación de grupo; no escribe por su cuenta ni saltea ninguna guarda de C1. Si hay dos borradores del
+  mismo corte (dos altas del mismo archivo), ofrece uno por corte.
+- `corteRepetidoEn` en el DTO; códigos `CORTE_YA_CARGADO`, `CORTE_YA_CONFIRMADO`, `NINGUNA_RETOMABLE`,
+  `NO_ES_PENDIENTE`, `ORIGEN_DISTINTO`, `CAMBIO_DE_ESTADO`; singulares en los textos ("Se procesó 1 fila",
+  "1 dio error").
+- **Eliminar con el `rev` que mostró la pantalla** (`DELETE /import/remesas/:id?rev=N`): si la carga cambió
+  desde entonces, 409 `CAMBIO_DE_ESTADO` y no se toca la cola. La auditoría encontró que con el diálogo
+  abierto sobre una vista previa, si alguien la confirmaba, el botón eliminaba la carga ya en cola (el
+  servidor la abortaba, porque borrar una carga en cola que no arrancó es legítimo). Sin `rev` (pestañas
+  viejas) el comportamiento no cambia.
+- Sin cambios de schema, permisos ni variables. Tests: 2.009 en la suite completa (eran 1.931).
+
+### Frontend
+
+- **Tests dentro del repo** (antes no había ninguno): vitest + jsdom con un servidor HTTP y socket.io falsos
+  (`frontend/tests/`, `vitest.config.ts`); `npm test` (249 pruebas, ~2 min) y `npm run test:lento`. Se
+  portaron unas 100 pruebas de los arneses de las auditorías de las fases B y C1. `vite.config.ts` y el
+  build no cambian.
+- `ImportHistory.tsx` reescrito; `ErroresDeCarga.tsx`; `BotonCancelarCarga` con variante de ícono y un
+  diálogo que lee la división en vivo; renglones "Corte" y "Remesas de origen" en el detalle.
+- El diálogo de eliminar muestra la fila **tal como está ahora** (antes, la del momento del clic) y avisa si
+  cambió mientras estaba abierto. El encabezado de una división dice "fallidas o canceladas" en vez de "no
+  cargadas": una cancelada a mitad sí cargó filas.
+
+### Documentación
+
+- Wiki: `08-historial-y-problemas` (tabla de estados, acciones, errores y CSV), `05` y `01`.
+- `CLAUDE.md`: el frontend ahora tiene tests.
+
+### Infra
+
+- **El deploy del backend del 09/10 falló por disco lleno en la EC2**: 54 imágenes del backend, una por
+  deploy desde junio (49 GB de 60). `docker image prune -f` solo borraba las que no tenían tag. Se liberó
+  el disco, se volvió a correr el deploy de C1 (en prod desde el 14/10, imagen `e11fc73`) y
+  `infra/ec2/deploy.sh` borra ahora las imágenes que no usa ningún contenedor después de que el backend
+  nuevo está sano. Durante esos cinco días el frontend de C1 estuvo publicado contra el backend de la Fase
+  B; nadie importó en ese lapso.
+
+---
+
 ## [2026-10-09] — Importaciones, Fase C entrega 1: la carga dividida corre en el servidor, y una carga se puede cancelar y retomar
 
 **Entrega 1 de la Fase C** (C1) del plan de [docs/imports-progreso-realtime-spec.md](docs/imports-progreso-realtime-spec.md).
