@@ -965,3 +965,52 @@ describe('C2a — corteRepetidoEn y singulares', () => {
         for (const t of textos) expect(t).not.toMatch(prohibido);
     });
 });
+
+describe('C3a — resumenCategoria en el estado de la carga', () => {
+    const CAT = { tipo: 'DEUDORES', casosNuevos: 97, contactosCopiados: 2 } as const;
+    const terminada = (resumen: unknown) =>
+        armarEstadoCarga(
+            remesaBase({ estadoProceso: 'FINALIZADA' }),
+            filaBase({ fase: 'TERMINADA', resultado: 'OK', resumen: resumen as any, encoladaAt: new Date(), finishedAt: new Date() }),
+        );
+
+    it('RCE-1: null mientras la carga corre, aunque la fila ya tenga la clave', () => {
+        const dto = armarEstadoCarga(
+            remesaBase({ estadoProceso: 'PROCESANDO' }),
+            filaBase({ fase: 'PROCESANDO', encoladaAt: new Date(), resumen: { v: 1, categoria: { v: 1, ...CAT } } as any }),
+        );
+        expect(dto.resumenCategoria).toBeNull();
+    });
+
+    it('RCE-2: null en una remesa heredada (sin fila de progreso), terminada o no', () => {
+        expect(armarEstadoCarga(remesaBase({ estadoProceso: 'FINALIZADA' }), null).resumenCategoria).toBeNull();
+        expect(armarEstadoCarga(remesaBase({ estadoProceso: 'FALLIDA' }), null).resumenCategoria).toBeNull();
+    });
+
+    it('RCE-3: null en una terminada anterior a C3a (resumen sin `categoria`, o sin resumen)', () => {
+        expect(terminada(null).resumenCategoria).toBeNull();
+        expect(terminada({ v: 1, origen: { remesaOrigenId: null, remesaOrigenIds: null } }).resumenCategoria).toBeNull();
+    });
+
+    it('RCE-4: el objeto en una terminada, sin la versión interna', () => {
+        expect(terminada({ v: 1, categoria: { v: 1, ...CAT } }).resumenCategoria).toEqual(CAT);
+    });
+
+    it('RCE-5: un resumen que llega como texto JSON (así lo devuelve un $queryRaw) también se lee', () => {
+        expect(terminada(JSON.stringify({ v: 1, categoria: { v: 1, ...CAT } })).resumenCategoria).toEqual(CAT);
+    });
+
+    it('RCE-6: una `categoria` que no es un objeto con `tipo` se lee como null', () => {
+        expect(terminada({ v: 1, categoria: 'x' }).resumenCategoria).toBeNull();
+        expect(terminada({ v: 1, categoria: { casosNuevos: 1 } }).resumenCategoria).toBeNull();
+    });
+
+    it('RCE-7: una cancelada o fallida lleva lo hecho hasta el corte', () => {
+        const dto = armarEstadoCarga(
+            remesaBase({ estadoProceso: 'FALLIDA' }),
+            filaBase({ fase: 'TERMINADA', resultado: 'CANCELADA', resumen: { v: 1, categoria: { v: 1, ...CAT } } as any, encoladaAt: new Date(), finishedAt: new Date() }),
+        );
+        expect(dto.cancelada).toBe(true);
+        expect(dto.resumenCategoria).toEqual(CAT);
+    });
+});

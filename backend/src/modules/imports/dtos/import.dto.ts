@@ -159,6 +159,15 @@ export class ErroresQueryDto {
     @IsOptional()
     @IsIn(['asc', 'desc'])
     orden?: 'asc' | 'desc';
+
+    /**
+     * Los `pageSize` (máx. 20) errores y avisos más nuevos, del más nuevo al más viejo; `page` se ignora (C3a).
+     * `true`/`false` como texto; cualquier otro valor se deja como llegó para que `@IsBoolean` lo rechace con un 400.
+     */
+    @IsOptional()
+    @Transform(({ value }) => (value === 'true' ? true : value === 'false' ? false : value))
+    @IsBoolean({ message: 'reciente tiene que ser true o false.' })
+    reciente?: boolean;
 }
 
 /** `POST /import/remesas/confirmar-pendientes`. */

@@ -71,10 +71,14 @@ export function anchoTotal(columnas: ColumnaAnchoFijo[]): number {
  * Se enchufa donde el pipeline usa `fastcsv.parse()` y emite lo mismo que éste con `headers:false`:
  * un `string[]` por fila. Las líneas en blanco se descartan (los TXT de los cedentes suelen cerrar
  * con un salto de línea final).
+ *
+ * Con `conLinea`, cada elemento es `{ valores, linea }` en vez del `string[]` pelado: `linea` es la línea
+ * física del archivo (1 = la primera), contando el encabezado y las líneas vacías, para que un error
+ * apunte a la línea que el operador ve en su editor.
  */
 export function crearStreamAnchoFijo(
     cfg: AnchoFijoConfig,
-    opts: { tieneHeader?: boolean } = {},
+    opts: { tieneHeader?: boolean; conLinea?: boolean } = {},
 ): Transform {
     validarColumnasAnchoFijo(cfg.columnas);
 
@@ -82,14 +86,18 @@ export function crearStreamAnchoFijo(
     const columnas = cfg.columnas;
     let resto = '';
     let quedaHeader = opts.tieneHeader !== false;
+    /** Líneas físicas vistas hasta ahora, vacías incluidas. */
+    let nLinea = 0;
 
     const emitir = (self: Transform, linea: string): void => {
+        nLinea++;
         if (!linea.trim()) return;
         if (quedaHeader) {
             quedaHeader = false;
             return;
         }
-        self.push(parseLineaAnchoFijo(linea, columnas));
+        const valores = parseLineaAnchoFijo(linea, columnas);
+        self.push(opts.conLinea ? { valores, linea: nLinea } : valores);
     };
 
     return new Transform({

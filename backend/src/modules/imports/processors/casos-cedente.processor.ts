@@ -78,7 +78,7 @@ export interface MotivosBajaConfig {
 }
 
 export abstract class CasosCedenteProcessor implements ICategoryProcessor {
-    abstract readonly category: string;
+    abstract readonly category: 'MULTIRREGISTRO' | 'MULTIARCHIVO';
 
     protected readonly logger = new Logger(this.constructor.name);
 
@@ -113,6 +113,8 @@ export abstract class CasosCedenteProcessor implements ICategoryProcessor {
     /** Bajas por pago (se registró un pago) y bajas por retiro del cedente (sin pago). */
     private bajasPagoCount = 0;
     private bajasRetiradasCount = 0;
+    /** Bajas por pago sobre una factura que ya estaba PAGADA: no se registran de nuevo (resumen). */
+    private bajasYaAplicadasCount = 0;
     /** Deudores que quedaron sin ninguna factura vigente y salieron de gestión. */
     private deudoresDadosDeBajaCount = 0;
     /**
@@ -159,6 +161,7 @@ export abstract class CasosCedenteProcessor implements ICategoryProcessor {
         this.bajasAmbiguasCount = 0;
         this.bajasPagoCount = 0;
         this.bajasRetiradasCount = 0;
+        this.bajasYaAplicadasCount = 0;
         this.deudoresDadosDeBajaCount = 0;
         this.deudoresTocados.clear();
         this.deudoresEnSnapshot.clear();
@@ -199,11 +202,35 @@ export abstract class CasosCedenteProcessor implements ICategoryProcessor {
     }
 
     async processRow(row: MappedRow, ctx: ProcessContext): Promise<void> {
-        if (row._tipo === 'BAJA') {
-            await this.procesarBaja(row, ctx);
-            return;
+        try {
+            if (row._tipo === 'BAJA') {
+                await this.procesarBaja(row, ctx);
+                return;
+            }
+            await this.procesarCaso(row, ctx);
+        } finally {
+            // Las bajas salen por varios `return` (sin match, ambigua, retirada): se informa en todos.
+            this.informarResumen(ctx);
         }
-        await this.procesarCaso(row, ctx);
+    }
+
+    /** Lo que hizo la carga hasta ahora (C3a). Solo memoria: no escribe nada. */
+    private informarResumen(ctx: ProcessContext): void {
+        ctx.progreso?.resumen({
+            tipo: this.category,
+            altas: this.altasCount,
+            actualizados: this.actualizadosCount,
+            reasignados: this.reasignadosCount,
+            desasignados: this.desasignadosCount,
+            contactosCopiados: this.contactosEnriquecidos,
+            bajas: this.bajasCount,
+            bajasPago: this.bajasPagoCount,
+            bajasRetiradas: this.bajasRetiradasCount,
+            bajasYaAplicadas: this.bajasYaAplicadasCount,
+            bajasSinMatch: this.bajasSinMatchCount,
+            bajasAmbiguas: this.bajasAmbiguasCount,
+            casosDadosDeBaja: this.deudoresDadosDeBajaCount,
+        });
     }
 
     /** Resuelve (y cachea) el id de GES-090 "Dado de baja del sistema". */
@@ -891,6 +918,7 @@ export abstract class CasosCedenteProcessor implements ICategoryProcessor {
             await ctx.promesas.cerrarCumplidas([...this.deudoresConPago]);
         }
 
+        this.informarResumen(ctx);
         this.reset();
     }
 }

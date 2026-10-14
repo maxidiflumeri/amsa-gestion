@@ -180,7 +180,17 @@ export class FacturasProcessor implements ICategoryProcessor {
             }
         }
 
+        this.informarResumen(ctx);
         return errores;
+    }
+
+    /** Lo que hizo la carga hasta ahora (C3a). Solo memoria: no escribe nada. */
+    private informarResumen(ctx: ProcessContext): void {
+        ctx.progreso?.resumen({
+            tipo: 'FACTURAS',
+            casosConFacturas: this.touchedDeudorIds.size,
+            clientesInexistentes: this.inexistentes.size,
+        });
     }
 
     /**
@@ -191,6 +201,7 @@ export class FacturasProcessor implements ICategoryProcessor {
     async afterAll(ctx: ProcessContext): Promise<void> {
         await recalcularMontoTotalDesdeFacturas(ctx, [...this.touchedDeudorIds]);
         await mergeCamposAdicionalesEnDeudores(ctx, this.extrasPorDeudor);
+        this.informarResumen(ctx);
         this.touchedDeudorIds.clear();
         this.extrasPorDeudor.clear();
         this.deudorPorNroCliente.clear();

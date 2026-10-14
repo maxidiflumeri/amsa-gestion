@@ -7,6 +7,11 @@ import { procesarBloquesDeudor } from '../utils/procesar-bloques';
 export class EnriquecimientoProcessor implements ICategoryProcessor {
     readonly category = 'ENRIQUECIMIENTO';
 
+    /** Contactos que se escribieron (uno por caso al que fue el contacto). */
+    private contactosCargados = 0;
+    /** Filas sin un contacto válido (vacío, o un teléfono / mail que no se pudo normalizar): no figuran como error. */
+    private filasSinContactoValido = 0;
+
     validateRow(row: MappedRow, _ctx: ProcessContext): RowValidationResult {
         const nroCliente = String(row.nro_cliente ?? '').trim();
         const documento = String(row.documento ?? '').trim();
@@ -61,7 +66,11 @@ export class EnriquecimientoProcessor implements ICategoryProcessor {
             direccion_provincia: row.direccion_provincia,
         }, ctx.validarDomicilios);
 
-        if (!prep) return;
+        if (!prep) {
+            this.filasSinContactoValido++;
+            this.informarResumen(ctx);
+            return;
+        }
 
         for (const deudorId of deudorIds) {
             await ctx.prisma.contacto.upsert({
@@ -84,10 +93,22 @@ export class EnriquecimientoProcessor implements ICategoryProcessor {
                     ...(row.subtipo ? { subtipo: String(row.subtipo) } : {}),
                 },
             });
+            this.contactosCargados++;
         }
+        this.informarResumen(ctx);
     }
 
-    async afterAll(_ctx: ProcessContext): Promise<void> {
+    /** Lo que hizo la carga hasta ahora (C3a). Solo memoria: no escribe nada. */
+    private informarResumen(ctx: ProcessContext): void {
+        ctx.progreso?.resumen({
+            tipo: 'ENRIQUECIMIENTO',
+            contactosCargados: this.contactosCargados,
+            filasSinContactoValido: this.filasSinContactoValido,
+        });
+    }
+
+    async afterAll(ctx: ProcessContext): Promise<void> {
+        this.informarResumen(ctx);
         clearContactoImportCaches();
     }
 }

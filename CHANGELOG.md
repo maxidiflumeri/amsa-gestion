@@ -6,6 +6,107 @@
 
 ---
 
+## [2026-10-14] — Importaciones, entrega C3a: la carga dice lo que hizo
+
+Primera de las tres partes de la entrega 3 de la Fase C. Diseño en
+[docs/imports-progreso-c3-spec.md](docs/imports-progreso-c3-spec.md), que parte C3 por riesgo:
+- **C3a**, esta: informa, no cambia lo que escribe una carga, salvo D1.
+- **C3b**: acciones masivas cortables y reversibles, revertir como job.
+- **C3c**: cierre ordenado en el deploy, con `SIGTERM` y `stop_grace_period`.
+
+Re-ejecutar sobre lo ya cargado se descartó. Los puntos de corte dentro del post-proceso esperan mediciones de
+cargas reales (§13.4).
+
+**Estado: implementada y auditada; sin desplegar.** Backend y frontend se hicieron en paralelo. Hubo una sola pasada de
+auditoría, PASA CON OBSERVACIONES y sin bloqueantes, y una revisión de la wiki contra el código. Los arreglos se
+hicieron después, cada uno con su test; el detalle está en §16 del diseño.
+
+**El control de "la base queda igual"** se corrió contra MySQL local, con las mismas cargas sobre el código anterior y
+sobre C3a: deudores con identidades repetidas, facturas, contactos, pagos dos veces, las tres variantes de
+actualizaciones, acciones masivas y multirregistro en dos días. Dio 225 filas en cada corrida. Solo cambian `linea` y
+el resumen, y con D1 el multirregistro recargado deja 2 pagos en vez de 4.
+Las tres decisiones de §14 se tomaron con su recomendación, sin respuesta del usuario:
+- una baja por pago sobre una factura ya pagada no crea otro pago (D1);
+- revertir con los datos incompletos lo rechaza el backend (D2);
+- la "Fila" de los errores de las cargas nuevas es la del archivo (D3).
+
+### Backend
+
+- **Resumen por categoría.** Cada uno de los once processors informa sus contadores por un método nuevo del canal de
+  progreso (`ReporteProgreso.resumen`), sin consultas ni escrituras nuevas. El tracker lo guarda en
+  `import_progreso.resumen.categoria` al cerrar la carga, también si se cancela o falla, y viaja como
+  `EstadoCargaDto.resumenCategoria`. Para probar que ningún processor cambió lo que escribe, un Proxy graba las
+  llamadas a Prisma: la secuencia tiene que ser la misma con el canal y sin él, en las once categorías.
+- **La fila del archivo.** Columna nueva `importerror.linea Int?` (aditiva, entra con el `db push` del deploy sin backfill).
+  - CSV, ancho fijo y Excel la llenan; en Excel es la fila de la hoja, confirmado con una sonda.
+  - `rowNumber` no cambia de significado: sigue siendo la clave del índice, del orden y del cursor del CSV.
+  - `GET /import/errores/:id` devuelve `fila` y `filaEsDelArchivo`. Las cargas anteriores se ven como antes.
+- **"Los últimos cinco" con avisos**: `GET /import/errores/:id?reciente=true` ordena por lo último escrito, así que los
+  avisos ya no quedan afuera cuando hay cinco errores de fila. Es un parámetro nuevo: el frontend anterior no cambia.
+  Además, la definición de "aviso" pasa a estar en un solo lugar.
+- **Revertir honesto** (`POST /import/remesas/:id/revertir-acciones`), con tres 409 nuevos:
+  - `REVERTIR_NO_TERMINO`: la acción masiva no terminó bien.
+  - `REVERTIR_INCOMPLETO`: el post-proceso no guardó completos los datos para revertir; manda a soporte.
+  - `REVERSION_EN_CURSO`: un segundo clic mientras corre la primera.
+
+  Antes, por API, una FALLIDA sin datos quedaba marcada como revertida sin revertir nada.
+- **D1, en su propio commit**: en MULTIRREGISTRO y MULTIARCHIVO, una baja por pago que llega sobre una factura ya
+  PAGADA no crea otro pago y se cuenta como "baja ya aplicada". Antes, recargar o reenviar el mismo paquete duplicaba
+  pagos y la consolidación podía dar por cancelado un caso con cuotas vigentes. Una baja **retirada** sobre una
+  pagada sigue como antes.
+
+### Frontend
+
+- **"Qué hizo la carga"** (`ResumenDeCarga`, `utils/resumenCategoria.ts`) en el Resultado del asistente (una por
+  remesa) y en el detalle de una carga terminada. Muestra lo que hoy no se veía:
+  - filas que cayeron sobre un caso que la misma carga ya había creado;
+  - pagos ya cargados y pagos negativos (que **aumentan** la deuda);
+  - contactos descartados sin registro;
+  - el "pagó todo" abortado porque ninguna fila coincidió con la cartera;
+  - bajas por pago ya aplicadas.
+
+  Contra un backend anterior no se dibuja.
+- Errores: el tooltip de "Fila" dice si es la fila del archivo. Los últimos cinco piden `reciente=true`.
+- Revertir: muestra el texto de cada 409. Sin respuesta, o con un 502, 503 o 504, avisa que la reversión puede seguir
+  corriendo, en vez de invitar a un segundo clic.
+- Wiki `03-importacion`: `05`, `06`, `07`, `08` y `09`.
+- Tests: backend 2.121 (`npm run build` OK); frontend `npm test` 572 en 40 archivos.
+
+### Después de la auditoría y de revisar la wiki contra el código
+
+- **ACTUALIZACIONES: la protección de "ninguna fila coincidió" contaba los casos creados por la misma carga.** Es un
+  problema grave que ya existía antes de C3a; lo encontró la revisión de la wiki. Va en su propio commit.
+  - Escenario: un archivo apuntado a la remesa de origen equivocada, con "crear casos nuevos" y un documento repetido
+    (Telecom y Personal repiten siempre la cuenta madre y las hijas).
+  - Antes: la carga pasaba la protección y daba por pagados o desasignaba **todos** los casos de esa remesa. Es la
+    misma protección que se agregó después de la desasignación masiva de Toyota (2026-07-21).
+  - Ahora: solo cuentan los casos que ya estaban en la remesa de origen.
+  - Además, `afterAll` limpia el estado aunque falle la consolidación. Antes, el contador viejo quedaba en la instancia
+    y desactivaba la protección de la carga siguiente.
+- **El cierre de ausentes informa lo que hizo:**
+  - una desasignación abortada se ve como abortada;
+  - el resumen sale antes de consolidar, así que una carga con advertencias conserva los números reales.
+- **Ancho fijo:** la fila del archivo cuenta las líneas vacías.
+- **PAGOS:** "pagos con importe negativo" cuenta solo los que la carga creó. Antes, una recarga avisaba de un negativo
+  que no se había cargado.
+- **Revertir:** la auditoría ya no registra "Revirtió…" en un pedido rechazado ni en una acción que ya estaba revertida.
+- **La tarjeta deja de afirmar de más:**
+  - en Deudores y Facturas, el aviso de "filas que cayeron sobre un caso ya creado", cuando es una fila por factura;
+  - en Contactos y Enriquecimiento, ahora habla del contacto principal;
+  - en Actualizaciones, ahora dice cuándo se abortó la desasignación y cuándo el cierre no terminó.
+- **La wiki** aclara qué cargas traen la fila del archivo (no Multirregistro, Multiarchivo ni Claves de pago).
+- **Deuda:**
+  - en multirregistro, una baja retirada que llega repetida se vuelve a contar; ya pasaba antes de C3a;
+  - dos valores de resultado propuestos y no agregados (§16 del diseño);
+  - nada se vio todavía en un navegador.
+
+### Deploy
+
+El backend primero, porque lleva el `db push` de la columna nueva. Si el frontend sale antes no se rompe nada: lo
+nuevo no se ve hasta que llegue el backend.
+
+---
+
 ## [2026-10-14] — Importaciones, entrega C2b: una sola tarjeta de progreso, la campanita con acciones, el chip y el celular
 
 Segunda mitad de la entrega 2 de la Fase C. Diseño en §16 de

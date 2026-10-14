@@ -121,6 +121,17 @@ export class DeudoresYFacturasProcessor implements ICategoryProcessor {
 
         // 3. Procesar Facturas y Contactos en bloques dinámicos (lógica común a todas las categorías)
         await procesarBloquesDeudor(deudorId, row._blocks, ctx);
+        this.informarResumen(ctx);
+    }
+
+    /** Lo que hizo la carga hasta ahora (C3a). Solo memoria: no escribe nada. */
+    private informarResumen(ctx: ProcessContext): void {
+        ctx.progreso?.resumen({
+            tipo: 'DEUDORES_Y_FACTURAS',
+            casosNuevos: this.creadosIds.size,
+            casosConFacturas: this.touchedDeudorIds.size,
+            contactosCopiados: this.contactosEnriquecidos,
+        });
     }
 
     private async upsertContacto(deudorId: number, data: any, ctx: ProcessContext) {
@@ -196,6 +207,7 @@ export class DeudoresYFacturasProcessor implements ICategoryProcessor {
                 `Autoenriquecimiento histórico: ${this.contactosEnriquecidos} contactos copiados desde la base.`,
             );
         }
+        this.informarResumen(ctx);
         clearContactoImportCaches();
         this.debtorCache.clear();
         this.touchedDeudorIds.clear();

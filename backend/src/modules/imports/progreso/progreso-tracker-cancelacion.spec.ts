@@ -472,3 +472,114 @@ describe('el pedido y la escritura se serializan por el lock de la fila (la gara
         expect(Object.keys(cuenta).sort()).toEqual(['PEDIDA/ARRANCO', 'PEDIDA/NO-ARRANCA']);
     });
 });
+
+// ─────────────────────────────────────────────────────────────────────────────────────────────
+// C3a — el resumen por categoría (docs/imports-progreso-c3-spec.md §5.3 y §9.1)
+// ─────────────────────────────────────────────────────────────────────────────────────────────
+describe('el tracker guarda el resumen por categoría al cerrar (C3a)', () => {
+    const DEUDORES_3 = { tipo: 'DEUDORES', casosNuevos: 3, contactosCopiados: 1 } as const;
+
+    it('RC-1: resumenCategoria solo anota en memoria: ni el reloj ni el avance escriben la clave resumen', async () => {
+        const { base, tracker } = await conCargaIniciada();
+        tracker.resumenCategoria(DEUDORES_3);
+        tracker.avance({ ok: 3, err: 0, descartadas: 0 });
+        await jest.advanceTimersByTimeAsync(60_000);
+        await asentar();
+
+        expect(base.escrituras.length).toBeGreaterThan(0);
+        for (const e of base.escrituras) expect('resumen' in e.data).toBe(false);
+        expect(base.fila.resumen).toEqual(ORIGEN);
+        tracker.cerrar();
+    });
+
+    it('RC-2: finalizar mezcla `categoria` con lo leído bajo el lock y el DTO terminal la trae sin la versión', async () => {
+        const { base, tracker, eventos } = await conCargaIniciada();
+        tracker.resumenCategoria({ tipo: 'DEUDORES', casosNuevos: 1, contactosCopiados: 0 });
+        tracker.resumenCategoria(DEUDORES_3); // el último reemplaza al anterior
+
+        const estado = await tracker.finalizar({ ok: 3, err: 0, descartadas: 0, errorPostProceso: null });
+
+        expect(base.fila.resumen).toEqual({ ...ORIGEN, categoria: { v: 1, ...DEUDORES_3 } });
+        expect(estado.resumenCategoria).toEqual(DEUDORES_3);
+        expect(eventos.filter((e) => e.evento === 'finalizada')[0].estado.resumenCategoria).toEqual(DEUDORES_3);
+    });
+
+    it('RC-3: finalizar sin que el processor informe nada no agrega la clave resumen y el DTO dice null', async () => {
+        const { base, tracker } = await conCargaIniciada();
+        const estado = await tracker.finalizar({ ok: 3, err: 0, descartadas: 0, errorPostProceso: null });
+        expect('resumen' in base.escrituras[base.escrituras.length - 1].data).toBe(false);
+        expect(base.fila.resumen).toEqual(ORIGEN);
+        expect(estado.resumenCategoria).toBeNull();
+    });
+
+    it('RC-4: cancelar conserva origen, cancelacion y sinFilasEntregadas, y suma `categoria` (lo hecho hasta el corte)', async () => {
+        const { base, tracker } = await conCargaIniciada();
+        await base.pedirCancelacion('Ana');
+        tracker.resumenCategoria(DEUDORES_3);
+
+        const estado = await tracker.cancelar(CERO, { texto: 'cancelada', sinFilasEntregadas: true });
+
+        expect(base.fila.resumen).toEqual({
+            ...ORIGEN,
+            cancelacion: { usuarioId: 9, nombre: 'Ana' },
+            sinFilasEntregadas: true,
+            categoria: { v: 1, ...DEUDORES_3 },
+        });
+        expect(estado.retomable).toBe(true);
+        expect(estado.resumenCategoria).toEqual(DEUDORES_3);
+    });
+
+    it('RC-5: una cancelada sin marcador pero con categoría mezcla solo `categoria`; sin ninguno de los dos, no toca la clave', async () => {
+        const a = await conCargaIniciada();
+        a.tracker.resumenCategoria(DEUDORES_3);
+        await a.tracker.cancelar(CERO, { texto: 'x', sinFilasEntregadas: false });
+        expect(a.base.fila.resumen).toEqual({ ...ORIGEN, categoria: { v: 1, ...DEUDORES_3 } });
+
+        const b = await conCargaIniciada();
+        await b.tracker.cancelar(CERO, { texto: 'x', sinFilasEntregadas: false });
+        expect('resumen' in b.base.escrituras[b.base.escrituras.length - 1].data).toBe(false);
+    });
+
+    it('RC-6: fallar mezcla `categoria` (con o sin marcador) y sin ninguno de los dos no agrega la clave resumen', async () => {
+        const a = await conCargaIniciada({ fila: { resumen: { ...ORIGEN, retomas: 2 } } });
+        a.tracker.resumenCategoria(DEUDORES_3);
+        await a.tracker.fallar(new Error('boom'), CERO, { sinFilasEntregadas: true });
+        expect(a.base.fila.resumen).toEqual({ ...ORIGEN, retomas: 2, sinFilasEntregadas: true, categoria: { v: 1, ...DEUDORES_3 } });
+
+        const b = await conCargaIniciada();
+        b.tracker.resumenCategoria(DEUDORES_3);
+        const estado = await b.tracker.fallar(new Error('boom'), CERO);
+        expect(b.base.fila.resumen).toEqual({ ...ORIGEN, categoria: { v: 1, ...DEUDORES_3 } });
+        expect(estado.retomable).toBe(false);
+
+        const c = await conCargaIniciada();
+        await c.tracker.fallar(new Error('boom'), CERO);
+        expect('resumen' in c.base.escrituras[c.base.escrituras.length - 1].data).toBe(false);
+    });
+
+    it('RC-7: con el resumen como texto JSON en la base también se mezcla sin perder lo que había', async () => {
+        const { base, tracker } = await conCargaIniciada({ resumenComoTexto: true });
+        tracker.resumenCategoria(DEUDORES_3);
+        await tracker.finalizar({ ok: 3, err: 0, descartadas: 0, errorPostProceso: null });
+        expect(base.fila.resumen).toEqual({ ...ORIGEN, categoria: { v: 1, ...DEUDORES_3 } });
+    });
+
+    it('RC-8: un valor que no es un objeto con `tipo` se ignora, con un solo warn por carga', async () => {
+        const { base, tracker, warn } = await conCargaIniciada();
+        tracker.resumenCategoria(null as any);
+        tracker.resumenCategoria('x' as any);
+        tracker.resumenCategoria({ casosNuevos: 1 } as any);
+        expect(warn).toHaveBeenCalledTimes(1);
+
+        const estado = await tracker.finalizar({ ok: 1, err: 0, descartadas: 0, errorPostProceso: null });
+        expect(estado.resumenCategoria).toBeNull();
+        expect(base.fila.resumen).toEqual(ORIGEN);
+    });
+
+    it('RC-9: mientras la carga corre el DTO dice null aunque el processor ya haya informado', async () => {
+        const { tracker } = await conCargaIniciada();
+        tracker.resumenCategoria(DEUDORES_3);
+        expect(tracker.estado.resumenCategoria).toBeNull();
+        tracker.cerrar();
+    });
+});

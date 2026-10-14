@@ -26,6 +26,14 @@ describe('errores-carga', () => {
         expect(numeroDeFila(251142, 'FILA')).toBe(251143);
         expect(numeroDeFila(0, 'AVISO')).toBeNull();
     });
+
+    it('EC-5b: con `linea` (C3a) la fila es la del archivo, aunque sea mayor o menor que la posición; un aviso sigue en null', () => {
+        expect(numeroDeFila(0, 'FILA', 10)).toBe(10);
+        expect(numeroDeFila(250, 'FILA', 3)).toBe(3);
+        expect(numeroDeFila(5, 'FILA', null)).toBe(6);
+        expect(numeroDeFila(5, 'FILA', undefined)).toBe(6);
+        expect(numeroDeFila(0, 'AVISO', 10)).toBeNull();
+    });
     it('EC-6: whereAvisos es el objeto que arma el runner (imports.service.ts, conteo de avisos al cerrar); whereFilas lo niega', () => {
         // Copiado literal del runner (processImportJob): si cambia allá, cambia acá.
         const delRunner = {

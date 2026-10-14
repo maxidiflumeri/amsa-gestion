@@ -1,7 +1,7 @@
 // Funciones puras del estado de una carga (docs/imports-progreso-realtime-spec.md §8.3 y §8.5).
 // Las usan las tres lecturas HTTP y el `ProgresoTracker`: HTTP y socket arman el DTO con el mismo código.
 import type { import_progreso } from '@prisma/client';
-import type { EstadoCargaDto, EstadoProcesoRemesa, ResultadoCarga, ResumenCarga } from './estado-carga.types';
+import type { EstadoCargaDto, EstadoProcesoRemesa, ResultadoCarga, ResumenCarga, ResumenCategoria } from './estado-carga.types';
 
 /** Máximo de caracteres del motivo que se persiste en `import_progreso.error`. */
 export const MAX_ERROR_PERSISTIDO = 4000;
@@ -140,6 +140,14 @@ export function leerResumen(raw: unknown): ResumenCarga | null {
     return valor as ResumenCarga;
 }
 
+/** El resumen por categoría (C3a) de un `resumen` ya leído; null si no hay o no es un objeto con `tipo`. */
+function resumenCategoriaDe(resumen: ResumenCarga | null): ResumenCategoria | null {
+    const c = resumen?.categoria;
+    if (!c || typeof c !== 'object' || typeof (c as { tipo?: unknown }).tipo !== 'string') return null;
+    const { v: _v, ...resto } = c;
+    return resto as ResumenCategoria;
+}
+
 /**
  * Retomable ⟺ la remesa está FALLIDA, terminó, su `resumen` es de la versión 1 con `origen`, y nunca arrancó o
  * el runner vivo marcó que no le entregó ninguna fila a un processor (§10.4.1). Los contadores no prueban nada.
@@ -247,6 +255,7 @@ export function armarEstadoCarga(
             grupoOrden: null,
             grupoTotal: null,
             cancelacionPedidaAt: null,
+            resumenCategoria: null,
             cancelada: false,
             canceladaPor: null,
             cancelable: false,
@@ -311,6 +320,7 @@ export function armarEstadoCarga(
         grupoOrden: fila.grupoOrden ?? null,
         grupoTotal: fila.grupoTotal ?? null,
         cancelacionPedidaAt: iso(fila.cancelSolicitadaAt),
+        resumenCategoria: terminal ? resumenCategoriaDe(resumen) : null,
         cancelada,
         canceladaPor: typeof resumen?.cancelacion?.nombre === 'string' ? resumen.cancelacion.nombre : null,
         cancelable: esCancelable(r.categoria, fila),

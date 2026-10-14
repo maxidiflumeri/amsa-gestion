@@ -1,6 +1,7 @@
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
+import * as xlsx from 'xlsx';
 import { conOrigen, ErrorDeParseo, FilaLeida, recorrerFilas } from './recorrer-filas';
 import { AYSA_CUENTAS_ANCHO_FIJO } from '../plantillas/aysa';
 
@@ -288,5 +289,107 @@ describe('recorrerFilas — encabezados que el cedente manda repetidos', () => {
 
         expect(fallo).toBeInstanceOf(ErrorDeParseo);
         expect(fallo.message).toContain('PAGOS.csv');
+    });
+});
+
+describe('recorrerFilas — la fila del archivo (`linea`, C3a)', () => {
+    it('con encabezado, el primer dato es la línea 2 (el encabezado es la 1)', async () => {
+        const p = escribir('linea-h.csv', 'cod;nombre\n001;A\n002;B\n003;C\n');
+        const { filas } = await juntar({ paths: [p], ...CSV });
+        expect(filas.map((f) => f.linea)).toEqual([2, 3, 4]);
+        expect(filas.map((f) => f.indice)).toEqual([0, 1, 2]);
+    });
+
+    it('sin encabezado, el primer dato es la línea 1', async () => {
+        const p = escribir('linea-sh.csv', '001;A\n002;B\n');
+        const { filas } = await juntar({ paths: [p], tieneHeader: false, separador: ';' });
+        expect(filas.map((f) => f.linea)).toEqual([1, 2]);
+    });
+
+    it('con ancho fijo y encabezado también cuenta el encabezado', async () => {
+        const p = escribir('linea-af.txt', 'h1h2\nabcd\nefgh\n');
+        const { filas } = await juntar({
+            paths: [p],
+            tieneHeader: true,
+            separador: ';',
+            anchoFijo: { columnas: [{ nombre: 'a', inicio: 0, largo: 2 }, { nombre: 'b', inicio: 2, largo: 2 }] },
+        });
+        expect(filas.map((f) => f.linea)).toEqual([2, 3]);
+    });
+
+    describe('ancho fijo con líneas vacías (la línea es la física del archivo)', () => {
+        const AF = {
+            tieneHeader: true,
+            separador: ';',
+            anchoFijo: { columnas: [{ nombre: 'a', inicio: 0, largo: 2 }, { nombre: 'b', inicio: 2, largo: 2 }] },
+        };
+
+        it('una línea vacía en el medio: las siguientes conservan su línea física', async () => {
+            // 1 encabezado, 2 ab, 3 vacía, 4 cd, 5 ef
+            const p = escribir('af-medio.txt', 'h1h2\nabxy\n\ncdxy\nefxy\n');
+            const { filas } = await juntar({ paths: [p], ...AF });
+            expect(filas.map((f) => f.valores[0])).toEqual(['ab', 'cd', 'ef']);
+            expect(filas.map((f) => f.linea)).toEqual([2, 4, 5]);
+            expect(filas.map((f) => f.indice)).toEqual([0, 1, 2]);
+        });
+
+        it('líneas vacías arriba del encabezado y entre los datos (con CRLF)', async () => {
+            // 1 vacía, 2 encabezado, 3 ab, 4 vacía, 5 vacía, 6 cd
+            const p = escribir('af-arriba.txt', '\r\nh1h2\r\nabxy\r\n\r\n\r\ncdxy\r\n');
+            const { filas } = await juntar({ paths: [p], ...AF });
+            expect(filas.map((f) => f.valores[0])).toEqual(['ab', 'cd']);
+            expect(filas.map((f) => f.linea)).toEqual([3, 6]);
+        });
+
+        it('sin encabezado y con una vacía al principio', async () => {
+            const p = escribir('af-sh.txt', '\nabxy\ncdxy\n');
+            const { filas } = await juntar({ paths: [p], ...AF, tieneHeader: false });
+            expect(filas.map((f) => f.linea)).toEqual([2, 3]);
+        });
+
+        it('la última línea sin salto final y precedida de una vacía', async () => {
+            const p = escribir('af-final.txt', 'h1h2\nabxy\n\ncdxy');
+            const { filas } = await juntar({ paths: [p], ...AF });
+            expect(filas.map((f) => f.linea)).toEqual([2, 4]);
+        });
+    });
+
+    it('con dos archivos la línea reinicia en cada uno y el índice no', async () => {
+        const a = escribir('dos-a.csv', 'cod;nombre\n001;A\n002;B\n');
+        const b = escribir('dos-b.csv', 'cod;nombre\n003;C\n');
+        const { filas } = await juntar({ paths: [a, b], ...CSV });
+        expect(filas.map((f) => f.linea)).toEqual([2, 3, 2]);
+        expect(filas.map((f) => f.indice)).toEqual([0, 1, 2]);
+        expect(filas.map((f) => f.origen)).toEqual(['dos-a.csv:1', 'dos-a.csv:2', 'dos-b.csv:1']);
+    });
+
+    describe('Excel', () => {
+        /** Una hoja con dos filas vacías arriba, el encabezado en la 3, datos en la 4, 6 y 8 (la 5 y la 7 vacías). */
+        function hoja(nombre: string, ref: string): string {
+            const ws: Record<string, unknown> = {};
+            const celda = (a: string, v: string) => { ws[a] = { t: 's', v }; };
+            celda('A3', 'cod'); celda('B3', 'nombre');
+            celda('A4', 'd4'); celda('B4', 'x4');
+            celda('A6', 'd6'); celda('B6', 'x6');
+            celda('A8', 'd8'); celda('B8', 'x8');
+            ws['!ref'] = ref;
+            const wb = xlsx.utils.book_new();
+            xlsx.utils.book_append_sheet(wb, ws as xlsx.WorkSheet, 'H');
+            const p = path.join(dir, nombre);
+            xlsx.writeFile(wb, p);
+            return p;
+        }
+
+        it('el rango empieza en la fila 3 (filas vacías arriba): la línea es la fila de la hoja de Excel', async () => {
+            const { filas } = await juntar({ paths: [hoja('x-a3.xlsx', 'A3:B8')], tieneHeader: true, separador: ';' });
+            const datos = filas.filter((f) => f.valores[0]);
+            expect(datos.map((f) => [f.valores[0], f.linea])).toEqual([['d4', 4], ['d6', 6], ['d8', 8]]);
+        });
+
+        it('el rango empieza en la fila 1: la línea sigue siendo la de la hoja', async () => {
+            const { filas } = await juntar({ paths: [hoja('x-a1.xlsx', 'A1:B8')], tieneHeader: false, separador: ';' });
+            const datos = filas.filter((f) => f.valores[0] && f.valores[0] !== 'cod');
+            expect(datos.map((f) => [f.valores[0], f.linea])).toEqual([['d4', 4], ['d6', 6], ['d8', 8]]);
+        });
     });
 });

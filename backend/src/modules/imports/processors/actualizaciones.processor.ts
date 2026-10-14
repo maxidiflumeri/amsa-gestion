@@ -104,6 +104,12 @@ export class ActualizacionesProcessor implements ICategoryProcessor {
     private contactosEnriquecidos = 0;
     /** Secuencia para desambiguar los documentos placeholder de filas sin DNI. */
     private placeholderSeq = 0;
+    /** Pagos que el cierre de ausentes generó por la rama PAGO_TODO (resumen, C3a). */
+    private pagosGeneradosAusentes = 0;
+    /** Ausentes que el cierre desasignó (resumen, C3a). */
+    private desasignadosAusentes = 0;
+    /** Ausentes sin importe con los que no se pudo reconciliar y no se tocaron (resumen, C3a). */
+    private salteadosSinMonto = 0;
 
     /** Limpia el estado acumulado del batch. */
     private reset(): void {
@@ -117,6 +123,33 @@ export class ActualizacionesProcessor implements ICategoryProcessor {
         this.gestionesValidasCache = undefined;
         this.reasignadosCount = 0;
         this.contactosEnriquecidos = 0;
+        this.pagosGeneradosAusentes = 0;
+        this.desasignadosAusentes = 0;
+        this.salteadosSinMonto = 0;
+    }
+
+    /**
+     * Lo que hizo la carga hasta ahora (C3a). Solo memoria: no escribe nada. `resultado` dice qué pasó con el cierre
+     * de los ausentes; `NO_LLEGO` mientras se procesan filas.
+     */
+    private informarResumen(
+        ctx: ProcessContext,
+        resultado: 'APLICADO' | 'OMITIDO_SOLO_DATOS' | 'ABORTADO_SIN_COINCIDENCIAS' | 'SIN_REMESA_ORIGEN' | 'NO_LLEGO',
+    ): void {
+        ctx.progreso?.resumen({
+            tipo: 'ACTUALIZACIONES',
+            coincidencias: this.matchedExistingCount,
+            casosNuevos: this.altasIds.size,
+            reasignados: this.reasignadosCount,
+            contactosCopiados: this.contactosEnriquecidos,
+            ausentes: {
+                accion: ctx.accionAusente === 'DESASIGNAR' || ctx.accionAusente === 'IGNORAR' ? ctx.accionAusente : 'PAGO_TODO',
+                resultado,
+                pagosGenerados: this.pagosGeneradosAusentes,
+                desasignados: this.desasignadosAusentes,
+                salteadosSinMonto: this.salteadosSinMonto,
+            },
+        });
     }
 
     /** Resuelve (y cachea) el id del parámetro GES-094 "Desasignado". null si no está seedeado. */
@@ -232,6 +265,7 @@ export class ActualizacionesProcessor implements ICategoryProcessor {
             if (d.estadoGestionId === desasignadoId) continue;                  // ya desasignado
             paraDesasignar.push({ id: d.id, previo: d.estadoGestionId ?? null });
         }
+        this.desasignadosAusentes = paraDesasignar.length;
 
         if (paraDesasignar.length === 0) {
             this.logger.log(`Actualización diaria remesa=${ctx.remesaId}: sin deudores nuevos para desasignar.`);
@@ -534,6 +568,7 @@ export class ActualizacionesProcessor implements ICategoryProcessor {
             nuevos: this.altasIds.size,
             actualizados: this.processedDeudorIds.size - this.altasIds.size,
         });
+        this.informarResumen(ctx, 'NO_LLEGO');
 
         // Un error por fila: el runner cuenta `err` por elemento devuelto, así que dos
         // errores del mismo idx descuadrarían el total (ok + err ≠ filas del lote).
@@ -918,7 +953,10 @@ export class ActualizacionesProcessor implements ICategoryProcessor {
      *  - Al final se delega la actualización de saldo y estadoSituacionId al consolidador.
      */
     async afterAll(ctx: ProcessContext): Promise<void> {
-        if (!ctx.remesaOrigenId) return;
+        if (!ctx.remesaOrigenId) {
+            this.informarResumen(ctx, 'SIN_REMESA_ORIGEN');
+            return;
+        }
 
         // Resumen de autoenriquecimiento (casos nuevos del escenario B). Se loguea antes de las
         // ramas porque cada una llama a reset() (que pone el contador en 0).
@@ -968,6 +1006,7 @@ export class ActualizacionesProcessor implements ICategoryProcessor {
                 }
             }
 
+            this.informarResumen(ctx, 'APLICADO');
             this.reset();
             return;
         }
@@ -981,6 +1020,7 @@ export class ActualizacionesProcessor implements ICategoryProcessor {
                 `ACTUALIZACIONES modo=${ctx.modoActualizacion}, datosDeDeuda=${this.sawReconciliationData}: ` +
                 `se omite la marcación de ausentes como pagados y la consolidación de deuda.`,
             );
+            this.informarResumen(ctx, 'OMITIDO_SOLO_DATOS');
             this.reset();
             return;
         }
@@ -1008,6 +1048,7 @@ export class ActualizacionesProcessor implements ICategoryProcessor {
                 resumen: 'Marcación de ausentes abortada: ninguna fila del archivo matcheó la cartera',
                 data: { params: { remesaId: ctx.remesaId, remesaOrigenId: ctx.remesaOrigenId ?? null } },
             });
+            this.informarResumen(ctx, 'ABORTADO_SIN_COINCIDENCIAS');
             this.reset();
             return;
         }
@@ -1036,6 +1077,7 @@ export class ActualizacionesProcessor implements ICategoryProcessor {
 
             if (r.tipo === 'skip') {
                 this.logger.warn(`Deudor ${deudorId} ausente pero montoTotal 0/nulo — no se reconcilia.`);
+                this.salteadosSinMonto++;
                 continue;
             }
 
@@ -1051,6 +1093,7 @@ export class ActualizacionesProcessor implements ICategoryProcessor {
                     },
                 });
                 this.pagosDeudorIds.add(deudorId);
+                this.pagosGeneradosAusentes++;
             }
 
             // Marcar facturas pendientes como PAGADA (deudor saldado)
@@ -1078,6 +1121,7 @@ export class ActualizacionesProcessor implements ICategoryProcessor {
             ctx.progreso?.subfase(SUBFASE.CERRANDO_PROMESAS);
             await ctx.promesas.cerrarCumplidas([...this.pagosDeudorIds]);
         }
+        this.informarResumen(ctx, 'APLICADO');
         this.reset();
     }
 

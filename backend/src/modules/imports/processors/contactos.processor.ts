@@ -7,6 +7,11 @@ import { contextoDelCaso, procesarBloquesDeudor } from '../utils/procesar-bloque
 export class ContactosProcessor implements ICategoryProcessor {
     readonly category = 'CONTACTOS';
 
+    /** Contactos que se escribieron (uno por caso al que fue el contacto). */
+    private contactosCargados = 0;
+    /** Filas sin un contacto válido (vacío, o un teléfono / mail que no se pudo normalizar): no figuran como error. */
+    private filasSinContactoValido = 0;
+
     validateRow(row: MappedRow, _ctx: ProcessContext): RowValidationResult {
         if (!row.nro_cliente && !row.documento) {
             return { valid: false, error: 'nro_cliente o documento es requerido para contactos' };
@@ -66,7 +71,11 @@ export class ContactosProcessor implements ICategoryProcessor {
             direccion_provincia: row.direccion_provincia,
         }, ctx.validarDomicilios, contexto);
 
-        if (!prep) return;
+        if (!prep) {
+            this.filasSinContactoValido++;
+            this.informarResumen(ctx);
+            return;
+        }
 
         for (const deudorId of deudorIds) {
             await ctx.prisma.contacto.upsert({
@@ -91,10 +100,22 @@ export class ContactosProcessor implements ICategoryProcessor {
                     validado: prep.validado,
                 },
             });
+            this.contactosCargados++;
         }
+        this.informarResumen(ctx);
     }
 
-    async afterAll(_ctx: ProcessContext): Promise<void> {
+    /** Lo que hizo la carga hasta ahora (C3a). Solo memoria: no escribe nada. */
+    private informarResumen(ctx: ProcessContext): void {
+        ctx.progreso?.resumen({
+            tipo: 'CONTACTOS',
+            contactosCargados: this.contactosCargados,
+            filasSinContactoValido: this.filasSinContactoValido,
+        });
+    }
+
+    async afterAll(ctx: ProcessContext): Promise<void> {
+        this.informarResumen(ctx);
         clearContactoImportCaches();
     }
 }

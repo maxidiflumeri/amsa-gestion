@@ -20,7 +20,7 @@ import {
     RESULTADO_CANCELADA,
     recortarMotivo,
 } from './estado-carga';
-import type { EstadoCargaDto, ResultadoCarga, ResumenCarga } from './estado-carga.types';
+import type { EstadoCargaDto, ResultadoCarga, ResumenCarga, ResumenCategoria } from './estado-carga.types';
 
 /** Lo que no cambia durante el job. */
 export interface CargaInfo {
@@ -198,6 +198,9 @@ export class ProgresoTracker {
      * persistido. Entra junto con el `avance` / `lote` siguiente, no antes.
      */
     private pendientes: { nuevos?: number; actualizados?: number } = {};
+    /** Lo último que informó el processor con `resumen()` (C3a). Solo memoria: se escribe al cerrar, nunca en el reloj. */
+    private resumenCat: ResumenCategoria | null = null;
+    private resumenCatAvisado = false;
     /**
      * Escrituras del reloj o del latido seguidas que no afectaron ninguna fila y cuya lectura de confirmación también
      * salió vacía. Un resultado vacío aislado NO prueba que otro cerró la carga: una transacción vencida (por ejemplo
@@ -447,6 +450,29 @@ export class ProgresoTracker {
         if (c.actualizados !== undefined) this.pendientes.actualizados = c.actualizados;
     }
 
+    /** Canal `resumen` (C3a). Solo memoria, sincrónico, nunca tira. Un objeto sin `tipo` se ignora (warn una sola vez). */
+    resumenCategoria(r: ResumenCategoria): void {
+        try {
+            if (r === null || typeof r !== 'object' || typeof (r as { tipo?: unknown }).tipo !== 'string') {
+                if (!this.resumenCatAvisado) {
+                    this.resumenCatAvisado = true;
+                    this.logger.warn(`Remesa ${this.info.remesaId}: el processor informó un resumen que no es un objeto con 'tipo'; se ignora`);
+                }
+                return;
+            }
+            this.resumenCat = r;
+        } catch (e: any) {
+            this.logger.warn(`Remesa ${this.info.remesaId}: error guardando el resumen por categoría: ${e?.message}`);
+        }
+    }
+
+    /** Lo que se mezcla al cerrar: `categoria` si el processor informó algo, más lo que pida el cierre. */
+    private mezclaDeCierre(extra: Partial<ResumenCarga> = {}): { mezclarResumen: Partial<ResumenCarga> } | {} {
+        const mezcla: Partial<ResumenCarga> = { ...extra };
+        if (this.resumenCat) mezcla.categoria = { v: 1, ...this.resumenCat };
+        return Object.keys(mezcla).length > 0 ? { mezclarResumen: mezcla } : {};
+    }
+
     /** Pasa los contadores informados a la memoria. Devuelve si algo cambió. */
     private aplicarPendientes(): boolean {
         let cambio = false;
@@ -668,6 +694,7 @@ export class ProgresoTracker {
             foto.rev = await this.persistir(
                 { estadoProceso: 'FINALIZADA', totalFilas: procesadas, okFilas: c.ok, errFilas: c.err },
                 foto,
+                this.mezclaDeCierre(),
             );
             this.mem = foto;
             this.terminado = true;
@@ -716,11 +743,11 @@ export class ProgresoTracker {
         try {
             await this.escribirExclusivo(async () => {
                 if (this.cerradaPorFueraFlag) return;
-                // La clave `resumen` entra a la escritura SOLO con el marcador: en cualquier otro caso no se toca.
+                // La clave `resumen` entra a la escritura SOLO con el marcador o con `categoria`: en cualquier otro caso no se toca.
                 foto.rev = await this.persistir(
                     { estadoProceso: 'FALLIDA', okFilas: c.ok, errFilas: c.err },
                     foto,
-                    o.sinFilasEntregadas === true ? { mezclarResumen: { sinFilasEntregadas: true } } : {},
+                    this.mezclaDeCierre(o.sinFilasEntregadas === true ? { sinFilasEntregadas: true } : {}),
                 );
                 this.mem = foto;
                 this.terminado = true;
@@ -781,7 +808,7 @@ export class ProgresoTracker {
                 foto.rev = await this.persistir(
                     { estadoProceso: 'FALLIDA', okFilas: c.ok, errFilas: c.err },
                     foto,
-                    o.sinFilasEntregadas ? { mezclarResumen: { sinFilasEntregadas: true } } : {},
+                    this.mezclaDeCierre(o.sinFilasEntregadas ? { sinFilasEntregadas: true } : {}),
                 );
                 this.mem = foto;
                 this.terminado = true;

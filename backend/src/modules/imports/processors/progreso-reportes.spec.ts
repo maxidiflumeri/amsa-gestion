@@ -17,6 +17,9 @@ import { MulticlavesProcessor } from './multiclaves.processor';
 import { MultirregistroProcessor } from './multirregistro.processor';
 import { PagosProcessor } from './pagos.processor';
 import { ProcessContext, ReporteProgreso } from './processor.interface';
+import type { ResumenCategoria } from '../progreso/estado-carga.types';
+import { ContactosProcessor } from './contactos.processor';
+import { EnriquecimientoProcessor } from './enriquecimiento.processor';
 import { SUBFASE, consolidarConProgreso } from '../utils/reporte-progreso';
 import { _resetCacheSituacionesCerradas } from '../utils/situaciones-cerradas';
 
@@ -29,10 +32,12 @@ type Llamada =
 
 function espia() {
     const llamadas: Llamada[] = [];
+    const resumenes: ResumenCategoria[] = [];
     const progreso: ReporteProgreso = {
         filasDelLote: (n) => { llamadas.push({ t: 'filas', n }); },
         subfase: (nombre, hecho, total) => { llamadas.push({ t: 'sub', nombre, hecho, total }); },
         contadores: (c) => { llamadas.push({ t: 'cont', ...c }); },
+        resumen: (r) => { resumenes.push(r); },
     };
     const subs = () => llamadas.filter((l): l is Extract<Llamada, { t: 'sub' }> => l.t === 'sub');
     /** Nombres de subfase en el orden en que aparecen por primera vez. */
@@ -42,7 +47,9 @@ function espia() {
     const totalDe = (nombre: string) => subs().find((s) => s.nombre === nombre && s.total != null)?.total;
     const filas = () => llamadas.filter((l): l is Extract<Llamada, { t: 'filas' }> => l.t === 'filas').map((l) => l.n);
     const conts = () => llamadas.filter((l): l is Extract<Llamada, { t: 'cont' }> => l.t === 'cont');
-    return { llamadas, progreso, subs, nombres, hechoDe, totalDe, filas, conts };
+    /** El último `resumen` informado (el objeto entero reemplaza al anterior). */
+    const ultimoResumen = () => resumenes[resumenes.length - 1];
+    return { llamadas, progreso, subs, nombres, hechoDe, totalDe, filas, conts, resumenes, ultimoResumen };
 }
 
 /** `consolidar` que informa como el real: por tandas, con `onProgress`. */
@@ -574,9 +581,9 @@ describe('ACCIONES', () => {
 
 // ─────────────────────────────────────────────────────────────────────────────────────────────
 describe('CONTACTOS y ENRIQUECIMIENTO', () => {
-    it.each(['contactos.processor.ts', 'enriquecimiento.processor.ts'])('%s no llama a progreso (no se tocó)', (archivo) => {
+    it.each(['contactos.processor.ts', 'enriquecimiento.processor.ts'])('%s solo informa el resumen (C3a): ni subfases, ni contadores, ni filas del lote', (archivo) => {
         const fuente = fs.readFileSync(path.join(__dirname, archivo), 'utf8');
-        expect(fuente).not.toMatch(/\bprogreso\b/);
+        expect(fuente).not.toMatch(/progreso\??\.(contadores|filasDelLote|subfase)/);
     });
 });
 
@@ -595,5 +602,490 @@ describe('un ctx.progreso que tira', () => {
         const e = ctxBase(prismaDeudores(), { progreso: undefined });
         await expect(new DeudoresProcessor().processRow({ documento: '111', nombre: 'A' } as any, e.ctx)).resolves.toBeUndefined();
         await expect(new DeudoresYFacturasProcessor().processRow({ documento: '222', nombre: 'A' } as any, e.ctx)).resolves.toBeUndefined();
+    });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────────────────────
+// C3a — el resumen por categoría y el control "la base queda idéntica con y sin el canal" (spec C3 §8.1)
+// ─────────────────────────────────────────────────────────────────────────────────────────────
+
+/** Serializa los argumentos de forma estable: sin funciones, con Set/Map/BigInt/Date legibles. */
+function estable(valor: unknown): string {
+    return JSON.stringify(valor, (_k, v) => {
+        if (typeof v === 'function') return undefined;
+        if (typeof v === 'bigint') return v.toString();
+        if (v instanceof Set) return [...v];
+        if (v instanceof Map) return [...v];
+        return v;
+    });
+}
+
+/**
+ * Envuelve un objeto de dos niveles (`prisma.modelo.metodo(args)`, o uno de un nivel como `auditoria.log`) con un
+ * Proxy que anota cada llamada —`modelo.metodo(args)`— y delega en el original. Con `soloPrimerArg` anota solo el
+ * primer argumento (el segundo de `consolidar` es el `onProgress`, que existe solo con el canal).
+ */
+function grabar<T extends object>(falso: T, prefijo: string, llamadas: string[], soloPrimerArg = false): T {
+    const anotar = (nombre: string, args: unknown[]) =>
+        llamadas.push(`${prefijo}${nombre}(${estable(soloPrimerArg ? args.slice(0, 1) : args)})`);
+    return new Proxy(falso, {
+        get(target, prop, receptor) {
+            const valor = Reflect.get(target, prop, receptor);
+            if (typeof prop !== 'string') return valor;
+            if (typeof valor === 'function') {
+                return (...args: unknown[]) => {
+                    anotar(prop, args);
+                    return valor.apply(target, args);
+                };
+            }
+            if (valor !== null && typeof valor === 'object') {
+                return new Proxy(valor, {
+                    get(t2, p2, r2) {
+                        const v2 = Reflect.get(t2, p2, r2);
+                        if (typeof p2 !== 'string' || typeof v2 !== 'function') return v2;
+                        return (...args: unknown[]) => {
+                            anotar(`${prop}.${p2}`, args);
+                            return v2.apply(t2, args);
+                        };
+                    },
+                });
+            }
+            return valor;
+        },
+    });
+}
+
+interface Escenario {
+    prisma: () => any;
+    ctx?: Partial<ProcessContext>;
+    /** Corre el processor completo sobre el contexto armado. `falso` es el prisma sin envolver. */
+    correr: (ctx: ProcessContext, falso: any) => Promise<void>;
+}
+
+/** Corre el escenario con o sin `ctx.progreso` y devuelve todo lo que el processor le pidió a lo de afuera. */
+async function ejecutar(esc: Escenario, conProgreso: boolean) {
+    // El catálogo de situaciones cerradas se cachea en el módulo: sin esto la segunda corrida se saltea una lectura.
+    _resetCacheSituacionesCerradas();
+    const llamadas: string[] = [];
+    const falso = esc.prisma();
+    const e = ctxBase(grabar(falso, 'prisma.', llamadas), esc.ctx ?? {});
+    const ctx = e.ctx;
+    (ctx as any).consolidacion = grabar((ctx as any).consolidacion, 'consolidacion.', llamadas, true);
+    (ctx as any).promesas = grabar((ctx as any).promesas, 'promesas.', llamadas);
+    (ctx as any).auditoria = grabar((ctx as any).auditoria, 'auditoria.', llamadas);
+    if (!conProgreso) (ctx as any).progreso = undefined;
+    await esc.correr(ctx, falso);
+    return { llamadas, resumenes: e.resumenes, ultimo: e.ultimoResumen() };
+}
+
+describe('C3a — el canal `resumen` no cambia lo que el processor le pide a la base', () => {
+    beforeAll(() => {
+        // Los pagos automáticos usan `new Date()`: con la hora quieta las dos corridas dan argumentos idénticos.
+        jest.useFakeTimers({
+            now: new Date('2026-10-14T12:00:00Z'),
+            doNotFake: ['nextTick', 'queueMicrotask', 'setImmediate', 'clearImmediate', 'setTimeout', 'clearTimeout', 'setInterval', 'clearInterval', 'hrtime', 'performance'],
+        });
+    });
+    afterAll(() => jest.useRealTimers());
+
+    // ── fakes ───────────────────────────────────────────────────────────────────────────────
+    const actCartera = (i: number) => ({
+        id: i, documento: String(20000000 + i), nroCliente: null, nombre: 'N', apellido: 'A', camposAdicionales: null,
+        estadoGestionId: GESTION, estadoGestionPrevioAId: null, estadoSituacionId: 100,
+    });
+    function prismaActualizaciones(opts: { cartera?: Map<string, any>; deudoresMonto?: any[]; listado?: any[] } = {}) {
+        const cartera = opts.cartera ?? new Map<string, any>();
+        let siguienteId = 5000;
+        return {
+            parametro: {
+                findUnique: jest.fn().mockImplementation(({ where }: any) =>
+                    Promise.resolve(where.clave === 'GES-094' ? { id: GES_094 } : where.clave === 'SIT-050' ? { id: SIT_050 } : null)),
+                findFirst: jest.fn().mockResolvedValue({ id: GESTION }),
+                findMany: jest.fn().mockImplementation(({ where }: any) =>
+                    Promise.resolve(where?.categoria === 'CANCELADO' ? [{ id: SIT_050 }] : [{ id: GESTION }, { id: 210 }])),
+            },
+            deudor: {
+                findMany: jest.fn().mockImplementation(({ where, select }: any) => {
+                    if (where?.documento?.in) return Promise.resolve((where.documento.in as string[]).map((d) => cartera.get(d)).filter(Boolean));
+                    if (where?.nroCliente?.in) return Promise.resolve([]);
+                    if (select?.montoTotal) return Promise.resolve(opts.deudoresMonto ?? []);
+                    return Promise.resolve(opts.listado ?? []);
+                }),
+                findUnique: jest.fn().mockResolvedValue(null),
+                findFirst: jest.fn().mockResolvedValue(null),
+                update: jest.fn().mockResolvedValue({}),
+                create: jest.fn().mockImplementation(({ data }: any) =>
+                    Promise.resolve({ id: siguienteId++, documento: data.documento, nroCliente: null, nombre: '', apellido: '', camposAdicionales: null, estadoGestionId: GESTION, estadoGestionPrevioAId: null, estadoSituacionId: 100 })),
+            },
+            contacto: { findMany: jest.fn().mockResolvedValue([]), createMany: jest.fn().mockResolvedValue({ count: 0 }), upsert: jest.fn().mockResolvedValue({}) },
+            factura: { create: jest.fn().mockResolvedValue({}), updateMany: jest.fn().mockResolvedValue({}) },
+            pago: { create: jest.fn().mockResolvedValue({}), aggregate: jest.fn().mockResolvedValue({ _sum: { importe: 0 } }) },
+            $queryRaw: jest.fn().mockResolvedValue([]),
+            $transaction: jest.fn((arr: any[]) => Promise.all(arr)),
+        };
+    }
+
+    function prismaFacturasC3() {
+        return {
+            deudor: {
+                findMany: jest.fn().mockImplementation(({ where }: any) => {
+                    if (where?.nroCliente?.in) {
+                        return Promise.resolve((where.nroCliente.in as string[]).filter((n) => n !== '999').map((n) => ({ id: Number(n), nroCliente: n })));
+                    }
+                    return Promise.resolve([{ id: 1, camposAdicionales: null }]);
+                }),
+                update: jest.fn().mockResolvedValue({}),
+            },
+            $executeRaw: jest.fn().mockResolvedValue(1),
+        };
+    }
+
+    function prismaContactos() {
+        return {
+            deudor: { findMany: jest.fn().mockImplementation(({ where }: any) => Promise.resolve(where.documento === '0' ? [] : [{ id: 7 }, { id: 8 }])) },
+            contacto: { upsert: jest.fn().mockResolvedValue({}) },
+            factura: { upsert: jest.fn().mockResolvedValue({}) },
+        };
+    }
+
+    function prismaPagos() {
+        const pagos: any[] = [];
+        return {
+            $queryRaw: jest.fn().mockResolvedValue([{ id: 7 }]),
+            pago: {
+                findFirst: jest.fn().mockImplementation(({ where }: any) =>
+                    Promise.resolve(pagos.find((p) =>
+                        (where.deudorId?.in ? where.deudorId.in.includes(p.deudorId) : p.deudorId === where.deudorId) &&
+                        (where.origen === undefined || p.origen === where.origen) &&
+                        (where.confirmadoImport === undefined || p.confirmadoImport === where.confirmadoImport) &&
+                        (where.importe === undefined || p.importe === where.importe)) ?? null)),
+                create: jest.fn().mockImplementation(({ data }: any) => { pagos.push(data); return Promise.resolve(data); }),
+                update: jest.fn().mockResolvedValue({}),
+            },
+            factura: { updateMany: jest.fn().mockResolvedValue({ count: 0 }) },
+            importerror: { create: jest.fn().mockResolvedValue({}) },
+        };
+    }
+
+    function prismaAcciones() {
+        const deudor = (id: number, sit: number) => ({
+            id, estadoSituacionId: sit, estadoGestionId: null, motivoNoPagoId: null, nombre: 'X', apellido: '', montoTotal: 100,
+            fechaVencimiento: null, nroCliente: String(id), camposAdicionales: null,
+        });
+        return {
+            deudor: {
+                findMany: jest.fn().mockImplementation(({ where }: any) => {
+                    const id = Number(where?.id ?? where?.nroCliente ?? 0);
+                    return Promise.resolve(id === 9 ? [] : [deudor(id, id === 2 ? 50 : 41)]);
+                }),
+                update: jest.fn().mockResolvedValue({}),
+            },
+            parametro: { findMany: jest.fn().mockResolvedValue([{ id: 50, clave: 'SIT-050' }]) },
+            accion_masiva_snapshot: { createMany: jest.fn().mockResolvedValue({ count: 0 }) },
+        };
+    }
+
+    function prismaCedenteC3(cartera: any[] = []) {
+        return {
+            parametro: {
+                findUnique: jest.fn().mockImplementation(({ where }: any) =>
+                    Promise.resolve({ 'GES-090': { id: 90 }, 'SIT-071': { id: 71 }, 'GES-094': { id: GES_094 }, 'SIT-050': { id: SIT_050 } }[where.clave as string] ?? null)),
+                findMany: jest.fn().mockImplementation(({ where }: any) =>
+                    Promise.resolve(where?.categoria === 'CANCELADO' ? [{ id: SIT_050 }] : [GESTION, 210, 90, GES_094].map((id) => ({ id })))),
+            },
+            deudor: {
+                findFirst: jest.fn().mockResolvedValue(null),
+                findMany: jest.fn().mockResolvedValue(cartera),
+                create: jest.fn().mockResolvedValue({ id: 777 }),
+                update: jest.fn().mockResolvedValue({}),
+            },
+            factura: {
+                findUnique: jest.fn().mockResolvedValue(null), findFirst: jest.fn().mockResolvedValue(null),
+                findMany: jest.fn().mockResolvedValue([]), create: jest.fn().mockResolvedValue({}), update: jest.fn().mockResolvedValue({}),
+                aggregate: jest.fn().mockResolvedValue({ _sum: { importe: 0 }, _count: 1 }), count: jest.fn().mockResolvedValue(0),
+            },
+            contacto: { createMany: jest.fn().mockResolvedValue({ count: 0 }), findMany: jest.fn().mockResolvedValue([]) },
+            pago: { create: jest.fn().mockResolvedValue({}) },
+            $transaction: jest.fn().mockImplementation((ops: any[]) => Promise.resolve(ops)),
+        };
+    }
+    const casoCedente = (nro: string) => ({ _tipo: 'CASO', nroCliente: nro, documento: `2717939${nro}`, nombre: 'X', camposAdicionales: {}, _blocks: [] }) as any;
+
+    function prismaClavesC3() {
+        return {
+            clave_pago: {
+                count: jest.fn().mockResolvedValue(3),
+                findMany: jest.fn().mockResolvedValue([{ nroConvenio: 'C0', nroTramite: 'T0', empresaId: 1 }, { nroConvenio: 'C1', nroTramite: 'T1', empresaId: 1 }]),
+            },
+            deudor: { findMany: jest.fn().mockResolvedValue([{ nroCliente: 'T0' }]) },
+            pago: { findMany: jest.fn().mockResolvedValue([{ deudorId: 5 }]) },
+        };
+    }
+
+    // ── los escenarios, uno por categoría (ACTUALIZACIONES y MULTI* tienen más de uno) ──────────
+    const estado = (proc: unknown, s: Record<string, unknown>) => Object.assign(proc as object, s);
+    const filasDeuda = (n: number) => Array.from({ length: n }, (_, i) => ({ idx: i, row: { documento: String(20000000 + i), nombre: 'N' } as any }));
+
+    const escenarios: Record<string, Escenario> = {
+        DEUDORES: {
+            prisma: () => prismaDeudores({ '333': 55 }),
+            correr: async (ctx) => {
+                const p = new DeudoresProcessor();
+                for (const documento of ['111', '111', '333', '444']) await p.processRow({ documento, nombre: 'A' } as any, ctx);
+                await p.afterAll(ctx);
+            },
+        },
+        DEUDORES_Y_FACTURAS: {
+            prisma: () => prismaDeudores(),
+            correr: async (ctx) => {
+                const p = new DeudoresYFacturasProcessor();
+                for (const documento of ['111', '111', '222']) {
+                    await p.processRow({ documento, nombre: 'A', nroFactura: `F${documento}`, importe: 10 } as any, ctx);
+                }
+                await p.afterAll(ctx);
+            },
+        },
+        FACTURAS: {
+            prisma: () => prismaFacturasC3(),
+            ctx: { montoDeudorDesdeFacturas: 'SIEMPRE' } as any,
+            correr: async (ctx) => {
+                const p = new FacturasProcessor();
+                const f = new Date('2026-01-01');
+                const rows = ['1', '2', '999'].map((n, i) => ({ idx: i, row: { nro_cliente: n, nroFactura: `F${n}`, importe: 10, fechaEmision: f, vencimiento: f, camposAdicionales: { zona: 'N' } } as any }));
+                await p.processBatch(rows, ctx);
+                await p.afterAll(ctx);
+            },
+        },
+        CONTACTOS: {
+            prisma: () => prismaContactos(),
+            correr: async (ctx) => {
+                const p = new ContactosProcessor();
+                await p.processRow({ documento: '27179395', tipo: 'telefono', valor: '1155551234' } as any, ctx);
+                await p.processRow({ documento: '27179396', tipo: 'telefono', valor: 'abc' } as any, ctx);
+                await p.afterAll(ctx);
+            },
+        },
+        ENRIQUECIMIENTO: {
+            prisma: () => prismaContactos(),
+            correr: async (ctx) => {
+                const p = new EnriquecimientoProcessor();
+                await p.processRow({ documento: '27179395', tipo: 'telefono', valor: '1155551234' } as any, ctx);
+                await p.processRow({ documento: '27179396', tipo: 'telefono', valor: 'abc' } as any, ctx);
+                await p.afterAll(ctx);
+            },
+        },
+        PAGOS: {
+            prisma: () => prismaPagos(),
+            correr: async (ctx) => {
+                const p = new PagosProcessor();
+                const fila = (importe: number, observacion?: string) => ({ nro_cliente: '000003462007', importe, fecha: '2026-07-17', ...(observacion ? { observacion } : {}) }) as any;
+                await p.processRow(fila(195.04), ctx);
+                await p.processRow(fila(195.04), ctx); // ya cargado
+                await p.processRow(fila(-50), ctx);    // negativo
+                await p.afterAll(ctx);
+            },
+        },
+        'ACTUALIZACIONES (pagó todo)': {
+            prisma: () => prismaActualizaciones({ deudoresMonto: [{ id: 2, montoTotal: 100 }, { id: 3, montoTotal: 0 }, { id: 4, montoTotal: 50 }] }),
+            ctx: { accionAusente: 'PAGO_TODO' } as any,
+            correr: async (ctx) => {
+                const p = new ActualizacionesProcessor();
+                estado(p, { sawReconciliationData: true, matchedExistingCount: 1, processedDeudorIds: new Set([1]) });
+                await p.afterAll(ctx);
+            },
+        },
+        'ACTUALIZACIONES (desasignar)': {
+            prisma: () => prismaActualizaciones({ listado: [{ id: 2, estadoGestionId: 210, estadoSituacionId: 100 }, { id: 3, estadoGestionId: 210, estadoSituacionId: 100 }] }),
+            correr: async (ctx) => {
+                const p = new ActualizacionesProcessor();
+                const cartera = new Map<string, any>([['20000000', actCartera(1)]]);
+                (ctx.prisma as any); // la cartera de la base falsa ya viene en el escenario por documento
+                void cartera;
+                estado(p, { sawReconciliationData: true, matchedExistingCount: 1, processedDeudorIds: new Set([1]), pagosDeudorIds: new Set([1]), reasignadosCount: 1 });
+                await p.afterAll(ctx);
+            },
+        },
+        'ACTUALIZACIONES (sin coincidencias)': {
+            prisma: () => prismaActualizaciones(),
+            ctx: { accionAusente: 'PAGO_TODO' } as any,
+            correr: async (ctx) => {
+                const p = new ActualizacionesProcessor();
+                await p.processBatch(filasDeuda(3).map((r) => ({ ...r, row: { ...r.row, montoTotal: 100 } })), ctx);
+                await p.afterAll(ctx);
+            },
+        },
+        ACCIONES: {
+            prisma: () => prismaAcciones(),
+            ctx: {
+                accionesConfig: {
+                    matchMode: 'DEUDOR', matchColumn: { field: 'id', fromIndex: 0 }, saltearCanceladas: true,
+                    operaciones: [{ tipo: 'SET_CAMPO', campo: 'nombre', modo: 'ESTATICO', valor: 'TOCADO' }],
+                },
+            } as any,
+            correr: async (ctx) => {
+                const p = new AccionesProcessor();
+                for (const id of [1, 2, 9]) await p.processRow({ _raw: [String(id)] } as any, ctx);
+                await p.afterAll(ctx);
+            },
+        },
+        'MULTIRREGISTRO (con bajas por pago y retiradas)': {
+            prisma: () => prismaCedenteC3(),
+            ctx: { multirregistroConfig: { baj: { codigo: 'BAJ', aviso: 2, motivosPago: ['Pago de Cuota'] } } } as any,
+            correr: async (ctx, falso) => {
+                const p = new MultirregistroProcessor();
+                await p.processRow(casoCedente('346395'), ctx);
+                falso.factura.findMany.mockResolvedValue([{ id: 11, deudorId: 555, importe: 100, estado: 'PENDIENTE' }]);
+                await p.processRow({ _tipo: 'BAJA', aviso: '1', motivo: 'Pago de Cuota' } as any, ctx);
+                falso.factura.findMany.mockResolvedValue([{ id: 12, deudorId: 556, importe: 80, estado: 'PENDIENTE' }]);
+                await p.processRow({ _tipo: 'BAJA', aviso: '2', motivo: 'Retiro del cedente' } as any, ctx);
+                falso.factura.findMany.mockResolvedValue([]);
+                await p.processRow({ _tipo: 'BAJA', aviso: '3', motivo: 'Pago de Cuota' } as any, ctx);
+                await p.afterAll!(ctx);
+            },
+        },
+        'MULTIARCHIVO (con bajas por pago y desasignación)': {
+            prisma: () => prismaCedenteC3([{ id: 777, estadoGestionId: 210, estadoSituacionId: null }, { id: 1000, estadoGestionId: 210, estadoSituacionId: null }]),
+            ctx: { plantillaId: 7, multiarchivoConfig: { accionAusente: 'DESASIGNAR', bajas: { motivosPagoIds: ['1'], motivosPago: ['Pago de Cuota'] } } } as any,
+            correr: async (ctx, falso) => {
+                const p = new MultiarchivoProcessor();
+                await p.processRow(casoCedente('488744'), ctx);
+                falso.factura.findMany.mockResolvedValue([{ id: 11, deudorId: 555, importe: 100, estado: 'PENDIENTE' }]);
+                await p.processRow({ _tipo: 'BAJA', nroFactura: '1-1', motivo: 'Pago de Cuota' } as any, ctx);
+                await p.afterAll!(ctx);
+            },
+        },
+        MULTICLAVES: {
+            prisma: () => prismaClavesC3(),
+            correr: async (ctx) => {
+                const p = new MulticlavesProcessor();
+                await p.afterAll!(ctx);
+            },
+        },
+    };
+
+    it('cubre las once categorías', () => {
+        const categorias = new Set(Object.keys(escenarios).map((k) => k.split(' ')[0]));
+        expect([...categorias].sort()).toEqual([
+            'ACCIONES', 'ACTUALIZACIONES', 'CONTACTOS', 'DEUDORES', 'DEUDORES_Y_FACTURAS', 'ENRIQUECIMIENTO', 'FACTURAS',
+            'MULTIARCHIVO', 'MULTICLAVES', 'MULTIRREGISTRO', 'PAGOS',
+        ]);
+    });
+
+    describe.each(Object.keys(escenarios))('%s', (nombre) => {
+        it('hace EXACTAMENTE las mismas llamadas a la base (y al resto del contexto) con y sin ctx.progreso', async () => {
+            const sin = await ejecutar(escenarios[nombre], false);
+            const con = await ejecutar(escenarios[nombre], true);
+            expect(sin.llamadas.length).toBeGreaterThan(0);
+            expect(con.llamadas).toEqual(sin.llamadas);
+            // Y el canal sí se usó: sin esto la comparación no probaría nada.
+            expect(con.resumenes.length).toBeGreaterThan(0);
+            expect(sin.resumenes).toHaveLength(0);
+        });
+    });
+
+    // ── el resumen final de cada categoría, con los números del escenario ────────────────────
+    const resumenDe = async (nombre: string) => (await ejecutar(escenarios[nombre], true)).ultimo;
+
+    it('DEUDORES: una fila sobre una identidad repetida no suma casos', async () => {
+        expect(await resumenDe('DEUDORES')).toEqual({ tipo: 'DEUDORES', casosNuevos: 2, contactosCopiados: 0 });
+    });
+
+    it('DEUDORES_Y_FACTURAS: casos nuevos y casos con facturas', async () => {
+        expect(await resumenDe('DEUDORES_Y_FACTURAS')).toEqual({ tipo: 'DEUDORES_Y_FACTURAS', casosNuevos: 2, casosConFacturas: 2, contactosCopiados: 0 });
+    });
+
+    it('FACTURAS: los clientes que no existen en la remesa de origen', async () => {
+        expect(await resumenDe('FACTURAS')).toEqual({ tipo: 'FACTURAS', casosConFacturas: 2, clientesInexistentes: 1 });
+    });
+
+    it.each(['CONTACTOS', 'ENRIQUECIMIENTO'])('%s: un contacto por caso, y la fila sin contacto válido', async (tipo) => {
+        expect(await resumenDe(tipo)).toEqual({ tipo, contactosCargados: 2, filasSinContactoValido: 1 });
+    });
+
+    it('PAGOS: un negativo que ya estaba cargado no se cuenta como negativo (recarga del mismo archivo; auditoría de C3a)', async () => {
+        const r = await ejecutar({
+            prisma: () => prismaPagos(),
+            correr: async (ctx) => {
+                const p = new PagosProcessor();
+                const fila = { nro_cliente: '000003462007', importe: -50, fecha: '2026-07-17' } as any;
+                await p.processRow({ ...fila }, ctx);
+                await p.processRow({ ...fila }, ctx); // la misma fila otra vez: ya cargado
+                await p.afterAll(ctx);
+            },
+        }, true);
+        expect(r.ultimo).toMatchObject({ tipo: 'PAGOS', yaCargados: 1, negativos: 1 });
+    });
+
+    it('PAGOS: ya cargados, negativos y sin claves', async () => {
+        expect(await resumenDe('PAGOS')).toEqual({
+            tipo: 'PAGOS', casosConPagos: 1, yaCargados: 1, negativos: 1, facturasMarcadas: 0, claves: null,
+        });
+    });
+
+    it('ACTUALIZACIONES pagó todo: ausentes dados por pagados y los sin importe', async () => {
+        const r = await resumenDe('ACTUALIZACIONES (pagó todo)');
+        expect(r).toMatchObject({
+            tipo: 'ACTUALIZACIONES',
+            coincidencias: 1,
+            ausentes: { accion: 'PAGO_TODO', resultado: 'APLICADO', pagosGenerados: 2, salteadosSinMonto: 1, desasignados: 0 },
+        });
+    });
+
+    it('ACTUALIZACIONES desasignar: cuántos ausentes se desasignaron', async () => {
+        const r = await resumenDe('ACTUALIZACIONES (desasignar)');
+        expect(r).toMatchObject({ reasignados: 1, ausentes: { accion: 'DESASIGNAR', resultado: 'APLICADO', desasignados: 2, pagosGenerados: 0 } });
+    });
+
+    it('ACTUALIZACIONES sin ninguna coincidencia: ABORTADO_SIN_COINCIDENCIAS, y el reporte viene antes del reset', async () => {
+        const r = await resumenDe('ACTUALIZACIONES (sin coincidencias)');
+        expect(r).toMatchObject({
+            coincidencias: 0, casosNuevos: 3,
+            ausentes: { accion: 'PAGO_TODO', resultado: 'ABORTADO_SIN_COINCIDENCIAS', pagosGenerados: 0 },
+        });
+    });
+
+    it('ACTUALIZACIONES: durante las filas el cierre figura NO_LLEGO; sin remesa de origen, SIN_REMESA_ORIGEN; en solo datos, OMITIDO_SOLO_DATOS', async () => {
+        const e = ctxBase(prismaActualizaciones(), { accionAusente: 'PAGO_TODO' });
+        const p = new ActualizacionesProcessor();
+        await p.processBatch(filasDeuda(2), e.ctx);
+        expect(e.ultimoResumen()).toMatchObject({ tipo: 'ACTUALIZACIONES', ausentes: { resultado: 'NO_LLEGO' } });
+
+        const sinOrigen = ctxBase(prismaActualizaciones(), { remesaOrigenId: undefined, accionAusente: 'PAGO_TODO' });
+        await new ActualizacionesProcessor().afterAll(sinOrigen.ctx);
+        expect(sinOrigen.ultimoResumen()).toMatchObject({ ausentes: { resultado: 'SIN_REMESA_ORIGEN' } });
+
+        const soloDatos = ctxBase(prismaActualizaciones(), { accionAusente: 'PAGO_TODO', modoActualizacion: 'SOLO_DATOS' });
+        await new ActualizacionesProcessor().afterAll(soloDatos.ctx);
+        expect(soloDatos.ultimoResumen()).toMatchObject({ ausentes: { resultado: 'OMITIDO_SOLO_DATOS' } });
+    });
+
+    it('ACCIONES: casos afectados, cancelados salteados y filas sin match', async () => {
+        expect(await resumenDe('ACCIONES')).toEqual({
+            tipo: 'ACCIONES', deudoresAfectados: 1, comentariosCreados: 0, contactosEliminados: 0, saltadosCancelados: 1, filasSinMatch: 1,
+        });
+    });
+
+    it('MULTIRREGISTRO: altas, bajas por pago, retiradas y sin factura que coincida', async () => {
+        expect(await resumenDe('MULTIRREGISTRO (con bajas por pago y retiradas)')).toMatchObject({
+            tipo: 'MULTIRREGISTRO', altas: 1, bajas: 2, bajasPago: 1, bajasRetiradas: 1, bajasSinMatch: 1, bajasYaAplicadas: 0,
+        });
+    });
+
+    it('MULTIARCHIVO: informa su propio tipo', async () => {
+        expect(await resumenDe('MULTIARCHIVO (con bajas por pago y desasignación)')).toMatchObject({ tipo: 'MULTIARCHIVO', altas: 1, bajasPago: 1 });
+    });
+
+    it('MULTICLAVES: trámites, con y sin caso, y los casos re-consolidados', async () => {
+        expect(await resumenDe('MULTICLAVES')).toEqual({
+            tipo: 'MULTICLAVES', yaCargadas: 0, tramites: 2, conCaso: 1, sinCaso: 1, casosReconsolidados: 1,
+        });
+    });
+
+    it('el reporte final va ANTES del reset(): ningún resumen de cierre sale en cero cuando hubo trabajo', async () => {
+        for (const nombre of ['DEUDORES', 'FACTURAS', 'PAGOS', 'ACCIONES', 'MULTIRREGISTRO (con bajas por pago y retiradas)']) {
+            const { resumenes } = await ejecutar(escenarios[nombre], true);
+            const ultimo = JSON.stringify(resumenes[resumenes.length - 1]);
+            expect(ultimo).toMatch(/[1-9]/);
+        }
     });
 });

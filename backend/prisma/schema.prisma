@@ -182,6 +182,10 @@ model importerror {
   id        Int      @id @default(autoincrement())
   remesaId  Int
   rowNumber Int
+  /// Fila del registro en SU archivo, como la ve el operador (Excel: el número de fila de la hoja; texto: el número de
+  /// registro contando el encabezado). null = no se puede afirmar (avisos, MULTIRREGISTRO, MULTIARCHIVO, MULTICLAVES, y
+  /// toda carga anterior a C3a). Con varios archivos, cuál es lo dice el prefijo `[archivo:N]` del mensaje.
+  linea     Int?
   rawRow    Json
   errorMsg  String   @db.Text
   createdAt DateTime @default(now())
@@ -248,7 +252,7 @@ model import_progreso {
   errorPostProceso   String?   @db.Text
   /// Sobre versionado { v: 1, origen: { remesaOrigenId, remesaOrigenIds }, sinFilasEntregadas?, cancelacion?, retomas? }.
   /// `origen` lo escribe la confirmación (lo necesita retomar); `sinFilasEntregadas` solo el runner vivo; `cancelacion`
-  /// el pedido de cancelar. Siempre se mezcla con lo leído bajo el lock de la fila. La Fase C3 le suma el resumen por categoría.
+  /// el pedido de cancelar. Siempre se mezcla con lo leído bajo el lock de la fila. La Fase C3a le suma la clave `categoria` (el resumen por categoría).
   resumen            Json?
   /// Cuántas veces arrancó el worker sobre esta remesa. >1 = BullMQ la re-ejecutó.
   intentos           Int       @default(0)

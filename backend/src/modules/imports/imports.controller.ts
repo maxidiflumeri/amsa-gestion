@@ -278,7 +278,14 @@ export class ImportController {
         entidad: 'Remesa',
         tipo: AuditTipo.DELETE,
         entidadIdParam: 'id',
-        resumen: (res, req) => `Revirtió acción masiva remesa ${req.params.id}`,
+        // Un pedido rechazado (un 409, por ejemplo un segundo clic mientras corre la primera) llega acá sin `res`; y uno que
+        // encontró la acción ya revertida no revirtió nada: ninguno de los dos puede quedar como "Revirtió".
+        resumen: (res, req) =>
+            res == null
+                ? `Intentó revertir la acción masiva de la remesa ${req.params.id}`
+                : res.yaRevertida
+                    ? `La acción masiva de la remesa ${req.params.id} ya estaba revertida`
+                    : `Revirtió acción masiva remesa ${req.params.id}`,
     })
     revertirAcciones(@Param('id', ParseIntPipe) id: number, @UsuarioActual() user: UsuarioJwt) {
         return this.service.revertirAcciones(id, user.sub);

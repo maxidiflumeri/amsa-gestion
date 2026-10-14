@@ -43,6 +43,8 @@ function enBloques<T>(arr: T[], size: number): T[][] {
 export class MulticlavesProcessor implements ICategoryProcessor {
     readonly category = 'MULTICLAVES';
     private readonly logger = new Logger(MulticlavesProcessor.name);
+    /** Trámites que ya estaban cargados en la remesa, acumulados de todos los lotes (resumen, C3a). */
+    private yaCargadasTotal = 0;
 
     validateRow(row: MappedRow, _ctx: ProcessContext): RowValidationResult {
         const t = row as unknown as TramiteClaves;
@@ -297,6 +299,16 @@ export class MulticlavesProcessor implements ICategoryProcessor {
             `yaCargadas=${yaCargadas} errores=${errores.length}`,
         );
 
+        this.yaCargadasTotal += yaCargadas;
+        ctx.progreso?.resumen({
+            tipo: 'MULTICLAVES',
+            yaCargadas: this.yaCargadasTotal,
+            tramites: null,
+            conCaso: null,
+            sinCaso: null,
+            casosReconsolidados: null,
+        });
+
         return errores;
     }
 
@@ -342,6 +354,7 @@ export class MulticlavesProcessor implements ICategoryProcessor {
         // processor hace algo en `afterAll`, y los errores de `afterAll` se tragan
         // (`imports.service.ts`), así que si esto falla el botón "Consolidar" de siempre sigue
         // estando — no puede ser la única vía para que estos casos se cancelen.
+        let casosReconsolidados: number | null = null;
         try {
             const convenios = await ctx.prisma.clave_pago.findMany({
                 where: { remesaId: ctx.remesaId },
@@ -370,6 +383,9 @@ export class MulticlavesProcessor implements ICategoryProcessor {
                     `Multiclaves remesa=${ctx.remesaId}: ${deudorIds.length} caso(s) con pagos que ya ` +
                     'referenciaban estas claves fueron re-consolidados.',
                 );
+                casosReconsolidados = deudorIds.length;
+            } else {
+                casosReconsolidados = 0;
             }
         } catch (e: any) {
             this.logger.warn(
@@ -377,5 +393,14 @@ export class MulticlavesProcessor implements ICategoryProcessor {
                 `queda el botón "Consolidar" de siempre): ${e.message}`,
             );
         }
+
+        ctx.progreso?.resumen({
+            tipo: 'MULTICLAVES',
+            yaCargadas: this.yaCargadasTotal,
+            tramites: nroTramites.length,
+            conCaso,
+            sinCaso: nroTramites.length - conCaso,
+            casosReconsolidados,
+        });
     }
 }

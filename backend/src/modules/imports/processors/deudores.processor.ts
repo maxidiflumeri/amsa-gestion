@@ -76,9 +76,20 @@ export class DeudoresProcessor implements ICategoryProcessor {
         if (creado) {
             this.contactosEnriquecidos += await enriquecerContactosHistoricos(ctx, deudorId, documentoStr);
         }
+        this.informarResumen(ctx);
     }
 
-    async afterAll(_ctx: ProcessContext): Promise<void> {
+    /** Lo que hizo la carga hasta ahora (C3a). Solo memoria: no escribe nada. */
+    private informarResumen(ctx: ProcessContext): void {
+        ctx.progreso?.resumen({
+            tipo: 'DEUDORES',
+            casosNuevos: this.creadosIds.size,
+            contactosCopiados: this.contactosEnriquecidos,
+        });
+    }
+
+    async afterAll(ctx: ProcessContext): Promise<void> {
+        this.informarResumen(ctx);
         if (this.contactosEnriquecidos > 0) {
             this.logger.log(
                 `Autoenriquecimiento histórico: ${this.contactosEnriquecidos} contactos copiados desde la base.`,

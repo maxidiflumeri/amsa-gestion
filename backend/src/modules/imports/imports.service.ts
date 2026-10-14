@@ -43,7 +43,7 @@ import type {
     CodigoErrorImport, ErrorDeCargaDto, ErroresRespuesta, GrupoHistorialDto, HistorialItemDto, HistorialRespuesta,
     OrigenDeCargaDto, PendienteDeEncolarDto, TipoErrorDeCarga,
 } from './historial.types';
-import { MAX_FILAS_CSV_ERRORES, lineaCsv, nombreArchivoCsv, numeroDeFila, tipoDeError, whereAvisos, whereFilas } from './utils/errores-carga';
+import { MAX_ERRORES_RECIENTES, MAX_FILAS_CSV_ERRORES, lineaCsv, nombreArchivoCsv, numeroDeFila, tipoDeError, whereAvisos, whereFilas } from './utils/errores-carga';
 import { AcumuladorCortes, claveDeCorte, columnasDeDivision, divide, numerosSugeridos } from './utils/division-remesa';
 import { combinarHashes, hashDeArchivos } from './utils/hash-archivos';
 import { ContadorColisiones, resolverIdentidad } from './utils/identidad-deudor';
@@ -227,6 +227,8 @@ export class ImportService {
      * inmortal a esa carga para el reaper.
      */
     private readonly cargasVivas = new Map<number, ProgresoTracker>();
+    /** Remesas cuya reversión está corriendo en este proceso (C3a). Con más de una instancia no alcanza: C3b lo reemplaza por un job. */
+    private readonly reversionesEnCurso = new Set<number>();
 
     constructor(
         private prisma: PrismaService,
@@ -2135,67 +2137,107 @@ export class ImportService {
 
     // --- REVERTIR ACCIONES MASIVAS (undo por snapshot) ---
     async revertirAcciones(remesaId: number, usuarioId?: number) {
-        const remesa = await this.prisma.remesa.findUnique({ where: { id: remesaId } });
+        const t0 = Date.now();
+        this.logger.log(`Revertir acción masiva: remesa=${remesaId} usuario=${usuarioId ?? 'sistema'}`);
+        const remesa = await this.prisma.remesa.findUnique({
+            where: { id: remesaId },
+            include: { progreso: { select: { errorPostProceso: true, finishedAt: true } } },
+        });
         if (!remesa) throw new NotFoundException('Remesa no existe');
         if (remesa.categoria !== 'ACCIONES') throw new BadRequestException('La remesa no es de acciones masivas');
         if (remesa.accionRevertidaEn) {
             return { yaRevertida: true, deudoresRevertidos: 0, contactosRestaurados: 0, comentariosBorrados: 0 };
         }
 
-        const snaps = await this.prisma.accion_masiva_snapshot.findMany({
-            where: { remesaId }, orderBy: { id: 'desc' },
-        });
+        // Revertir solo lo que se puede deshacer entero: los datos para revertir se guardan al final de la carga (en el
+        // post-proceso), así que una carga que no terminó bien, o cuyo post-proceso falló, no los tiene completos.
+        if (remesa.estadoProceso !== 'FINALIZADA') {
+            this.logger.warn(`Revertir remesa=${remesaId}: rechazado, la carga no terminó bien (estado ${remesa.estadoProceso})`);
+            throw this.conflicto(
+                'REVERTIR_NO_TERMINO',
+                'Esta acción masiva no terminó bien: los datos para revertirla no se guardaron. Avisá a soporte; no la vuelvas a cargar.',
+            );
+        }
+        if (remesa.progreso && remesa.progreso.errorPostProceso != null) {
+            this.logger.warn(`Revertir remesa=${remesaId}: rechazado, el post-proceso no guardó completos los datos para revertir`);
+            throw this.conflicto(
+                'REVERTIR_INCOMPLETO',
+                'Los datos para revertir esta acción no se guardaron completos: Revertir desharía solo una parte. Avisá a soporte.',
+            );
+        }
+        // Un solo pedido por remesa a la vez en este proceso (prod corre uno): el doble clic o el reintento tras un 504.
+        if (this.reversionesEnCurso.has(remesaId)) {
+            this.logger.warn(`Revertir remesa=${remesaId}: rechazado, ya hay una reversión corriendo`);
+            throw this.conflicto('REVERSION_EN_CURSO', 'Esta acción ya se está revirtiendo. Esperá a que termine y actualizá el Historial.');
+        }
+        this.reversionesEnCurso.add(remesaId);
+        try {
+            const snaps = await this.prisma.accion_masiva_snapshot.findMany({
+                where: { remesaId }, orderBy: { id: 'desc' },
+            });
 
-        let deudoresRevertidos = 0;
-        const contactosACrear: any[] = [];
-        const comentariosABorrar: number[] = [];
+            let deudoresRevertidos = 0;
+            let casosQueNoExistian = 0;
+            const contactosACrear: any[] = [];
+            const comentariosABorrar: number[] = [];
 
-        for (const s of snaps) {
-            const dp = (s.datosPrevios ?? {}) as Record<string, any>;
-            if (s.entidad === 'deudor' && s.accion === 'UPDATE') {
-                const data: any = {};
-                for (const [k, v] of Object.entries(dp)) {
-                    if (k === 'fechaVencimiento') data[k] = v ? new Date(v) : null;
-                    else if (k === 'camposAdicionales') data[k] = v == null ? Prisma.JsonNull : v;
-                    else data[k] = v;
+            for (const s of snaps) {
+                const dp = (s.datosPrevios ?? {}) as Record<string, any>;
+                if (s.entidad === 'deudor' && s.accion === 'UPDATE') {
+                    const data: any = {};
+                    for (const [k, v] of Object.entries(dp)) {
+                        if (k === 'fechaVencimiento') data[k] = v ? new Date(v) : null;
+                        else if (k === 'camposAdicionales') data[k] = v == null ? Prisma.JsonNull : v;
+                        else data[k] = v;
+                    }
+                    // Un caso borrado después no frena el resto, pero se cuenta para que el log lo diga.
+                    await this.prisma.deudor.update({ where: { id: s.entidadId }, data }).catch(() => { casosQueNoExistian++; });
+                    deudoresRevertidos++;
+                } else if (s.entidad === 'contacto' && s.accion === 'DELETE') {
+                    contactosACrear.push({
+                        deudorId: dp.deudorId, tipo: dp.tipo, valor: dp.valor,
+                        subtipo: dp.subtipo ?? null, prioridad: dp.prioridad ?? 0,
+                        validado: dp.validado ?? false, whatsapp: dp.whatsapp ?? null,
+                    });
+                } else if (s.entidad === 'comentario' && s.accion === 'INSERT') {
+                    comentariosABorrar.push(s.entidadId);
                 }
-                await this.prisma.deudor.update({ where: { id: s.entidadId }, data }).catch(() => { });
-                deudoresRevertidos++;
-            } else if (s.entidad === 'contacto' && s.accion === 'DELETE') {
-                contactosACrear.push({
-                    deudorId: dp.deudorId, tipo: dp.tipo, valor: dp.valor,
-                    subtipo: dp.subtipo ?? null, prioridad: dp.prioridad ?? 0,
-                    validado: dp.validado ?? false, whatsapp: dp.whatsapp ?? null,
-                });
-            } else if (s.entidad === 'comentario' && s.accion === 'INSERT') {
-                comentariosABorrar.push(s.entidadId);
             }
+
+            let contactosRestaurados = 0;
+            for (let i = 0; i < contactosACrear.length; i += 500) {
+                const r = await this.prisma.contacto.createMany({ data: contactosACrear.slice(i, i + 500), skipDuplicates: true });
+                contactosRestaurados += r.count;
+            }
+            let comentariosBorrados = 0;
+            if (comentariosABorrar.length) {
+                const r = await this.prisma.comentario.deleteMany({ where: { id: { in: comentariosABorrar } } });
+                comentariosBorrados = r.count;
+            }
+
+            // Condicional: si otro proceso la marcó antes, lo revertido es idempotente y no se pisa quién la revirtió.
+            const marca = await this.prisma.remesa.updateMany({
+                where: { id: remesaId, accionRevertidaEn: null },
+                data: { accionRevertidaEn: new Date(), accionRevertidaPorId: usuarioId ?? null },
+            });
+            if (marca.count === 0) this.logger.warn(`Revertir remesa=${remesaId}: otra reversión la marcó antes; se conserva esa marca`);
+
+            await this.auditoria.log({
+                modulo: 'IMPORT', entidad: 'acciones_masivas', tipo: 'DELETE',
+                usuarioId: usuarioId ?? null, empresaId: remesa.empresaId, entidadId: remesaId,
+                resumen: `Revirtió acción masiva (remesa ${remesaId})`,
+                data: { deudoresRevertidos, contactosRestaurados, comentariosBorrados },
+            });
+
+            this.logger.log(
+                `Revertir remesa=${remesaId}: ${deudoresRevertidos} casos revertidos` +
+                (casosQueNoExistian > 0 ? ` (${casosQueNoExistian} ya no existían)` : '') +
+                `, ${contactosRestaurados} contactos restaurados, ${comentariosBorrados} comentarios borrados en ${Date.now() - t0}ms`,
+            );
+            return { yaRevertida: false, deudoresRevertidos, contactosRestaurados, comentariosBorrados };
+        } finally {
+            this.reversionesEnCurso.delete(remesaId);
         }
-
-        let contactosRestaurados = 0;
-        for (let i = 0; i < contactosACrear.length; i += 500) {
-            const r = await this.prisma.contacto.createMany({ data: contactosACrear.slice(i, i + 500), skipDuplicates: true });
-            contactosRestaurados += r.count;
-        }
-        let comentariosBorrados = 0;
-        if (comentariosABorrar.length) {
-            const r = await this.prisma.comentario.deleteMany({ where: { id: { in: comentariosABorrar } } });
-            comentariosBorrados = r.count;
-        }
-
-        await this.prisma.remesa.update({
-            where: { id: remesaId },
-            data: { accionRevertidaEn: new Date(), accionRevertidaPorId: usuarioId ?? null },
-        });
-
-        await this.auditoria.log({
-            modulo: 'IMPORT', entidad: 'acciones_masivas', tipo: 'DELETE',
-            usuarioId: usuarioId ?? null, empresaId: remesa.empresaId, entidadId: remesaId,
-            resumen: `Revirtió acción masiva (remesa ${remesaId})`,
-            data: { deudoresRevertidos, contactosRestaurados, comentariosBorrados },
-        });
-
-        return { yaRevertida: false, deudoresRevertidos, contactosRestaurados, comentariosBorrados };
     }
 
     // --- EJECUTAR (Encuela el trabajo en BullMQ) ---
@@ -3701,6 +3743,7 @@ export class ImportService {
             filasDelLote: (n) => reportar('filasDelLote', () => tracker.avanceDelLote(n)),
             subfase: (nombre, hecho, totalPaso) => reportar('subfase', () => tracker.subfase(nombre, hecho, totalPaso)),
             contadores: (c) => reportar('contadores', () => tracker.contadores(c)),
+            resumen: (r) => reportar('resumen', () => tracker.resumenCategoria(r)),
         };
 
         const sep = resolveDelimiter(remesa.plantilla.separador ?? '|');
@@ -3709,7 +3752,7 @@ export class ImportService {
         const BATCH_SIZE = IMPORTS_BATCH_SIZE;
         // `origen` (`archivo.txt:1234`) solo viene cuando la remesa tiene más de un archivo; se
         // antepone al mensaje de error para poder ubicar la fila entre los 31 TXT de una bajada.
-        const batch: Array<{ row: any; idx: number; origen?: string | null }> = [];
+        const batch: Array<{ row: any; idx: number; origen?: string | null; linea?: number | null }> = [];
 
         // MULTIRREGISTRO, MULTIARCHIVO y MULTICLAVES no son "una fila = un registro": hay que
         // agrupar o cruzar los archivos antes de procesar. El parser devuelve filas (o, en
@@ -3738,12 +3781,12 @@ export class ImportService {
             if (tracker.cancelacionPedida) throw new CargaCanceladaError('lote');
             const group = batch.splice(0, batch.length);
             let cortar = false;
-            const errorBatch: Array<{ remesaId: number; rowNumber: number; rawRow: any; errorMsg: string }> = [];
+            const errorBatch: Array<{ remesaId: number; rowNumber: number; linea: number | null; rawRow: any; errorMsg: string }> = [];
 
             // Filas que pasaron mapeo + validación, para el camino por lote.
-            const validas: Array<{ row: any; idx: number; mapped: any; origen?: string | null }> = [];
+            const validas: Array<{ row: any; idx: number; mapped: any; origen?: string | null; linea?: number | null }> = [];
 
-            for (const { row, idx, origen } of group) {
+            for (const { row, idx, origen, linea } of group) {
                 // Punto de corte de FILA: solo donde cada `processRow` es una unidad cerrada y el contador queda exacto.
                 if (!processor.processBatch && tracker.cancelacionPedida) {
                     cortar = true;
@@ -3763,7 +3806,7 @@ export class ImportService {
                     if (processor.processBatch) {
                         // El processor resuelve el lote entero de una vez (lecturas y escrituras
                         // agrupadas). El conteo ok/err se hace después, con lo que devuelva.
-                        validas.push({ row, idx, mapped: obj, origen });
+                        validas.push({ row, idx, mapped: obj, origen, linea });
                         continue;
                     }
 
@@ -3775,6 +3818,7 @@ export class ImportService {
                     errorBatch.push({
                         remesaId,
                         rowNumber: idx,
+                        linea: linea ?? null,
                         rawRow: Array.isArray(row) ? row : Object.values(row),
                         errorMsg: conOrigen(e.message ?? 'Error desconocido', origen ?? null),
                     });
@@ -3805,6 +3849,7 @@ export class ImportService {
                     errorBatch.push({
                         remesaId,
                         rowNumber: f.idx,
+                        linea: v?.linea ?? null,
                         rawRow: v ? (Array.isArray(v.row) ? v.row : Object.values(v.row)) : [],
                         errorMsg: conOrigen(f.error, v?.origen ?? null),
                     });
@@ -3988,7 +4033,7 @@ export class ImportService {
             // Las filas que el filtro descarta no son errores: no se procesan, no van a
             // `importerror` y no cuentan en el total. Son las de la plantilla más el corte
             // propio de la remesa cuando la carga se dividió por nómina/gestión.
-            const alFila = ({ valores, origen }: { valores: any; origen?: string | null }) => {
+            const alFila = ({ valores, origen, linea }: { valores: any; origen?: string | null; linea?: number | null }) => {
                 if (!pasaFiltro(valores, dePlantilla)) {
                     descartadas++;
                     tracker.avance({ ok, err, descartadas, fueraDeCorte });
@@ -4000,7 +4045,7 @@ export class ImportService {
                     tracker.avance({ ok, err, descartadas, fueraDeCorte });
                     return;
                 }
-                batch.push({ row: valores, idx: total++, origen });
+                batch.push({ row: valores, idx: total++, origen, linea });
                 // Devolver la promesa hace que el recorrido se pause hasta que el lote termine.
                 if (batch.length >= BATCH_SIZE) return processBatch();
             };
@@ -4113,18 +4158,9 @@ export class ImportService {
         // cuenta y con `errFilas = 0` la pantalla no los muestra (#11). Se distinguen de un error de fila
         // por el prefijo (los errores de fila de cargas con varios archivos también empiezan con `[`).
         try {
-            const enBase = await this.prisma.importerror.count({
-                where: {
-                    remesaId,
-                    // Todos los avisos se escriben con rowNumber 0: acota el índice (de ~100 ms a ~1 ms con 200 mil errores).
-                    rowNumber: 0,
-                    OR: [
-                        { errorMsg: { startsWith: '[aviso]' } },
-                        { errorMsg: { startsWith: '[parseo]' } },
-                        { errorMsg: { startsWith: '[post-proceso]' } },
-                    ],
-                },
-            });
+            // Una sola definición de aviso (`whereAvisos`): rowNumber 0, que acota el índice (de ~100 ms a ~1 ms con
+            // 200 mil errores), y los tres prefijos.
+            const enBase = await this.prisma.importerror.count({ where: whereAvisos(remesaId) });
             // Lo ya contado en memoria nunca baja (el truncado a 500 sigue diciendo el total real).
             if (enBase > avisosEscritos) tracker.sumarAdvertencias(enBase - avisosEscritos);
         } catch (countErr: any) {
@@ -4634,20 +4670,25 @@ export class ImportService {
     // --- ERRORES POR REMESA ---
     async getErrors(
         remesaId: number,
-        o: { page?: number; pageSize?: number; tipo?: 'TODOS' | TipoErrorDeCarga; orden?: 'asc' | 'desc' } = {},
+        o: { page?: number; pageSize?: number; tipo?: 'TODOS' | TipoErrorDeCarga; orden?: 'asc' | 'desc'; reciente?: boolean } = {},
     ): Promise<ErroresRespuesta> {
-        const page = o.page && o.page >= 1 ? o.page : 1;
-        const pageSize = o.pageSize && o.pageSize >= 1 ? o.pageSize : 50;
+        const reciente = o.reciente === true;
+        const page = !reciente && o.page && o.page >= 1 ? o.page : 1;
+        const pedido = o.pageSize && o.pageSize >= 1 ? o.pageSize : 50;
+        // `reciente` es "los últimos": una vista corta, no un listado. Sin `page` y con tope.
+        const pageSize = reciente ? Math.min(pedido, MAX_ERRORES_RECIENTES) : pedido;
         const orden = o.orden === 'desc' ? 'desc' : 'asc';
         const where: Prisma.importerrorWhereInput =
             o.tipo === 'AVISO' ? whereAvisos(remesaId) : o.tipo === 'FILA' ? whereFilas(remesaId) : { remesaId };
         const [errors, count, avisos, todos] = await Promise.all([
-            this.prisma.importerror.findMany({
-                where,
-                orderBy: [{ rowNumber: orden }, { id: orden }],
-                skip: (page - 1) * pageSize,
-                take: pageSize,
-            }),
+            reciente
+                ? this.erroresRecientes(remesaId, o.tipo ?? 'TODOS', pageSize)
+                : this.prisma.importerror.findMany({
+                    where,
+                    orderBy: [{ rowNumber: orden }, { id: orden }],
+                    skip: (page - 1) * pageSize,
+                    take: pageSize,
+                }),
             this.prisma.importerror.count({ where }),
             this.prisma.importerror.count({ where: whereAvisos(remesaId) }),
             this.prisma.importerror.count({ where: { remesaId } }),
@@ -4663,13 +4704,33 @@ export class ImportService {
         };
     }
 
-    private errorDeCarga(e: { id: number; rowNumber: number; errorMsg: string; rawRow: unknown; createdAt: Date }): ErrorDeCargaDto {
+    /**
+     * Los `n` errores más nuevos de una carga, avisos incluidos, del más nuevo al más viejo (C3a, A3). Cada lectura
+     * usa el índice (remesaId, rowNumber): las filas por `rowNumber` descendente, los avisos —todos con rowNumber 0—
+     * por `id`. Se juntan y se ordenan por `id` como mucho 2 × n registros, nunca los 200.000 de una carga grande.
+     */
+    private async erroresRecientes(remesaId: number, tipo: 'TODOS' | TipoErrorDeCarga, n: number) {
+        const filas = tipo === 'AVISO' ? [] : await this.prisma.importerror.findMany({
+            where: whereFilas(remesaId),
+            orderBy: [{ rowNumber: 'desc' }, { id: 'desc' }],
+            take: n,
+        });
+        const avisos = tipo === 'FILA' ? [] : await this.prisma.importerror.findMany({
+            where: whereAvisos(remesaId),
+            orderBy: [{ id: 'desc' }],
+            take: n,
+        });
+        return [...(filas ?? []), ...(avisos ?? [])].sort((a, b) => b.id - a.id).slice(0, n);
+    }
+
+    private errorDeCarga(e: { id: number; rowNumber: number; linea?: number | null; errorMsg: string; rawRow: unknown; createdAt: Date }): ErrorDeCargaDto {
         const tipo = tipoDeError(e.rowNumber, e.errorMsg);
         return {
             id: e.id,
             rowNumber: e.rowNumber,
             tipo,
-            fila: numeroDeFila(e.rowNumber, tipo),
+            fila: numeroDeFila(e.rowNumber, tipo, e.linea),
+            filaEsDelArchivo: tipo !== 'AVISO' && e.linea != null,
             errorMsg: e.errorMsg,
             rawRow: e.rawRow,
             createdAt: e.createdAt instanceof Date ? e.createdAt.toISOString() : String(e.createdAt),

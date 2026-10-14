@@ -37,11 +37,18 @@ export class ErrorDeParseo extends Error {
 export interface FilaLeida {
     /** Valores de la fila por índice, igual que `fast-csv` con `headers:false`. */
     valores: any[];
-    /** Índice global 0-based, **acumulado entre archivos**. Es el `rowNumber` del `importerror`. */
+    /** Índice global 0-based, **acumulado entre archivos**. Es el contador que el runner usa de `rowNumber` del
+     *  `importerror` (cuenta las filas que pasan los filtros, no las del archivo). */
     indice: number;
     /**
+     * La fila en SU archivo, como la ve el operador (C3a): en Excel, el número de fila de la hoja; en un archivo de
+     * texto, el número de registro contando el encabezado (coincide con la línea física salvo un campo entrecomillado
+     * con saltos de línea). Con varios archivos reinicia en cada uno, a diferencia de `indice`.
+     */
+    linea: number | null;
+    /**
      * `archivo.txt:1234` — de qué archivo salió la fila y en qué posición dentro de él (1-based,
-     * sin contar el encabezado).
+     * sin contar el encabezado: a diferencia de `linea`).
      *
      * Es `null` cuando la remesa tiene un solo archivo: ahí el dato no aporta nada y agregarlo
      * cambiaría los mensajes de error de todas las cargas que ya funcionan.
@@ -91,11 +98,13 @@ export async function recorrerFilas(opts: OpcionesRecorrido, onFila: OnFila): Pr
         // global. Con 31 archivos, el número global no le sirve a nadie para encontrar el registro.
         let fila = 0;
 
-        const emitir = (valores: any[]): void | Promise<void> => {
+        const emitir = (valores: any[], lineaExcel: number | null = null): void | Promise<void> => {
             fila++;
             return onFila({
                 valores,
                 indice: indice++,
+                // Texto: el registro `fila` más el encabezado, que también es un registro del archivo.
+                linea: lineaExcel ?? fila + (opts.tieneHeader ? 1 : 0),
                 origen: varios ? `${nombre}:${fila}` : null,
             });
         };
@@ -108,15 +117,20 @@ export async function recorrerFilas(opts: OpcionesRecorrido, onFila: OnFila): Pr
                 defval: '',
                 raw: false,
             });
+            // `sheet_to_json` empieza en la primera fila del rango de la hoja (`!ref`), no en la 1: una hoja con
+            // filas vacías arriba trae `!ref` desde la primera con datos. La fila de Excel de `filas[i]` es
+            // `filaInicial + i + 1` (medido con una hoja de dos filas vacías arriba y vacías en el medio).
+            const ref = wb.Sheets[sheet]['!ref'];
+            const filaInicial = ref ? xlsx.utils.decode_range(ref).s.r : 0;
             for (let i = opts.tieneHeader ? 1 : 0; i < filas.length; i++) {
-                if (filas[i]?.length) await emitir(filas[i]);
+                if (filas[i]?.length) await emitir(filas[i], filaInicial + i + 1);
             }
             continue;
         }
 
         await new Promise<void>((resolve, reject) => {
             const parser = opts.anchoFijo
-                ? crearStreamAnchoFijo(opts.anchoFijo, { tieneHeader: opts.tieneHeader })
+                ? crearStreamAnchoFijo(opts.anchoFijo, { tieneHeader: opts.tieneHeader, conLinea: true })
                 // El pipeline mapea **por índice** (`fromIndex`), nunca por nombre de columna: pedirle
                 // a fast-csv que interprete el encabezado no aporta nada y agrega un modo de falla
                 // propio. Con `headers: true` un archivo con dos columnas que se llaman igual tira
@@ -144,9 +158,9 @@ export async function recorrerFilas(opts: OpcionesRecorrido, onFila: OnFila): Pr
                     nombre,
                 )))
                 .on('data', (row: any) => {
-                    // Siempre llega un array (`headers:false`); el `Object.values` es para el
-                    // stream de ancho fijo, que emite objetos con las columnas nombradas.
-                    const r = emitir(Array.isArray(row) ? row : Object.values(row));
+                    // fast-csv emite siempre un array (`headers:false`) y la línea se deduce contando registros;
+                    // el stream de ancho fijo trae la línea física del archivo (cuenta las vacías).
+                    const r = opts.anchoFijo ? emitir(row.valores, row.linea) : emitir(row);
                     if (esPromesa(r)) {
                         parser.pause();
                         enVuelo = r.then(() => {

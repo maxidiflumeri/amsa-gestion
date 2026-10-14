@@ -520,7 +520,7 @@ describe('processImportJob — Fase B', () => {
         });
     });
 
-    it('FB-15: el ctx que recibe el processor trae progreso con los tres métodos, y ninguno tira aunque el tracker esté cerrado', async () => {
+    it('FB-15: el ctx que recibe el processor trae progreso con los cuatro métodos (C3a sumó `resumen`), y ninguno tira aunque el tracker esté cerrado', async () => {
         const h = armar({ filas: 2 });
 
         await h.service.processImportJob(h.job, 1);
@@ -530,11 +530,14 @@ describe('processImportJob — Fase B', () => {
             filasDelLote: expect.any(Function),
             subfase: expect.any(Function),
             contadores: expect.any(Function),
+            resumen: expect.any(Function),
         });
         // El job ya terminó: el tracker está cerrado.
         expect(() => ctx.progreso.filasDelLote(5)).not.toThrow();
         expect(() => ctx.progreso.subfase('x', 1, 2)).not.toThrow();
         expect(() => ctx.progreso.contadores({ nuevos: 1, actualizados: 2 })).not.toThrow();
+        expect(() => ctx.progreso.resumen({ tipo: 'DEUDORES', casosNuevos: 1, contactosCopiados: 0 })).not.toThrow();
+        expect(() => ctx.progreso.resumen(undefined)).not.toThrow();
         expect(() => ctx.progreso.filasDelLote(Number.NaN)).not.toThrow();
     });
 

@@ -3,6 +3,7 @@ import { PrismaService } from 'src/prisma/prisma.service';
 import { ConsolidacionSituacionService } from '../../consolidacion/consolidacion.service';
 import { PromesasService } from '../../promesas/promesas.service';
 import { AuditoriaHelper } from '../../transacciones/auditoria.helper';
+import { ResumenCategoria } from '../progreso/estado-carga.types';
 import { AccionAusenteActualizacion, AccionesConfig, ComportamientoDeudaMayor, IdentidadDeudor, ModoActualizacion, MontoDeudorMode, MultiarchivoConfig, MulticlavesConfig, MultirregistroConfig } from '../mapping-types';
 
 /**
@@ -124,6 +125,9 @@ export interface ReporteProgreso {
     subfase(nombre: string, hecho?: number, total?: number): void;
     /** Casos nuevos y actualizados de la carga hasta ahora: valores ABSOLUTOS, no incrementos. */
     contadores(c: { nuevos?: number; actualizados?: number }): void;
+    /** Lo que hizo la carga hasta ahora, por categoría: el objeto ENTERO, con valores absolutos; reemplaza al anterior.
+     *  Sincrónico, sin IO, nunca tira. Se puede llamar en cada fila. */
+    resumen(r: ResumenCategoria): void;
 }
 
 /**

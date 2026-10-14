@@ -278,6 +278,38 @@ export class PagosProcessor implements ICategoryProcessor {
     }
 
     async processRow(row: MappedRow, ctx: ProcessContext): Promise<void> {
+        try {
+            await this.procesarFila(row, ctx);
+        } finally {
+            // Sale por varios `return` (pago ya cargado) y por excepciones: el resumen se informa en todos.
+            this.informarResumen(ctx);
+        }
+    }
+
+    /** Lo que hizo la carga hasta ahora (C3a). Solo memoria: no escribe nada. */
+    private informarResumen(ctx: ProcessContext): void {
+        const conClave = this.claveCargada + this.claveOtraEmpresa + this.claveNoCargada + this.referenciaIlegible;
+        ctx.progreso?.resumen({
+            tipo: 'PAGOS',
+            casosConPagos: this.processedDeudorIds.size,
+            yaCargados: this.yaCargados,
+            negativos: this.negativos,
+            facturasMarcadas: this.facturasMarcadas,
+            claves:
+                conClave > 0
+                    ? {
+                          cargada: this.claveCargada,
+                          noCargada: this.claveNoCargada,
+                          otraEmpresa: this.claveOtraEmpresa,
+                          ilegible: this.referenciaIlegible,
+                          tramitesEnVariosCasos: this.tramitesEnVariosCasos,
+                          casosFueraDeRemesaOrigen: this.casosFueraDeRemesaOrigen,
+                      }
+                    : null,
+        });
+    }
+
+    private async procesarFila(row: MappedRow, ctx: ProcessContext): Promise<void> {
         const nroCliente = String(row.nro_cliente ?? '').trim();
         if (!nroCliente) throw new Error('nro_cliente es requerido para pagos');
 
@@ -342,7 +374,6 @@ export class PagosProcessor implements ICategoryProcessor {
         await procesarBloquesDeudor(deudorId, row._blocks, ctx);
 
         const importe = importeDePago(row.importe ?? row.monto) ?? 0;
-        if (importe < 0) this.negativos++;
 
         // Identificador del cobro en el sistema del cedente (`PAYMENT_ID` en los archivos de
         // Telecom/Personal). Es la clave de idempotencia real: mientras exista, un archivo
@@ -512,6 +543,9 @@ export class PagosProcessor implements ICategoryProcessor {
                     referenciaClave: refClave,
                 },
             });
+            // Solo los que esta carga creó: uno ya cargado, o un pago manual que se confirma, no mueven la deuda ahora
+            // (en una recarga del mismo archivo, la pantalla avisaba de un negativo que no se cargó).
+            if (importe < 0) this.negativos++;
         }
 
         // Si el archivo dice QUÉ comprobante se cobró, esa factura pasa a PAGADA.
@@ -626,6 +660,7 @@ export class PagosProcessor implements ICategoryProcessor {
             }).catch((e: any) => this.logger.warn(`No se pudo guardar el aviso REFERENCIA_CLAVE_ILEGIBLE: ${e.message}`));
         }
 
+        this.informarResumen(ctx);
         this.resetContadores();
 
         if (this.processedDeudorIds.size > 0) {

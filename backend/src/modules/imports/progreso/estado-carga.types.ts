@@ -23,7 +23,40 @@ export interface ResumenCarga {
     cancelacion?: { usuarioId: number; nombre: string };
     /** Veces que se retomó. Informativo. */
     retomas?: number;
+    /** Lo que hizo el processor (C3a). Lo escribe el runner vivo al cerrar; una carga cerrada por el reaper no lo tiene. */
+    categoria?: ResumenCategoria & { v: 1 };
 }
+
+/** Lo que hizo una carga, por categoría. El processor lo informa entero en cada llamada; el último reemplaza al anterior. */
+export type ResumenCategoria =
+    | { tipo: 'DEUDORES'; casosNuevos: number; contactosCopiados: number }
+    | { tipo: 'DEUDORES_Y_FACTURAS'; casosNuevos: number; casosConFacturas: number; contactosCopiados: number }
+    | { tipo: 'FACTURAS'; casosConFacturas: number; clientesInexistentes: number }
+    | { tipo: 'CONTACTOS' | 'ENRIQUECIMIENTO'; contactosCargados: number; filasSinContactoValido: number }
+    | {
+          tipo: 'PAGOS';
+          casosConPagos: number; yaCargados: number; negativos: number; facturasMarcadas: number;
+          /** Solo si la plantilla trae clave de pago (convenio / referencia). */
+          claves: { cargada: number; noCargada: number; otraEmpresa: number; ilegible: number; tramitesEnVariosCasos: number; casosFueraDeRemesaOrigen: number } | null;
+      }
+    | {
+          tipo: 'ACTUALIZACIONES';
+          coincidencias: number; casosNuevos: number; reasignados: number; contactosCopiados: number;
+          ausentes: {
+              accion: 'PAGO_TODO' | 'DESASIGNAR' | 'IGNORAR';
+              /** NO_LLEGO = el cierre no corrió (cancelada, fallida, o todavía en filas). */
+              resultado: 'APLICADO' | 'OMITIDO_SOLO_DATOS' | 'ABORTADO_SIN_COINCIDENCIAS' | 'SIN_REMESA_ORIGEN' | 'NO_LLEGO';
+              pagosGenerados: number; desasignados: number; salteadosSinMonto: number;
+          };
+      }
+    | { tipo: 'ACCIONES'; deudoresAfectados: number; comentariosCreados: number; contactosEliminados: number; saltadosCancelados: number; filasSinMatch: number }
+    | {
+          tipo: 'MULTIRREGISTRO' | 'MULTIARCHIVO';
+          altas: number; actualizados: number; reasignados: number; desasignados: number; contactosCopiados: number;
+          bajas: number; bajasPago: number; bajasRetiradas: number; bajasYaAplicadas: number; bajasSinMatch: number; bajasAmbiguas: number;
+          casosDadosDeBaja: number;
+      }
+    | { tipo: 'MULTICLAVES'; yaCargadas: number; tramites: number | null; conCaso: number | null; sinCaso: number | null; casosReconsolidados: number | null };
 
 /** Foto completa del estado de una carga. Es el payload de los tres eventos de socket y la
  *  respuesta de los endpoints de estado. Nunca es un delta. */
@@ -108,6 +141,9 @@ export interface EstadoCargaDto {
 
     /** Alguien pidió cancelar (ISO 8601). No se borra al terminar. null si nadie lo pidió. */
     cancelacionPedidaAt: string | null;
+    /** Lo que hizo la carga, por categoría (C3a). null mientras corre, en una carga anterior a C3a, y en una que cerró
+     *  el reaper (interrumpida). Sale de `import_progreso.resumen.categoria`. */
+    resumenCategoria: ResumenCategoria | null;
     /** Terminó por una cancelación. Con `true`, `resultado` viaja como 'FALLIDA' y `error` trae el
      *  texto de la cancelación: una pestaña que no conoce este campo la muestra como fallida con ese
      *  motivo, que es cierto. */

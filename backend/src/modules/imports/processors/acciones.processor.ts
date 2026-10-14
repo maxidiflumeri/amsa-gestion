@@ -135,6 +135,27 @@ export class AccionesProcessor implements ICategoryProcessor {
     }
 
     async processRow(row: MappedRow, ctx: ProcessContext): Promise<void> {
+        try {
+            await this.procesarFila(row, ctx);
+        } finally {
+            // La fila sale por varios `return` (sin match, cancelado salteado) y por excepciones: se informa en todos.
+            this.informarResumen(ctx);
+        }
+    }
+
+    /** Lo que hizo la carga hasta ahora (C3a). Solo memoria: no escribe nada. */
+    private informarResumen(ctx: ProcessContext): void {
+        ctx.progreso?.resumen({
+            tipo: 'ACCIONES',
+            deudoresAfectados: this.deudoresAfectados.size,
+            comentariosCreados: this.comentariosCreados,
+            contactosEliminados: this.contactosEliminados,
+            saltadosCancelados: this.saltadosCancelados,
+            filasSinMatch: this.sinMatch,
+        });
+    }
+
+    private async procesarFila(row: MappedRow, ctx: ProcessContext): Promise<void> {
         const cfg = ctx.accionesConfig;
         if (!cfg) throw new Error('ACCIONES sin configuración (mappingJson.acciones)');
 
@@ -323,6 +344,7 @@ export class AccionesProcessor implements ICategoryProcessor {
             `${this.comentariosCreados} comentarios, ${this.contactosEliminados} contactos eliminados, ` +
             `${this.saltadosCancelados} cancelados salteados, ${this.sinMatch} filas sin match.`,
         );
+        this.informarResumen(ctx);
         this.reset();
     }
 }

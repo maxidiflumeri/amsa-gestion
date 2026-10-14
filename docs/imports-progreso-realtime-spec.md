@@ -5657,6 +5657,8 @@ con lo que los operadores ya le reportan al cedente: cambiarlo hay que avisarlo.
 
 #### Entrega 3 (C3) — Resumen por categoría, revertir y lo que queda del ciclo de vida
 
+> **Diseñada el 14/10/2026 en [imports-progreso-c3-spec.md](imports-progreso-c3-spec.md)** (partida en C3a, C3b y C3c; re-ejecutar sobre lo ya cargado, descartado). Este esbozo queda como registro.
+
 **Alcance.** El `resumen` por categoría de §4 (DEUDORES: altas y filas sobre un caso ya creado por la
 misma carga; PAGOS: aplicados, ya cargados, negativos, con y sin clave; ACTUALIZACIONES: ausentes
 desasignados o dados por pagados, consolidados; MULTI\*: casos, cuotas, bajas; ACCIONES: afectados),

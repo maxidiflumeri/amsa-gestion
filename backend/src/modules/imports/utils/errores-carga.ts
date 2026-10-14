@@ -9,6 +9,9 @@ export const PREFIJOS_DE_AVISO = ['[aviso]', '[parseo]', '[post-proceso]'] as co
 /** `rowNumber` 0 es la primera fila procesada: la posición que se muestra cuenta desde 1. */
 export const BASE_DE_FILA = 1;
 
+/** Tope de "los últimos errores" (`reciente=true`): una vista corta de la tarjeta de progreso, no un listado. */
+export const MAX_ERRORES_RECIENTES = 20;
+
 /** Tope de registros de un CSV de errores. Constante a propósito: no es una variable de entorno. */
 export const MAX_FILAS_CSV_ERRORES = 200_000;
 
@@ -19,9 +22,13 @@ export function tipoDeError(rowNumber: number, errorMsg: string): TipoErrorDeCar
     return rowNumber === 0 && REGEX_AVISO.test(errorMsg ?? '') ? 'AVISO' : 'FILA';
 }
 
-/** Posición de la fila contando desde 1; null en un aviso. */
-export function numeroDeFila(rowNumber: number, tipo: TipoErrorDeCarga): number | null {
-    return tipo === 'AVISO' ? null : rowNumber + BASE_DE_FILA;
+/**
+ * Lo que se muestra en la columna "Fila" (C3a): la fila del archivo si se guardó (`linea`); si no, la posición entre
+ * las filas procesadas contando desde 1 (cargas anteriores y categorías sin filas de archivo). null en un aviso.
+ */
+export function numeroDeFila(rowNumber: number, tipo: TipoErrorDeCarga, linea?: number | null): number | null {
+    if (tipo === 'AVISO') return null;
+    return linea != null ? linea : rowNumber + BASE_DE_FILA;
 }
 
 function condicionAviso(): Prisma.importerrorWhereInput {

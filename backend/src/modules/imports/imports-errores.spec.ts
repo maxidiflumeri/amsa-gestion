@@ -3,6 +3,9 @@
  * (docs/imports-progreso-c2-spec.md §5.3 y §5.4; casos ER-1 a ER-13 de §10.2 B).
  */
 import { Logger, NotFoundException } from '@nestjs/common';
+import { plainToInstance } from 'class-transformer';
+import { validate } from 'class-validator';
+import { ErroresQueryDto } from './dtos/import.dto';
 import { dobleLecturas } from './doble-prisma-lecturas';
 import { ImportService, SalidaCsv } from './imports.service';
 
@@ -234,5 +237,116 @@ describe('erroresCsv — escuchas de la contrapresión', () => {
         eventos.get('drain')!();
         await terminado;
         expect(eventos.size).toBe(0);
+    });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────────────────────
+// C3a — la fila del archivo, "los últimos" con avisos y la definición única de aviso
+// ─────────────────────────────────────────────────────────────────────────────────────────────
+describe('getErrors — la fila del archivo (C3a, A2)', () => {
+    const conLinea = (id: number, rowNumber: number, linea: number | null) => ({ ...fila(id, rowNumber), linea });
+
+    it('CA-6: con `linea`, fila es la del archivo y filaEsDelArchivo true; el rowNumber no cambia', async () => {
+        const { svc } = servicio([conLinea(1, 0, 10)]);
+        const [e] = (await svc.getErrors(1, {})).data;
+        expect(e).toMatchObject({ rowNumber: 0, fila: 10, filaEsDelArchivo: true, tipo: 'FILA' });
+    });
+
+    it('una carga anterior (sin `linea`, o null) da rowNumber + 1 y false', async () => {
+        const { svc } = servicio([fila(1, 4), conLinea(2, 5, null)]);
+        const r = (await svc.getErrors(1, {})).data;
+        expect(r.map((e) => [e.fila, e.filaEsDelArchivo])).toEqual([[5, false], [6, false]]);
+    });
+
+    it('un aviso no tiene fila ni siquiera si trae `linea`', async () => {
+        const { svc } = servicio([{ ...aviso(1), linea: 7 }]);
+        const [e] = (await svc.getErrors(1, {})).data;
+        expect(e).toMatchObject({ tipo: 'AVISO', fila: null, filaEsDelArchivo: false });
+    });
+
+    it('el CSV lleva la fila del archivo en la columna "Fila" y no cambia de columnas', async () => {
+        const { svc } = servicio([conLinea(1, 0, 10), fila(2, 1)]);
+        const { res, escrito } = salida();
+        await svc.erroresCsv(1, 'TODOS', res);
+        const lineas = escrito.join('').replace('﻿', '').split('\r\n');
+        expect(lineas[0]).toBe('Tipo;Fila;Mensaje;Contenido de la fila (una columna por campo)');
+        expect(lineas[1]).toBe('Fila;10;Monto inválido;a;b');
+        expect(lineas[2]).toBe('Fila;2;Monto inválido;a;b');
+    });
+});
+
+describe('getErrors — reciente (C3a, A3)', () => {
+    /** 7 errores de fila (ids 1-4 y 7-9 hasta 9) con 2 avisos intercalados: los ids mezclan los dos tipos. */
+    const intercalados = () => [
+        fila(1, 0), fila(2, 1), fila(3, 2), aviso(4, '[parseo] a'), fila(5, 3), fila(6, 4), fila(7, 5), aviso(8), fila(9, 6),
+    ];
+
+    it('CA-7: los 5 más nuevos por id, con los avisos adentro, y los totales de toda la carga', async () => {
+        const { svc } = servicio(intercalados());
+        const r = await svc.getErrors(1, { tipo: 'TODOS', orden: 'desc', reciente: true, pageSize: 5 });
+        expect(r.data.map((e) => e.id)).toEqual([9, 8, 7, 6, 5]);
+        expect(r.data.filter((e) => e.tipo === 'AVISO').map((e) => e.id)).toEqual([8]);
+        expect(r.totales).toEqual({ filas: 7, avisos: 2 });
+        expect(r.page).toBe(1);
+    });
+
+    it('si los avisos son los más viejos no entran: se ve lo que pasó último', async () => {
+        const { svc } = servicio([aviso(1), aviso(2), fila(3, 0), fila(4, 1), fila(5, 2), fila(6, 3), fila(7, 4), fila(8, 5)]);
+        const r = await svc.getErrors(1, { reciente: true, pageSize: 5 });
+        expect(r.data.map((e) => e.id)).toEqual([8, 7, 6, 5, 4]);
+    });
+
+    it('pageSize 50 con reciente se acota a 20, y `page` se ignora', async () => {
+        const errores = Array.from({ length: 60 }, (_, i) => fila(i + 1, i));
+        const { svc } = servicio(errores);
+        const r = await svc.getErrors(1, { reciente: true, pageSize: 50, page: 3 });
+        expect(r.data).toHaveLength(20);
+        expect(r.data[0].id).toBe(60);
+        expect(r.page).toBe(1);
+        expect(r.pageSize).toBe(20);
+    });
+
+    it('no ordena en memoria más de 2 × n registros: cada lectura trae a lo sumo n', async () => {
+        const errores = Array.from({ length: 300 }, (_, i) => (i % 10 === 0 ? aviso(i + 1) : fila(i + 1, i)));
+        const { svc, d } = servicio(errores);
+        await svc.getErrors(1, { reciente: true, pageSize: 5 });
+        const recientes = d.lecturasDeErrores.filter((l) => l.take === 5);
+        expect(recientes).toHaveLength(2);
+        expect(recientes.every((l) => l.skip === undefined)).toBe(true);
+    });
+
+    it('con tipo FILA o AVISO lee solo ese tipo', async () => {
+        const { svc } = servicio(intercalados());
+        const f = await svc.getErrors(1, { tipo: 'FILA', reciente: true, pageSize: 3 });
+        const a = await svc.getErrors(1, { tipo: 'AVISO', reciente: true, pageSize: 3 });
+        expect(f.data.map((e) => e.id)).toEqual([9, 7, 6]);
+        expect(a.data.map((e) => e.id)).toEqual([8, 4]);
+    });
+
+    it('sin reciente la respuesta es la de siempre (paginada por rowNumber)', async () => {
+        const { svc } = servicio(intercalados());
+        const r = await svc.getErrors(1, { orden: 'desc', pageSize: 5 });
+        expect(r.data.map((e) => e.rowNumber)).toEqual([6, 5, 4, 3, 2]);
+    });
+});
+
+describe('ErroresQueryDto — reciente (C3a)', () => {
+    const probar = async (q: Record<string, string>) => {
+        const dto = plainToInstance(ErroresQueryDto, q);
+        return { dto, errores: await validate(dto) };
+    };
+
+    it('reciente=true llega como booleano true; reciente=false como false; ausente, undefined', async () => {
+        expect((await probar({ reciente: 'true' })).dto.reciente).toBe(true);
+        expect((await probar({ reciente: 'false' })).dto.reciente).toBe(false);
+        const sin = await probar({ orden: 'desc' });
+        expect(sin.dto.reciente).toBeUndefined();
+        expect(sin.errores).toHaveLength(0);
+    });
+
+    it('reciente=foo se rechaza (400 con el ValidationPipe global)', async () => {
+        const { errores } = await probar({ reciente: 'foo' });
+        expect(errores).toHaveLength(1);
+        expect(errores[0].property).toBe('reciente');
     });
 });
