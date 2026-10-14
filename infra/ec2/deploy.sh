@@ -31,12 +31,17 @@ docker compose -f docker-compose.prod.yml pull backend
 # db push SIN --accept-data-loss: si el cambio fuese destructivo, FALLA en vez de borrar datos
 docker compose -f docker-compose.prod.yml run --rm backend npx prisma db push --skip-generate
 docker compose -f docker-compose.prod.yml up -d
-docker image prune -f || true
 
 echo "==> Esperando /api/health"
 for _ in $(seq 1 30); do
   if curl -fsS http://localhost:3001/api/health >/dev/null 2>&1; then
     echo "OK: backend saludable"
+    # Cada deploy deja la imagen anterior con su tag (el SHA): `prune -f` solo borra las que quedaron sin
+    # tag. El 09/10/2026 el disco (60 GB) se llenó con 54 imágenes y el pull de la siguiente falló. Con el
+    # backend nuevo ya sano, se borran todas las que no usa ningún contenedor; volver atrás es un pull de
+    # ECR, que guarda las últimas 10.
+    echo "==> Borrando imágenes que no usa ningún contenedor"
+    docker image prune -af || true
     exit 0
   fi
   sleep 2
