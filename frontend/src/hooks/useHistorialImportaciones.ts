@@ -3,6 +3,8 @@ import { obtenerHistorial } from '../api/imports';
 import { useSocket } from '../context/SocketContext';
 import type { GrupoHistorialDto, HistorialItemDto } from '../types/importHistorial';
 import type { EstadoCargaDto } from '../types/importProgreso';
+import type { ReversionResumenDto } from '../types/reversionAccion';
+import { esReversionResumen, fusionarReversion, reversionActiva } from '../utils/reversionAccion';
 import {
     POLL_LISTA_MS,
     REFRESCO_COLA_MS,
@@ -14,6 +16,8 @@ import {
 } from '../utils/estadoCarga';
 
 const EVENTOS_IMPORT = ['import:iniciada', 'import:progreso', 'import:finalizada'] as const;
+/** Los dos eventos de la reversión de una acción masiva (docs/imports-progreso-c3-spec.md §17.4). */
+const EVENTOS_REVERSION = ['accion:revertir:progreso', 'accion:revertir:terminada'] as const;
 /** El intervalo avanza de a 15 s: «30 s de silencio» se mide con un segundo de tolerancia para no esperar un tick más. */
 const TOLERANCIA_TICK_MS = 1_000;
 
@@ -40,12 +44,19 @@ interface UseHistorialImportaciones {
     aplicarCarga: (dto: EstadoCargaDto) => void;
     /** Saca una remesa de la lista (tras eliminarla). */
     quitar: (remesaId: number) => void;
+    /** Aplica el estado de la reversión que devolvió el pedido de revertir (la fila pasa a «En cola» sin esperar al socket). */
+    aplicarReversion: (reversion: ReversionResumenDto) => void;
 }
+
+/** Una carga en curso o una reversión en cola o corriendo: la fila se mueve sola y hay que seguir mirándola. */
+const hayAlgoVivo = (i: HistorialItemDto): boolean => i.carga.enCurso || reversionActiva(i.reversion);
 
 /** Fusiona la `carga` nueva con la que ya había por `rev`; el resto de los campos se toman siempre de la respuesta. */
 function fusionarItem(previo: HistorialItemDto | undefined, nuevo: HistorialItemDto): HistorialItemDto {
     if (!previo) return nuevo;
-    return { ...nuevo, carga: fusionarEstadoCarga(previo.carga, nuevo.carga) };
+    const reversion = previo.reversion && nuevo.reversion ? fusionarReversion(previo.reversion, nuevo.reversion) : nuevo.reversion;
+    // Un ítem de un backend anterior a C3b no trae la clave: no se inventa una.
+    return { ...nuevo, ...('reversion' in nuevo ? { reversion } : {}), carga: fusionarEstadoCarga(previo.carga, nuevo.carga) };
 }
 
 /**
@@ -150,9 +161,19 @@ export function useHistorialImportaciones({ empresaId, page, pageSize, q }: Para
             const { page: pagina, q: busqueda } = paramsRef.current;
             if (pagina === 1 && !busqueda) pedirRefresco.pedir();
         };
+        // La reversión de una acción masiva: actualiza la fila sin consultar; al terminar bien, una consulta trae `accionRevertidaEn`.
+        const onReversion = (data: unknown) => {
+            if (!esReversionResumen(data) || data.empresaId !== paramsRef.current.empresaId) return;
+            ultimaNovedadRef.current = Date.now();
+            if (!itemsRef.current.some((i) => i.id === data.remesaId)) return;
+            setItems((prev) => prev.map((i) => (i.id === data.remesaId ? { ...i, reversion: fusionarReversion(i.reversion, data) } : i)));
+            if (data.estado === 'TERMINADA') pedirRefresco.pedir();
+        };
         EVENTOS_IMPORT.forEach((ev) => socket.on(ev, onEvento));
+        EVENTOS_REVERSION.forEach((ev) => socket.on(ev, onReversion));
         return () => {
             EVENTOS_IMPORT.forEach((ev) => socket.off(ev, onEvento));
+            EVENTOS_REVERSION.forEach((ev) => socket.off(ev, onReversion));
             pedirRefresco.cancelar();
         };
     }, [socket, consultar]);
@@ -181,7 +202,7 @@ export function useHistorialImportaciones({ empresaId, page, pageSize, q }: Para
     // Con una carga en curso a la vista: consulta si el socket está caído o si lleva 30 s callado.
     useEffect(() => {
         const id = setInterval(() => {
-            if (document.hidden || !itemsRef.current.some((i) => i.carga.enCurso)) return;
+            if (document.hidden || !itemsRef.current.some(hayAlgoVivo)) return;
             if (!conectadoRef.current || Date.now() - ultimaNovedadRef.current >= SILENCIO_MS - TOLERANCIA_TICK_MS) void consultar(false);
         }, POLL_LISTA_MS);
         return () => clearInterval(id);
@@ -190,7 +211,7 @@ export function useHistorialImportaciones({ empresaId, page, pageSize, q }: Para
     // Sin ninguna en curso, en la primera página y sin búsqueda: una vez por minuto (alguien pudo crear o eliminar algo).
     useEffect(() => {
         const id = setInterval(() => {
-            if (document.hidden || itemsRef.current.some((i) => i.carga.enCurso)) return;
+            if (document.hidden || itemsRef.current.some(hayAlgoVivo)) return;
             const { page: pagina, q: busqueda } = paramsRef.current;
             if (pagina === 1 && !busqueda) void consultar(false);
         }, REFRESCO_HISTORIAL_QUIETO_MS);
@@ -208,5 +229,10 @@ export function useHistorialImportaciones({ empresaId, page, pageSize, q }: Para
         setTotal((t) => Math.max(0, t - 1));
     }, []);
 
-    return { items, grupos, total, totalPages, cargando, refrescando, error, refrescar, aplicarCarga, quitar };
+    const aplicarReversion = useCallback((reversion: ReversionResumenDto) => {
+        setItems((prev) => prev.map((i) => (i.id === reversion.remesaId ? { ...i, reversion: fusionarReversion(i.reversion, reversion) } : i)));
+        ultimaNovedadRef.current = Date.now();
+    }, []);
+
+    return { items, grupos, total, totalPages, cargando, refrescando, error, refrescar, aplicarCarga, quitar, aplicarReversion };
 }

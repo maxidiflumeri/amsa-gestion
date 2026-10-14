@@ -48,6 +48,10 @@ categoría, el estado, las filas, la fecha, la política y los botones.
 | **Sin filas** | El archivo no tenía filas para procesar |
 | **Finalizada** | Terminó sin problemas |
 
+En una carga de **Acciones masivas**, si se pidió revertirla, debajo del estado aparece el de la **reversión**: **En cola**,
+**Revirtiendo 40 %**, **Revertida**, **Reversión interrumpida: H de T** (cuántos cambios alcanzó a deshacer de cuántos, y el
+motivo) o **La reversión falló**. Se actualiza sola, igual que las cargas.
+
 En las que ya terminaron mal o con salvedades (de **Cancelada** a **Sin filas**), pasando el mouse por el estado ves
 el título del resultado y la primera línea del motivo; el motivo entero está en el detalle. Si una carga no se
 puede retomar porque su corte ya figura en otra remesa, la grilla lo dice debajo del estado.
@@ -276,20 +280,27 @@ Esta es la parte que conviene leer **antes** de necesitarla.
 
 ### Revertir — solo acciones masivas
 
-Una carga de **Acciones masivas** finalizada tiene botón de **revertir**: deja los casos como estaban.
-Se puede una sola vez.
+Una carga de **Acciones masivas** terminada —finalizada, **cancelada o cortada**— tiene botón de **revertir**: deja
+los casos como estaban, y deshace exactamente lo que la acción alcanzó a hacer. Revertir corre **en segundo plano**:
+antes de confirmar, el diálogo dice cuántos casos cubre; después la fila muestra el avance (**En cola**,
+**Revirtiendo 40 %**, **Revertida**) y, al terminar, llega una notificación. Se puede una sola vez, salvo para
+terminar una reversión **interrumpida** o fallida: ahí el botón queda habilitado (*"Revertir (sigue desde donde
+quedó)"*) y sigue desde donde quedó. Todo el detalle está en [Acciones masivas](/ayuda/importacion/acciones-masivas).
 
-El sistema **se niega a revertir** (y el aviso dice por qué) en estos casos:
+El botón se ve con el permiso de acciones masivas. En el Historial queda deshabilitado con **Se está revirtiendo**
+mientras corre y con **Ya se revirtió** cuando terminó; en el detalle de la importación **desaparece**. El diálogo se niega a revertir (y dice por qué) en estos casos:
 
 | Aviso | Qué pasó | Qué hacer |
 |---|---|---|
-| *"Esta acción masiva no terminó bien: los datos para revertirla no se guardaron. Avisá a soporte; no la vuelvas a cargar."* | La carga no está finalizada (falló, o sigue en curso) | Avisar a soporte |
-| *"Los datos para revertir esta acción no se guardaron completos: Revertir desharía solo una parte. Avisá a soporte."* | La carga terminó **con advertencias**: el cierre que guarda los datos para deshacer no terminó | Avisar a soporte |
-| *"Esta acción ya se está revirtiendo. Esperá a que termine y actualizá el Historial."* | Alguien más (u otra pestaña) ya pidió revertirla y todavía está corriendo | Esperar y actualizar el Historial |
+| *"La acción masiva todavía está corriendo. Cancelala, o esperá a que termine, y después revertila."* | La acción sigue en cola o procesando | Cancelarla, o esperar |
+| *"Esta acción ya se está revirtiendo. Mirá el avance en el Historial."* | Alguien más (u otra pestaña) ya pidió revertirla | Esperar y mirar el avance en el Historial |
+| *"Esta acción masiva no llegó a cambiar ningún caso: no hay nada que revertir."* | No quedó ningún cambio para deshacer | Nada |
+| *"Esta acción masiva no terminó bien: los datos para revertirla no se guardaron. Avisá a soporte; no la vuelvas a cargar."* | Una acción **anterior a esta versión** que falló o se cortó **con filas ya procesadas** (si no procesó ninguna, el aviso es el de «no hay nada que revertir») | Avisar a soporte |
+| *"Los datos para revertir esta acción no se guardaron completos: Revertir desharía solo una parte. Avisá a soporte."* | Una acción **anterior a esta versión** que terminó **con advertencias** | Avisar a soporte |
 
-Si revertir tarda y la pantalla no recibe respuesta, el aviso es *"No llegó la respuesta del servidor. La
+Si la pantalla no recibe respuesta al pedir revertir, el aviso es *"No llegó la respuesta del servidor. La
 reversión puede seguir corriendo: actualizá el Historial en unos minutos antes de volver a intentar."* No
-vuelvas a apretar Revertir enseguida: mirá primero si la fila ya figura como revertida.
+vuelvas a apretar Revertir enseguida: mirá primero la fila.
 
 **Ninguna otra categoría tiene deshacer.** No hay botón de revertir para deudores, facturas, pagos,
 contactos ni actualizaciones.
@@ -309,7 +320,7 @@ En la grilla el botón de eliminar queda **deshabilitado** en las que ya están 
 | Una **En cola** | *Eliminar una importación en cola*: está confirmada y espera su turno; si la eliminás sale de la cola y no se carga. Si es parte de una división, dice *"Es la remesa N de M de una carga dividida: las demás siguen."*. Si solo querés frenarla, usá **Cancelar**. El botón dice **Eliminar igual** |
 | Una terminada de **Deudores**, **Deudores y Facturas**, **Multirregistro** o **Multiarchivo** | Elimina la importación junto con sus casos y lo que cargó, si ninguno tiene gestión |
 | Una terminada de **Facturas**, **Pagos**, **Contactos**, **Enriquecimiento** o **Actualizaciones** | Borra su registro y su lista de errores. **No deshace lo que aplicó** |
-| Una de **Acciones masivas** | **Eliminarla no revierte la acción** y deja sin efecto el botón Revertir para siempre |
+| Una de **Acciones masivas** | **Eliminarla no revierte la acción** y deja sin efecto el botón Revertir para siempre. Mientras se revierte no se puede eliminar: da *"Se está revirtiendo esta acción masiva: esperá a que termine para eliminarla."* |
 | Una de **Claves de pago** | Elimina las claves que cargó; si alguna ya tiene convenio o cupón emitido, no se puede |
 
 Pero:
@@ -341,12 +352,13 @@ se borra la fila del historial y **los pagos quedan en la base**.
 >
 > Si una acción masiva salió mal: **revertir primero**. Nunca borrar.
 
-> ### ⚠ Una acción masiva FALLIDA no se puede revertir
+> ### Una acción masiva cancelada o cortada también se revierte
 >
-> El botón solo aparece si la carga quedó **finalizada**. Si se cortó a mitad de camino, los cambios
-> que alcanzó a aplicar quedan aplicados y **no hay información para deshacerlos**: los datos que
-> permiten revertir se guardan recién al terminar bien. Si igual se intenta (por ejemplo, desde una pestaña
-> que quedó abierta), el sistema responde *"Esta acción masiva no terminó bien…"* y no toca nada.
+> El botón aparece también si la carga se canceló o se cortó a mitad de camino: los datos para deshacer se guardan
+> caso por caso, junto con cada cambio, así que Revertir cubre exactamente lo que alcanzó a hacer. La excepción son
+> las acciones **anteriores a esta versión** que quedaron a medias con filas ya procesadas: no tienen esos datos, y
+> el sistema responde *"Esta acción masiva no terminó bien…"* y no toca nada. Una cancelada sin ninguna fila
+> procesada dice que no hay nada que revertir.
 
 ### La conclusión práctica
 
@@ -423,6 +435,7 @@ Hay varias causas, cada una con su mensaje:
 - **Alguien ya trabajó sus casos**: hay comentarios, pagos, convenios o llamadas. Es intencional — borrarla
   se llevaría ese trabajo puesto.
 - **Está corriendo**: *"No se puede eliminar una importación en curso"*. Esperá a que termine o falle.
+- **Se está revirtiendo** (una acción masiva): *"Se está revirtiendo esta acción masiva: esperá a que termine para eliminarla."* (409). Esperá a que la reversión termine.
 - **Cambió mientras mirabas**: *"La importación cambió desde que abriste este diálogo (por ejemplo, alguien la
   confirmó). Revisala antes de eliminarla."* Pasa si, con el diálogo abierto, otra persona confirmó esa vista previa
   o la carga avanzó. No se borró nada: mirá en qué estado está ahora antes de volver a intentar.
@@ -497,7 +510,7 @@ también. La pantalla lo dice (*"Quedó sin hacer…"*); esta es la tabla comple
 | **Deudores y Facturas** | El cálculo del importe de los casos desde sus facturas (salvo que la plantilla diga **«No calcular»**) y la consolidación. Los casos que vinieron sin importe pueden haber quedado sin él | Avisar a soporte |
 | **Multirregistro** | La consolidación de los casos tocados y el cierre de las promesas cumplidas (esta categoría nunca desasigna ausentes) | Avisar a soporte |
 | **Multiarchivo** | El cierre de los ausentes (desasignarlos, solo si la plantilla tiene activada la desasignación), la consolidación de los casos tocados y el cierre de las promesas cumplidas | Avisar a soporte |
-| **Acciones masivas** | Guardar los datos que permiten revertir la acción | Avisar a soporte. Revertir no te lo va a permitir: dice *"Los datos para revertir esta acción no se guardaron completos…"* |
+| **Acciones masivas** | En las acciones **anteriores a esta versión**, guardar los datos que permiten revertir la acción | Avisar a soporte. Revertir no te lo va a permitir: dice *"Los datos para revertir esta acción no se guardaron completos…"* |
 | **Claves de pago** | Pudo quedar sin hacer la re-consolidación de los casos que ya tenían pagos con esas claves | Avisar a soporte |
 | **Deudores** · **Contactos** · **Enriquecimiento** | Nada de lo que se carga: en estas categorías el cierre solo limpia datos internos | Avisar a soporte con el motivo |
 

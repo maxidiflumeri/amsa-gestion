@@ -350,3 +350,29 @@ describe('TC-7 — una carga en curso dentro de la campanita', () => {
         expect(enCampanita('Descargar errores')).toBeNull();
     });
 });
+
+describe('C3b — la notificación de una reversión', () => {
+    const notifReversion = (over: Parameters<typeof notificacion>[0] = {}) => notificacion({
+        tipo: 'IMPORTACION_FINALIZADA', titulo: 'Acción masiva revertida', mensaje: 'Se deshizo la acción masiva de la remesa 00141.',
+        payload: { reversion: { remesaId: 141, empresaId: 1, estado: 'TERMINADA', total: 150, hechos: 150, porcentaje: 100, deudoresRevertidos: 150, contactosRestaurados: 50, comentariosBorrados: 50, casosQueNoExistian: 0, contactosSinCaso: 0, usuarioId: 3, error: null } },
+        ...over,
+    });
+
+    it('terminada o fallida, sin `resultado` ni contadores: no ofrece Descargar ni Retomar', async () => {
+        b = await armarCampanita({ notificaciones: [notifReversion({ id: 1 }), notifReversion({ id: 2, tipo: 'IMPORTACION_ERROR', titulo: 'La reversión no terminó' })] });
+        await abrirCampanita();
+        expect(enCampanita('Retomar')).toBeNull();
+        expect(enCampanita('Descargar errores')).toBeNull();
+        expect(document.body.textContent).toContain('Acción masiva revertida');
+        expect(document.body.textContent).toContain('La reversión no terminó');
+    });
+
+    it('al hacer clic lleva al detalle de la remesa y no pide nada de más', async () => {
+        b = await armarCampanita({ notificaciones: [notifReversion({ id: 1 })] });
+        await abrirCampanita();
+        await clic(Array.from(document.querySelectorAll('.MuiTypography-body2')).find((e) => e.textContent === 'Acción masiva revertida') ?? null, 'el título');
+        await esperar(() => ruta() === '/historial-importaciones/141', { que: 'la navegación' });
+        expect(b.srv.cuantos('POST', /retomar$/)).toBe(0);
+        expect(b.srv.cuantos('GET', /csv/)).toBe(0);
+    });
+});

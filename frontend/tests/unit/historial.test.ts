@@ -1,8 +1,10 @@
 // C2a: funciones puras del Historial (FU-6 a FU-10).
 import { describe, expect, it } from 'vitest';
 import * as h from '@fe/utils/historialImportaciones';
+import { fusionarReversion } from '@fe/utils/reversionAccion';
+import { pendientePostProceso } from '@fe/utils/estadoCarga';
 import type { HistorialItemDto, PendienteDeEncolarDto } from '@fe/types/importHistorial';
-import { BASURA, canceladaC1, dtoC1, enColaC1, grupoHistorial, iso, itemHistorial, sin, terminalC1, type Sobre } from '../lib/fabricas';
+import { BASURA, canceladaC1, dtoC1, enColaC1, grupoHistorial, iso, itemHistorial, reversionResumen, sin, terminalC1, type Sobre } from '../lib/fabricas';
 
 const item = (carga: Sobre, over: Partial<HistorialItemDto> = {}) => itemHistorial(over, carga);
 const PENDIENTE: PendienteDeEncolarDto = { remesas: [{ remesaId: 141, numeroRemesa: '00141', corte: null }], origen: [], yaCargadoEn: [] };
@@ -157,6 +159,80 @@ describe('FU-8 — accionesDeFila: permisos × dueño × estado', () => {
         expect(a(item(terminalC1('OK', propia), { categoria: 'DEUDORES' }), 3, 'deudores.acciones_masivas').revertir.visible).toBe(false);
         expect(a(acc({ accionRevertidaEn: iso(0) }), 3, 'deudores.acciones_masivas').revertir).toEqual({ visible: true, deshabilitado: true, motivo: 'Acción ya revertida' });
     });
+    describe('fusionarReversion: un EN_COLA del POST no pisa un estado más nuevo del mismo intento', () => {
+        it('REVIRTIENDO y terminales del mismo intento ganan; un intento nuevo (otra encoladaAt) sí pisa', () => {
+            for (const estado of ['REVIRTIENDO', 'TERMINADA', 'FALLIDA', 'INTERRUMPIDA'] as const) {
+                const previa = reversionResumen({ estado, hechos: 30 });
+                expect(fusionarReversion(previa, reversionResumen({ estado: 'EN_COLA' }))).toBe(previa);
+            }
+            const interrumpida = reversionResumen({ estado: 'INTERRUMPIDA', encoladaAt: iso(0) });
+            const reintento = reversionResumen({ estado: 'EN_COLA', encoladaAt: iso(60_000) });
+            expect(fusionarReversion(interrumpida, reintento)).toBe(reintento);
+            const enCola = reversionResumen({ estado: 'EN_COLA' });
+            expect(fusionarReversion(null, enCola)).toBe(enCola);
+        });
+    });
+    describe('Revertir con un backend de C3b (el ítem trae la clave `reversion`)', () => {
+        const PERM = 'deudores.acciones_masivas';
+        const nuevo = (carga: Sobre, over: Partial<HistorialItemDto> = {}) => item({ ...propia, tipo: 'ACCIONES', ...carga }, { categoria: 'ACCIONES', reversion: null, ...over });
+        const rev = (it_: HistorialItemDto, ...permisos: string[]) => a(it_, 3, ...permisos).revertir;
+
+        it('FINALIZADA: visible y habilitado; sin el permiso o en otra categoría, no se ve', () => {
+            expect(rev(nuevo(terminalC1('OK')), PERM)).toEqual({ visible: true, deshabilitado: false, motivo: null });
+            expect(rev(nuevo(terminalC1('OK'))).visible).toBe(false);
+            expect(rev(item(terminalC1('OK', propia), { categoria: 'DEUDORES', reversion: null }), PERM).visible).toBe(false);
+        });
+
+        it('FALLIDA (cancelada o cortada): visible y habilitado — con el backend viejo no se veía', () => {
+            const cancelada = nuevo(canceladaC1({ ...propia, tipo: 'ACCIONES' }));
+            expect(rev(cancelada, PERM)).toEqual({ visible: true, deshabilitado: false, motivo: null });
+            expect(rev(nuevo(terminalC1('FALLIDA', { error: 'x' })), PERM).visible).toBe(true);
+            const viejo = { ...cancelada };
+            delete viejo.reversion;
+            expect(rev(viejo, PERM).visible).toBe(false);
+        });
+
+        it('en curso o en cola: no se ofrece', () => {
+            expect(rev(nuevo({ progreso: 20 }), PERM).visible).toBe(false);
+            expect(rev(item(enColaC1({ ...propia, tipo: 'ACCIONES' }), { categoria: 'ACCIONES', reversion: null }), PERM).visible).toBe(false);
+        });
+
+        it('EN_COLA y REVIRTIENDO: deshabilitado, «Se está revirtiendo»', () => {
+            for (const estado of ['EN_COLA', 'REVIRTIENDO'] as const) {
+                const x = rev(nuevo(terminalC1('OK'), { reversion: reversionResumen({ estado }) }), PERM);
+                expect(x).toEqual({ visible: true, deshabilitado: true, motivo: 'Se está revirtiendo' });
+            }
+        });
+
+        it('TERMINADA o accionRevertidaEn: deshabilitado, «Ya se revirtió»', () => {
+            expect(rev(nuevo(terminalC1('OK'), { reversion: reversionResumen({ estado: 'TERMINADA' }) }), PERM)).toEqual({ visible: true, deshabilitado: true, motivo: 'Ya se revirtió' });
+            expect(rev(nuevo(terminalC1('OK'), { accionRevertidaEn: iso(0) }), PERM)).toEqual({ visible: true, deshabilitado: true, motivo: 'Ya se revirtió' });
+        });
+
+        it('INTERRUMPIDA y FALLIDA: habilitado, con el tooltip «sigue desde donde quedó»', () => {
+            for (const estado of ['INTERRUMPIDA', 'FALLIDA'] as const) {
+                const x = rev(nuevo(terminalC1('OK'), { reversion: reversionResumen({ estado }) }), PERM);
+                expect(x).toEqual({ visible: true, deshabilitado: false, motivo: null, ayuda: 'Revertir (sigue desde donde quedó)' });
+            }
+        });
+
+        it('el motivo de un botón deshabilitado va también en `motivos` (el celular no tiene tooltip)', () => {
+            expect(a(nuevo(terminalC1('OK'), { reversion: reversionResumen({ estado: 'REVIRTIENDO' }) }), 3, PERM).motivos).toContain('Se está revirtiendo');
+            // El de «sigue desde donde quedó» también: es lo único que el celular puede mostrar de ese tooltip.
+            expect(a(nuevo(terminalC1('OK'), { reversion: reversionResumen({ estado: 'INTERRUMPIDA' }) }), 3, PERM).motivos).toContain('Revertir (sigue desde donde quedó)');
+            expect(a(nuevo(terminalC1('OK')), 3, PERM).motivos).toEqual([]);
+        });
+
+        it('FALLIDA que no procesó ninguna fila (la retomable): no se ofrece Revertir, ni siquiera con Retomar', () => {
+            const sinFilas = nuevo(terminalC1('FALLIDA', { error: 'x', procesadas: 0, ok: 0, err: 0, retomable: true }));
+            expect(rev(sinFilas, PERM).visible).toBe(false);
+            expect(rev(nuevo(canceladaC1({ ...propia, tipo: 'ACCIONES', procesadas: 0, ok: 0, err: 0 })), PERM).visible).toBe(false);
+            // Con filas procesadas se ofrece.
+            expect(rev(nuevo(terminalC1('FALLIDA', { error: 'x', procesadas: 10, ok: 10, err: 0 })), PERM).visible).toBe(true);
+            // Una FINALIZADA sin filas no es una FALLIDA: la regla no la toca.
+            expect(rev(nuevo(terminalC1('OK', { procesadas: 0 })), PERM).visible).toBe(true);
+        });
+    });
     it('Consolidar con su permiso', () => {
         expect(a(item(terminalC1('OK', propia)), 3, 'consolidacion.ejecutar').consolidar).toBe(true);
         expect(a(item(terminalC1('OK', propia)), 3).consolidar).toBe(false);
@@ -219,5 +295,13 @@ describe('FU-10 — texto del encabezado de división', () => {
         expect(h.textoEncabezadoDivision(grupoHistorial({ total: 1, existentes: 1, finalizadas: 0, noCargadas: 2, enCurso: 0 }), 1).titulo).toBe('Carga dividida · 1 remesa');
         expect(h.textoEncabezadoDivision(grupoHistorial({ finalizadas: 1, noCargadas: 2 }), 3).resumen).toBe('1 finalizada · 2 fallidas o canceladas');
         expect(h.textoRetomarDivision(2)).toBe('Retomar las 2 que no se cargaron');
+    });
+});
+
+describe('pendientePostProceso de una acción masiva (C3b)', () => {
+    it('no afirma nada falso sobre Revertir: manda al diálogo, que dice si se puede y cuánto cubre', () => {
+        const t = pendientePostProceso('ACCIONES');
+        expect(t).toBe('El cierre de la acción no terminó. Antes de deshacerla, abrí Revertir: el diálogo dice si se puede y cuánto cubre; si no se puede, avisá a soporte.');
+        expect(t).not.toMatch(/no uses Revertir|una sola vez/);
     });
 });

@@ -24,6 +24,7 @@ import { useGrupoCarga } from "../../hooks/useGrupoCarga";
 import { useNotify } from "../../hooks/useNotify";
 import { useUltimosErrores } from "../../hooks/useUltimosErrores";
 import type { EstadoCargaDto } from "../../types/importProgreso";
+import { TEXTO_CANCELAR_ACCIONES } from "../../utils/reversionAccion";
 import {
     cancelacionPedidaAt,
     datosDeGrupo,
@@ -352,7 +353,9 @@ function DialogoCancelarCarga({ carga, grupoProp, onCerrar, onResultado, onGrupo
                             curso.
                         </Typography>
                         <Typography variant="body2" sx={{ mt: 1, overflowWrap: "anywhere" }}>
-                            {lineaCancelarPorCategoria(carga.tipo)}
+                            {carga.tipo === "ACCIONES"
+                                ? TEXTO_CANCELAR_ACCIONES.split("**").map((parte, i) => (i % 2 === 1 ? <strong key={i}>{parte}</strong> : <React.Fragment key={i}>{parte}</React.Fragment>))
+                                : lineaCancelarPorCategoria(carga.tipo)}
                         </Typography>
                     </>
                 )}

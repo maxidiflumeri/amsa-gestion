@@ -286,7 +286,7 @@ export function pendientePostProceso(tipo: string): string {
         case 'MULTIARCHIVO':
             return 'Quedó sin hacer el cierre de los ausentes (desasignarlos, solo si la plantilla tiene activada la desasignación), la consolidación de los casos tocados y el cierre de las promesas cumplidas. Avisá a soporte.';
         case 'ACCIONES':
-            return 'Quedaron sin guardar los datos que permiten revertir la acción. Avisá a soporte y no uses Revertir: puede deshacer solo una parte y se puede una sola vez.';
+            return 'El cierre de la acción no terminó. Antes de deshacerla, abrí Revertir: el diálogo dice si se puede y cuánto cubre; si no se puede, avisá a soporte.';
         case 'MULTICLAVES':
             return 'Pudo quedar sin hacer la re-consolidación de los casos que ya tenían pagos con estas claves. Avisá a soporte.';
         case 'DEUDORES':
@@ -794,7 +794,7 @@ export function grupoTerminado(remesas: EstadoCargaDto[]): boolean {
 
 // ─── Fase C, entrega 2a: el Historial y los errores de una carga (docs/imports-progreso-c2-spec.md §6.1) ───
 
-const CODIGOS_DE_ERROR: readonly string[] = ['CORTE_YA_CARGADO', 'CORTE_YA_CONFIRMADO', 'NINGUNA_RETOMABLE', 'NO_ES_PENDIENTE', 'ORIGEN_DISTINTO', 'REVERTIR_NO_TERMINO', 'REVERTIR_INCOMPLETO', 'REVERSION_EN_CURSO'];
+const CODIGOS_DE_ERROR: readonly string[] = ['CORTE_YA_CARGADO', 'CORTE_YA_CONFIRMADO', 'NINGUNA_RETOMABLE', 'NO_ES_PENDIENTE', 'ORIGEN_DISTINTO', 'REVERTIR_NO_TERMINO', 'REVERTIR_INCOMPLETO', 'REVERSION_EN_CURSO', 'REVERTIR_CARGA_EN_CURSO', 'REVERTIR_NADA', 'REVERSION_FALLIDA', 'REVERSION_NO_ENCOLADA'];
 
 /** El `code` que el backend agrega al cuerpo de un 409 que la pantalla reconoce. Null si no hay, no se conoce o no es un error de axios. */
 export function codigoDeError(err: unknown): CodigoErrorImport | null {

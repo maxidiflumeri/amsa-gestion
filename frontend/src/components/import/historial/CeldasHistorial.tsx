@@ -4,6 +4,7 @@ import { StatusChip } from '../../ui';
 import type { HistorialItemDto } from '../../../types/importHistorial';
 import { barraIndeterminada, formatearNumero, motivoNoRetomablePorCorte, plural } from '../../../utils/estadoCarga';
 import { estadoParaHistorial } from '../../../utils/historialImportaciones';
+import ReversionEstado from '../ReversionEstado';
 
 /** Columna «Importación»: nombre, número, corte, lugar en la división y nombre del archivo si se guardó. */
 export function CeldaImportacion({ item }: { item: HistorialItemDto }) {
@@ -58,6 +59,11 @@ export function CeldaEstado({ item }: { item: HistorialItemDto }) {
                 <Typography variant="caption" color="warning.main" display="block" sx={{ mt: 0.5, overflowWrap: 'anywhere' }}>
                     {porCorte}
                 </Typography>
+            )}
+            {item.reversion != null && (
+                <Box sx={{ mt: 0.75 }}>
+                    <ReversionEstado reversion={item.reversion} variante="fila" />
+                </Box>
             )}
         </Box>
     );

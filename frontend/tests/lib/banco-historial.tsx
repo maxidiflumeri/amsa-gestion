@@ -4,6 +4,7 @@ import React from 'react';
 import ImportHistory from '@fe/pages/ImportHistory';
 import type { HistorialItemDto, GrupoHistorialDto, HistorialRespuesta } from '@fe/types/importHistorial';
 import type { EstadoCargaDto } from '@fe/types/importProgreso';
+import type { ReversionResumenDto } from '@fe/types/reversionAccion';
 import { ServidorFalso, type Pedido, type Respuesta } from './servidor-falso';
 import { iso } from './fabricas';
 import { esperar, iniciarSesion, limpio, montar, pasar, type Montado } from './montar';
@@ -26,6 +27,12 @@ export interface BancoHistorial {
     confirmarPendientes: (ids: number[]) => Resp | Promise<Resp>;
     eliminar: (id: number) => Resp | Promise<Resp>;
     grupo: (gid: string) => Resp | Promise<Resp>;
+    /** `GET /import/remesas/:id/reversion` (C3b). Por defecto 404: un backend anterior a C3b. */
+    reversionGet: (id: number) => Resp | Promise<Resp>;
+    /** `POST /import/remesas/:id/reversion` (C3b). */
+    reversionPost: (id: number) => Resp | Promise<Resp>;
+    /** Publica `accion:revertir:progreso` o `:terminada` y actualiza la reversión del ítem que el doble tiene guardado. */
+    pubReversion: (evento: 'accion:revertir:progreso' | 'accion:revertir:terminada', dto: ReversionResumenDto) => void;
     /** Publica un evento de socket y actualiza la carga que el doble tiene guardada. */
     pub: (evento: string, dto: EstadoCargaDto) => void;
     texto: () => string;
@@ -98,6 +105,12 @@ export async function armarHistorial(o: Opciones): Promise<BancoHistorial> {
         const remesas = b.items.filter((i) => i.carga.grupoId === gid).map((i) => i.carga).sort((x, y) => (x.grupoOrden ?? 0) - (y.grupoOrden ?? 0));
         return remesas.length === 0 ? { status: 404, body: { message: 'El grupo no existe' } } : { body: { grupoId: gid, total: remesas[0].grupoTotal ?? remesas.length, remesas } };
     };
+    b.reversionGet = () => ({ status: 404, body: { message: 'Ruta no prevista por el arnés' } });
+    b.reversionPost = () => ({ status: 404, body: { message: 'Ruta no prevista por el arnés' } });
+    b.pubReversion = (evento, dto) => {
+        b.items = b.items.map((i) => (i.id === dto.remesaId ? { ...i, reversion: dto, ...(dto.estado === 'TERMINADA' ? { accionRevertidaEn: dto.finishedAt ?? iso(Date.now()) } : {}) } : i));
+        srv.emitir(evento, dto);
+    };
     b.pub = (evento, dto) => {
         b.items = b.items.map((i) => (i.id === dto.remesaId ? { ...i, carga: dto } : i));
         srv.emitir(evento, dto);
@@ -122,6 +135,8 @@ export async function armarHistorial(o: Opciones): Promise<BancoHistorial> {
     srv.en('DELETE', /^\/import\/remesas\/(\d+)$/, (m) => b.eliminar(Number(m[1])));
     srv.en('PUT', /^\/import\/remesas\/(\d+)\/politica$/, () => ({ body: {} }));
     srv.en('POST', /^\/import\/remesas\/(\d+)\/revertir-acciones$/, () => ({ body: { deudoresRevertidos: 4, contactosRestaurados: 1, comentariosBorrados: 2 } }));
+    srv.en('GET', /^\/import\/remesas\/(\d+)\/reversion$/, (m) => b.reversionGet(Number(m[1])));
+    srv.en('POST', /^\/import\/remesas\/(\d+)\/reversion$/, (m) => b.reversionPost(Number(m[1])));
     o.antes?.(b);
     if (o.ancho) (await import('./ancho')).fijarAncho(o.ancho);
     b.v = await montar(<ImportHistory />, { conSocket: true, conNotificaciones: true, ruta: '/historial-importaciones', patron: '/historial-importaciones', modo: o.modo, estricto: o.estricto ?? false });

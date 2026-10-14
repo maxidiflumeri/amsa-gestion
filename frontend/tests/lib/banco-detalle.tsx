@@ -15,6 +15,10 @@ export interface BancoDetalle {
     retomar: (id: number) => Resp | Promise<Resp>;
     grupo: (gid: string) => Resp | Promise<Resp>;
     progreso: (id: number) => Resp | Promise<Resp>;
+    /** `GET /import/remesas/:id/reversion` (C3b). Por defecto 404: un backend anterior a C3b. */
+    reversionGet: (id: number) => Resp | Promise<Resp>;
+    /** `POST /import/remesas/:id/reversion` (C3b). */
+    reversionPost: (id: number) => Resp | Promise<Resp>;
     pub: (evento: string, dto: EstadoCargaDto) => void;
     texto: () => string;
 }
@@ -35,6 +39,8 @@ export async function armarDetalle(dto: EstadoCargaDto, o: { permisos?: string[]
     b.cancelar = () => ({ status: 409, body: { message: 'no previsto' } });
     b.cancelarGrupo = () => ({ status: 404, body: { message: 'no previsto' } });
     b.retomar = () => ({ status: 409, body: { message: 'no previsto' } });
+    b.reversionGet = () => ({ status: 404, body: { message: 'Ruta no prevista por el arnés' } });
+    b.reversionPost = () => ({ status: 404, body: { message: 'Ruta no prevista por el arnés' } });
     b.pub = (evento, d) => { b.estados[d.remesaId] = d; srv.emitir(evento, d); };
     srv.en('GET', /^\/import\/remesas\/(\d+)\/progreso$/, (m) => b.progreso(Number(m[1])));
     srv.en('GET', /^\/import\/remesas\/(\d+)$/, (m) => {
@@ -53,6 +59,8 @@ export async function armarDetalle(dto: EstadoCargaDto, o: { permisos?: string[]
     srv.en('POST', /^\/import\/remesas\/(\d+)\/cancelar$/, (m) => b.cancelar(Number(m[1])));
     srv.en('POST', /^\/import\/grupos\/([^/]+)\/cancelar$/, (m) => b.cancelarGrupo(decodeURIComponent(m[1])));
     srv.en('POST', /^\/import\/remesas\/(\d+)\/retomar$/, (m) => b.retomar(Number(m[1])));
+    srv.en('GET', /^\/import\/remesas\/(\d+)\/reversion$/, (m) => b.reversionGet(Number(m[1])));
+    srv.en('POST', /^\/import\/remesas\/(\d+)\/reversion$/, (m) => b.reversionPost(Number(m[1])));
     o.antes?.(b);
     b.v = await montar(<ImportDetail />, { conSocket: true, ruta: `/historial-importaciones/${dto.remesaId}`, patron: '/historial-importaciones/:id' });
     b.texto = () => limpio(b.v.contenedor.textContent ?? '');

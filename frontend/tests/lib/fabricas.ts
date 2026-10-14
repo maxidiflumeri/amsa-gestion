@@ -1,4 +1,5 @@
 import type { EstadoCargaDto } from '@fe/types/importProgreso';
+import type { CoberturaReversion, ReversionAccionDto, ReversionResumenDto } from '@fe/types/reversionAccion';
 import type { ErrorDeCargaDto, GrupoHistorialDto, HistorialItemDto } from '@fe/types/importHistorial';
 
 // Fábricas de EstadoCargaDto, HistorialItemDto y ErrorDeCargaDto. `dtoFaseA` tiene EXACTAMENTE la forma de §8.4.1 (sin los campos de la Fase B);
@@ -116,4 +117,25 @@ export function grupoHistorial(over: Partial<GrupoHistorialDto> = {}): GrupoHist
 
 export function errorDeCarga(over: Partial<ErrorDeCargaDto> = {}): ErrorDeCargaDto {
     return { id: 1, rowNumber: 0, tipo: 'FILA', fila: 1, filaEsDelArchivo: false, errorMsg: 'DNI inválido', rawRow: { dni: 'x' }, createdAt: iso(T0), ...over };
+}
+
+// ─── Fase C, entrega 3b: la reversión de una acción masiva (§17.4) ───────────────────────────────────
+/** El resumen que viaja en el historial y en los dos eventos de socket. Por defecto: una reversión en cola de la remesa 220. */
+export function reversionResumen(over: Partial<ReversionResumenDto> = {}): ReversionResumenDto {
+    return {
+        remesaId: 220, empresaId: 1, estado: 'EN_COLA', total: 150, hechos: 0, porcentaje: 0, deudoresRevertidos: 0, contactosRestaurados: 0,
+        comentariosBorrados: 0, casosQueNoExistian: 0, contactosSinCaso: 0, usuarioId: 3, error: null, encoladaAt: iso(T0), startedAt: null, finishedAt: null, ...over,
+    };
+}
+
+export function coberturaReversion(over: Partial<CoberturaReversion> = {}): CoberturaReversion {
+    return {
+        exacta: true, casos: 50, cambiosDeCaso: 50, contactos: 50, comentarios: 50, yaRevertidos: 0, casosAfectadosInformados: 50,
+        cargaCortada: false, filasProcesadas: null, totalFilas: null, ...over,
+    };
+}
+
+/** Lo que devuelve `GET /import/remesas/:id/reversion`. Por defecto: revertible, nunca pedida. */
+export function reversionAccion(over: Partial<ReversionAccionDto> = {}): ReversionAccionDto {
+    return { remesaId: 220, revertible: true, motivo: null, cobertura: coberturaReversion(), reversion: null, accionRevertidaEn: null, ...over };
 }

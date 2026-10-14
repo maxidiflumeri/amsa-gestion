@@ -272,3 +272,34 @@ describe('cancelar en una carga dividida (detalle de una remesa del grupo)', () 
 
     // Los casos «la división no se puede leer» y «la foto de la lista» están en tests/20-c1-cancelar-division.test.tsx.
 });
+
+describe('C3b — cancelar una acción masiva en curso: cancelar solo cancela y Revertir es un paso aparte', () => {
+    it('con el backend nuevo (`cancelable: true`) el botón está habilitado y el diálogo lo dice; confirmar pide la cancelación', async () => {
+        b = await armarDetalle(dtoC1({ tipo: 'ACCIONES', cancelable: true }));
+        expect(btnCancelar()!.disabled).toBe(false);
+        b.cancelar = (id) => { const c = dtoC1({ tipo: 'ACCIONES', cancelable: true, rev: 6, cancelacionPedidaAt: iso(Date.now()), canceladaPor: 'Maxi' }); b!.estados[id] = c; return { status: 200, body: { message: 'ok', efecto: 'PEDIDA', carga: c } }; };
+        await clic(btnCancelar(), 'Cancelar importación');
+        await esperar(() => !!dlg(), { que: 'el diálogo' });
+        const t = cuerpoDlg();
+        expect(t).toContain('Lleva 3.000 de 14.466 filas. Si la cancelás');
+        expect(t).toContain('Lo que ya se aplicó queda aplicado. Después lo podés deshacer con Revertir desde el Historial: deshace exactamente lo que alcanzó a hacer.');
+        // La línea genérica ("avisá a soporte") contradice a Revertir: no sale.
+        expect(t).not.toContain('Antes de volver a cargar el archivo, avisá a soporte.');
+        expect(t).not.toMatch(BASURA);
+        // «Revertir» va en negrita, como el resto de los textos con énfasis.
+        expect(Array.from(dlg()!.querySelectorAll('strong')).map((e) => e.textContent)).toContain('Revertir');
+        expect(b.srv.cuantos('POST', CANCELAR)).toBe(0);
+        await clic(boton('Cancelar importación', dlg()!), 'confirmar');
+        await esperar(() => b!.srv.cuantos('POST', CANCELAR) === 1, { que: 'el POST de cancelar' });
+        // Solo cancela: no pide revertir nada.
+        expect(b.srv.cuantos('POST', /reversion$|revertir-acciones$/)).toBe(0);
+    });
+
+    it('las otras categorías conservan su línea', async () => {
+        b = await armarDetalle(dtoC1({ tipo: 'PAGOS' }));
+        await clic(btnCancelar(), 'Cancelar importación');
+        await esperar(() => !!dlg(), { que: 'el diálogo' });
+        expect(cuerpoDlg()).toContain('Antes de volver a cargar el archivo, avisá a soporte.');
+        expect(cuerpoDlg()).not.toContain('Lo que ya se aplicó queda aplicado');
+    });
+});

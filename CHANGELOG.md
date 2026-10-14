@@ -100,7 +100,7 @@ la línea `filas/s` del log.
   - El orden de los bloqueos entre el cierre del job y una solicitud.
   - Los 50.000 casos y la medición en RDS.
   - Nada se vio en un navegador.
-- Tests: backend 2.192 (`npm run build` OK).
+- Tests: backend 2.192 (`npm run build` OK); frontend `npm test` 647 en 42 archivos, y una prueba lenta nueva del detalle sin socket.
 
 ### Deploy
 

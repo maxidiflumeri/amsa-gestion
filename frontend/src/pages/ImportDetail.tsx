@@ -16,6 +16,7 @@ import {
 } from '@mui/material';
 import ArrowBackIcon from '@mui/icons-material/ArrowBack';
 import PlayArrowIcon from '@mui/icons-material/PlayArrow';
+import UndoIcon from '@mui/icons-material/Undo';
 import TableRowsIcon from '@mui/icons-material/TableRows';
 import CheckCircleOutlineIcon from '@mui/icons-material/CheckCircleOutline';
 import ErrorOutlineIcon from '@mui/icons-material/ErrorOutline';
@@ -41,6 +42,7 @@ import type { EstadoCargaDto } from '../types/importProgreso';
 import { useEstadoCarga } from '../hooks/useEstadoCarga';
 import { useGrupoCarga } from '../hooks/useGrupoCarga';
 import { useUltimosErrores } from '../hooks/useUltimosErrores';
+import { useReversionAccion } from '../hooks/useReversionAccion';
 import {
     PageHeader,
     SectionCard,
@@ -56,6 +58,9 @@ import ResumenDeCarga from '../components/import/ResumenDeCarga';
 import AvisosCarga from '../components/import/AvisosCarga';
 import TarjetaProgreso from '../components/import/progreso/TarjetaProgreso';
 import { BotonCancelarCarga } from '../components/import/ImportProgress';
+import ReversionEstado from '../components/import/ReversionEstado';
+import DialogoRevertirAccion from '../components/import/historial/DialogoRevertirAccion';
+import { TEXTO_MOTIVO, fallidaSinFilas, reversionActiva, textoDeMotivo } from '../utils/reversionAccion';
 import {
     cancelacionLlegoTarde,
     casosActualizados,
@@ -209,6 +214,34 @@ export default function ImportDetail() {
     const [remesa, setRemesa] = useState<RemesaDetalle | null>(null);
     const [loading, setLoading] = useState(true);
     const [noEncontrada, setNoEncontrada] = useState(false);
+
+    // Revertir una acción masiva terminada (C3b). Con un backend anterior el GET da 404 y no se ofrece nada: ahí Revertir
+    // vive solo en el Historial, como en C3a.
+    // Una FALLIDA que no procesó ninguna fila es la retomable: no hay nada que revertir y el camino es Retomar.
+    const puedeVerReversion = tienePermiso('deudores.acciones_masivas');
+    const esAccionTerminada =
+        remesa?.categoria === 'ACCIONES' && carga?.terminal === true && (carga.estadoProceso === 'FINALIZADA' || (carga.estadoProceso === 'FALLIDA' && !fallidaSinFilas(carga)));
+    const reversionAccion = useReversionAccion(esAccionTerminada && puedeVerReversion && id ? Number(id) : null);
+    const [revirtiendoDialogo, setRevirtiendoDialogo] = useState(false);
+    const reversionDto = reversionAccion.dto;
+    const puedeRevertir =
+        esAccionTerminada &&
+        puedeVerReversion &&
+        !reversionAccion.noSoportado &&
+        reversionDto !== null &&
+        reversionDto.revertible !== false &&
+        reversionDto.accionRevertidaEn == null &&
+        reversionDto.reversion?.estado !== 'TERMINADA' &&
+        !reversionActiva(reversionDto.reversion);
+    // Por qué no se ofrece: una anterior a C3b ya revertida (sin `reversion`) o la que el backend dice que no se puede.
+    const textoNoRevertible =
+        esAccionTerminada && puedeVerReversion && !reversionAccion.noSoportado && reversionDto !== null && reversionDto.reversion == null
+            ? reversionDto.accionRevertidaEn != null
+                ? TEXTO_MOTIVO.YA_REVERTIDA
+                : reversionDto.revertible === false
+                  ? textoDeMotivo(reversionDto.motivo)
+                  : null
+            : null;
 
     const notifyRef = useRef(notify);
     useEffect(() => { notifyRef.current = notify; }, [notify]);
@@ -392,6 +425,13 @@ export default function ImportDetail() {
                 ]}
             />
 
+            <DialogoRevertirAccion
+                remesaId={revirtiendoDialogo && id ? Number(id) : null}
+                onCerrar={() => setRevirtiendoDialogo(false)}
+                onPedida={(r) => { reversionAccion.aplicar(r); void reversionAccion.recargar(); }}
+                onFallo={() => void reversionAccion.recargar()}
+            />
+
             {(noEncontrada || noExiste) && !remesa && (
                 <Alert
                     severity="warning"
@@ -526,6 +566,23 @@ export default function ImportDetail() {
                                     disabled={retomando}
                                 >
                                     Retomar
+                                </Button>
+                            </Box>
+                        )}
+                        {reversionDto?.reversion != null && (
+                            <Box mt={2}>
+                                <ReversionEstado reversion={reversionDto.reversion} variante="detalle" />
+                            </Box>
+                        )}
+                        {textoNoRevertible !== null && (
+                            <Typography variant="body2" color="text.secondary" sx={{ mt: 2, overflowWrap: 'anywhere' }} data-testid="reversion-no-revertible">
+                                {textoNoRevertible}
+                            </Typography>
+                        )}
+                        {puedeRevertir && (
+                            <Box mt={2}>
+                                <Button variant="outlined" color="warning" startIcon={<UndoIcon />} onClick={() => setRevirtiendoDialogo(true)}>
+                                    {reversionDto?.reversion != null ? 'Revertir (sigue desde donde quedó)' : 'Revertir'}
                                 </Button>
                             </Box>
                         )}

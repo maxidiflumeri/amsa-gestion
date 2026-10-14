@@ -88,7 +88,7 @@ export function AccionesHistorial({ item, acciones, ocupado, onVer, onAplicarCar
                 )}
 
                 {acciones.revertir.visible && (
-                    <Tooltip title={acciones.revertir.motivo ?? 'Revertir esta acción masiva'}>
+                    <Tooltip title={acciones.revertir.motivo ?? acciones.revertir.ayuda ?? 'Revertir esta acción masiva'}>
                         <span>
                             <IconButton color="warning" size="small" aria-label="Revertir" disabled={acciones.revertir.deshabilitado} onClick={onRevertir}>
                                 <UndoIcon />

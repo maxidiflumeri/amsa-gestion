@@ -9,6 +9,7 @@ import {
     puedeGestionarCarga,
     type EtiquetaDeEstado,
 } from './estadoCarga';
+import { AYUDA_REVERTIR_CORTADA, MOTIVO_SE_ESTA_REVIRTIENDO, MOTIVO_YA_REVERTIDA, fallidaSinFilas, reversionActiva, reversionCortada } from './reversionAccion';
 
 /** Lo que el Historial dibuja de una fila: la etiqueta única de la carga (utils/estadoCarga.ts). */
 export type EstadoDeFila = EtiquetaDeEstado;
@@ -94,7 +95,8 @@ export interface AccionesDeFila {
     retomar: boolean;
     confirmar: boolean;
     consolidar: boolean;
-    revertir: { visible: boolean; deshabilitado: boolean; motivo: string | null };
+    /** `ayuda`: el tooltip de un botón habilitado que no es el de siempre (retomar una reversión cortada). */
+    revertir: { visible: boolean; deshabilitado: boolean; motivo: string | null; ayuda?: string };
     eliminar: { visible: boolean; deshabilitado: boolean; motivo: string | null };
     /** Motivo de cada acción que se muestra deshabilitada, para escribirlo en la tarjeta del celular (no hay tooltip). */
     motivos: string[];
@@ -103,6 +105,29 @@ export interface AccionesDeFila {
 export const MOTIVO_ELIMINAR_EN_CURSO = 'No se puede eliminar una importación en curso. Para frenarla, usá Cancelar.';
 export const MOTIVO_ELIMINAR_AJENA = 'Solo podés eliminar tus importaciones.';
 export const MOTIVO_REVERTIDA = 'Acción ya revertida';
+
+/**
+ * El botón Revertir (docs/imports-progreso-c3-spec.md §17.6). Con un backend de C3b (el ítem trae la clave `reversion`) se
+ * ofrece sobre una ACCIONES terminada, FINALIZADA o FALLIDA, también cortada; el resto de los motivos para no poder
+ * (`REVERTIR_NO_TERMINO`, `REVERTIR_INCOMPLETO`, `REVERTIR_NADA`) los dice el diálogo, porque pedirían contar snapshots.
+ * Con un backend anterior (sin la clave), la regla de C3a: solo FINALIZADA.
+ */
+function reglaRevertir(item: HistorialItemDto, tienePermiso: (key: string) => boolean): AccionesDeFila['revertir'] {
+    const c = item.carga;
+    const permitido = tienePermiso('deudores.acciones_masivas') && item.categoria === 'ACCIONES';
+    if (!('reversion' in item)) {
+        const visible = permitido && c.estadoProceso === 'FINALIZADA';
+        const revertida = item.accionRevertidaEn != null;
+        return { visible, deshabilitado: visible && revertida, motivo: visible && revertida ? MOTIVO_REVERTIDA : null };
+    }
+    const visible = permitido && !c.enCurso && (c.estadoProceso === 'FINALIZADA' || (c.estadoProceso === 'FALLIDA' && !fallidaSinFilas(c)));
+    if (!visible) return { visible: false, deshabilitado: false, motivo: null };
+    const r = item.reversion ?? null;
+    if (item.accionRevertidaEn != null || r?.estado === 'TERMINADA') return { visible, deshabilitado: true, motivo: MOTIVO_YA_REVERTIDA };
+    if (reversionActiva(r)) return { visible, deshabilitado: true, motivo: MOTIVO_SE_ESTA_REVIRTIENDO };
+    if (reversionCortada(r)) return { visible, deshabilitado: false, motivo: null, ayuda: AYUDA_REVERTIR_CORTADA };
+    return { visible, deshabilitado: false, motivo: null };
+}
 
 /**
  * Qué se ofrece en una fila. Lo decide el backend (`cancelable`, `retomable`, `pendienteDeEncolar`) más los permisos:
@@ -127,14 +152,10 @@ export function accionesDeFila(
     const retomar = esRetomable(c) && gestiona;
     const confirmar = item.pendienteDeEncolar != null && !c.enCurso && !c.terminal && gestiona;
 
-    const puedeRevertir = tienePermiso('deudores.acciones_masivas') && item.categoria === 'ACCIONES' && c.estadoProceso === 'FINALIZADA';
-    const revertida = item.accionRevertidaEn != null;
-    const revertir = {
-        visible: puedeRevertir,
-        deshabilitado: puedeRevertir && revertida,
-        motivo: puedeRevertir && revertida ? MOTIVO_REVERTIDA : null,
-    };
+    const revertir = reglaRevertir(item, tienePermiso);
     if (revertir.motivo !== null) motivos.push(revertir.motivo);
+    // En el celular no hay tooltip: lo que dice «sigue desde donde quedó» va escrito.
+    else if (revertir.visible && revertir.ayuda != null) motivos.push(revertir.ayuda);
 
     let eliminar = { visible: false, deshabilitado: false, motivo: null as string | null };
     if (tienePermiso('importacion.eliminar')) {

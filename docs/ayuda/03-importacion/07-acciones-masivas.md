@@ -94,28 +94,66 @@ de confirmar.
 
 ## Revertir
 
-Es la única categoría con **deshacer**. En el historial de importaciones, una carga de acciones
-finalizada tiene un botón de revertir que deja los casos como estaban.
+Es la única categoría con **deshacer**. En el Historial de importaciones, una carga de acciones que terminó
+—**finalizada, cancelada o cortada**— tiene un botón de revertir que deja los casos como estaban.
 
-> **Si la carga terminó "con advertencias", Revertir no se puede usar: avisá a soporte.** El botón aparece
-> igual, pero los datos para deshacer se guardan en el post-proceso, que en ese caso no terminó: pueden
-> estar parciales. El sistema lo detecta y responde *"Los datos para revertir esta acción no se guardaron
-> completos: Revertir desharía solo una parte. Avisá a soporte."*, sin tocar nada.
+Los datos para deshacer se guardan **caso por caso, en el mismo momento en que se aplica el cambio**. Por eso
+Revertir deshace exactamente lo que la acción alcanzó a hacer, aunque se haya cortado a la mitad.
 
-Requiere el permiso de acciones masivas, y solo se puede revertir **una vez**: después queda marcada
-como ya revertida.
+Requiere el permiso de acciones masivas.
 
-**Cuándo el sistema se niega a revertir:**
+### Cómo se usa
 
-- La acción **no terminó bien** (falló o sigue en curso): *"Esta acción masiva no terminó bien: los datos para
-  revertirla no se guardaron. Avisá a soporte; no la vuelvas a cargar."*
-- Terminó **con advertencias**: el aviso de arriba.
+1. En la fila de la acción (o en su detalle) apretá **Revertir**.
+2. Antes de confirmar, el diálogo dice **cuánto cubre**: *"Se van a deshacer los cambios en N casos: X cambios
+   de datos, Y contactos a restaurar y Z comentarios a borrar."* Si la acción se cortó, agrega *"La acción se
+   cortó después de procesar F de T filas: Revertir deshace exactamente lo que alcanzó a hacer."* Y siempre
+   termina con *"Si alguien editó a mano alguno de estos casos después de la acción, esos cambios se pisan."*
+3. Confirmás. La reversión **corre en segundo plano** y la pantalla avisa *"Reversión en curso: te avisamos al
+   terminar"*. Podés cerrar la pantalla: al terminar te llega una notificación en la campanita (*Acción masiva
+   revertida*).
+4. Mientras corre, la fila del Historial y el detalle muestran su avance (el detalle también sin conexión en
+   tiempo real: consulta cada unos 10 segundos, así que puede tardar unos segundos en reflejarlo): **En cola**, **Revirtiendo 40 %** y,
+   al terminar, **Revertida**. El detalle dice además qué deshizo: *"Se deshicieron X cambios de datos, se
+   restauraron Y contactos y se borraron Z comentarios."* Si algún cambio no se pudo deshacer porque su caso ya
+   no existe, lo dice aparte.
+
+En el Historial el botón queda deshabilitado con **Se está revirtiendo** mientras corre y con **Ya se revirtió**
+cuando terminó; en el detalle de la importación el botón **desaparece** en esos casos (el estado queda escrito).
+
+### Si se interrumpe
+
+Si el servidor se reinicia mientras revierte, la reversión **no se retoma sola**: queda como **Reversión
+interrumpida: H de T** (cuántos cambios alcanzó a deshacer de cuántos) y el botón sigue habilitado, con el
+cartel *"Revertir (sigue desde donde quedó)"*. Apretalo de nuevo: si alcanzó a deshacer algo, el diálogo dice *"Un intento anterior ya
+revirtió R cambios; ahora se deshacen los que faltan."* y sigue exactamente desde ahí, sin repetir lo que ya
+deshizo. Si el servidor se reinició, la pantalla puede seguir diciendo **Revirtiendo** y con el botón bloqueado
+hasta unos 4 minutos, hasta que pasa a **Reversión interrumpida**. Si falló por otro motivo, el estado dice **La reversión falló** con el motivo, y se reintenta igual.
+
+Una acción se revierte **una sola vez**: el único caso en que Revertir se vuelve a usar es para terminar una
+reversión interrumpida o fallida.
+
+### Cuándo el sistema se niega a revertir
+
+El diálogo lo dice antes de confirmar, y deja el botón **Revertir** deshabilitado:
+
+- **Todavía está corriendo**: *"La acción masiva todavía está corriendo. Cancelala, o esperá a que termine, y
+  después revertila."*
 - **Ya se está revirtiendo** (otra pestaña u otra persona lo pidió hace un momento): *"Esta acción ya se está
-  revirtiendo. Esperá a que termine y actualizá el Historial."*
+  revirtiendo. Mirá el avance en el Historial."*
+- **No hizo ningún cambio** (por ejemplo, una cancelada antes de procesar alguna fila): *"Esta acción masiva no
+  llegó a cambiar ningún caso: no hay nada que revertir."*
+- Una acción **anterior a esta versión** que quedó a medias, con filas ya procesadas (falló o se cortó): *"Esta
+  acción masiva no terminó bien: los datos para revertirla no se guardaron. Avisá a soporte; no la vuelvas a
+  cargar."*
+- Una acción **anterior a esta versión** que terminó **con advertencias**: *"Los datos para revertir esta
+  acción no se guardaron completos: Revertir desharía solo una parte. Avisá a soporte."* Las acciones de ahora
+  guardan cada cambio junto con su dato para deshacerlo, así que esto no les pasa.
 
-Si el servidor no responde mientras se revierte, la pantalla avisa *"No llegó la respuesta del servidor. La
-reversión puede seguir corriendo: actualizá el Historial en unos minutos antes de volver a intentar."* Mirá el
-Historial antes de repetir el pedido.
+Si la cola de trabajos no responde, el aviso es *"No se pudo poner la reversión en la cola. Probá de nuevo en
+unos minutos; si se repite, avisá a soporte."* Si el servidor no responde al pedir revertir, la pantalla avisa
+*"No llegó la respuesta del servidor. La reversión puede seguir corriendo: actualizá el Historial en unos
+minutos antes de volver a intentar."* Mirá el Historial antes de repetir el pedido.
 
 > **Revertir una acción borra los comentarios que esa acción creó.** Si la acción agregó un
 > comentario, al revertir desaparece. Es coherente —se deshace todo lo que hizo— pero si el gestor
@@ -125,11 +163,15 @@ Historial antes de repetir el pedido.
 
 ## Cancelar una acción masiva
 
-Una acción masiva **todavía en la cola** se puede cancelar como cualquier carga: no se aplica nada y se puede
-retomar. En cambio, **una que ya empezó no se puede cancelar**: el botón **Cancelar importación** queda
-deshabilitado y dice *"Una acción masiva que ya empezó no se cancela: esperá a que termine y usá Revertir."*
-El motivo: los datos para deshacerla se guardan recién al terminar, así que cancelar a mitad le quitaría el
-único remedio que tiene. Si la acción salió mal, dejala terminar y usá **Revertir**, que la deshace (salvo que haya terminado con advertencias: ver más arriba).
+Una acción masiva se puede cancelar **en cualquier momento**, también si ya está procesando: corta al terminar
+el caso en curso. Antes de confirmar, el diálogo de **Cancelar importación** dice: *"Lo que ya se aplicó queda
+aplicado. Después lo podés deshacer con Revertir desde el Historial: deshace exactamente lo que alcanzó a
+hacer."*
+
+**Cancelar solo cancela.** No deshace nada: los casos que ya se tocaron quedan tocados, y el cierre de la carga
+no corre. Revertir es un paso aparte, que el diálogo de Revertir describe antes de confirmar con el número
+exacto de casos que cubre. Si todavía estaba en la cola, no se aplica nada y se puede retomar.
+
 Ver [Importar un archivo](/ayuda/importacion/importar-un-archivo), "Cancelar una importación".
 
 ---
@@ -191,7 +233,8 @@ trae la descripción en vez del código, o un código que no existe, la operaci�
 Sí, se aplican en el orden en que están declaradas en la plantilla.
 
 **¿Puedo revertir dos veces?**
-No. Una carga revertida queda marcada como tal.
+No. Una acción revertida queda marcada como tal (**Ya se revirtió**). La excepción es una reversión que se
+interrumpió o falló: **Revertir** la retoma y sigue desde donde quedó.
 
 **¿La reversión devuelve los comentarios que borró?**
 No. Revertir borra los comentarios que la acción creó; no hay un "revertir la reversión".
@@ -200,25 +243,24 @@ No. Revertir borra los comentarios que la acción creó; no hay un "revertir la 
 No: pisa el valor con el que estaba antes de la acción. La propia pantalla lo advierte al confirmar.
 
 **¿Y una carga "finalizada con advertencias"?**
-El botón **Revertir** aparece igual (la carga figura como finalizada), pero los datos para deshacer se
-guardan en el post-proceso, que en ese caso no terminó: pueden estar **parciales**. Por eso el sistema no deja
-revertirla y responde *"Los datos para revertir esta acción no se guardaron completos…"*. Avisá a soporte.
+Las acciones de esta versión guardan los datos para deshacer junto con cada cambio, así que se pueden revertir
+también si el cierre de la carga no terminó. Una acción **anterior** que terminó con advertencias no se puede
+revertir: el sistema responde *"Los datos para revertir esta acción no se guardaron completos…"*. Avisá a
+soporte.
 
 **¿Y si el servidor se reinició mientras corría la acción?**
 Una carga que se interrumpe **ya no se reinicia sola**: a los pocos minutos sin señal queda **fallida** con
 el motivo *"La importación se interrumpió: el servidor se reinició o dejó de responder mientras la
-procesaba."* Las acciones aplicadas hasta el corte quedaron hechas y **no se pueden revertir desde la
-pantalla**: los datos para deshacer se guardan recién al terminar. **No vuelvas a cargar el archivo**; avisá
-a soporte.
+procesaba."* Los cambios aplicados hasta el corte **se pueden revertir** con el botón **Revertir**, que cubre
+exactamente lo que alcanzó a hacer. **No vuelvas a cargar el archivo** antes de revertir.
 
 **¿Puedo cancelar una acción masiva que está corriendo?**
-No. Si todavía está en cola, sí; si ya empezó, hay que esperar a que termine y, si hace falta, usar
-**Revertir**. Cancelarla a mitad dejaría los cambios aplicados sin forma de deshacerlos.
+Sí. Cancelar solo corta: lo ya aplicado queda aplicado y se deshace después con **Revertir**.
 
 **¿Puedo revertir una carga que quedó fallida?**
-No. El botón solo aparece en las finalizadas, y los datos para deshacer se guardan recién al terminar
-bien. Si se intenta igual, el sistema responde *"Esta acción masiva no terminó bien…"*. Una acción fallida
-deja los cambios aplicados y sin vuelta atrás.
+Sí, si es de esta versión: el botón aparece también en las canceladas y en las cortadas, y deshace lo que
+alcanzó a hacer. Una acción fallida **anterior** a esta versión no se puede revertir: el sistema responde
+*"Esta acción masiva no terminó bien…"*. Avisá a soporte.
 
 **¿Sirve para cargar pagos o facturas?**
 No. Acciones masivas toca estados, campos, datos adicionales, comentarios y contactos. Para plata están

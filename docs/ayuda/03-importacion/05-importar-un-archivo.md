@@ -502,6 +502,8 @@ ya se procesaron quedan cargadas, y el cierre de la carga —consolidar, cerrar 
 **no corre**. Si pedís cancelar cuando ya se procesaron todas las filas pero el cierre todavía no empezó, el
 cierre tampoco corre: la carga queda cancelada con todas sus filas y sin cierre.
 
+La única categoría que se deshace después es **Acciones masivas**, con el botón **Revertir** del Historial: cancelar y revertir son dos pasos separados.
+
 **Dónde está.** El botón **Cancelar importación** está en el paso "Importando", en el detalle de la carga y en
 cada fila del Historial (un ícono, con el mismo diálogo; si no se puede cancelar, el ícono queda deshabilitado
 con el motivo). Lo ve quien tiene el permiso **Ejecutar importaciones** y
@@ -514,6 +516,8 @@ es el dueño de la carga, o tiene además **Ver importaciones de otros usuarios*
 - Si está procesando: *"Lleva N de M filas. Si la cancelás, las filas ya procesadas quedan cargadas —no se
   deshacen— y el cierre de la carga no corre. Se corta al terminar la fila o el lote en curso."*, más una
   línea según la categoría.
+  En una **acción masiva** esa línea es: *"Lo que ya se aplicó queda aplicado. Después lo podés deshacer con
+  Revertir desde el Historial: deshace exactamente lo que alcanzó a hacer."* (ver [Acciones masivas](/ayuda/importacion/acciones-masivas)).
 - Si hay otras remesas pendientes en una carga dividida, ofrece dos botones, **Cancelar solo esta remesa** y
   **Cancelar todo lo que falta**, y lista los números de la remesa en curso y de las que no empezaron. Con la
   primera, las demás remesas siguen. Si alguna no se puede cancelar en ese momento, las otras se cancelan
@@ -522,8 +526,7 @@ es el dueño de la carga, o tiene además **Ver importaciones de otros usuarios*
   cancelás ahora no debería cargarse ninguna; el resultado lo dice con el número exacto y, si no se cargó
   ninguna, la podés retomar desde su detalle."* (Mientras lee un Excel grande el servidor atiende el pedido
   recién cuando termina de leer: por eso el número final es el que vale.)
-- **Aunque la remesa en curso ya esté cerrando** (o sea una acción masiva ya empezada, o ya tenga el pedido
-  hecho), mientras alguna otra de la división se pueda cancelar el botón queda disponible como **Cancelar todo
+- **Aunque la remesa en curso ya esté cerrando** (o ya tenga el pedido hecho), mientras alguna otra de la división se pueda cancelar el botón queda disponible como **Cancelar todo
   lo que falta**, y el diálogo dice la verdad: *"La remesa en curso (N) ya está cerrando y no se cancela: va a
   terminar. Se cancelan las K que no empezaron (números)."* Esa remesa termina; las que esperaban se cancelan.
 - Si el diálogo no puede leer las demás remesas de la división, avisa *"Es una carga dividida en N remesas y
@@ -541,9 +544,6 @@ diferencia de una carga interrumpida, donde figura "al menos N".
 
 - **Durante el post-proceso:** *"La importación ya procesó todas las filas y está cerrando: en este paso no
   se puede cancelar."* Esperá a que termine.
-- **Una acción masiva que ya empezó:** *"Una acción masiva que ya empezó no se cancela: esperá a que termine
-  y usá Revertir."* Los datos para deshacerla se guardan recién al terminar; cancelar le quitaría el único
-  remedio. Si todavía está en cola, sí se puede cancelar.
 - **Ya se pidió cancelar:** *"Ya se pidió cancelar."*
 - **Cualquier otro motivo:** *"No se puede cancelar en este momento."*
 - Una carga que **ya terminó** no tiene el botón.
@@ -566,13 +566,16 @@ filas."* (o *"…cuando llevaba N filas."* si no se sabía el total, o *"La impo
 - **Actualizaciones:** *"Las K filas ya procesadas quedaron aplicadas sobre la remesa de origen. El cierre
   de la carga no corrió: los casos ausentes del archivo no se tocaron y los casos no se consolidaron. Antes
   de volver a cargar el archivo, avisá a soporte."*
+- **Acciones masivas:** *"Las K filas ya procesadas quedaron aplicadas. Podés deshacerlas con Revertir desde
+  el Historial, que antes de confirmar dice cuántos casos cubre. No vuelvas a cargar el archivo."*
 - **Las demás categorías:** *"Las K filas ya procesadas quedaron aplicadas y el cierre de la carga no
   corrió. Antes de volver a cargar el archivo, avisá a soporte."*
 
 Si hubo filas con error, el texto cambia: *"De las P filas ya procesadas, K quedaron cargadas en esta remesa y
 E dieron error; el cierre de la carga no corrió."* (en Actualizaciones, *"…K quedaron aplicadas sobre la remesa
 de origen y E dieron error."* seguido de su oración sobre el cierre; en las demás categorías, *"…K quedaron
-aplicadas y E dieron error; el cierre de la carga no corrió."*).
+aplicadas y E dieron error; el cierre de la carga no corrió."*; en Acciones masivas, *"De las P filas ya
+procesadas, K quedaron aplicadas y E dieron error. Podés deshacerlas con Revertir desde el Historial…"*).
 
 **Dónde figura.** En el detalle y en la notificación (que no llega siempre: ver "Paso 4") dice **Cancelada**. El **Historial todavía no la
 distingue**: la muestra como **FALLIDA**, igual que los reportes que usan el estado de la remesa. Cancelar libera el
@@ -735,9 +738,8 @@ y sigue, en otro párrafo, con qué hacer según la categoría:
 - **Deudores y Deudores y Facturas:** *Lo procesado hasta el corte quedó cargado en esta remesa. Eliminá
   esta importación desde el Historial y volvé a cargar el archivo. Si no se puede eliminar (porque algún
   caso ya tiene gestión o porque la remesa es muy grande), avisá a soporte antes de volver a cargarlo.* Si la remesa es un corte de un archivo dividido, el motivo agrega: *Esta remesa es un corte de un archivo dividido: al volver a subirlo, los cortes que ya están cargados aparecen destildados; dejalos así. Si no aparece ninguno destildado, el sistema no reconoció el archivo: destildá a mano los que ya figuran cargados en el Historial.*
-- **Acciones masivas:** *Las acciones aplicadas hasta el corte quedaron hechas y **no se pueden revertir
-  desde la pantalla**: los datos para deshacer se guardan recién al terminar. No vuelvas a cargar el
-  archivo; avisá a soporte.*
+- **Acciones masivas:** *Las acciones aplicadas hasta el corte quedaron hechas. Podés deshacerlas con Revertir
+  desde el Historial, que antes de confirmar dice cuántos casos cubre. No vuelvas a cargar el archivo.*
 - **Las demás categorías (incluida Pagos):** *Lo procesado hasta el corte quedó aplicado. Antes de volver a
   cargar el archivo, avisá a soporte.* En Pagos, entonces, no consolides ni resubas por tu cuenta: avisá
   primero.
@@ -854,8 +856,8 @@ Sí, también en una carga dividida: la carga corre en el servidor y las remesas
 que las confirmás. Las ves en la campanita y en el Historial.
 
 **¿Puedo cortar una carga que ya arrancó?**
-Sí, con **Cancelar importación**, salvo durante el post-proceso y en una acción masiva que ya empezó. Lo ya
-procesado queda cargado y el cierre no corre. Ver "Cancelar una importación".
+Sí, con **Cancelar importación**, salvo durante el post-proceso. En una acción masiva lo ya aplicado queda, y se
+deshace aparte con **Revertir**. Ver "Cancelar una importación".
 
 **¿Qué pasa si el archivo tiene filas con error?**
 Las que están bien se cargan igual. Las que fallan quedan registradas con su motivo y se pueden

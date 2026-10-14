@@ -1,5 +1,6 @@
 import api from './axios';
 import type { EstadoCargaDto } from '../types/importProgreso';
+import type { ReversionAccionDto } from '../types/reversionAccion';
 import type { ErroresRespuesta, HistorialRespuesta, TipoErrorDeCarga } from '../types/importHistorial';
 
 /** Estado de una carga. Liviano a propósito: es lo que consultan los hooks cuando hacen polling. */
@@ -188,4 +189,21 @@ export async function confirmarPendientes(remesaIds: number[]): Promise<Confirma
 /** `rev`: el de la carga que la pantalla le mostró al operador. Si cambió, el servidor responde 409 CAMBIO_DE_ESTADO. */
 export async function eliminarRemesa(remesaId: number, rev?: number): Promise<void> {
     await api.delete(`/import/remesas/${remesaId}`, rev != null ? { params: { rev } } : undefined);
+}
+
+// ─── Fase C, entrega 3b (docs/imports-progreso-c3-spec.md §17.4) ──────────────────────────────────
+
+/** Qué cubre revertir una acción masiva (y cómo va la reversión, si se pidió). 404 con un backend anterior a C3b. */
+export async function getReversion(remesaId: number): Promise<ReversionAccionDto> {
+    const { data } = await api.get<ReversionAccionDto>(`/import/remesas/${remesaId}/reversion`, { silencioso: true });
+    return data;
+}
+
+/**
+ * Pide revertir una acción masiva: 202 con la reversión EN_COLA, o 200 con TERMINADA si ya estaba revertida.
+ * `silencioso`: el aviso de un corte lo da la pantalla con su propio texto (el interceptor diría solo «Sin conexión»).
+ */
+export async function pedirReversion(remesaId: number): Promise<ReversionAccionDto> {
+    const { data } = await api.post<ReversionAccionDto>(`/import/remesas/${remesaId}/reversion`, undefined, { silencioso: true });
+    return data;
 }

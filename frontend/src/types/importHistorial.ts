@@ -1,6 +1,7 @@
 // Contrato del Historial de importaciones y de los errores de una carga (docs/imports-progreso-c2-spec.md §4.2, §4.3 y §4.5).
 // Es copia textual de backend/src/modules/imports/historial.types.ts: no tocar un lado sin el otro.
 import type { EstadoCargaDto } from './importProgreso';
+import type { ReversionResumenDto } from './reversionAccion';
 
 /** Remesa de origen con la que se confirmó una carga. `numeroRemesa` null = esa remesa ya no existe. */
 export interface OrigenDeCargaDto {
@@ -31,6 +32,9 @@ export interface HistorialItemDto {
     plantilla: { id: number; nombre: string } | null;
     politicaId: number | null;
     accionRevertidaEn: string | null;
+    /** Estado de la reversión de una acción masiva (C3b). null = nunca se pidió o no es una ACCIONES. AUSENTE = un backend
+     *  anterior a C3b: la pantalla usa entonces el camino de C3a. Se lee con `'reversion' in item`. */
+    reversion?: ReversionResumenDto | null;
     /** Nombres con que se subieron los archivos, si la remesa los guardó (hoy, solo las de varios archivos). */
     archivos: string[] | null;
     /** Corte de la división que le tocó ("Nómina 3082 / Gestión 3GH"). null si no es un corte. */
@@ -108,4 +112,8 @@ export type CodigoErrorImport =
     | 'CAMBIO_DE_ESTADO' // eliminar: la carga cambió (otro `rev`) desde que la pantalla la mostró
     | 'REVERTIR_NO_TERMINO' // revertir: la acción masiva no terminó bien
     | 'REVERTIR_INCOMPLETO' // revertir: los datos para revertir no se guardaron completos
-    | 'REVERSION_EN_CURSO'; // revertir: ya se está revirtiendo
+    | 'REVERSION_EN_CURSO' // revertir: ya se está revirtiendo
+    | 'REVERTIR_CARGA_EN_CURSO' // revertir: la acción masiva todavía corre (C3b)
+    | 'REVERTIR_NADA' // revertir: no quedó ningún cambio para deshacer (C3b)
+    | 'REVERSION_FALLIDA' // revertir (endpoint de compatibilidad): la reversión falló (C3b)
+    | 'REVERSION_NO_ENCOLADA'; // revertir: Redis no aceptó el job (C3b, 503)

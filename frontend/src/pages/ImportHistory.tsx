@@ -33,6 +33,7 @@ import { PageHeader, SectionCard, EmptyState, LoadingSkeleton, DataTableResponsi
 import type { DataTableColumn } from '../components/ui';
 import ConsolidacionModal from '../components/consolidacion/ConsolidacionModal';
 import { AccionesHistorial, DialogoConfirmarPendientes, DialogoEliminarImportacion } from '../components/import/historial/AccionesHistorial';
+import DialogoRevertirAccion from '../components/import/historial/DialogoRevertirAccion';
 import { CeldaEstado, CeldaFilas, CeldaImportacion } from '../components/import/historial/CeldasHistorial';
 import EncabezadoDivision from '../components/import/historial/EncabezadoDivision';
 import type { HistorialItemDto } from '../types/importHistorial';
@@ -61,7 +62,7 @@ export default function ImportHistory() {
     const [pageSize, setPageSize] = useState(25);
     const [textoBusqueda, setTextoBusqueda] = useState('');
     const [q, setQ] = useState('');
-    const { items, grupos, total, cargando, refrescando, error, refrescar, aplicarCarga, quitar } = useHistorialImportaciones({
+    const { items, grupos, total, cargando, refrescando, error, refrescar, aplicarCarga, quitar, aplicarReversion } = useHistorialImportaciones({
         empresaId: empresaId === '' ? null : empresaId,
         page,
         pageSize,
@@ -75,6 +76,10 @@ export default function ImportHistory() {
     const [confirmando, setConfirmando] = useState(false);
     const [consolidarRemesaId, setConsolidarRemesaId] = useState<number | null>(null);
     const [revertirId, setRevertirId] = useState<number | null>(null);
+    // Con un backend anterior a C3b la fila no trae la clave `reversion`: Revertir sigue siendo el pedido sincrónico de C3a.
+    const revertirItem = revertirId === null ? null : (items.find((i) => i.id === revertirId) ?? null);
+    const revertirConJob = revertirItem !== null && 'reversion' in revertirItem;
+    const revertirDeC3a = revertirItem !== null && !revertirConJob;
     const [revirtiendo, setRevirtiendo] = useState(false);
     /** Remesas con una acción en vuelo: un segundo clic seguido no manda un segundo pedido. */
     const [ocupadas, setOcupadas] = useState<ReadonlySet<number>>(new Set());
@@ -344,7 +349,14 @@ export default function ImportHistory() {
                 onConfirmar={() => void handleConfirmarPendientes()}
             />
 
-            <Dialog open={revertirId !== null} onClose={() => !revirtiendo && setRevertirId(null)}>
+            <DialogoRevertirAccion
+                remesaId={revertirConJob ? revertirId : null}
+                onCerrar={() => setRevertirId(null)}
+                onPedida={(r) => { if (r.reversion) aplicarReversion(r.reversion); void refrescar(); }}
+                onFallo={() => void refrescar()}
+            />
+
+            <Dialog open={revertirDeC3a} onClose={() => !revirtiendo && setRevertirId(null)}>
                 <DialogTitle>Revertir acción masiva</DialogTitle>
                 <DialogContent>
                     <DialogContentText>
