@@ -540,6 +540,14 @@ export function textoCancelacion(d: EntradaTextoCancelacion): string {
                 'El cierre de la carga no corrió: los casos ausentes del archivo no se tocaron y los casos no se consolidaron. ' +
                 'Antes de volver a cargar el archivo, avisá a soporte.';
             break;
+        case 'ACCIONES':
+            // Desde C3b cada caso se escribe con sus datos para revertir, y solo desde C3b se puede cancelar una acción masiva:
+            // lo aplicado se deshace con Revertir (auditoría de C3b; antes mandaba a soporte).
+            segundo =
+                (conError ? conErrorTxt('aplicadas', 'aplicada', '. ') : sinError('aplicadas', 'aplicada', '. ')) +
+                'Podés deshacerlas con Revertir desde el Historial, que antes de confirmar dice cuántos casos cubre. ' +
+                'No vuelvas a cargar el archivo.';
+            break;
         default:
             segundo =
                 (conError

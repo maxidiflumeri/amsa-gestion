@@ -12,6 +12,7 @@ import * as crypto from 'crypto';
 import * as fastcsv from 'fast-csv';
 import * as xlsx from 'xlsx';
 import { Prisma } from '@prisma/client';
+import { aReversionResumenDto } from './reversion/reversion-accion.reglas';
 import type { import_progreso } from '@prisma/client';
 import { PrismaService } from 'src/prisma/prisma.service';
 import { ClonarPlantillaDto, CreatePlantillaDto, CreateRemesaDto } from './dtos/import.dto';
@@ -225,8 +226,6 @@ export class ImportService {
      * inmortal a esa carga para el reaper.
      */
     private readonly cargasVivas = new Map<number, ProgresoTracker>();
-    /** Remesas cuya reversión está corriendo en este proceso (C3a). Con más de una instancia no alcanza: C3b lo reemplaza por un job. */
-    private readonly reversionesEnCurso = new Set<number>();
 
     constructor(
         private prisma: PrismaService,
@@ -2131,111 +2130,6 @@ export class ImportService {
             deudoresAfectados: ids.size,
             operaciones: cfg.operaciones.map(o => o.tipo),
         };
-    }
-
-    // --- REVERTIR ACCIONES MASIVAS (undo por snapshot) ---
-    async revertirAcciones(remesaId: number, usuarioId?: number) {
-        const t0 = Date.now();
-        this.logger.log(`Revertir acción masiva: remesa=${remesaId} usuario=${usuarioId ?? 'sistema'}`);
-        const remesa = await this.prisma.remesa.findUnique({
-            where: { id: remesaId },
-            include: { progreso: { select: { errorPostProceso: true, finishedAt: true } } },
-        });
-        if (!remesa) throw new NotFoundException('Remesa no existe');
-        if (remesa.categoria !== 'ACCIONES') throw new BadRequestException('La remesa no es de acciones masivas');
-        if (remesa.accionRevertidaEn) {
-            return { yaRevertida: true, deudoresRevertidos: 0, contactosRestaurados: 0, comentariosBorrados: 0 };
-        }
-
-        // Revertir solo lo que se puede deshacer entero: los datos para revertir se guardan al final de la carga (en el
-        // post-proceso), así que una carga que no terminó bien, o cuyo post-proceso falló, no los tiene completos.
-        if (remesa.estadoProceso !== 'FINALIZADA') {
-            this.logger.warn(`Revertir remesa=${remesaId}: rechazado, la carga no terminó bien (estado ${remesa.estadoProceso})`);
-            throw this.conflicto(
-                'REVERTIR_NO_TERMINO',
-                'Esta acción masiva no terminó bien: los datos para revertirla no se guardaron. Avisá a soporte; no la vuelvas a cargar.',
-            );
-        }
-        if (remesa.progreso && remesa.progreso.errorPostProceso != null) {
-            this.logger.warn(`Revertir remesa=${remesaId}: rechazado, el post-proceso no guardó completos los datos para revertir`);
-            throw this.conflicto(
-                'REVERTIR_INCOMPLETO',
-                'Los datos para revertir esta acción no se guardaron completos: Revertir desharía solo una parte. Avisá a soporte.',
-            );
-        }
-        // Un solo pedido por remesa a la vez en este proceso (prod corre uno): el doble clic o el reintento tras un 504.
-        if (this.reversionesEnCurso.has(remesaId)) {
-            this.logger.warn(`Revertir remesa=${remesaId}: rechazado, ya hay una reversión corriendo`);
-            throw this.conflicto('REVERSION_EN_CURSO', 'Esta acción ya se está revirtiendo. Esperá a que termine y actualizá el Historial.');
-        }
-        this.reversionesEnCurso.add(remesaId);
-        try {
-            const snaps = await this.prisma.accion_masiva_snapshot.findMany({
-                where: { remesaId }, orderBy: { id: 'desc' },
-            });
-
-            let deudoresRevertidos = 0;
-            let casosQueNoExistian = 0;
-            const contactosACrear: any[] = [];
-            const comentariosABorrar: number[] = [];
-
-            for (const s of snaps) {
-                const dp = (s.datosPrevios ?? {}) as Record<string, any>;
-                if (s.entidad === 'deudor' && s.accion === 'UPDATE') {
-                    const data: any = {};
-                    for (const [k, v] of Object.entries(dp)) {
-                        if (k === 'fechaVencimiento') data[k] = v ? new Date(v) : null;
-                        else if (k === 'camposAdicionales') data[k] = v == null ? Prisma.JsonNull : v;
-                        else data[k] = v;
-                    }
-                    // Un caso borrado después no frena el resto, pero se cuenta para que el log lo diga.
-                    await this.prisma.deudor.update({ where: { id: s.entidadId }, data }).catch(() => { casosQueNoExistian++; });
-                    deudoresRevertidos++;
-                } else if (s.entidad === 'contacto' && s.accion === 'DELETE') {
-                    contactosACrear.push({
-                        deudorId: dp.deudorId, tipo: dp.tipo, valor: dp.valor,
-                        subtipo: dp.subtipo ?? null, prioridad: dp.prioridad ?? 0,
-                        validado: dp.validado ?? false, whatsapp: dp.whatsapp ?? null,
-                    });
-                } else if (s.entidad === 'comentario' && s.accion === 'INSERT') {
-                    comentariosABorrar.push(s.entidadId);
-                }
-            }
-
-            let contactosRestaurados = 0;
-            for (let i = 0; i < contactosACrear.length; i += 500) {
-                const r = await this.prisma.contacto.createMany({ data: contactosACrear.slice(i, i + 500), skipDuplicates: true });
-                contactosRestaurados += r.count;
-            }
-            let comentariosBorrados = 0;
-            if (comentariosABorrar.length) {
-                const r = await this.prisma.comentario.deleteMany({ where: { id: { in: comentariosABorrar } } });
-                comentariosBorrados = r.count;
-            }
-
-            // Condicional: si otro proceso la marcó antes, lo revertido es idempotente y no se pisa quién la revirtió.
-            const marca = await this.prisma.remesa.updateMany({
-                where: { id: remesaId, accionRevertidaEn: null },
-                data: { accionRevertidaEn: new Date(), accionRevertidaPorId: usuarioId ?? null },
-            });
-            if (marca.count === 0) this.logger.warn(`Revertir remesa=${remesaId}: otra reversión la marcó antes; se conserva esa marca`);
-
-            await this.auditoria.log({
-                modulo: 'IMPORT', entidad: 'acciones_masivas', tipo: 'DELETE',
-                usuarioId: usuarioId ?? null, empresaId: remesa.empresaId, entidadId: remesaId,
-                resumen: `Revirtió acción masiva (remesa ${remesaId})`,
-                data: { deudoresRevertidos, contactosRestaurados, comentariosBorrados },
-            });
-
-            this.logger.log(
-                `Revertir remesa=${remesaId}: ${deudoresRevertidos} casos revertidos` +
-                (casosQueNoExistian > 0 ? ` (${casosQueNoExistian} ya no existían)` : '') +
-                `, ${contactosRestaurados} contactos restaurados, ${comentariosBorrados} comentarios borrados en ${Date.now() - t0}ms`,
-            );
-            return { yaRevertida: false, deudoresRevertidos, contactosRestaurados, comentariosBorrados };
-        } finally {
-            this.reversionesEnCurso.delete(remesaId);
-        }
     }
 
     // --- EJECUTAR (Encuela el trabajo en BullMQ) ---
@@ -4502,6 +4396,7 @@ export class ImportService {
                     progreso: true,
                     usuarioCreador: { select: { id: true, nombre: true } },
                     plantilla: { select: { id: true, nombre: true } },
+                    reversion: true,
                 },
             }),
         ]);
@@ -4541,6 +4436,7 @@ export class ImportService {
                 plantilla: r.plantilla ? { id: r.plantilla.id, nombre: r.plantilla.nombre } : null,
                 politicaId: r.politicaId ?? null,
                 accionRevertidaEn: r.accionRevertidaEn ? r.accionRevertidaEn.toISOString() : null,
+                reversion: r.reversion ? aReversionResumenDto(r.reversion, r.empresaId) : null,
                 archivos,
                 corte: this.textoDeCorte(r.divisionValores),
                 carga: cargaDe(r),
@@ -5308,7 +5204,10 @@ export class ImportService {
     async deleteRemesa(remesaId: number, user: { sub: number; permisos: string[] }, opciones: { revEsperado?: number } = {}) {
         const remesa = await this.prisma.remesa.findUnique({
             where: { id: remesaId },
-            include: { progreso: { select: { encoladaAt: true, startedAt: true, finishedAt: true, jobId: true, rev: true } } },
+            include: {
+                progreso: { select: { encoladaAt: true, startedAt: true, finishedAt: true, jobId: true, rev: true } },
+                reversion: { select: { estado: true } },
+            },
         });
         if (!remesa) throw new NotFoundException(`Remesa ${remesaId} no encontrada`);
 
@@ -5316,6 +5215,12 @@ export class ImportService {
         const puedeVerOtros = user.permisos.includes('importacion.ver_progreso_otros');
         if (!puedeVerOtros && remesa.usuarioCreadorId !== user.sub) {
             throw new ForbiddenException('No tenés permiso para eliminar esta importación');
+        }
+
+        // Sin esto la cascada borraría los snapshots en medio de la reversión (C3b).
+        if (remesa.reversion?.estado === 'EN_COLA' || remesa.reversion?.estado === 'REVIRTIENDO') {
+            this.logger.warn(`Remesa ${remesaId}: borrado rechazado, se está revirtiendo la acción masiva`);
+            throw this.conflicto('REVERSION_EN_CURSO', 'Se está revirtiendo esta acción masiva: esperá a que termine para eliminarla.');
         }
 
         // La pantalla manda el `rev` de lo que le mostró al operador. Si la carga cambió desde entonces (el caso típico:

@@ -1,6 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { RealtimeGateway } from './realtime.gateway';
 import type { EstadoCargaDto } from '../imports/progreso/estado-carga.types';
+import type { ReversionResumenDto } from '../imports/reversion/reversion-accion.types';
 
 @Injectable()
 export class RealtimeService {
@@ -43,6 +44,27 @@ export class RealtimeService {
         } catch (err: any) {
             this.logger.warn(`Error emitiendo ${event} de la remesa ${estado.remesaId} — ${err?.message}`);
         }
+    }
+
+    /**
+     * Reversión de una acción masiva (C3b): a `user:{usuarioId}` (quien la pidió) y `admin:importaciones`, igual que
+     * `emitEstadoCarga`. Nunca propaga: un fallo del socket no puede tumbar el job.
+     */
+    private emitReversion(event: string, dto: ReversionResumenDto): void {
+        const salas = dto.usuarioId != null ? [`user:${dto.usuarioId}`, 'admin:importaciones'] : ['admin:importaciones'];
+        try {
+            this.gateway.server.to(salas).emit(event, dto);
+        } catch (err: any) {
+            this.logger.warn(`Error emitiendo ${event} de la remesa ${dto.remesaId} — ${err?.message}`);
+        }
+    }
+
+    emitReversionProgreso(dto: ReversionResumenDto): void {
+        this.emitReversion('accion:revertir:progreso', dto);
+    }
+
+    emitReversionTerminada(dto: ReversionResumenDto): void {
+        this.emitReversion('accion:revertir:terminada', dto);
     }
 
     emitImportIniciada(estado: EstadoCargaDto): void {

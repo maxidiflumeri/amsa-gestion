@@ -817,6 +817,14 @@ describe('textoCancelacion', () => {
         const t = textoCancelacion({ ...base, por: 'N'.repeat(900), ok: 3, total: 9 });
         expect(primera(t).length).toBeLessThanOrEqual(300);
     });
+    it('una acción masiva cancelada con filas ofrece Revertir, no soporte (auditoría de C3b)', () => {
+        const t = textoCancelacion({ ...base, categoria: 'ACCIONES', ok: 40, total: 100 });
+        expect(t.split('\n\n')[1]).toBe('Las 40 filas ya procesadas quedaron aplicadas. Podés deshacerlas con Revertir desde el Historial, que antes de confirmar dice cuántos casos cubre. No vuelvas a cargar el archivo.');
+        expect(t).not.toContain('soporte');
+        expect(textoCancelacion({ ...base, categoria: 'ACCIONES', ok: 38, err: 2, total: 100 }).split('\n\n')[1]).toBe(
+            'De las 40 filas ya procesadas, 38 quedaron aplicadas y 2 dieron error. Podés deshacerlas con Revertir desde el Historial, que antes de confirmar dice cuántos casos cubre. No vuelvas a cargar el archivo.',
+        );
+    });
     it('nunca nombra «Retomar» si se cargaron filas', () => {
         for (const categoria of ['DEUDORES', 'DEUDORES_Y_FACTURAS', 'ACTUALIZACIONES', 'PAGOS', 'FACTURAS', 'ACCIONES', null]) {
             for (const conCorte of [true, false]) {

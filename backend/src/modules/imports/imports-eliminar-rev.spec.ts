@@ -8,11 +8,11 @@ import { ImportService } from './imports.service';
 
 beforeAll(() => Logger.overrideLogger(false));
 
-function armar(progreso: { rev: number; encoladaAt: Date | null; startedAt: Date | null } | null) {
+function armar(progreso: { rev: number; encoladaAt: Date | null; startedAt: Date | null } | null, reversion: { estado: string } | null = null) {
     const prisma: any = {
         remesa: {
             findUnique: jest.fn().mockResolvedValue({
-                id: 7, categoria: 'DEUDORES', estadoProceso: progreso?.encoladaAt ? 'PENDIENTE' : 'VALIDANDO', usuarioCreadorId: 1,
+                id: 7, categoria: 'DEUDORES', reversion, estadoProceso: progreso?.encoladaAt ? 'PENDIENTE' : 'VALIDANDO', usuarioCreadorId: 1,
                 progreso: progreso ? { ...progreso, finishedAt: null, jobId: null } : null,
             }),
         },
@@ -36,6 +36,25 @@ describe('deleteRemesa con revEsperado', () => {
         const { svc } = armar(null);
         const e = await svc.deleteRemesa(7, user, { revEsperado: 2 }).catch((x) => x);
         expect((e as ConflictException).getResponse()).toMatchObject({ code: 'CAMBIO_DE_ESTADO' });
+    });
+});
+
+describe('deleteRemesa con la reversión de la acción masiva en curso (C3b)', () => {
+    it.each(['EN_COLA', 'REVIRTIENDO'])('%s: 409 REVERSION_EN_CURSO, antes de tocar nada (la cascada borraría los snapshots a mitad de la reversión)', async (estado) => {
+        const { svc, sacar } = armar({ rev: 1, encoladaAt: null, startedAt: null }, { estado });
+        const e = await svc.deleteRemesa(7, user).catch((x) => x);
+        expect(e).toBeInstanceOf(ConflictException);
+        expect((e as ConflictException).getResponse()).toMatchObject({
+            code: 'REVERSION_EN_CURSO',
+            message: 'Se está revirtiendo esta acción masiva: esperá a que termine para eliminarla.',
+        });
+        expect(sacar).not.toHaveBeenCalled();
+    });
+
+    it.each(['TERMINADA', 'FALLIDA', 'INTERRUMPIDA'])('%s no bloquea el borrado por este motivo', async (estado) => {
+        const { svc } = armar({ rev: 1, encoladaAt: null, startedAt: null }, { estado });
+        const e = await svc.deleteRemesa(7, user).catch((x) => x);
+        expect((e as { getResponse?: () => { code?: string } })?.getResponse?.()?.code).not.toBe('REVERSION_EN_CURSO');
     });
 });
 

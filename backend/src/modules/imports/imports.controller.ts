@@ -1,8 +1,9 @@
 // src/import/import.controller.ts
-import { BadRequestException, Body, Controller, Delete, Get, HttpCode, NotFoundException, Param, ParseIntPipe, Post, Put, Query, Res, UploadedFile, UploadedFiles, UseInterceptors } from '@nestjs/common';
+import { BadRequestException, Body, Controller, Delete, Get, HttpCode, HttpStatus, NotFoundException, Param, ParseIntPipe, Post, Put, Query, Res, UploadedFile, UploadedFiles, UseInterceptors } from '@nestjs/common';
 import type { Response } from 'express';
 import { FileFieldsInterceptor, FileInterceptor } from '@nestjs/platform-express';
 import { ImportService } from './imports.service';
+import { ReversionAccionesService } from './reversion/reversion-acciones.service';
 import { CambiarEmpresaPlantillaDto, ClonarPlantillaDto, ConfirmarPendientesDto, CreatePlantillaDto, CreateRemesaDto, EjecutarGrupoDto, ErroresQueryDto, HistorialQueryDto } from './dtos/import.dto';
 import { Permisos, UsuarioActual } from '../../auth/decorators';
 import { Audit } from '../transacciones/audit.decorator';
@@ -28,7 +29,10 @@ function parseJsonOpcional<T>(raw: string | undefined): T | undefined {
 @Controller('import')
 @Permisos('importacion.ver_historial')
 export class ImportController {
-    constructor(private readonly service: ImportService) { }
+    constructor(
+        private readonly service: ImportService,
+        private readonly reversion: ReversionAccionesService,
+    ) { }
 
     // --- CATEGORÍAS ---
     @Get('categorias')
@@ -271,6 +275,44 @@ export class ImportController {
         return this.service.previewAccionesImpacto(id, remesaOrigenId ? Number(remesaOrigenId) : undefined);
     }
 
+    /** Estado de la reversión y cuánto cubre: se pide al abrir el diálogo de Revertir. */
+    @Get('remesas/:id/reversion')
+    @Permisos('deudores.acciones_masivas')
+    obtenerReversion(@Param('id', ParseIntPipe) id: number) {
+        return this.reversion.obtener(id);
+    }
+
+    /** Pide revertir la acción masiva: 202 y el avance por socket; 200 si ya estaba revertida. */
+    @Post('remesas/:id/reversion')
+    @Permisos('deudores.acciones_masivas')
+    @Audit({
+        modulo: AuditModulo.IMPORT,
+        entidad: 'Remesa',
+        tipo: AuditTipo.DELETE,
+        entidadIdParam: 'id',
+        // Un pedido rechazado (un 409) llega acá sin `res`. El «Revirtió…» real lo escribe el job al terminar.
+        resumen: (res, req) =>
+            res == null
+                ? `Intentó revertir la acción masiva de la remesa ${req.params.id}`
+                : res.reversion?.estado === 'TERMINADA'
+                    ? `La acción masiva de la remesa ${req.params.id} ya estaba revertida`
+                    : `Pidió revertir la acción masiva de la remesa ${req.params.id}`,
+    })
+    async pedirReversion(
+        @Param('id', ParseIntPipe) id: number,
+        @UsuarioActual() user: UsuarioJwt,
+        @Res({ passthrough: true }) res: Response,
+    ) {
+        const { dto, yaEstaba } = await this.reversion.solicitar(id, user.sub);
+        res.status(yaEstaba ? HttpStatus.OK : HttpStatus.ACCEPTED);
+        return dto;
+    }
+
+    /**
+     * Compatibilidad con el frontend de C3a (pestañas abiertas antes del deploy): pide lo mismo que el nuevo y espera hasta
+     * 20 s a que termine, para responder con la forma de siempre.
+     * @deprecated Se borra cuando no quede ningún frontend de C3a en uso.
+     */
     @Post('remesas/:id/revertir-acciones')
     @Permisos('deudores.acciones_masivas')
     @Audit({
@@ -288,7 +330,7 @@ export class ImportController {
                     : `Revirtió acción masiva remesa ${req.params.id}`,
     })
     revertirAcciones(@Param('id', ParseIntPipe) id: number, @UsuarioActual() user: UsuarioJwt) {
-        return this.service.revertirAcciones(id, user.sub);
+        return this.reversion.revertirCompat(id, user.sub);
     }
 
     @Post('ejecutar/:id')

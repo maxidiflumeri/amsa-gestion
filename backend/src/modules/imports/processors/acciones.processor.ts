@@ -128,7 +128,7 @@ export class AccionesProcessor implements ICategoryProcessor {
                 remesaId: ctx.remesaId, deudorId: c.deudorId, entidad: 'contacto', entidadId: c.id, accion: 'DELETE',
                 datosPrevios: {
                     deudorId: c.deudorId, tipo: c.tipo, valor: c.valor, subtipo: c.subtipo,
-                    prioridad: c.prioridad, validado: c.validado, whatsapp: c.whatsapp,
+                    prioridad: c.prioridad, validado: c.validado, whatsapp: c.whatsapp, relacion: c.relacion,
                 },
             });
         }

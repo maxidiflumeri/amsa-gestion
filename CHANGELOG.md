@@ -6,6 +6,108 @@
 
 ---
 
+## [2026-10-14] — Importaciones, entrega C3b: acciones masivas cortables y reversibles
+
+Segunda parte de la entrega 3 de la Fase C. Diseño en §17 de
+[docs/imports-progreso-c3-spec.md](docs/imports-progreso-c3-spec.md). Depende de C3a, que ya está en prod. Quedan
+C3c (el cierre ordenado en el deploy) y la Fase D.
+
+**Estado: implementada y auditada; sin desplegar.** Backend y frontend se hicieron en paralelo.
+
+Hubo dos auditorías en paralelo, las dos con resultado PASA CON OBSERVACIONES:
+- **Backend, con la app real y MySQL.**
+  - Una acción masiva de 20.000 casos y su reversión.
+  - Cancelar a mitad.
+  - `kill -9` durante la carga y durante la reversión.
+  - Doble clic.
+  - El control "la base queda igual" contra el código anterior, después de aplicar y después de revertir.
+- **Frontend y wiki contra el código.**
+
+Los arreglos se hicieron después, cada uno con su test. El detalle está en §18 del diseño. Las tres
+decisiones de §17.12 se tomaron con su recomendación, sin respuesta del usuario:
+- **D4:** una reversión cortada por un reinicio no se reanuda sola. Queda "interrumpida" y Revertir la retoma.
+- **D5:** las acciones masivas anteriores a C3b que quedaron a medias siguen mandando a soporte.
+- **D6:** cancelar solo cancela. Revertir es un paso aparte que dice antes cuánto cubre.
+
+### Decisión medida: los datos para revertir van en la misma transacción que cada caso
+
+Antes, los snapshots vivían en memoria hasta el post-proceso. Una acción masiva que moría a mitad dejaba cambios
+aplicados sin forma de deshacerlos, y por eso no se podía cancelar. Medido contra MySQL local con la durabilidad de
+RDS, con 10.000 casos y extrapolado a 50.000:
+
+| Variante | 50.000 casos |
+|---|---|
+| Como hasta ahora | ~10,0 min |
+| Por lote | ~10,1 min |
+| En la transacción de cada caso, con un `createMany` | **~6,2 min** |
+
+La variante elegida junta los tres commits de cada caso en uno. La primera acción masiva real en prod lo confirma con
+la línea `filas/s` del log.
+
+### Backend
+
+- **C3b1 — cada caso con sus snapshots, y cancelar.**
+  - Cada caso es una transacción con su `createMany` de snapshots. Un deadlock se reintenta una vez, y los contadores
+    se suman después del commit.
+  - La remesa queda marcada con `accionSnapshotsPorCaso` antes de la primera escritura.
+  - El post-proceso ya no vuelca snapshots.
+  - Una ACCIONES en curso **se puede cancelar**: se quitó el 409 de C1.
+  - El texto de una acción masiva interrumpida dice que se puede deshacer con Revertir.
+- **C3b2 — Revertir como job.**
+  - Cola propia, `acciones-revertir-queue`, con un worker que corre de a uno.
+  - Recorre los snapshots en tandas de 200, del más nuevo al más viejo, y marca cada uno con `revertidoEn` en la
+    misma transacción en que lo deshace. Por eso reintentar sigue desde donde quedó y no duplica contactos.
+  - El progreso sale por `/rt` con `accion:revertir:progreso` y `accion:revertir:terminada`.
+  - `GET /api/import/remesas/:id/reversion` dice antes cuántos casos, cambios, contactos y comentarios cubre. Se
+    puede revertir una acción cortada, fallida o con el post-proceso incompleto, si se escribió por caso.
+  - Un reinicio deja la reversión INTERRUMPIDA: la marca un cron en 4 minutos o menos.
+  - Eliminar la remesa mientras se revierte da 409.
+  - El endpoint viejo `POST …/revertir-acciones` queda para las pestañas abiertas antes del deploy: encola y espera
+    hasta 20 s.
+- **Schema** (aditivo, `db push` sin `--accept-data-loss` ni backfill):
+  - `accion_masiva_snapshot.deudorId` y `revertidoEn`;
+  - `remesa.accionSnapshotsPorCaso`;
+  - el modelo nuevo `reversion_accion`.
+
+### Frontend
+
+- `DialogoRevertirAccion`: antes de confirmar dice qué cubre la reversión, con una línea para la acción cortada. Un
+  doble clic hace un solo pedido.
+- `ReversionEstado`: el estado en la fila del Historial y en el detalle (En cola, Revirtiendo N %, Revertida,
+  Interrumpida, Fallida), en vivo por socket, y lo que deshizo.
+- Cancelar una acción masiva desde el asistente, el detalle y la campanita.
+- Contra un backend anterior queda el camino de C3a.
+- Wiki `03-importacion`: `05`, `07` y `08`.
+
+### Después de las auditorías
+
+- **Revertir deja los contactos borrados como estaban.** Esto ya fallaba antes de C3b. Ahora `prioridad` null vuelve
+  null (antes volvía 0) y el teléfono de un codeudor sigue siendo del codeudor: el snapshot guarda `relacion`. Medido:
+  602 de 3.010 contactos restaurados cambiaban de prioridad.
+- **Una acción masiva cancelada antes de procesar ninguna fila** ya no ofrece Revertir ni manda a soporte.
+- **Una acción masiva cancelada con filas** dice que lo aplicado se deshace con Revertir, en vez de mandar a soporte.
+- **El detalle sigue la reversión aunque no le lleguen los eventos.** Consulta mientras la reversión está viva, y al
+  volver a la pestaña o recuperar la red. Antes, quien miraba una reversión de otro usuario veía "Revirtiendo" para
+  siempre.
+- Textos duplicados de la reversión interrumpida.
+- La cobertura de una acción revertida antes de C3b.
+- El aviso de post-proceso pendiente de una acción masiva, con un texto que es cierto antes y después de C3b.
+- La wiki.
+- Prueba grande: carga a 127 filas/s, reversión a ~3.600 snapshots/s. Un `kill -9` durante la reversión queda
+  INTERRUMPIDA a los ~4 min y se retoma sin duplicar contactos.
+- **Deuda:**
+  - Eliminar y pedir revertir en el mismo instante (leído, no reproducido).
+  - El orden de los bloqueos entre el cierre del job y una solicitud.
+  - Los 50.000 casos y la medición en RDS.
+  - Nada se vio en un navegador.
+- Tests: backend 2.192 (`npm run build` OK).
+
+### Deploy
+
+El backend primero, porque lleva el `db push`. Antes, la consulta de solo lectura de §17.7 del diseño.
+
+---
+
 ## [2026-10-14] — Importaciones, entrega C3a: la carga dice lo que hizo
 
 Primera de las tres partes de la entrega 3 de la Fase C. Diseño en

@@ -1,6 +1,7 @@
 // Contrato del Historial y de los errores de una carga (docs/imports-progreso-c2-spec.md §4.2, §4.3 y §4.5).
 // Se copia TAL CUAL en frontend/src/types/importHistorial.ts: no cambiar un nombre acá sin cambiarlo allá.
 import type { EstadoCargaDto } from './progreso/estado-carga.types';
+import type { ReversionResumenDto } from './reversion/reversion-accion.types';
 
 /** Remesa de origen con la que se confirmó una carga. `numeroRemesa` null = esa remesa ya no existe. */
 export interface OrigenDeCargaDto {
@@ -31,6 +32,8 @@ export interface HistorialItemDto {
     plantilla: { id: number; nombre: string } | null;
     politicaId: number | null;
     accionRevertidaEn: string | null;
+    /** Estado de la reversión (C3b). null si nunca se pidió y en las categorías que no son ACCIONES. */
+    reversion: ReversionResumenDto | null;
     /** Nombres con que se subieron los archivos, si la remesa los guardó (hoy, solo las de varios archivos). */
     archivos: string[] | null;
     /** Corte de la división que le tocó ("Nómina 3082 / Gestión 3GH"). null si no es un corte. */
@@ -109,4 +112,8 @@ export type CodigoErrorImport =
     | 'CAMBIO_DE_ESTADO' // eliminar: la carga cambió (otro `rev`) desde que la pantalla la mostró
     | 'REVERTIR_NO_TERMINO' // revertir acción masiva: la remesa no es FINALIZADA (falló, o sigue en curso)
     | 'REVERTIR_INCOMPLETO' // revertir acción masiva: el post-proceso no guardó completos los datos para revertir
-    | 'REVERSION_EN_CURSO'; // revertir acción masiva: otro pedido de revertir la misma remesa está corriendo
+    | 'REVERSION_EN_CURSO' // revertir acción masiva: otro pedido de revertir la misma remesa está corriendo (o se pasó de los 20 s del endpoint viejo)
+    | 'REVERTIR_CARGA_EN_CURSO' // revertir acción masiva: la acción todavía corre
+    | 'REVERTIR_NADA' // revertir acción masiva: no quedó ningún cambio pendiente
+    | 'REVERSION_FALLIDA' // endpoint viejo: la reversión falló o quedó interrumpida
+    | 'REVERSION_NO_ENCOLADA'; // 503: la cola no aceptó el job

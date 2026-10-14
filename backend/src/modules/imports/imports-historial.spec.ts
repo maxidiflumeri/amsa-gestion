@@ -259,6 +259,27 @@ describe('historial', () => {
         expect(r.grupos.g).toMatchObject({ existentes: 1, total: 3 });
     });
 
+    it('HI-13 (C3b): el ítem trae `reversion` (el contrato de la reversión) cuando la acción se está revirtiendo, y null si nunca se pidió', async () => {
+        const fila = {
+            remesaId: 7, estado: 'REVIRTIENDO', usuarioId: 3, jobId: 'revertir-7-1', intentos: 1, total: 200, hechos: 80,
+            deudoresRevertidos: 70, contactosRestaurados: 6, comentariosBorrados: 4, casosQueNoExistian: 0, contactosSinCaso: 0,
+            error: null, encoladaAt: T0, startedAt: T0, heartbeatAt: T0, finishedAt: null,
+        };
+        const { svc, d } = servicio([finalizada(7, { categoria: 'ACCIONES', reversion: fila }), finalizada(6, { categoria: 'ACCIONES', reversion: null }), finalizada(5)]);
+        const r = await svc.historial({ empresaId: 10, page: 1, pageSize: 25 });
+        const porId = new Map(r.data.map((x) => [x.id, x]));
+
+        expect(porId.get(7)!.reversion).toEqual({
+            remesaId: 7, empresaId: 10, estado: 'REVIRTIENDO', total: 200, hechos: 80, porcentaje: 40,
+            deudoresRevertidos: 70, contactosRestaurados: 6, comentariosBorrados: 4, casosQueNoExistian: 0, contactosSinCaso: 0,
+            usuarioId: 3, error: null, encoladaAt: T0.toISOString(), startedAt: T0.toISOString(), finishedAt: null,
+        });
+        expect(porId.get(6)!.reversion).toBeNull();
+        expect(porId.get(5)!.reversion).toBeNull(); // una categoría que no es ACCIONES no trae la relación
+        // La relación viaja en el mismo findMany de la página: no suma una consulta por fila.
+        expect(d.llamadas.filter((l) => l === 'remesa.findMany')).toHaveLength(1);
+    });
+
     it('HI-12: el total es igual a la cantidad que devuelve listRemesas', async () => {
         const { svc } = servicio([finalizada(1), enCola(2, 1), pendiente(3, null), rem(4, { empresaId: 99 }), retomable(5, 'A')]);
         expect((await svc.historial({ empresaId: 10 })).total).toBe((await svc.listRemesas(10)).length);
