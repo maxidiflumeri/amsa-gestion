@@ -461,3 +461,92 @@ describe('MultirregistroProcessor — contactos', () => {
         expect(insertados.find((c: any) => c.tipo === 'telefono').validado).toBe(true);
     });
 });
+
+describe('MultirregistroProcessor — una baja por pago repetida no crea otro pago (C3a, A6 / D1)', () => {
+    const baja = { _tipo: 'BAJA', aviso: '171412', fecha: '24/07/2026', motivo: 'Pago de Cuota/Aviso' } as any;
+    const retirada = { _tipo: 'BAJA', aviso: '170474', motivo: 'Días de Mora Excedidos' } as any;
+
+    it('sobre una factura ya PAGADA: ni pago, ni update de la factura, ni toca el monto o la gestión; cuenta como baja ya aplicada', async () => {
+        const proc = new MultirregistroProcessor();
+        const { ctx, prisma, pagoCreate, facturaUpdate, deudorUpdate } = makeCtx();
+        prisma.factura.findMany.mockResolvedValue([{ id: 11, deudorId: 321, importe: 100, estado: 'PAGADA' }]);
+
+        await proc.processRow(baja, ctx);
+
+        expect(pagoCreate).not.toHaveBeenCalled();
+        expect(facturaUpdate).not.toHaveBeenCalled();
+        expect(deudorUpdate).not.toHaveBeenCalled();
+        expect(prisma.factura.count).not.toHaveBeenCalled();
+        expect((proc as any).bajasYaAplicadasCount).toBe(1);
+        expect((proc as any).bajasCount).toBe(1);
+        expect((proc as any).bajasPagoCount).toBe(0);
+        expect((proc as any).deudoresTocados.size).toBe(0);
+        expect((proc as any).deudoresConPago.size).toBe(0);
+    });
+
+    it('sobre una factura ANULADA sí crea el pago: es un cambio de motivo real', async () => {
+        const proc = new MultirregistroProcessor();
+        const { ctx, prisma, pagoCreate, facturaUpdate } = makeCtx();
+        prisma.factura.findMany.mockResolvedValue([{ id: 11, deudorId: 321, importe: 100, estado: 'ANULADA' }]);
+        prisma.factura.count.mockResolvedValue(2);
+
+        await proc.processRow(baja, ctx);
+
+        expect(pagoCreate).toHaveBeenCalledTimes(1);
+        expect(facturaUpdate).toHaveBeenCalledWith({ where: { id: 11 }, data: { estado: 'PAGADA' } });
+        expect((proc as any).bajasYaAplicadasCount).toBe(0);
+        expect((proc as any).bajasPagoCount).toBe(1);
+    });
+
+    it('sobre una factura vigente (PENDIENTE) hace lo de siempre', async () => {
+        const proc = new MultirregistroProcessor();
+        const { ctx, prisma, pagoCreate } = makeCtx();
+        prisma.factura.findMany.mockResolvedValue([{ id: 11, deudorId: 321, importe: 100, estado: 'PENDIENTE' }]);
+        prisma.factura.count.mockResolvedValue(2);
+
+        await proc.processRow(baja, ctx);
+
+        expect(pagoCreate).toHaveBeenCalledTimes(1);
+        expect((proc as any).bajasYaAplicadasCount).toBe(0);
+    });
+
+    it('una baja RETIRADA (no es por pago) sobre una factura PAGADA no se cuenta como baja por pago ya aplicada', async () => {
+        const proc = new MultirregistroProcessor();
+        const { ctx, prisma, pagoCreate, facturaUpdate } = makeCtx();
+        prisma.factura.findMany.mockResolvedValue([{ id: 11, deudorId: 321, importe: 100, estado: 'PAGADA' }]);
+        prisma.factura.count.mockResolvedValue(2);
+
+        await proc.processRow(retirada, ctx);
+
+        expect(pagoCreate).not.toHaveBeenCalled();
+        expect(facturaUpdate).toHaveBeenCalledWith({ where: { id: 11 }, data: { estado: 'ANULADA' } });
+        expect((proc as any).bajasYaAplicadasCount).toBe(0);
+        expect((proc as any).bajasRetiradasCount).toBe(1);
+    });
+
+    it('CA-9: el mismo paquete cargado dos veces con 5 bajas por pago crea 5 pagos en total, y la segunda informa bajasYaAplicadas 5', async () => {
+        // Un estado de facturas que cambia como en la base: la baja de la primera carga las deja PAGADAS.
+        const facturas = new Map(Array.from({ length: 5 }, (_, i) => [String(171400 + i), { id: i + 1, deudorId: 300 + i, importe: 100, estado: 'PENDIENTE' }]));
+        const cargar = async () => {
+            const proc = new MultirregistroProcessor();
+            const h = makeCtx();
+            h.prisma.factura.findMany.mockImplementation(({ where }: any) => Promise.resolve([facturas.get(where.nroFactura)]));
+            h.prisma.factura.update.mockImplementation(({ where, data }: any) => {
+                for (const f of facturas.values()) if (f.id === where.id) f.estado = data.estado;
+                return Promise.resolve({});
+            });
+            h.prisma.factura.count.mockResolvedValue(1);
+            const resumenes: any[] = [];
+            (h.ctx as any).progreso = { filasDelLote: jest.fn(), subfase: jest.fn(), contadores: jest.fn(), resumen: (r: any) => resumenes.push(r) };
+            for (const nro of facturas.keys()) await proc.processRow({ _tipo: 'BAJA', aviso: nro, motivo: 'Pago de Cuota/Aviso' } as any, h.ctx);
+            return { pagos: h.pagoCreate.mock.calls.length, ultimo: resumenes[resumenes.length - 1] };
+        };
+
+        const primera = await cargar();
+        const segunda = await cargar();
+
+        expect(primera.pagos + segunda.pagos).toBe(5);
+        expect(primera.ultimo).toMatchObject({ bajasPago: 5, bajasYaAplicadas: 0 });
+        expect(segunda.ultimo).toMatchObject({ bajasPago: 0, bajasYaAplicadas: 5, bajas: 5 });
+    });
+});

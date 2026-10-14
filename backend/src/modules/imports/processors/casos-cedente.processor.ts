@@ -700,13 +700,26 @@ export abstract class CasosCedenteProcessor implements ICategoryProcessor {
         const encontrada = await this.buscarFacturaDeBaja(row, nroFactura, ctx);
         if (!encontrada) return; // ya contabilizó y logueó el motivo
 
-        const { id: facturaId, deudorId, importe } = encontrada;
+        const { id: facturaId, deudorId, importe, estado } = encontrada;
         const motivo = row.motivo ? String(row.motivo).trim() : '';
 
         // El motivo decide si la factura se cerró porque el cliente PAGÓ o porque el cedente la
         // retiró de la gestión. En Toyota 9 de cada 10 bajas son "Días de Mora Excedidos", que NO
         // es un pago: registrar uno inventaría plata que nunca entró.
-        if (this.esBajaPorPago(row, motivo, ctx)) {
+        const porPago = this.esBajaPorPago(row, motivo, ctx);
+
+        // Una baja por pago sobre una factura que ya está PAGADA no crea otro pago: el paquete se volvió a cargar, el
+        // cedente lo reenvió, o un archivo de PAGOS ya la había marcado. Sin esto cada recarga duplicaba el cobro y
+        // podía cancelar un caso con cuotas vigentes. No toca la factura, el monto ni la gestión del caso. Una factura
+        // ANULADA sí sigue creando el pago: es un cambio de motivo real.
+        if (porPago && estado === 'PAGADA') {
+            this.bajasYaAplicadasCount++;
+            this.bajasCount++;
+            this.logger.debug(`Baja de ${nroFactura}: la factura ya figura PAGADA — no se registra otro pago.`);
+            return;
+        }
+
+        if (porPago) {
             await ctx.prisma.pago.create({
                 data: {
                     deudorId,
@@ -763,7 +776,7 @@ export abstract class CasosCedenteProcessor implements ICategoryProcessor {
         row: MappedRow,
         nroFactura: string,
         ctx: ProcessContext,
-    ): Promise<{ id: number; deudorId: number; importe: number } | null> {
+    ): Promise<{ id: number; deudorId: number; importe: number; estado?: string | null } | null> {
         const nroCliente = row.nroCliente ? String(row.nroCliente).trim() : '';
 
         if (nroCliente) {
@@ -779,7 +792,7 @@ export abstract class CasosCedenteProcessor implements ICategoryProcessor {
             }
             const factura = await ctx.prisma.factura.findUnique({
                 where: { deudorId_nroFactura: { deudorId: deudor.id, nroFactura } },
-                select: { id: true, deudorId: true, importe: true },
+                select: { id: true, deudorId: true, importe: true, estado: true },
             });
             if (!factura) {
                 // Normal en la primera carga: la baja refiere a una cuota que nunca gestionamos.
@@ -795,7 +808,7 @@ export abstract class CasosCedenteProcessor implements ICategoryProcessor {
         // Se traen DOS para poder detectar la ambigüedad descrita arriba.
         const facturas = await ctx.prisma.factura.findMany({
             where: { nroFactura, deudor: { empresaId: ctx.empresaId } },
-            select: { id: true, deudorId: true, importe: true },
+            select: { id: true, deudorId: true, importe: true, estado: true },
             take: 2,
         });
 

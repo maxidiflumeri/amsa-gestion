@@ -777,3 +777,47 @@ describe('MultiarchivoProcessor — consolidación final', () => {
         expect(ctx.promesas.cerrarCumplidas).toHaveBeenCalledWith([321]);
     });
 });
+
+describe('MultiarchivoProcessor — una baja por pago repetida no crea otro pago (C3a, A6 / D1)', () => {
+    const facturaDeBaja = { id: 11, deudorId: 321, importe: 344483.87 };
+
+    it('sobre una cuota ya PAGADA: sin pago, sin update de la factura, y cuenta como baja ya aplicada', async () => {
+        const { ctx, prisma, pagoCreate, facturaUpdate, deudorUpdate } = makeCtx();
+        prisma.deudor.findFirst.mockResolvedValue({ id: 321 });
+        prisma.factura.findUnique.mockResolvedValue({ ...facturaDeBaja, estado: 'PAGADA' });
+        const proc = new MultiarchivoProcessor();
+
+        await proc.processRow(baja() as any, ctx);
+
+        expect(pagoCreate).not.toHaveBeenCalled();
+        expect(facturaUpdate).not.toHaveBeenCalled();
+        expect(deudorUpdate).not.toHaveBeenCalled();
+        expect((proc as any).bajasYaAplicadasCount).toBe(1);
+        expect((proc as any).bajasCount).toBe(1);
+    });
+
+    it('sobre una cuota ANULADA crea el pago, y sobre una vigente también', async () => {
+        for (const estado of ['ANULADA', 'PENDIENTE']) {
+            const { ctx, prisma, pagoCreate } = makeCtx();
+            prisma.deudor.findFirst.mockResolvedValue({ id: 321 });
+            prisma.factura.findUnique.mockResolvedValue({ ...facturaDeBaja, estado });
+            prisma.factura.count.mockResolvedValue(1);
+            await new MultiarchivoProcessor().processRow(baja() as any, ctx);
+            expect(pagoCreate).toHaveBeenCalledTimes(1);
+        }
+    });
+
+    it('una baja retirada (motivo 4) sobre una cuota PAGADA sigue anulándola como hoy', async () => {
+        const { ctx, prisma, pagoCreate, facturaUpdate } = makeCtx();
+        prisma.deudor.findFirst.mockResolvedValue({ id: 321 });
+        prisma.factura.findUnique.mockResolvedValue({ ...facturaDeBaja, estado: 'PAGADA' });
+        prisma.factura.count.mockResolvedValue(1);
+        const proc = new MultiarchivoProcessor();
+
+        await proc.processRow(baja({ motivoId: '4', motivo: 'Envio a Gestion Especial' }) as any, ctx);
+
+        expect(pagoCreate).not.toHaveBeenCalled();
+        expect(facturaUpdate).toHaveBeenCalledWith({ where: { id: 11 }, data: { estado: 'ANULADA' } });
+        expect((proc as any).bajasYaAplicadasCount).toBe(0);
+    });
+});
