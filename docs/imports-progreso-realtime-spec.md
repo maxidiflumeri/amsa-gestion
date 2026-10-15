@@ -1,5 +1,57 @@
 # Progreso en tiempo real de las importaciones — diagnóstico y plan
 
+> ## Para retomar — estado al 14/10/2026 (leer esto primero)
+>
+> **En prod:** A, B, C1, C2a, C2b, C3a y C3b (C3b desde el 14/10/2026; imagen y deploy en el CHANGELOG).
+>
+> **Desde el 30/09 no hubo ninguna carga real en prod**, y nada de C2 ni de C3 se vio en un navegador. La primera
+> carga real, y la primera acción masiva, son la medición que falta: ritmo (`filas/s`), post-proceso por paso y latido.
+>
+> **Documentos:**
+> - C2 (interfaz): [imports-progreso-c2-spec.md](imports-progreso-c2-spec.md). Lo que cambió al auditar está en §18 y
+>   §19.
+> - C3 (resumen, revertir, deploy): [imports-progreso-c3-spec.md](imports-progreso-c3-spec.md). Lo que cambió al
+>   auditar está en §16 (C3a) y §18 (C3b).
+>
+> **Lo que sigue, en este orden:**
+> 1. **C3c — que el deploy no mate cargas a ciegas.** Esbozada en §13.2 del documento de C3. Al recibir `SIGTERM`,
+>    cortar la carga en curso con números exactos, como "interrumpida por un reinicio", con el mecanismo de cancelar de
+>    C1. Además, `stop_grace_period` en el compose.
+>    - Hoy nadie llama a `enableShutdownHooks`, y `node` es el proceso 1 del contenedor: la carga muere con `SIGKILL` a
+>      los 10 s.
+>    - El compose de la EC2 llega por el parámetro de SSM `_compose`, y eso necesita un `terraform apply`, no un push.
+>    - Necesita diseño ejecutable.
+> 2. **Fase D — notificaciones** (§4, "Fase D"):
+>    - el cron de limpieza de notificaciones (N12 de notificaciones-spec);
+>    - la decisión §5.5, que necesita el OK del usuario: si las cargas ajenas siguen con toast a todos los admins;
+>    - el globito de no leídas que queda uno atrás;
+>    - actualizar notificaciones-spec.
+> 3. **Deuda anotada en los documentos de C2 y C3**, entre otras:
+>    - una baja retirada repetida se vuelve a contar;
+>    - dos valores de `resultado` del cierre de ausentes, que no se agregaron;
+>    - las carreras eliminar/revertir y el orden de los bloqueos (§18 de C3);
+>    - el CSV con ceros a la izquierda;
+>    - "Cargar las que faltan" sin vigía.
+> 4. **Operativo pendiente, con OK del usuario y preview:**
+>    - borrar las remesas fantasma 93 y 98 y las notificaciones huérfanas;
+>    - el guion manual en un navegador (al final de cada entrada del CHANGELOG).
+>
+> **Cómo se trabajó el 14/10, porque el usuario pidió ir rápido:**
+> - Un architect con un tope de ~40 min.
+> - Dos implementers en paralelo, sin archivos en común. Corren los tests del frontend con `FE_TEST_PUERTO` distinto.
+> - **Una** pasada de auditoría por paquete, más una revisión de la wiki contra el código. En C3a esa revisión
+>   encontró más que la auditoría, incluido un bug grave previo.
+> - Los arreglos los hizo quien orquesta, cada uno con su test.
+> - Los commits los hace Claude y los pushea el usuario: el backend primero cuando hay `db push`.
+> - Reglas para cada encargo:
+>   - nunca `git stash`;
+>   - `LOG_DIR` al scratchpad;
+>   - **`npm run build` del backend antes de commitear**, porque jest no chequea tipos.
+>
+> ---
+>
+> *Lo que sigue en este encabezado es el registro histórico de cómo se llegó hasta acá.*
+>
 > Estado: **diagnóstico cerrado (30/09/2026) · Fase A implementada, auditada y desplegada en prod el
 > 05/10/2026 (imagen `a5ed9c4`) · Fase B diseñada, implementada, auditada y **desplegada en prod el
 > 09/10/2026** (imagen `58bb9e1`, 19:44 UTC; [§9](#9-diseño-de-la-fase-b)), sin ver en un navegador ·

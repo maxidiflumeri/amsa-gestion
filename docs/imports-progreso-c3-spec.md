@@ -3,7 +3,8 @@
 > **Estado:**
 > - **C3a en prod desde el 14/10/2026** (imagen `8e8c49b`). Lo que cambió al auditarla está en
 >   [§16](#16-lo-que-cambió-en-c3a-después-de-la-auditoría-14102026), que manda sobre §2 a §11.
-> - **C3b implementada y auditada el 14/10/2026, sin desplegar.** El diseño está en [§17](#17-c3b-diseño-ejecutable).
+> - **C3b en prod desde el 14/10/2026** (21:59 de Argentina; imagen `b49e95f`). El diseño está en
+>   [§17](#17-c3b-diseño-ejecutable).
 >   Lo que cambió al auditarla está en [§18](#18-lo-que-cambió-en-c3b-después-de-la-auditoría-14102026), que manda
 >   sobre §17.
 > - **C3c esbozada** (§13.2).

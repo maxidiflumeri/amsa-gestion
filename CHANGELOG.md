@@ -12,7 +12,15 @@ Segunda parte de la entrega 3 de la Fase C. Diseño en §17 de
 [docs/imports-progreso-c3-spec.md](docs/imports-progreso-c3-spec.md). Depende de C3a, que ya está en prod. Quedan
 C3c (el cierre ordenado en el deploy) y la Fase D.
 
-**Estado: implementada y auditada; sin desplegar.** Backend y frontend se hicieron en paralelo.
+**Estado: implementada, auditada y desplegada el 14/10/2026** (21:59 de Argentina; imagen `b49e95f`). Verificado en
+prod:
+- el `db push` creó `reversion_accion` y las tres columnas;
+- las rutas `/reversion` están mapeadas;
+- el arranque no muestra errores;
+- el bundle `index-Cap-xTzo.js` trae los textos nuevos.
+
+Antes del deploy, prod tenía 6 acciones masivas finalizadas sin revertir, todas revertibles con el flujo nuevo.
+Backend y frontend se hicieron en paralelo.
 
 Hubo dos auditorías en paralelo, las dos con resultado PASA CON OBSERVACIONES:
 - **Backend, con la app real y MySQL.**
@@ -119,7 +127,7 @@ Primera de las tres partes de la entrega 3 de la Fase C. Diseño en
 Re-ejecutar sobre lo ya cargado se descartó. Los puntos de corte dentro del post-proceso esperan mediciones de
 cargas reales (§13.4).
 
-**Estado: implementada y auditada; sin desplegar.** Backend y frontend se hicieron en paralelo. Hubo una sola pasada de
+**Estado: implementada, auditada y desplegada el 14/10/2026** (18:48 de Argentina; imagen `8e8c49b`; columna `importerror.linea` creada). Backend y frontend se hicieron en paralelo. Hubo una sola pasada de
 auditoría, PASA CON OBSERVACIONES y sin bloqueantes, y una revisión de la wiki contra el código. Los arreglos se
 hicieron después, cada uno con su test; el detalle está en §16 del diseño.
 
