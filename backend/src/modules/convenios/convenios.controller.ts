@@ -1,7 +1,7 @@
 import { Controller, Get, Post, Put, Body, Param, Query, ParseIntPipe } from '@nestjs/common';
 import { ConveniosService } from './convenios.service';
 import { CreateConvenioDto } from './dtos/create-convenio.dto';
-import { Permisos } from '../../auth/decorators';
+import { Permisos, UsuarioActual } from '../../auth/decorators';
 import { Audit } from '../transacciones/audit.decorator';
 import { AuditModulo, AuditTipo } from '../transacciones/audit.enums';
 
@@ -25,7 +25,9 @@ export class ConveniosController {
     resumen: (res, req) => `Creó convenio para deudor ${req.body?.deudorId}`,
     data: (res, req) => ({ params: req.body, after: res }),
   })
-  create(@Body() dto: CreateConvenioDto) {
+  create(@Body() dto: CreateConvenioDto, @UsuarioActual() usuario: { sub: number }) {
+    // El autor sale del JWT y pisa lo que mande el cliente (como comentarios.controller).
+    dto.usuarioId = usuario?.sub ?? undefined;
     return this.conveniosService.create(dto);
   }
 

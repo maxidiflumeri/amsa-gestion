@@ -26,6 +26,7 @@ import { NotificacionesModule } from './modules/notificaciones/notificaciones.mo
 import { DashboardsModule } from './modules/dashboards/dashboards.module';
 import { EmailSenderModule } from './modules/email-sender/email-sender.module';
 import { TimelineModule } from './modules/timeline/timeline.module';
+import { InicioModule } from './modules/inicio/inicio.module';
 import { NeotelModule } from './modules/neotel/neotel.module';
 import { HealthModule } from './health/health.module';
 import { ConsolidacionModule } from './modules/consolidacion/consolidacion.module';
@@ -65,6 +66,7 @@ import { MulticlavesModule } from './modules/multiclaves/multiclaves.module';
     DashboardsModule,
     EmailSenderModule,
     TimelineModule,
+    InicioModule,
     NeotelModule,
     HealthModule,
     ConsolidacionModule,

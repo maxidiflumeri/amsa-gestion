@@ -1,3 +1,5 @@
+process.env.TZ = 'America/Argentina/Buenos_Aires';
+
 import { BadRequestException } from '@nestjs/common';
 import { ConveniosService } from './convenios.service';
 
@@ -65,5 +67,39 @@ describe('ConveniosService.marcarCuotaPagada', () => {
     it('no deja volver a pagar una cuota ya pagada', async () => {
         const { service } = armar({ ...CUOTA, estado: 'PAGADA' });
         await expect(service.marcarCuotaPagada(1, pago(50000))).rejects.toBeInstanceOf(BadRequestException);
+    });
+});
+
+/**
+ * D1 (docs/inicio-spec.md §2.1): el vencimiento de una cuota es un día calendario guardado a las 00:00Z.
+ * El cron de las 3 AM la marcaba VENCIDA la madrugada de su propio día (`lt: now` contra `D 00:00Z`).
+ */
+describe('ConveniosService.updateEstadosCuotas', () => {
+    afterEach(() => jest.useRealTimers());
+
+    it('el 17/10 a las 03:00 locales solo vencen las cuotas anteriores al 17/10 (no la del 17/10)', async () => {
+        jest.useFakeTimers().setSystemTime(new Date('2026-10-17T06:00:00.000Z')); // 03:00 AR
+        const updateMany = jest.fn().mockResolvedValue({ count: 2 });
+        const service = new ConveniosService({ cuota_convenio: { updateMany } } as any, {} as any, {} as any);
+
+        await service.updateEstadosCuotas();
+
+        const where = updateMany.mock.calls[0][0].where;
+        expect(where.estado).toBe('PENDIENTE');
+        expect(where.fechaVencimiento.lt.toISOString()).toBe('2026-10-17T00:00:00.000Z');
+    });
+});
+
+describe('ConveniosService: datos del usuario que viajan con el convenio (auditoría Inicio)', () => {
+    it('findByDeudor trae solo id y nombre del usuario: nunca email, dni, googleId ni legajo', async () => {
+        const findMany = jest.fn().mockResolvedValue([]);
+        const service = new ConveniosService({ convenio: { findMany } } as any, {} as any, {} as any);
+        await service.findByDeudor(5);
+        expect(findMany.mock.calls[0][0].include.usuario).toEqual({ select: { id: true, nombre: true } });
+    });
+
+    it('en todo el service, ningún include trae la fila entera del usuario', () => {
+        const fuente = require('fs').readFileSync(require('path').join(__dirname, 'convenios.service.ts'), 'utf8');
+        expect(fuente).not.toMatch(/usuario:\s*true/);
     });
 });

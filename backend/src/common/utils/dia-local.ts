@@ -41,3 +41,39 @@ export function inicioDelDia(valor: string): Date {
 export function finDelDia(valor: string): Date {
     return parsear(valor, true);
 }
+
+// ─── Fechas calendario (sin hora) ───────────────────────────────────────────────
+//
+// La convención del repo para una fecha sin hora (promesa de pago, vencimiento de cuota) es "el día
+// calendario guardado a las 00:00 UTC, que se lee por la parte de fecha del ISO". Compararla contra
+// `hoy 00:00` o contra `now` en hora local la corre un día: 00:00Z son las 21:00 del día anterior en
+// Argentina. Estas funciones comparan **días** (`YYYY-MM-DD`), no instantes. Ver docs/inicio-spec.md §2.1.
+
+/** 'YYYY-MM-DD' del día local (TZ del proceso: America/Argentina/Buenos_Aires en el contenedor). */
+export function ymdLocal(d: Date = new Date()): string {
+    const mes = String(d.getMonth() + 1).padStart(2, '0');
+    const dia = String(d.getDate()).padStart(2, '0');
+    return `${d.getFullYear()}-${mes}-${dia}`;
+}
+
+/** Suma n días calendario a un 'YYYY-MM-DD' (n puede ser negativo). Sin horas de por medio. */
+export function sumarDiasYmd(ymd: string, n: number): string {
+    const m = SOLO_FECHA.exec(String(ymd ?? '').trim());
+    if (!m) throw new RangeError(`Fecha calendario inválida: ${ymd}`);
+    const base = Date.UTC(Number(m[1]), Number(m[2]) - 1, Number(m[3]));
+    return new Date(base + n * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+}
+
+/** El instante con que se guarda una fecha calendario: 'YYYY-MM-DD' → 00:00:00.000Z de ese día. */
+export function fechaCalendarioUtc(ymd: string): Date {
+    if (!SOLO_FECHA.test(String(ymd ?? '').trim())) throw new RangeError(`Fecha calendario inválida: ${ymd}`);
+    return new Date(`${ymd.trim()}T00:00:00.000Z`);
+}
+
+/**
+ * El día calendario de una fecha guardada a las 00:00Z: su parte de fecha ISO.
+ * Si la fecha llegó con hora (un ISO completo), toma igual la parte de fecha UTC.
+ */
+export function diaCalendario(d: Date): string {
+    return d.toISOString().slice(0, 10);
+}

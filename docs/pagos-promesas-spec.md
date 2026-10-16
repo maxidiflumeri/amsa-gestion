@@ -37,7 +37,7 @@ Puntos críticos resueltos en esta v2:
 | 5 | **Promesa siempre se registra** (salvo bloqueo SIT-050). El código pasa a **SIT-020 solo si Σpagos=0**. Si el deudor ya tiene pagos (parcial/pagando), la promesa se guarda pero **el código no se toca**. |
 | 6 | **Bloqueo SIT-050**: crear pago, eliminar pago y crear promesa están bloqueados si el deudor está en SIT-050. Consecuencia asumida: revertir una cancelación errónea requiere que un admin saque el SIT-050 primero. |
 | 7 | **Cumplimiento de promesa**: si entra un pago (manual o bajada) que aumenta `Σpagos` respecto de cuando se creó la promesa → **CUMPLIDA**. El código lo pone la consolidación (SIT-041/050). Se detecta comparando `Σpagos` actual vs. `pagosAlCrear` (snapshot). |
-| 8 | **Vencimiento de promesa**: el cron detecta las vencidas **por los registros `promesa_pago`** (`fechaPromesa < hoy`, `estado=VIGENTE`), **sin importar el código**. Sin pago → **INCUMPLIDA**; se setea **SIT-021 solo si el deudor sigue en SIT-020**. |
+| 8 | **Vencimiento de promesa**: el cron detecta las vencidas **por los registros `promesa_pago`** (`fechaPromesa < hoy`, `estado=VIGENTE`), **sin importar el código**. **La comparación es por día calendario** (16/10/2026): la promesa del día D se evalúa recién el D+1 (ver §5.6). Sin pago → **INCUMPLIDA**; se setea **SIT-021 solo si el deudor sigue en SIT-020**. |
 | 9 | La `fechaPromesa` no puede superar **hoy + maxDías** (default 7, parametrizable por empresa en `empresa.configuracion`). |
 | 10 | Una promesa/pago **no se excluye automáticamente** de llamadas/mails: lo maneja la operación al armar bases no eligiendo los códigos. Sin lógica de exclusión. |
 | 11 | Toda mutación (crear/eliminar pago, crear/anular promesa, cierres del cron) se **audita** (`@Audit` / best-effort en el cron). |
@@ -281,7 +281,7 @@ $transaction (con lectura consistente del deudor):
 @Cron(EVERY_DAY_AT_2AM)   // o env
 async procesarVencidas():
   lock Redis simple (reusar patrón consolidacion-redis-lock) para no solaparse con el endpoint manual  // M5
-  vencidas = promesa_pago WHERE estado='VIGENTE' AND fechaPromesa < inicioDeHoy   // por registros, no por código (regla 8)
+  vencidas = promesa_pago WHERE estado='VIGENTE' AND fechaPromesa < diaCalendario(hoy)   // por registros, no por código (regla 8). Día calendario, ver abajo
   para cada p:
     Σpagos = sum(pagos del deudor)
     if (Σpagos > p.pagosAlCrear + ε):                 // cumplió (entró pago después de crear)
@@ -308,6 +308,22 @@ para cada deudorId con promesa VIGENTE:
 ```
 
 ---
+
+### 5.6 Fechas por día calendario (16/10/2026)
+
+`fechaPromesa` es una fecha **sin hora**: el frontend manda `YYYY-MM-DD` y el backend la guarda a las 00:00 UTC (las 21:00 del día anterior en Argentina). Hasta el 16/10/2026 el alta y el cron la comparaban contra `hoy 00:00` en hora local (03:00Z), así que:
+
+- una promesa "para hoy" se rechazaba en el alta ("no puede ser anterior a hoy");
+- la del día D se cerraba como INCUMPLIDA (y el caso pasaba a SIT-021) en la corrida de las 2 AM **del propio día D**, antes de que el deudor tuviera el día para pagar.
+
+Ahora se comparan **días**, no instantes (`backend/src/common/utils/dia-local.ts`: `ymdLocal`, `sumarDiasYmd`, `fechaCalendarioUtc`, `diaCalendario`):
+
+- **Alta:** `diaCalendario(fechaPromesa) < ymdLocal()` → 400; `> ymdLocal() + maxDías` → 400. Hoy y hoy + `maxDías` entran.
+- **Cron / disparo manual:** `fechaPromesa < fechaCalendarioUtc(ymdLocal())`. La promesa de hoy sigue VIGENTE esa madrugada; se cierra en la corrida del día siguiente.
+- **Cuotas de convenio** (cron de las 3 AM, `updateEstadosCuotas`): mismo criterio. La cuota del día D pasa a VENCIDA el D+1.
+- Los datos guardados **no se tocan**. Si la fecha llega con hora, vale la parte de fecha UTC del ISO.
+- **Impacto en prod:** medido el 16/10/2026 (solo lectura), no había promesas cargadas, así que el desfase no dañó datos. Había 1 convenio y 1 cuota PENDIENTE.
+- La ficha las mostraba con `new Date(...).toLocaleDateString('es-AR')`, un día antes. Desde el 16/10/2026 usa `fechaDelCedente` (la parte de fecha del ISO) en `FichaPagosTab`, `FichaConveniosTab` y al anular una promesa (`FichaDeudor`). El calendario de "Nueva promesa" calcula hoy y el máximo con el día local (`diaLocalIso`): con `toISOString()`, de 21:00 a 23:59 "hoy" no se podía elegir y el máximo daba 400.
 
 ## 6. Parámetro por empresa: `maxDías`
 

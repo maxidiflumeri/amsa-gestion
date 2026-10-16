@@ -31,6 +31,7 @@ model comentario {
   @@index([usuarioId], map: "Comentario_usuarioId_fkey")
   @@index([fecha], map: "Comentario_fecha_idx")
   @@index([deudorId, fecha], map: "Comentario_deudorId_fecha_idx")
+  @@index([usuarioId, origen, fecha], map: "Comentario_usuarioId_origen_fecha_idx")
 }
 
 model contacto {

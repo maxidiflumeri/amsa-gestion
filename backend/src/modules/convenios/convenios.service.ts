@@ -3,6 +3,7 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { CreateConvenioDto } from './dtos/create-convenio.dto';
 import { DeudorBloqueoService } from '../deudores/utils/deudor-bloqueo';
 import { ConsolidacionSituacionService } from '../consolidacion/consolidacion.service';
+import { fechaCalendarioUtc, ymdLocal } from '../../common/utils/dia-local';
 
 /** Centavos de tolerancia al comparar el importe pagado contra el de la cuota. */
 const TOLERANCIA_CUOTA = 0.01;
@@ -23,7 +24,7 @@ export class ConveniosService {
     return this.prisma.convenio.findMany({
       where: { deudorId },
       include: {
-        usuario: true,
+        usuario: { select: { id: true, nombre: true } },
         cuotas: {
           orderBy: { nroCuota: 'asc' },
         },
@@ -92,7 +93,7 @@ export class ConveniosService {
         },
       },
       include: {
-        usuario: true,
+        usuario: { select: { id: true, nombre: true } },
         cuotas: {
           orderBy: { nroCuota: 'asc' },
         },
@@ -138,7 +139,7 @@ export class ConveniosService {
         },
       },
       include: {
-        usuario: true,
+        usuario: { select: { id: true, nombre: true } },
         cuotas: {
           orderBy: { nroCuota: 'asc' },
         },
@@ -226,7 +227,7 @@ export class ConveniosService {
       where: { id: convenioId },
       data: { estado: 'ANULADO' },
       include: {
-        usuario: true,
+        usuario: { select: { id: true, nombre: true } },
         cuotas: {
           orderBy: { nroCuota: 'asc' },
         },
@@ -240,12 +241,14 @@ export class ConveniosService {
   async updateEstadosCuotas() {
     this.logger.log('Actualizando estados de cuotas vencidas');
 
-    const now = new Date();
+    // D1 (docs/inicio-spec.md §2.1): el vencimiento es un día calendario guardado a las 00:00Z. La cuota
+    // del día D pasa a VENCIDA recién el D+1, no la madrugada de su propio día.
+    const hoyCalendario = fechaCalendarioUtc(ymdLocal());
     const result = await this.prisma.cuota_convenio.updateMany({
       where: {
         estado: 'PENDIENTE',
         fechaVencimiento: {
-          lt: now,
+          lt: hoyCalendario,
         },
       },
       data: {

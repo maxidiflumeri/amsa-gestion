@@ -11,6 +11,7 @@ import { DeudorBloqueoService } from '../deudores/utils/deudor-bloqueo';
 import { AuditoriaHelper } from '../transacciones/auditoria.helper';
 import { AuditModulo, AuditTipo } from '../transacciones/audit.enums';
 import { CreatePromesaDto } from './dtos/create-promesa.dto';
+import { diaCalendario, fechaCalendarioUtc, sumarDiasYmd, ymdLocal } from '../../common/utils/dia-local';
 
 /**
  * Gestión de promesas de pago (ver docs/pagos-promesas-spec.md §5).
@@ -113,16 +114,16 @@ export class PromesasService implements OnModuleInit {
         const fechaPromesa = new Date(dto.fechaPromesa);
         if (isNaN(fechaPromesa.getTime())) throw new BadRequestException('fechaPromesa inválida');
 
-        const hoy0 = new Date();
-        hoy0.setHours(0, 0, 0, 0);
-        if (fechaPromesa < hoy0) {
+        // D1 (docs/inicio-spec.md §2.1): la fecha de la promesa es un día calendario guardado a las 00:00Z.
+        // Se compara por día, no por instante: "para hoy" (hoy 00:00Z) es válida. Si llega con hora, vale la
+        // parte de fecha UTC del ISO.
+        const diaPromesa = diaCalendario(fechaPromesa);
+        const hoy = ymdLocal();
+        if (diaPromesa < hoy) {
             throw new BadRequestException('La fecha de promesa no puede ser anterior a hoy.');
         }
         const maxDias = await this.maxDiasEmpresa(deudor.empresaId);
-        const limite = new Date();
-        limite.setHours(23, 59, 59, 999);
-        limite.setDate(limite.getDate() + maxDias);
-        if (fechaPromesa > limite) {
+        if (diaPromesa > sumarDiasYmd(hoy, maxDias)) {
             throw new BadRequestException(`La fecha de promesa no puede superar los ${maxDias} días.`);
         }
 
@@ -273,11 +274,11 @@ export class PromesasService implements OnModuleInit {
         }
         this.procesandoVencidas = true;
         try {
-            const hoy0 = new Date();
-            hoy0.setHours(0, 0, 0, 0);
+            // D1: vence cuando pasó su día calendario (la del día D se evalúa recién el D+1).
+            const hoyCalendario = fechaCalendarioUtc(ymdLocal());
 
             const vencidas = await this.prisma.promesa_pago.findMany({
-                where: { estado: 'VIGENTE', fechaPromesa: { lt: hoy0 } },
+                where: { estado: 'VIGENTE', fechaPromesa: { lt: hoyCalendario } },
             });
             if (!vencidas.length) return { evaluadas: 0, cumplidas: 0, incumplidas: 0 };
 
