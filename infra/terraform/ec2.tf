@@ -88,6 +88,13 @@ resource "aws_instance" "backend" {
 
   tags = { Name = "amsa-gestion-backend" }
 
+  # El AMI sale de "la última Amazon Linux 2023", que AWS cambia cada pocas semanas. Sin esto, cualquier apply
+  # posterior reemplaza la instancia (y con ella Redis y los uploads, que viven en su disco). Pasó en el plan del
+  # 16/10/2026. Para cambiar de AMI a propósito: `terraform apply -replace=aws_instance.backend`.
+  lifecycle {
+    ignore_changes = [ami]
+  }
+
   # La box lee los SSM params en el user-data → deben existir antes.
   depends_on = [
     aws_ssm_parameter.compose,
