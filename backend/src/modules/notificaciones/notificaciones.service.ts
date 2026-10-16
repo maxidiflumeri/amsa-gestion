@@ -93,7 +93,12 @@ export class NotificacionesService {
             }
         }
 
-        // 3. Emitir via socket a cada destinatario con su id real (sin romper si falla)
+        // 3. Emitir via socket a cada destinatario con su id real (sin romper si falla).
+        //    El destinatario principal recibe `notificacion:nueva` (con aviso emergente en el frontend).
+        //    Las copias por `incluirUsuariosConPermiso` reciben `notificacion:silenciosa`, con el mismo
+        //    payload y sin aviso (docs/imports-progreso-realtime-spec.md §11.2).
+        let conAviso = 0;
+        let copiasSinAviso = 0;
         for (const notif of notificacionesCreadas) {
             try {
                 const payloadSocket = {
@@ -106,17 +111,38 @@ export class NotificacionesService {
                     creadoEn: new Date().toISOString(),
                 };
 
-                this.realtimeService.emitToUser(notif.usuarioId, 'notificacion:nueva', payloadSocket);
-
-                const noLeidas = await this.prisma.notificacion.count({
-                    where: { usuarioId: notif.usuarioId, leida: false },
-                });
-                this.realtimeService.emitToUser(notif.usuarioId, 'notificacion:contador', { noLeidas });
+                const esCopia = notif.usuarioId !== destinatarioPrincipalId;
+                this.realtimeService.emitToUser(
+                    notif.usuarioId,
+                    esCopia ? 'notificacion:silenciosa' : 'notificacion:nueva',
+                    payloadSocket,
+                );
+                if (esCopia) copiasSinAviso++;
+                else conAviso++;
             } catch (err: any) {
                 this.logger.warn(
                     `Error emitiendo notificacion via socket a usuario ${notif.usuarioId}: ${err?.message}`,
                 );
             }
+            await this.emitirContador(notif.usuarioId);
+        }
+        this.logger.debug(
+            `Notificacion ${tipo} emitida: ${conAviso} con aviso, ${copiasSinAviso} copias sin aviso`,
+        );
+    }
+
+    /**
+     * Cuenta las no leídas del usuario y le emite `notificacion:contador` con el valor absoluto.
+     * Nunca tira: si falla deja un `warn` y el globito se corrige en la próxima hidratación.
+     */
+    async emitirContador(usuarioId: number): Promise<void> {
+        try {
+            const noLeidas = await this.prisma.notificacion.count({
+                where: { usuarioId, leida: false },
+            });
+            this.realtimeService.emitToUser(usuarioId, 'notificacion:contador', { noLeidas });
+        } catch (err: any) {
+            this.logger.warn(`Error emitiendo contador a usuario ${usuarioId}: ${err?.message}`);
         }
     }
 
@@ -165,14 +191,7 @@ export class NotificacionesService {
         });
 
         // Re-emitir contador actualizado
-        try {
-            const noLeidas = await this.prisma.notificacion.count({
-                where: { usuarioId, leida: false },
-            });
-            this.realtimeService.emitToUser(usuarioId, 'notificacion:contador', { noLeidas });
-        } catch (err: any) {
-            this.logger.warn(`Error emitiendo contador post marcarLeida: ${err?.message}`);
-        }
+        await this.emitirContador(usuarioId);
     }
 
     async marcarTodas(usuarioId: number): Promise<void> {
@@ -181,11 +200,8 @@ export class NotificacionesService {
             data: { leida: true, leidaEn: new Date() },
         });
 
-        try {
-            this.realtimeService.emitToUser(usuarioId, 'notificacion:contador', { noLeidas: 0 });
-        } catch (err: any) {
-            this.logger.warn(`Error emitiendo contador post marcarTodas: ${err?.message}`);
-        }
+        // Contador contado, no un 0 fijo: una alta entre el updateMany y la emisión no puede quedar en 0.
+        await this.emitirContador(usuarioId);
     }
 
     async eliminar(usuarioId: number, id: number): Promise<void> {
