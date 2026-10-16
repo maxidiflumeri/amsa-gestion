@@ -17,6 +17,7 @@ import {
 import AddIcon from '@mui/icons-material/Add';
 import DeleteIcon from '@mui/icons-material/Delete';
 import CancelIcon from '@mui/icons-material/Cancel';
+import { fechaDelCedente } from '../../../../utils/fechas';
 
 interface Props {
     pagos: any[];
@@ -98,7 +99,7 @@ const FichaPagosTab: React.FC<Props> = ({
                                     variant={p.estado === 'VIGENTE' ? 'filled' : 'outlined'}
                                 />
                                 <Typography variant="body2">
-                                    Prometió pagar el <strong>{new Date(p.fechaPromesa).toLocaleDateString()}</strong>
+                                    Prometió pagar el <strong>{fechaDelCedente(p.fechaPromesa)}</strong>
                                     {p.monto != null ? ` · $${fmtMonto(p.monto)}` : ''}
                                 </Typography>
                                 {p.observacion && (

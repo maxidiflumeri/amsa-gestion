@@ -18,6 +18,7 @@ import PaymentsIcon from '@mui/icons-material/Payments';
 import EventAvailableIcon from '@mui/icons-material/EventAvailable';
 import api from '../../../../api/axios';
 import { useNotify } from '../../../../hooks/useNotify';
+import { diaLocalIso } from '../../../../utils/fechas';
 
 type Modo = 'pago' | 'promesa';
 
@@ -32,12 +33,9 @@ interface Props {
     onSaved: () => void;
 }
 
-const hoyISO = () => new Date().toISOString().split('T')[0];
-const isoMasDias = (dias: number) => {
-    const d = new Date();
-    d.setDate(d.getDate() + dias);
-    return d.toISOString().split('T')[0];
-};
+// Día calendario local: con toISOString() (día UTC), de 21:00 a 23:59 "hoy" no se podía elegir y el máximo daba 400.
+const hoyISO = () => diaLocalIso();
+const isoMasDias = (dias: number) => diaLocalIso(dias);
 
 const NuevoPagoModal: React.FC<Props> = ({
     open,

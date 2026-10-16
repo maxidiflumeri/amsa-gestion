@@ -26,3 +26,14 @@ export function fechaDelCedente(valor: string | Date | null | undefined): string
     const d = new Date(valor as any);
     return isNaN(d.getTime()) ? '' : d.toLocaleDateString('es-AR');
 }
+
+/**
+ * El día calendario de hoy (o de hoy ± `dias`) en la zona del navegador, como `YYYY-MM-DD`. Para los `<input type="date">`
+ * de fechas sin hora (promesas, cuotas). `toISOString()` da el día UTC: de 21:00 a 23:59 en Argentina ya es "mañana".
+ */
+export function diaLocalIso(dias = 0, ahora: Date = new Date()): string {
+    const d = new Date(ahora.getFullYear(), ahora.getMonth(), ahora.getDate() + dias);
+    const mm = String(d.getMonth() + 1).padStart(2, '0');
+    const dd = String(d.getDate()).padStart(2, '0');
+    return `${d.getFullYear()}-${mm}-${dd}`;
+}

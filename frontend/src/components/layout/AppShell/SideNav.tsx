@@ -17,6 +17,7 @@ import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 
 // Nav icons
 import AssignmentIcon from '@mui/icons-material/Assignment';
+import HomeIcon from '@mui/icons-material/HomeOutlined';
 import UploadFileIcon from '@mui/icons-material/UploadFile';
 import HistoryIcon from '@mui/icons-material/History';
 import DescriptionIcon from '@mui/icons-material/Description';
@@ -44,6 +45,7 @@ const DRAWER_WIDTH_EXPANDED = 240;
 const DRAWER_WIDTH_COLLAPSED = 72;
 
 const iconMap: Record<string, React.ReactNode> = {
+    Home: <HomeIcon />,
     Assignment: <AssignmentIcon />,
     UploadFile: <UploadFileIcon />,
     History: <HistoryIcon />,

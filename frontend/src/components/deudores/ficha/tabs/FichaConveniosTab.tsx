@@ -26,6 +26,7 @@ import { LoadingSkeleton } from '../../../ui';
 import { estadoConvenioColor, estadoCuotaColor } from '../shared/estadoColors';
 import ClavesPagoCard from '../ClavesPagoCard';
 import type { ClaveDelCaso } from '../../../../api/multiclaves';
+import { fechaDelCedente } from '../../../../utils/fechas';
 
 const TOOLTIP_CANCELADA = 'Cuenta cancelada — no se puede modificar';
 
@@ -187,7 +188,7 @@ const FichaConveniosTab: React.FC<Props> = ({
                                             <TableRow key={cuota.id} hover>
                                                 <TableCell>{cuota.nroCuota}</TableCell>
                                                 <TableCell>
-                                                    {new Date(cuota.fechaVencimiento).toLocaleDateString('es-AR')}
+                                                    {fechaDelCedente(cuota.fechaVencimiento)}
                                                 </TableCell>
                                                 <TableCell align="right">
                                                     ${cuota.importe?.toLocaleString('es-AR', { minimumFractionDigits: 2 })}

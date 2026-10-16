@@ -1,9 +1,8 @@
 <!--
 seccion: Primeros pasos
 resumen: Qué es AMSA Gestión, cómo entrar y por dónde empezar el primer día.
-revisado: 2026-08-20
+revisado: 2026-10-16
 rutas: /
-rutaPrincipal: /
 -->
 # El primer día
 
@@ -37,6 +36,9 @@ Lo más importante de esa página, adelantado acá:
 
 ## El recorrido básico
 
+Al entrar caés en **Inicio**: tu día, tus últimos casos y, si cargás promesas, tu agenda (ver
+[Inicio](/ayuda/primeros-pasos/inicio)). Desde ahí se llega a un caso con un clic, o con **Ctrl+K**.
+
 ```
 Gestión  →  buscás el caso  →  la ficha  →  comentás, cargás pago o promesa
 ```
@@ -54,6 +56,7 @@ Está desarrollado en [La ficha del caso](/ayuda/gestion/la-ficha).
 
 | | |
 |---|---|
+| **Inicio** | Tu día: tus gestiones, tus últimos casos y tu agenda |
 | **Gestión** | Los casos. Donde trabajás |
 | **Tableros** | Métricas de la cartera |
 | **Importación de Datos** | Cargar los archivos del cedente |

@@ -28,6 +28,7 @@ import {
 import type { SnapshotFiltros } from '../../../types/dashboards';
 import { useNotify } from '../../../hooks/useNotify';
 import { fmtMoney } from '../utils';
+import { linkCaso } from '../../../utils/linkCaso';
 
 interface Props {
     open: boolean;
@@ -87,7 +88,7 @@ const DrillDownDialog: React.FC<Props> = ({ open, onClose, filtros, dimension, v
     }, [open, dimension, valor, page, pageSize, filtros]);
 
     const irADeudor = (id: number) => {
-        window.open(`/deudores/${id}`, '_blank', 'noopener');
+        window.open(linkCaso(id), '_blank', 'noopener');
     };
 
     return (

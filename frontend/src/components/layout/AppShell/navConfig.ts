@@ -7,6 +7,8 @@ export interface NavItem {
 }
 
 export const navConfig: NavItem[] = [
+    // Sin permiso: Inicio se arma con lo que cada uno puede ver (docs/inicio-spec.md).
+    { label: 'Inicio', icon: 'Home', path: '/' },
     {
         label: 'Gestión',
         icon: 'Assignment',

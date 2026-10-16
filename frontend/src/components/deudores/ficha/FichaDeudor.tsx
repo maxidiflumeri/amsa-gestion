@@ -34,6 +34,7 @@ import NuevoPagoModal from './modals/NuevoPagoModal';
 import GenerarCuponDialog from './modals/GenerarCuponDialog';
 import EnviarEmailDialog from '../../email/EnviarEmailDialog';
 import { multiclavesApi, ClaveDelCaso } from '../../../api/multiclaves';
+import { fechaDelCedente } from '../../../utils/fechas';
 
 interface Props {
     deudorId: number;
@@ -422,7 +423,7 @@ const FichaDeudor: React.FC<Props> = ({ deudorId }) => {
         async (promesa: any) => {
             const ok = await confirm({
                 title: 'Anular promesa',
-                description: `¿Anular la promesa de pago del ${new Date(promesa.fechaPromesa).toLocaleDateString()}?`,
+                description: `¿Anular la promesa de pago del ${fechaDelCedente(promesa.fechaPromesa)}?`,
                 confirmLabel: 'Anular',
                 confirmColor: 'error',
             });

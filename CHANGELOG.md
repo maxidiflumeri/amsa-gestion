@@ -6,6 +6,115 @@
 
 ---
 
+## [2026-10-16] — Inicio, Fase 1 "Tu día": la página de inicio deja de decir "Próximamente"
+
+Diseño en [docs/inicio-spec.md](docs/inicio-spec.md), y lo que cambió al auditar en su §12. La maqueta la aprobó el
+usuario como primera versión. **Estado: implementada y auditada el 16/10/2026, sin desplegar.**
+
+**Decisiones del usuario:**
+- **Fase 1 para todos, según sus permisos.** El usuario pidió que quede claro qué ve el gestor, que en prod es el rol
+  OPERADOR: 13 permisos, sin promesas, pagos, convenios nuevos, tableros ni auditoría.
+- **Fase 2 ("La operación")**, más adelante, con un permiso nuevo, `inicio.ver_equipo`.
+- **"Cobrado" (Fase 2)** suma solo los pagos de bajadas de sistema, no los que carga un operador.
+
+**Qué ve cada uno:**
+
+| Bloque | Operador | Admin |
+|---|---|---|
+| Saludo, buscador de casos con Ctrl+K y accesos | Sí | Sí |
+| Tu día | gestiones y casos de hoy y de la semana | gestiones y casos de hoy, promesas tomadas, vencen hoy |
+| Tus gestiones de los últimos 14 días | Sí | Sí |
+| Retomá donde quedaste: sus últimos 8 casos, con link a la ficha | Sí | Sí |
+| Tus reportes | Sí | Sí |
+| Tu agenda: promesas y cuotas de hoy, de los próximos 7 días y sin cumplir | No | Sí |
+| Importaciones (propias, en curso o terminadas hoy) | No | Sí, si hay |
+| Actividad reciente | No | Sí |
+
+"Gestión" son los comentarios manuales del usuario: no cuentan las acciones masivas ni los cupones. Los días van en
+hora de Argentina y la semana empieza el lunes.
+
+### Backend
+- **Endpoint nuevo `GET /api/inicio/mi-dia`.**
+  - Sin `@Permisos` y sin auditoría.
+  - Cada bloque se calcula solo si el usuario tiene su permiso. Si no, va `null` y su consulta no corre.
+  - Si un bloque falla, va a `errores[]` y los demás salen igual.
+  - Las consultas son por usuario, con un índice nuevo: `comentario [usuarioId, origen, fecha]`. Entra con `db push`, es
+    aditivo y no requiere `--accept-data-loss`.
+  - Medido con 200.000 comentarios: 28-48 ms.
+- **Bug de fechas en promesas y cuotas (D1).** Una fecha sin hora se guarda a las 00:00 UTC, que en Argentina es el día
+  anterior a las 21:00. Por eso:
+  - no se podía cargar una promesa para hoy;
+  - el cron de las 2 AM cerraba como INCUMPLIDA la promesa del día D en la madrugada del mismo D;
+  - las cuotas pasaban a VENCIDA un día antes.
+
+  Ahora las comparaciones son por día calendario (`dia-local.ts`). En prod no había ninguna promesa cargada, así que
+  no se dañaron datos.
+- **El alta de convenio** toma el `usuarioId` del JWT. Antes lo mandaba el cliente.
+- **El convenio** devuelve solo `id` y `nombre` del usuario. Con el arreglo anterior, la fila entera, con dni y
+  googleId, iba a la respuesta y a la auditoría.
+- **jest** fija la zona de Argentina en un `globalSetup`. Antes, en una máquina en UTC fallaban 4 tests de fechas.
+
+### Frontend
+- **`pages/inicio/`, nuevo.**
+  - Los bloques se condicionan por permiso, no por rol. El operador ve una página completa, sin huecos.
+  - Se refresca cada 5 minutos con la pestaña visible y al volver a ella.
+  - Las importaciones propias se ven en vivo.
+  - Tema claro y oscuro.
+- **"Inicio" es el primer ítem del menú lateral.**
+- **Link directo a un caso: `/gestion?deudor=ID`**, que antes no existía. Lo usan "Retomá", la agenda y el detalle de
+  Tableros, que abría `/deudores/:id`, una ruta inexistente.
+- **Fechas de la ficha:**
+  - las de promesas y cuotas ya no se muestran un día antes;
+  - el calendario de "Nueva promesa" usa el día local: de 21:00 a 23:59 no dejaba elegir "hoy".
+- **Wiki:**
+  - `01-primeros-pasos/03-inicio.md`, nueva y principal de `/`;
+  - `01-primer-dia`, `02-gestion/00-buscar-un-caso` y `07-tableros/01`.
+
+### Después de las auditorías
+Hubo dos auditorías, las dos con resultado PASA CON OBSERVACIONES y sin bloqueantes. Los arreglos están en §12 del
+spec, cada uno con su test:
+- el menú;
+- el permiso de la agenda;
+- los datos del usuario en convenios;
+- la zona de jest;
+- el calendario y las fechas de la ficha;
+- el tope de gestiones;
+- las anuladas;
+- el bloque de importaciones que desaparecía;
+- los pedidos duplicados;
+- las filas sin link;
+- 360 px y accesibilidad;
+- la wiki.
+
+**Tests:**
+- backend: 2.345, con `npm run build` OK;
+- frontend: `npm test` en verde, `tsc` sin errores nuevos.
+
+**Deuda:** el socket `/reportes`, anterior a este trabajo, se propone aparte.
+- No verifica la sesión y su CORS no incluye prod.
+- El frontend lee una clave equivocada del navegador, así que nunca conecta.
+- Por eso "Tus reportes" se actualiza con el refresco, no en vivo.
+
+### Deploy
+1. **Push.** Lleva el `db push` del índice nuevo; sale con el deploy del backend.
+2. **Verificar en prod:**
+   - CloudWatch sin ERROR, y la línea `mi-dia … en Nms` con N < 500;
+   - el índice creado: `SHOW INDEX FROM comentario WHERE Key_name='Comentario_usuarioId_origen_fecha_idx'`;
+   - la noche siguiente, ninguna promesa cerrada el mismo día de su fecha.
+
+### Guion de prueba manual
+1. **Como operador:** saludo con tus gestiones, buscador, accesos a Gestión, Historial y Reportes, y los 4 indicadores.
+   No aparecen agenda, actividad ni importaciones.
+2. **Ctrl+K** abre la búsqueda. Elegir un caso abre Gestión en ese caso, y la URL queda en `/gestion`.
+3. **Cargar un comentario y volver con "Inicio"** del menú: "Gestiones hoy" sube 1 y el caso aparece primero en
+   "Retomá".
+4. **Como admin:** la agenda con Hoy, Próximos 7 días y Sin cumplir.
+   - Cargar una promesa para hoy, que antes daba error: aparece en "Vencen hoy".
+   - En la ficha, la fecha de la promesa es la de hoy, no la de ayer.
+5. **Achicar a 360 px y cambiar de tema:** sin scroll horizontal, y el chip ▲/▼ entero.
+
+---
+
 ## [2026-10-16] — La campanita con una carga dividida, el chip al detalle y la primera carga real medida
 
 **Lo reportó el usuario en la primera carga real después de las fases A-D:** una carga dividida de DEUDORES para la

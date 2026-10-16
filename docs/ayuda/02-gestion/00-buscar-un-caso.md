@@ -12,15 +12,24 @@ rutaPrincipal: /gestion
 Es el punto de entrada al trabajo diario: llamó alguien, o te pasaron un listado, y hay que encontrar
 el caso.
 
-## Dos formas de buscar
+## Tres formas de buscar
 
 **El buscador de arriba**, en la pantalla de Gestión, busca por **documento, nombre, apellido o ID
 interno**. Es el rápido.
 
 **Búsqueda avanzada**, con el botón del encabezado, abre el formulario completo.
 
+**Desde Inicio, con Ctrl+K.** La pantalla de Inicio tiene un buscador a todo el ancho que abre esa misma
+búsqueda avanzada. Se abre con un clic o con **Ctrl+K** (**Cmd+K** en Mac), y al elegir un resultado te
+lleva directo al caso. El atajo funciona solo en Inicio (ver [Inicio](/ayuda/primeros-pasos/inicio)).
+
 > Gestión **no abre vacía**: te muestra el último caso que trabajaste, o el primero de la base si es tu
 > primera vez. No es que el sistema eligió ese caso.
+
+> **Un enlace puede abrir un caso puntual.** Una dirección del tipo `/gestion?deudor=N` abre Gestión
+> directamente en el caso N, en lugar del último que trabajaste. Lo usan Inicio (cada fila de "Retomá donde
+> quedaste" y de la agenda) y el detalle de los tableros. Si el número no es válido, Gestión abre el
+> último caso como siempre.
 
 ## Los campos de la búsqueda avanzada
 

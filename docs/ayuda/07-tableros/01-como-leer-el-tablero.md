@@ -1,7 +1,7 @@
 <!--
 seccion: Tableros
 resumen: Qué mide cada número del tablero de remesa y cuáles se leen distinto de lo que parece.
-revisado: 2026-08-21
+revisado: 2026-10-16
 rutas: /dashboards
 rutaPrincipal: /dashboards
 -->
@@ -134,7 +134,7 @@ barras del funnel tampoco.
 > que existe no aparece, está ahí adentro.
 
 El detalle viene **paginado de a 25** (se puede subir a 50 o 100), y cada caso abre su ficha **en una
-pestaña nueva**. Es la forma rápida de pasar de "el 30% son negativa de pago" a ver quiénes son.
+pestaña nueva**, en Gestión (con un enlace del tipo `/gestion?deudor=N`). Es la forma rápida de pasar de "el 30% son negativa de pago" a ver quiénes son.
 
 El de **motivo de no pago** es el que más sirve para hablar con el cedente: es la explicación que dio
 la gente. Pero solo cuenta los casos donde **alguien cargó el motivo** — si el equipo no lo completa,
