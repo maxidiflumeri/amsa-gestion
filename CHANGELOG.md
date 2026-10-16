@@ -6,6 +6,117 @@
 
 ---
 
+## [2026-10-16] — Importaciones, Fase D: las cargas ajenas no interrumpen, y las notificaciones se limpian solas
+
+Última fase del progreso en tiempo real de las importaciones. El diseño está en §11 de
+[docs/imports-progreso-realtime-spec.md](docs/imports-progreso-realtime-spec.md), y lo que cambió al auditar, en
+§11.15.
+
+**Estado: implementada y auditada el 16/10/2026, sin desplegar.**
+
+**Decisiones del usuario:**
+- **§5.5:** las cargas de otra persona ya no le muestran un aviso emergente a quien tiene **Ver importaciones de otros
+  usuarios**. Le siguen llegando a la campanita, y las ve en "Importaciones en curso".
+- **D1:** el atraso de notificaciones se limpia con un script, después de ver el preview.
+
+**El problema.** Cada carga de cualquier usuario le mostraba un aviso emergente a cada admin. Las notificaciones no se
+borraban nunca: el 30/09 cada admin tenía entre 135 y 180 sin leer. Y el número de sin leer a veces quedaba corrido en
+uno.
+
+### Backend
+
+- **Copias sin aviso.** En `NotificacionesService.crear`, el dueño recibe `notificacion:nueva`, como antes. Cada copia
+  por `incluirUsuariosConPermiso` recibe `notificacion:silenciosa`, con el mismo payload. Las dos van seguidas de
+  `notificacion:contador`.
+  - Una pestaña abierta antes del deploy ignora el evento nuevo y aplica el contador, así que deja de mostrar avisos
+    ajenos desde el primer minuto.
+  - Vale para todo lo que pasa por `notificarResultadoCarga`: terminadas, fallidas, canceladas, interrumpidas por un
+    reinicio y las que cierra el reaper.
+- **Limpieza nocturna** (`NotificacionesLimpiezaService`, todos los días a las 05:00, hora de Argentina):
+  - borra las leídas a los 30 días de haberlas leído y las sin leer a los 180 días de haber llegado;
+  - lo hace en tandas de 1.000, con un tope de 50.000 por noche;
+  - a quien pierde notificaciones sin leer le emite el contador nuevo;
+  - se configura con `NOTIFICACIONES_RETENCION_LEIDAS_DIAS`, `NOTIFICACIONES_RETENCION_NO_LEIDAS_DIAS` y
+    `NOTIFICACIONES_LIMPIEZA_DESACTIVADA`.
+- **Contador:** `marcarTodas` emite la cuenta real en vez de un 0 fijo, y `emitirContador` es un solo método que nunca
+  tira.
+- **Script del atraso:** `backend/prisma/scripts/limpiar-notificaciones-atraso.ts`.
+  - Sin un paso explícito solo muestra el preview, por usuario.
+  - Con `--marcar-ajenas`, marca como leídas las copias de cargas ajenas.
+  - Con `--borrar-huerfanas`, borra las que apuntan a una remesa que ya no existe o que reusó el id.
+  - Con `--hasta=<ISO UTC>`, no toca nada creado desde ese instante.
+  - Es idempotente.
+- Sin cambio de schema ni `db push`.
+
+### Frontend
+
+- `notificacion:silenciosa` suma al número de sin leer y recarga la lista abierta, sin aviso emergente.
+- **El número de sin leer ya no queda corrido.** Tenía tres causas:
+  - una respuesta vieja de la re-hidratación pisaba el valor del socket;
+  - al marcar una como leída, se descontaba dos veces;
+  - "Marcar todas" emitía 0.
+
+  Ahora gana el valor más nuevo, y un pedido HTTP vale desde el momento en que salió.
+- **Wiki:**
+  - `08-historial-y-problemas.md`: el párrafo "Qué notificaciones te llegan y cuánto duran";
+  - `05-importar-un-archivo.md`: una oración con el enlace.
+
+### Después de las auditorías
+
+Hubo dos auditorías, las dos con resultado PASA CON OBSERVACIONES y sin bloqueantes. La del backend corrió con la app
+real: el admin recibe `silenciosa` y nunca `nueva`, y la limpieza borra exactamente lo previsto en 14 casos de borde.
+
+Arreglos, cada uno con su test:
+- **Cerrar sesión con una consulta en vuelo dejaba ver a la sesión siguiente una carga de otra persona.** Mostraba el
+  número de remesa, quién la cargó y el porcentaje. Esto ya pasaba antes de la Fase D. Ahora una respuesta de otra
+  sesión no se aplica.
+- Una prueba del cierre de sesión pasaba también con el código viejo. Corregida, junto con la nueva: las dos fallan con
+  el código anterior.
+- **Variables de retención:** solo aceptan dígitos, y el aviso por un valor inválido sale una sola vez.
+- **El log de la limpieza** cuenta lo realmente borrado.
+- `--hasta` del script, documentado para los dos pasos.
+- **notificaciones-spec:** la tabla de eventos tiene `silenciosa`.
+- **Wiki:**
+  - los colores del aviso: rojo también para la interrumpida y para la que no cargó ninguna fila, y naranja en vez de
+    amarillo;
+  - la cancelada en cola por su dueño no avisa;
+  - la hora de la limpieza.
+- **Tests:**
+  - backend: 2.283, con `npm run build` OK;
+  - frontend: `npm test` 669 en 44 archivos, `tsc` sin errores nuevos.
+
+### Deploy
+
+1. **Push.** No hay `db push`.
+2. **Es el primer deploy después del paso de SSM de C3c, así que verificar C3c:**
+   - `docker inspect amsa-gestion-backend --format '{{.Config.StopTimeout}}'` = 100;
+   - en CloudWatch, "Cierre ordenado (SIGTERM) … sale con código 0" del contenedor viejo;
+   - en el log del deploy, que no aparezca "No se pudo consultar" ni "Respuesta inesperada".
+3. **En el arranque:** "Limpieza de notificaciones activa: todos los días a las 05:00…".
+4. **Atraso, con el OK del usuario, por SSM dentro del contenedor:**
+   1. el preview:
+      `sudo docker exec -w /app amsa-gestion-backend npx ts-node --transpile-only prisma/scripts/limpiar-notificaciones-atraso.ts`;
+   2. aplicar, con la misma línea más `--marcar-ajenas --borrar-huerfanas --hasta=<hora del deploy en UTC>`;
+   3. un preview que dé 0;
+   4. borrar las remesas 93 y 98 desde el Historial.
+
+### Guion de prueba manual (dos navegadores: A sin "Ver importaciones de otros usuarios", B admin)
+
+1. A importa un archivo chico.
+   - A ve un aviso azul y su número sube 1.
+   - B no ve ningún aviso y su número sube 1.
+   - En los frames del socket de B aparecen `notificacion:silenciosa` y `notificacion:contador`, y ningún
+     `notificacion:nueva`.
+2. Con la campanita de B abierta, A importa otro archivo: la lista de B se actualiza sola.
+3. A importa un archivo con todas las filas con error.
+   - A ve un aviso rojo, "Importación sin filas cargadas".
+   - B no ve nada en pantalla.
+4. B toca cinco notificaciones de a una: el número baja exactamente 1 cada vez. Después aprieta "Marcar todas": queda
+   en 0, y sigue en 0 al recargar.
+5. B cierra sesión y entra como A: el número es el de A, y no aparece ninguna carga de B.
+
+---
+
 ## [2026-10-16] — Importaciones, entrega C3c: un deploy ya no mata las cargas a ciegas
 
 Última parte de la entrega 3 de la Fase C. Diseño en §19 de

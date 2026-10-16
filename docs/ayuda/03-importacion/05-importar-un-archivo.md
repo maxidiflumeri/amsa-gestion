@@ -1,7 +1,7 @@
 <!--
 seccion: Importación de datos
 resumen: El asistente de carga, paso a paso, y qué mirar en la vista previa antes de confirmar.
-revisado: 2026-10-14
+revisado: 2026-10-16
 rutas: /carga
 rutaPrincipal: /carga
 -->
@@ -382,7 +382,7 @@ marca la notificación como leída. Antes de hacer algo, el sistema consulta có
 (la notificación puede ser vieja) y, si ya no corresponde, te lo dice. Retomar desde una notificación vuelve a
 encolar solo esa remesa, aunque sea parte de una carga dividida. En el celular la campanita ocupa toda la
 pantalla, con un botón **Cerrar**, y el chip se reduce a un ícono; el botón "atrás" del navegador la cierra y
-vuelve a la pantalla anterior.
+vuelve a la pantalla anterior. Qué notificaciones te llegan, cuáles solo suman a la campanita y cuánto duran: ver [Historial y problemas](/ayuda/importacion/historial-y-problemas).
 
 ## Paso 5 — Resultado
 

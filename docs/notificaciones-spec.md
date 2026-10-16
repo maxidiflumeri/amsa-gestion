@@ -88,8 +88,9 @@ backend/src/modules/realtime/
 
 | Evento | Destinatario | Payload |
 |---|---|---|
-| `notificacion:nueva` | `user:${id}` | `{ id, tipo, titulo, mensaje, payload, rutaAccion, creadoEn }` |
-| `notificacion:contador` | `user:${id}` | `{ noLeidas: number }` |
+| `notificacion:nueva` | `user:${id}` del destinatario principal (el dueño) | `{ id, tipo, titulo, mensaje, payload, rutaAccion, creadoEn }` |
+| `notificacion:silenciosa` | `user:${id}` de cada **copia** por `incluirUsuariosConPermiso` (desde la Fase D, 16/10/2026) | El mismo que `nueva`, con el `id` de la copia. El frontend suma al globito sin aviso emergente; una pestaña vieja lo ignora |
+| `notificacion:contador` | `user:${id}` | `{ noLeidas: number }`. Sale después de `nueva`/`silenciosa`, al marcar leída o todas (con la cuenta real), y a los usuarios a los que el cron de limpieza les borró no leídas |
 | `import:iniciada` | `user:${ownerId}` ∪ `admin:importaciones` | `EstadoCargaDto` completo |
 | `import:progreso` | `user:${ownerId}` ∪ `admin:importaciones` | `EstadoCargaDto` completo |
 | `import:finalizada` | `user:${ownerId}` ∪ `admin:importaciones` | `EstadoCargaDto` completo |
@@ -145,13 +146,13 @@ Provider order en `AppProviders.tsx`: `Auth → Socket → Notificaciones → re
 Comportamiento:
 - Al montar: hidratar via REST (`/notificaciones`, `/notificaciones/contador`, `/imports/en-curso`).
 - Suscribirse a eventos socket.
-- Toasts (`useNotify`) solo para eventos en vivo, NO en hidratación inicial.
+- Toasts (`useNotify`) solo para eventos en vivo, NO en hidratación inicial, y solo para el destinatario principal: las copias por permiso (`incluirUsuariosConPermiso`) llegan como `notificacion:silenciosa`, que suma al globito sin aviso emergente.
 - Refactor `ImportProgress.tsx`: eliminar `setInterval`, leer del hook global.
 
 ### 3.6 Riesgos y decisiones operativas
 
 - **Socket caído**: ahora **hay polling de respaldo** (Fase A del progreso en tiempo real). El socket avisa, pero la fuente del dato es HTTP: el cliente re-hidrata al conectar, al volver a la pestaña y por polling mientras hay cargas en curso (`GET /import/en-curso`, `GET /import/remesas/:id/progreso`). Un evento perdido ya no deja la pantalla congelada.
-- **Cleanup**: cron diario que borra leídas > 30 días y no leídas > 180 días (fase 2).
+- **Cleanup**: implementado (16/10/2026). Cron diario a las 05:00 que borra leídas de más de 30 días (desde `leidaEn`) y no leídas de más de 180 (desde `creadoEn`), por tandas, con tope de 50.000 por noche. Diseño: `docs/imports-progreso-realtime-spec.md` §11.4.
 - **Multi-tab**: out-of-the-box gracias a Socket.IO.
 - **JWT vencido y socket**: el gateway valida el JWT **solo en el handshake**; una conexión viva sobrevive al vencimiento. Si se corta la red o se reinicia el backend, el cliente reconecta con el token vencido: el server acepta la conexión, la rechaza en `handleConnection` y desconecta con motivo `io server disconnect`, ante el cual socket.io-client **no reintenta**. Por eso el polling HTTP de respaldo es obligatorio: su 401 manda a `/login` como cualquier otro pedido.
 - **Race condition crear remesa**: transacción con `SELECT FOR UPDATE` sobre la fila del usuario.
@@ -171,7 +172,7 @@ Comportamiento:
 | 9 | `NotificacionesBell` + `Popover` en AppShell | completed |
 | 10 | Refactor `ImportProgress.tsx` (sacar polling) | completed |
 | 11 | QA E2E multi-usuario, F5, permisos | completed |
-| 12 | (Fase 2) Cron de cleanup | pending |
+| 12 | (Fase 2) Cron de cleanup | completed |
 
 ## 5. Changelog
 
@@ -463,3 +464,22 @@ runner:
 quedaron cargadas", que era falso con errores: con 1 OK y 36 errores decía "La única fila ya procesada quedó cargada".
 Ahora dice "De las {ok+err} filas ya procesadas, {ok} quedaron cargadas." o "…, 1 quedó cargada.". Sin errores, y
 sin filas cargadas ("No se cargó ninguna fila."), el texto no cambia. Las notificaciones ya guardadas no se modifican.
+
+### 2026-10-16 — Fase D del progreso de importaciones: copias silenciosas, contador y limpieza nocturna (backend)
+
+Diseño: `docs/imports-progreso-realtime-spec.md` §11.
+- **Evento nuevo `notificacion:silenciosa`.** En `crear`, el destinatario principal sigue recibiendo `notificacion:nueva`
+  (con aviso emergente). Las copias por `incluirUsuariosConPermiso` reciben `notificacion:silenciosa`, con el mismo
+  payload y su propio `id`, y ningún `nueva`. Después, todos reciben `notificacion:contador`. Si el principal también
+  tiene el permiso, recibe `nueva`. Las reversiones y la consolidación (sin difusión) no cambian.
+- **`emitirContador(usuarioId)`**, público y que nunca tira (deja un `warn`). Lo usan `crear`, `marcarLeida`,
+  `marcarTodas` y el cron. `marcarTodas` ahora emite la cuenta real en vez de un 0 fijo.
+- **Limpieza nocturna** (`NotificacionesLimpiezaService`, `@Cron('0 5 * * *')`): borra leídas de más de 30 días
+  (desde `leidaEn`; `creadoEn` si es nulo) y no leídas de más de 180 (desde `creadoEn`), en tandas de 1.000 con tope de
+  50 tandas por noche. Re-chequea la condición en el `deleteMany` y corta con un `warn` si una tanda no borra nada.
+  Re-emite el contador a quienes perdieron no leídas. Variables: `NOTIFICACIONES_RETENCION_LEIDAS_DIAS` (30),
+  `NOTIFICACIONES_RETENCION_NO_LEIDAS_DIAS` (180) y `NOTIFICACIONES_LIMPIEZA_DESACTIVADA`. Al arrancar loguea
+  "Limpieza de notificaciones activa: …".
+- **Script de limpieza única** `backend/prisma/scripts/limpiar-notificaciones-atraso.ts`: sin pasos explícitos solo
+  muestra el preview por usuario; con `--marcar-ajenas` y/o `--borrar-huerfanas` aplica; `--dry-run` gana; es
+  idempotente.

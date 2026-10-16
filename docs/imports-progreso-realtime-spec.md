@@ -2,16 +2,17 @@
 
 > ## Para retomar — estado al 16/10/2026 (leer esto primero)
 >
-> **En prod:** A, B, C1, C2a, C2b, C3a y C3b (C3b desde el 14/10/2026; imagen y deploy en el CHANGELOG).
+> **En prod:** A, B, C1, C2a, C2b, C3a, C3b y C3c (C3c desplegada el 16/10/2026; imagen y deploy en el CHANGELOG).
 >
-> **C3c (el deploy no mata cargas a ciegas): implementada y auditada el 16/10/2026, sin desplegar.** El diseño está en
-> §19 del documento de C3, y lo que cambió al auditar, en §19.16. El deploy tiene tres pasos:
-> 1. el push;
-> 2. el paso en SSM, con `-target` de los dos parámetros (**nunca un `terraform apply` completo**: reemplazaría la
->    EC2);
-> 3. la protección rige desde el deploy siguiente.
+> **Fase D (notificaciones): diseñada, implementada y auditada el 16/10/2026.** El diseño está en
+> [§11](#11-diseño-de-la-fase-d), y lo que cambió al auditar, en §11.15. Su deploy es el primero después del paso SSM de
+> C3c, así que ahí se verifica C3c (§11.8). Después viene el script del atraso en prod (D1 (a), elegida por el
+> usuario): primero el preview y, con el OK del usuario, aplicar con `--hasta`.
 >
-> El orden está en §19.6.
+> **C3c (el deploy no mata cargas a ciegas): en prod desde el 16/10/2026.** El diseño está en §19 del documento de C3, y
+> lo que cambió al auditar, en §19.16. El paso en SSM se aplicó con `-target` el 16/10. **Nunca un `terraform apply`
+> completo**: hasta `cc2fb21` reemplazaba la EC2, y todavía revierte el CSP de CloudFront que necesita la Toolbar de
+> Neotel.
 >
 > **Desde el 30/09 no hubo ninguna carga real en prod**, y nada de C2 ni de C3 se vio en un navegador. La primera
 > carga real, y la primera acción masiva, son la medición que falta: ritmo (`filas/s`), post-proceso por paso y latido.
@@ -23,24 +24,23 @@
 >   auditar está en §16 (C3a), §18 (C3b) y §19.16 (C3c).
 >
 > **Lo que sigue, en este orden:**
-> 1. **Desplegar C3c** (§19.6 del documento de C3) y verificar en el deploy siguiente:
+> 1. **Verificar C3c en el deploy siguiente**, que es el de la Fase D (cómo, en §11.8):
 >    - `StopTimeout` = 100;
->    - en el log del deploy, la espera;
+>    - en el log del deploy, la espera (con nada corriendo no imprime ninguna línea);
 >    - en CloudWatch, "Cierre ordenado (SIGTERM) … sale con código 0".
-> 2. **Fase D — notificaciones** (§4, "Fase D"):
->    - el cron de limpieza de notificaciones (N12 de notificaciones-spec);
->    - la decisión §5.5, que necesita el OK del usuario: si las cargas ajenas siguen con toast a todos los admins;
->    - el globito de no leídas que queda uno atrás;
->    - actualizar notificaciones-spec.
+> 2. **Fase D en prod:**
+>    - el arranque dice "Limpieza de notificaciones activa…";
+>    - el script del atraso: preview, aplicar con `--hasta=<deploy>` y preview en 0 (§11.8);
+>    - después, borrar las remesas 93 y 98 desde el Historial;
+>    - a la mañana siguiente, la línea de fin del cron de las 05:00.
 > 3. **Deuda anotada en los documentos de C2 y C3**, entre otras:
 >    - una baja retirada repetida se vuelve a contar;
 >    - dos valores de `resultado` del cierre de ausentes, que no se agregaron;
 >    - las carreras eliminar/revertir y el orden de los bloqueos (§18 de C3);
 >    - el CSV con ceros a la izquierda;
 >    - "Cargar las que faltan" sin vigía.
-> 4. **Operativo pendiente, con OK del usuario y preview:**
->    - borrar las remesas fantasma 93 y 98 y las notificaciones huérfanas;
->    - el guion manual en un navegador (al final de cada entrada del CHANGELOG).
+> 4. **Operativo pendiente:** el guion manual en un navegador, que está al final de cada entrada del CHANGELOG. Las
+>    remesas 93 y 98 y las notificaciones huérfanas se resuelven con el punto 2.
 >
 > **Cómo se trabajó el 14/10, porque el usuario pidió ir rápido:**
 > - Un architect con un tope de ~40 min.
@@ -387,6 +387,9 @@ del estado persistido y de los eventos.
 
 ### Fase D — Notificaciones y documentación (~1 día)
 
+> **Diseñada el 16/10/2026 en [§11](#11-diseño-de-la-fase-d)**, con su bloque "PLAN PARA IMPLEMENTER — Fase D" al
+> final del documento. "Agrupar" y la preferencia por usuario quedaron fuera por decisión del usuario (§5.5).
+
 - [ ] **[BUG #13]** Cron de limpieza de notificaciones (N12 del spec de notificaciones). Preferencia de usuario para no recibir cargas ajenas; agrupar.
 - [x] ~~**[BUG #18]** Una sola emisión por usuario; el último tick no dice 100 con PROCESANDO; FINALIZADA con ok=0 no se notifica como "fallida".~~ → **movido a la Fase A** (§8.4 y §8.5.5): salen gratis del contrato nuevo.
 - [x] ~~**[MEJORA]** Notificación "terminó con advertencias".~~ → Fase A (§8.5.5).
@@ -403,7 +406,7 @@ del estado persistido y de los eventos.
 | 5.2 | Cómo se distingue un borrador de una carga en curso; TTL del reaper | **Cerrada** (architect, 05/10/2026): sin tocar el enum; TTL 24 h; reaper en la Fase B |
 | 5.3 | Minutos sin heartbeat para declarar FALLIDA | **Cerrada** (architect, 09/10/2026): 5 minutos, por variable de entorno. Falta el OK del usuario al número (§9.14) |
 | 5.4 | Cancelar: ¿deja lo procesado o revierte? | **Adoptada por defecto** (09/10/2026) con la recomendación: deja lo procesado. Diseñada en §10.5.3, con tres matices (§10.2). **Falta el OK del usuario** (§10.14) |
-| 5.5 | Notificar las cargas ajenas a todos los admins | Abierta — **necesita OK del usuario**; es de la Fase D |
+| 5.5 | Notificar las cargas ajenas a todos los admins | **Cerrada** (usuario, 16/10/2026): con la recomendación. Las ajenas, sin aviso emergente para los admins (siguen en la campanita y en "Importaciones en curso"); sin preferencia por usuario. Diseñada en [§11.2](#112-el-aviso-emergente-de-las-cargas-ajenas) |
 | 5.6 | Carga dividida: job padre o FlowProducer | **Adoptada por defecto** (09/10/2026) con la recomendación: ninguno de los dos, un endpoint de grupo; si una falla, las demás siguen. Diseñada en §10.5.1 y §10.5.2. **Falta el OK del usuario** (§10.14) |
 
 ### 5.1 — Tabla nueva `import_progreso`. `jobimport` no se toca. (cerrada)
@@ -5871,10 +5874,643 @@ reaplicó los cambios; se comprobó contra `HEAD` que no falta ningún método n
 archivo (casi 5.000 líneas): anclas únicas y una copia antes.
 
 ---
+
+## 11. Diseño de la Fase D
+
+> Architect, 16/10/2026, sobre `cc2fb21` (A…C3c en prod). Diseño acotado a propósito: el usuario pidió ir rápido. Lo
+> que se leyó en el código y lo que es suposición está en [§11.13](#1113-qué-se-verificó-y-qué-es-suposición). El plan
+> ejecutable es el bloque "PLAN PARA IMPLEMENTER — Fase D", al final del documento.
+
+**Decisiones que ya cerró el usuario (16/10/2026):**
+- **§5.5.** Las cargas de otra persona **no** generan aviso emergente para quienes tienen
+  `importacion.ver_progreso_otros`. Las siguen viendo en la campanita y en "Importaciones en curso". El dueño sigue
+  recibiendo el aviso. Sin preferencia por usuario ni cambio de schema.
+- **Limpieza:** la de `notificaciones-spec.md` §3.6: un cron diario que borra las leídas de más de 30 días y las no
+  leídas de más de 180.
+
+**Fuera de la Fase D:** "agrupar" y la preferencia por usuario de #13 (decisión del usuario); la deuda de C2 y C3 que
+lista el bloque "Para retomar" (sigue en su lugar).
+
+### 11.1 Alcance, impacto y riesgos
+
+| Qué | Dónde se resuelve |
+|---|---|
+| #13, primera mitad: las cargas ajenas no generan aviso emergente | §11.2 |
+| El globito de no leídas que queda uno atrás (§9.15) | §11.3 |
+| #13, segunda mitad: el cron de limpieza (N12 de `notificaciones-spec`) | §11.4 |
+| El atraso: 135-180 sin leer por admin, 288 huérfanas, remesas 93 y 98 | §11.5 (decisión D1) |
+| La verificación de C3c en este deploy | §11.8 |
+| Actualizar `notificaciones-spec.md` | §11.10 |
+
+**Lo que se toca:**
+- **Backend:** solo el módulo `notificaciones/`, más un script en `prisma/scripts/` y `.env.example`.
+  `imports.service.ts`, los processors, el realtime y el catálogo de permisos **no se tocan**.
+- **Frontend:** `NotificacionesContext.tsx`, sus pruebas y dos páginas de la wiki.
+- **Schema:** sin cambios. El `db push` del deploy no hace nada.
+
+**Qué se rompe si sale mal:**
+- **El dueño deja de recibir su aviso.** Por ejemplo, si la regla de quién es copia se invierte. Lo cubren N-1 y CD-1.
+- **El cron borra de más**, por un criterio o un signo de fecha mal puesto. Las notificaciones no se recuperan, pero
+  la carga sigue entera en el Historial: lo único que se pierde es el aviso. Lo cubren L-1, L-2 y el preview del
+  script (§11.5), que también dice qué borraría la primera corrida del cron.
+- **El globito se corre en el otro sentido**, por una regla de secuencia mal aplicada. Lo cubren FD-3 a FD-8.
+
+### 11.2 El aviso emergente de las cargas ajenas
+
+**Cómo se decide hoy** (verificado). El backend manda el mismo evento `notificacion:nueva` a cada destinatario
+(`notificaciones.service.ts:96-118`). El mismo payload, sin nada que diga si el destinatario es el dueño o una copia
+por permiso. El frontend muestra un aviso por **cada** `notificacion:nueva` que llega después de hidratar
+(`NotificacionesContext.tsx:201-213`): error si el tipo es `IMPORTACION_ERROR`, advertencia si el resultado no es
+limpio, info en el resto. Ningún otro componente muestra avisos por notificaciones o por `import:finalizada`
+(buscado en `frontend/src`).
+
+**Quién recibe qué** (verificado, todas las llamadas a `NotificacionesService.crear`):
+
+| Origen | Destinatarios hoy | Línea |
+|---|---|---|
+| La carga termina (OK, con errores, con advertencias, sin filas) | dueño + `ver_progreso_otros` | `imports.service.ts:4149` |
+| El runner falla | dueño + `ver_progreso_otros` | `:4190` |
+| El runner corta una carga cancelada | dueño + `ver_progreso_otros` | `:3221` |
+| El runner corta una carga por un reinicio (C3c) | dueño + `ver_progreso_otros` | `:3171` |
+| El reaper cierra una interrumpida | dueño + `ver_progreso_otros` | `:5201` |
+| Se cancela una carga en la cola (la cancela otra persona) | solo el dueño | `:3126` (`soloAlDueno`) |
+| Una reversión de acción masiva (C3b) | solo quien la pidió | `reversion-acciones.service.ts:630` |
+| La consolidación | solo quien la lanzó | `consolidacion.processor.ts:121,188` |
+
+Todas las difusiones a los admins pasan por un solo lugar: `notificarResultadoCarga`
+(`imports.service.ts:4267-4310`), con `incluirUsuariosConPermiso: 'importacion.ver_progreso_otros'`. Cambiar
+`crear` las deja coherentes a todas: fallidas, canceladas, interrumpidas por un reinicio y las del reaper. Las
+reversiones y la consolidación nunca se difundieron, así que no cambian.
+
+**Diseño.** En `crear`, una notificación es **copia** cuando su `usuarioId` no es el `destinatarioPrincipalId`, lo
+que solo pasa con `incluirUsuariosConPermiso`. Para cada notificación creada:
+- **El dueño** recibe `notificacion:nueva`, como hoy, y después `notificacion:contador`.
+- **Una copia** recibe `notificacion:silenciosa`, con **el mismo payload** que `nueva` (su propio `id`), y después
+  `notificacion:contador`. No recibe `notificacion:nueva`.
+
+La regla vale para cualquier llamada futura con `incluirUsuariosConPermiso`: las copias por permiso nunca generan
+aviso emergente. Se documenta en el JSDoc de `CrearNotificacionParams` (`interfaces/crear-notificacion-params.interface.ts:13-17`).
+Si el dueño también tiene el permiso, el `Set` de `crear` lo deja una sola vez y recibe `nueva`, como hoy.
+
+En el frontend, `notificacion:silenciosa` hace lo mismo que `nueva` (+1 al globito y `nonce` para que el popover
+abierto recargue la lista), salvo el aviso emergente.
+
+**Compatibilidad durante el deploy:**
+
+| | Pestaña vieja (no conoce `silenciosa`) | Pestaña nueva |
+|---|---|---|
+| **Backend nuevo** | La copia llega como `silenciosa`, que se ignora, y como `contador`, que se aplica: el globito queda bien y **no hay aviso** (el comportamiento nuevo, desde el primer minuto). Lo único que se pierde: si tiene la campanita abierta, la lista no se recarga hasta reabrirla | Correcto |
+| **Backend viejo** | Como hoy | La copia llega como `nueva` y muestra el aviso, como hoy. El globito queda bien |
+
+Cualquier orden de deploy funciona. Se mantiene la costumbre: backend primero.
+
+**Por qué no las otras dos opciones:**
+- **Una marca en el payload de `nueva`** (por ejemplo `silenciosa: true`). Una pestaña vieja la ignora y sigue
+  mostrando avisos de cargas ajenas hasta que se recarga.
+- **Mandar a las copias solo `contador`.** La pestaña nueva no sabría que llegó una notificación, salvo comparando
+  valores del contador: haría falta una heurística para recargar el popover abierto.
+
+### 11.3 El globito que queda uno atrás
+
+Tres causas. Todas tienen la misma forma: un valor relativo, o un valor viejo que llega por HTTP, se aplica
+**después** del valor absoluto que ya mandó el socket.
+
+1. **Respuesta rezagada de la re-hidratación** (verificado: lo reproduce
+   `frontend/tests/paginas/campanita-contexto.test.tsx:185-203`).
+   - `hidratar` aplica el contador sin condiciones (`NotificacionesContext.tsx:135-137`). La guarda por número de
+     pedido (`:139`) protege solo la lista de cargas.
+   - Si el `GET /notificaciones/contador` lee 3 antes del alta y responde después de `nueva` y `contador {4}`, el
+     globito vuelve a 3.
+2. **Doble descuento al marcar leída** (por lectura: no se ejecutó).
+   - El backend emite el contador absoluto **antes** de responder el `POST` (`notificaciones.service.ts:164-173`).
+   - El frontend, al resolver el `POST`, descuenta 1 más (`NotificacionesContext.tsx:269-273`).
+   - Si el evento del socket llega antes que la respuesta HTTP, el globito queda en N−2. En un navegador ese es el
+     orden probable, porque el evento sale primero: es probablemente la causa más frecuente en uso real. Queda
+     corrido hasta el próximo valor absoluto (la próxima notificación, volver a la pestaña o reconectar).
+3. **`marcarTodas` emite un 0 fijo** (`notificaciones.service.ts:185`).
+   - Una notificación creada entre el `updateMany` y la emisión queda en la base sin leer y con el globito en 0.
+
+**Arreglo en el frontend: el valor más nuevo gana, y un pedido HTTP es tan nuevo como el momento en que salió.**
+
+```
+secuencia = 0            // ref: crece con cada fuente de valor
+ultimoAplicado = 0       // ref: secuencia del último valor aplicado al globito
+
+evento del socket (nueva | silenciosa | contador):
+    s = ++secuencia; ultimoAplicado = s
+    nueva/silenciosa → noLeidas = prev + 1;  contador → noLeidas = valor
+
+pedido HTTP que fija o ajusta el globito (contador de hidratar, marcarLeida, marcarTodas):
+    s = ++secuencia                      // al SALIR el pedido
+    respuesta = await pedido
+    si s > ultimoAplicado:  ultimoAplicado = s; aplicar (valor | prev − 1 | 0)
+    si no: descartar (llegó algo más nuevo mientras volaba)
+
+al cerrar sesión (token null): ultimoAplicado = ++secuencia; noLeidas = 0
+                                // una hidratación en vuelo de la sesión anterior no repone su número
+```
+
+- `hidratadoRef` se pone en `true` cuando el `GET` del contador responde, se aplique o no: la hidratación ocurrió y
+  los avisos pueden empezar.
+- `marcarLeida` y `marcarTodas` siguen sumando `nonce` siempre.
+- La lista de cargas conserva su guarda propia, sin cambios.
+
+**Arreglo en el backend.**
+- `marcarTodas` emite el contador **contado** después del `updateMany`, no un 0 fijo.
+- Se extrae `emitirContador(usuarioId)`, público y que nunca tira: cuenta, emite y, si falla, deja un `warn`. Lo usan
+  `crear`, `marcarLeida`, `marcarTodas` y el cron. El borrado de remesas (`imports.service.ts:5283`) tiene su propia
+  copia y no se toca, para no compartir archivos entre paquetes.
+
+**Lo que queda.**
+- Con el socket caído, los ajustes locales se aplican sin un valor absoluto que los corrija. Entre dos pedidos
+  cruzados del mismo usuario, el globito puede quedar corrido en uno hasta la próxima re-hidratación: volver a la
+  pestaña, reconectar o el polling si hay cargas. Es igual que hoy, pero más raro.
+- La carrera de `marcarTodas` en el backend se achica, pero no desaparece: entre contar y emitir puede colarse un
+  alta. Su propio `contador` va detrás y corrige.
+
+### 11.4 El cron de limpieza
+
+**Dónde.** Clase nueva `NotificacionesLimpiezaService` en
+`backend/src/modules/notificaciones/notificaciones-limpieza.service.ts`, registrada en `notificaciones.module.ts`.
+- El método `limpiar(ahora = new Date())` es público y testeable; el `@Cron('0 5 * * *')` lo envuelve en
+  `try/catch` con `logger.error(msg, stack)`, sin relanzar. Es el patrón de `ejecuciones.cleanup.ts`.
+- `ScheduleModule.forRoot()` ya está en `reportes.module.ts:27` y descubre los `@Cron` de toda la aplicación
+  (verificado, lo dice también `reaper-cargas.scheduler.ts:8`).
+- 05:00 del reloj del contenedor, que es hora de Argentina (`TZ` en `Dockerfile.backend:6`): después de promesas (2),
+  cuotas y reportes (3), mora (4) y borradores (4:30).
+- **Inyecta:** `PrismaService` y `NotificacionesService` (para `emitirContador`). Sin `forwardRef` nuevo: es el mismo
+  módulo.
+- **`onModuleInit`** loguea "Limpieza de notificaciones activa: todos los días a las 05:00, leídas a los 30 días, sin
+  leer a los 180" o "… desactivada (NOTIFICACIONES_LIMPIEZA_DESACTIVADA)". Es lo que se verifica en CloudWatch tras
+  el deploy.
+
+**Variables de entorno** (con sus defaults en `.env.example`):
+
+| Variable | Default | Regla |
+|---|---|---|
+| `NOTIFICACIONES_RETENCION_LEIDAS_DIAS` | 30 | Entero ≥ 1. Si no, el default con un `warn` |
+| `NOTIFICACIONES_RETENCION_NO_LEIDAS_DIAS` | 180 | Entero ≥ 1. Si no, el default con un `warn` |
+| `NOTIFICACIONES_LIMPIEZA_DESACTIVADA` | vacío | `1`, `true`, `si`, `sí`, `yes` la apagan sin desplegar. Mismos valores que `IMPORTS_REAPER_DESACTIVADO`, con una función local: el módulo no importa nada de `imports/` |
+
+**Criterio.** "Leída hace más de 30 días" se mide desde que se leyó (`leidaEn`), con `creadoEn` como respaldo si
+`leidaEn` es nulo. Así, una notificación vieja que alguien lee hoy no desaparece esta noche. "No leída" se mide desde
+`creadoEn`. Las fechas se calculan en JS y viajan por la API de Prisma: no hay SQL crudo, así que la zona horaria no
+juega.
+
+```
+condicion = OR(
+  { leida: true,  leidaEn: { lt: ahora − L días } },
+  { leida: true,  leidaEn: null, creadoEn: { lt: ahora − L días } },
+  { leida: false, creadoEn: { lt: ahora − N días } },
+)
+```
+
+**Algoritmo, por tandas** (TANDA = 1.000, MAX_TANDAS = 50: hasta 50.000 por noche):
+
+```
+limpiar(ahora):
+  si desactivada → log y salir
+  log "Limpieza de notificaciones: borrando leídas de más de L días y sin leer de más de N"   (intent)
+  usuarios = Set(); leidas = 0; noLeidas = 0; tandas = 0; tope = false
+  repetir mientras tandas < MAX_TANDAS:
+     filas = notificacion.findMany({ where: condicion, select: {id, usuarioId, leida}, orderBy: {id: 'asc'}, take: TANDA })
+     si filas vacío → salir del bucle
+     r = notificacion.deleteMany({ where: { AND: [ { id: { in: ids(filas) } }, condicion ] } })   // re-chequea: una que se leyó recién no se borra
+     tandas++
+     si r.count == 0 → warn "una tanda no borró nada" y salir del bucle   // evita repetir siempre las mismas filas
+     sumar leidas/noLeidas según filas (si r.count < filas.length, debug con la diferencia)
+     agregar a usuarios los usuarioId de las filas no leídas
+     debug "tanda N: r.count borradas"
+     si filas.length < TANDA → salir del bucle
+  tope = (tandas == MAX_TANDAS y la última vino llena) → warn "se alcanzó el tope de 50 tandas; el resto queda para mañana"
+  para cada u de usuarios: await notificaciones.emitirContador(u)     // nunca tira
+  log "Limpieza de notificaciones: X borradas (Y leídas, Z sin leer) en T ms; contador actualizado a K usuarios"   (done)
+  devolver { borradas, leidas, noLeidas, usuarios: K, tandas, topeAlcanzado: tope }
+```
+
+- **El bloqueo en prod.**
+  - Cada `deleteMany` toca a lo sumo 1.000 filas por PK, en una sentencia corta y sin transacción interactiva.
+  - El `findMany` es una lectura consistente, sin locks.
+  - El volumen esperado es chico: cuatro admins, unas cinco filas por carga, del orden de unas miles. Es una
+    suposición: el preview del script (§11.5) imprime el total real.
+- **Índice:** no hace falta, y por eso no hay `db push`.
+  - `@@index([creadoEn])` y `@@index([usuarioId, leida, creadoEn])` (`schema.prisma:829-831`) cubren lo no leído y
+    el contador.
+  - `leidaEn` no tiene índice: el recorrido de unas miles de filas, una vez por noche, cuesta milisegundos.
+  - Si el preview mostrara cientos de miles de filas, se agrega `@@index([leida, leidaEn])`, que es aditivo, en otra
+    entrega.
+- **El globito y las pestañas abiertas.**
+  - Borrar leídas no cambia el contador: no se emite nada.
+  - Borrar no leídas sí: a cada usuario afectado se le emite `notificacion:contador` con su cuenta nueva. Una pestaña
+    abierta de madrugada corrige el globito sin recargar.
+  - Con la campanita abierta, la lista no se recarga. Si alguien toca una notificación borrada, el `POST …/leer`
+    responde 404 y el error se muestra como cualquier otro. Es aceptable a las 05:00, y queda en §11.7.
+- **Cierre ordenado (C3c).** `detenerCrons` (`cierre-ordenado.service.ts:116-130`) también detiene este cron. Si un
+  deploy cae justo durante la limpieza, la tanda en vuelo falla al cerrarse Prisma. El catch la loguea y la noche
+  siguiente sigue: cada tanda es idempotente.
+
+### 11.5 El atraso: limpieza única (decisión D1)
+
+**Lo que se sabe, sin leer prod** (medido el 30/09; no se pudo releer porque el entorno lo bloquea):
+- No leídas: 176, 135 y 180 (usuarios 3, 4 y 5), casi todas de cargas ajenas.
+- 288 notificaciones huérfanas (`entidadTipo='REMESA'`) sobre 50 remesas que ya no existen.
+- Las remesas 93 (MULTIRREGISTRO, PENDIENTE) y 98 (MULTIARCHIVO, VALIDANDO), sin fila de progreso.
+- Desde el 30/09 no hubo cargas, así que es de esperar que esos números sigan iguales.
+
+**Sin hacer nada, el cron:**
+- Borra en su primera noche las leídas de más de 30 días.
+- **No** toca las ajenas sin leer hasta los 180 días: los globitos siguen en 135-180 hasta marzo-abril.
+
+**Opciones:**
+
+| | Qué | Contra |
+|---|---|---|
+| **(a) Recomendada** | Un script marca como leídas las ajenas sin leer anteriores al deploy (el cron las borra 30 días después) y borra las huérfanas | Un script más, que corre quien orquesta con el OK del usuario |
+| (b) | Cada admin aprieta "Marcar todas como leídas" en la campanita, y solo las huérfanas van por script | También marca las propias sin leer, que son las que importan |
+| (c) | Nada | El ruido sigue meses, y las huérfanas responden "Esta importación ya no existe" |
+
+**Remesas 93 y 98: se borran desde el Historial, con el botón Eliminar** (recomendado; es el operativo ya acordado).
+Es el camino probado:
+- borra sus notificaciones;
+- re-emite el contador;
+- audita.
+
+Por lectura, el botón está habilitado:
+- sin fila de progreso, las dos salen como `fase: 'BORRADOR'` y `enCurso: false` (`estado-carga.ts:209-231`);
+- la regla de la pantalla solo deshabilita una carga en curso o ajena sin permiso (`utils/historialImportaciones.ts:160-168`);
+- `deleteRemesa` no las bloquea (`imports.service.ts:5326-5334`).
+
+El script solo informa su estado: no las borra.
+
+**Script `backend/prisma/scripts/limpiar-notificaciones-atraso.ts`** (idempotente). Solo usa la API de Prisma, ni SQL
+crudo ni funciones JSON de MySQL.
+
+```
+npx ts-node --transpile-only prisma/scripts/limpiar-notificaciones-atraso.ts                 # solo muestra
+npx ts-node --transpile-only prisma/scripts/limpiar-notificaciones-atraso.ts --dry-run       # ídem, aunque haya pasos
+npx ts-node --transpile-only prisma/scripts/limpiar-notificaciones-atraso.ts --marcar-ajenas --borrar-huerfanas [--hasta=2026-10-17T03:00:00Z]
+```
+
+- **Sin un paso explícito no escribe nada.** `--dry-run` gana sobre los pasos. `--hasta` es opcional y por defecto
+  vale "ahora": las notificaciones creadas después no se tocan.
+- **Lectura:**
+  - todas las `notificacion` con `entidadTipo: 'REMESA'`, paginadas por `id` de a 5.000, con `id, usuarioId, tipo,
+    leida, creadoEn, entidadId, payload`;
+  - las remesas de esos `entidadId`, en tandas de 1.000 ids, con `id, usuarioCreadorId, createdAt`;
+  - los nombres de los usuarios.
+- **Clasificación de cada notificación:**
+  - **Huérfana:** `entidadId` nulo, la remesa no existe, o la notificación es **anterior** a la remesa
+    (`creadoEn < remesa.createdAt`). Este último caso apunta a una remesa nueva que reusó el id después de un
+    `TRUNCATE`, y se informa aparte: "apuntan a una remesa que reusó el id".
+  - **Ajena a marcar:** no huérfana, `leida: false`, `tipo` ∈ {`IMPORTACION_FINALIZADA`, `IMPORTACION_ERROR`},
+    `remesa.usuarioCreadorId` no nulo y distinto de `usuarioId`, el payload **sin** la clave `reversion` (la
+    reversión le llega a quien la pidió: no es una copia) y `creadoEn < hasta`.
+  - **Dueño desconocido:** `usuarioCreadorId` nulo. Solo se informa.
+- **Salida del preview**, que es lo que el usuario aprueba:
+  - una tabla por usuario: nombre, sin leer hoy, ajenas a marcar, huérfanas a borrar (de ellas, cuántas sin leer) y
+    sin leer después;
+  - los totales;
+  - el total de filas de `notificacion`;
+  - "**La primera limpieza nocturna borraría:** X leídas de más de 30 días y Y sin leer de más de 180", contado con
+    el criterio de §11.4 y calculado como si ya se hubiera aplicado el paso de marcar;
+  - las remesas 93 y 98: si existen, `estadoProceso`, si tienen fila de progreso, cantidad de casos y cantidad de
+    notificaciones.
+- **Escritura**, en tandas de 500 ids, cada una con la condición repetida:
+  - marcar: `updateMany({ where: { id: { in }, leida: false }, data: { leida: true, leidaEn: ahora } })`; Prisma
+    pone `actualizadoEn`;
+  - borrar: `deleteMany({ where: { id: { in }, entidadTipo: 'REMESA' } })`.
+  - Al final imprime lo aplicado. Si se lo vuelve a correr, el preview da 0 y 0.
+- **No emite socket**, porque es otro proceso. Las pestañas abiertas corrigen el globito en la próxima hidratación:
+  volver a la pestaña, reconectar o recargar.
+- **Logging:** `console.log`, como el resto de `prisma/scripts/`. Nunca imprime el contenido del payload, solo
+  cantidades e ids de remesa.
+- **En prod corre dentro del contenedor:** la imagen es de una sola etapa, con `npm ci` completo, así que trae
+  `ts-node` y `prisma/scripts` (`Dockerfile.backend`). Por eso va **después** del deploy de la Fase D.
+
+### 11.6 Contratos
+
+**Socket** (namespace `/rt`, sala `user:{id}`):
+
+| Evento | Payload | Quién lo recibe | Cambio |
+|---|---|---|---|
+| `notificacion:nueva` | `{ id, tipo, titulo, mensaje, payload, rutaAccion, creadoEn }` | El destinatario principal | Deja de ir a las copias |
+| `notificacion:silenciosa` | Idéntico a `notificacion:nueva` | Cada copia por `incluirUsuariosConPermiso` | **Nuevo** |
+| `notificacion:contador` | `{ noLeidas }` | Como hoy, más los usuarios a los que el cron borró no leídas | `marcarTodas` manda la cuenta real, no 0 |
+
+- **HTTP:** sin cambios. Ningún endpoint nuevo, ningún DTO.
+- **Permisos:** ninguno nuevo. `importacion.ver_progreso_otros` ya está en el catálogo (`permisos-catalogo.ts:61`).
+- **Servicio:** `NotificacionesService.emitirContador(usuarioId: number): Promise<void>`, nuevo y público.
+  `crear(params)` mantiene la firma.
+
+### 11.7 Fallos silenciosos
+
+| Qué puede perderse en silencio | Cómo se nota |
+|---|---|
+| El dueño deja de recibir el aviso: la regla de copia está invertida, o `destinatarioPrincipalId` no es el dueño | N-1 y N-2 (spec). En la prueba manual, MD-1 |
+| Una pestaña vieja con la campanita abierta no recarga la lista con una copia | Aceptado hasta recargar (§11.2). El globito sí cambia |
+| El cron borra no leídas que nadie vio (las de más de 180 días) | Es la regla. Lo dicen el log (con las cantidades) y la wiki (§11.10); la carga sigue en el Historial |
+| El cron borra una notificación que alguien tenía abierta en la campanita | 404 al tocarla, mostrado como error. Solo a las 05:00 |
+| El cron no termina (tope de tandas, o una tanda que no borra) | `warn` con el motivo; sigue a la noche siguiente |
+| El script marca como leídas ajenas que el admin todavía quería ver | El preview muestra el número por usuario antes de escribir; siguen 30 días en "Leídas" |
+| El script borra una notificación que no era huérfana | Solo borra si la remesa no existe o es posterior a la notificación. Los dos números salen separados en el preview |
+| El globito queda corrido con el socket caído | Se corrige en la próxima hidratación (§11.3, "Lo que queda") |
+| `emitirContador` falla | `warn`; el globito se corrige al hidratar |
+
+### 11.8 Deploy
+
+**Sin cambio de schema.** El `db push` del deploy corre igual y no tiene que hacer nada. Si se quiere estar seguro,
+el chequeo de solo lectura de siempre: `prisma migrate diff` vacío contra prod con la imagen actual (§8.6).
+
+**Antes.**
+- Confirmar que el paso SSM de C3c está hecho (solo lectura):
+  `aws ssm get-parameter --name /amsa-gestion/_compose --query Parameter.Value --output text | grep stop_grace_period`.
+  Tiene que dar `100s`. Lo mismo con `/amsa-gestion/_deploy_sh` y la espera (`grep Esperando`).
+- Que no haya cargas corriendo. `deploy.sh` ya espera hasta 5 minutos, pero hoy no hay cargas.
+
+**Orden.**
+1. **Push del commit del backend**, y esperar el workflow en verde.
+2. **Verificar C3c.** Este es el primer deploy después del paso SSM. El contenedor que se detiene es el de C3c, y el
+   que arranca es el de la Fase D.
+   - **Log del deploy** (salida del comando SSM en el workflow). Entre `==> Pull` y `==> Migraciones` no tiene que
+     aparecer ni "No se pudo consultar los trabajos en curso" ni "Respuesta inesperada".
+     - **Con nada corriendo, la espera no imprime ninguna línea**: `deploy.sh:51` sale del bucle en silencio cuando
+       `N=0`. "La espera" que pide §19.6 de C3 solo se ve con una carga viva.
+     - Su ausencia, sin las dos líneas de error, es la evidencia de que la consulta corrió y dio 0. No vale la pena
+       forzar una carga para verla.
+   - **CloudWatch** (`/amsa-gestion/backend`), últimas líneas del contenedor viejo:
+     "Cierre ordenado (SIGTERM): 0 trabajos en curso …" y "Cierre ordenado terminado en N ms; sale con código 0".
+     - Un "sale con código 1" o la ausencia de esas líneas (muerte por `SIGKILL`) es un hallazgo de C3c, no de D.
+   - **En el contenedor nuevo**, por SSM `AWS-RunShellScript`:
+     `docker inspect amsa-gestion-backend --format '{{.Config.StopTimeout}}'` tiene que dar `100`.
+     - Además, en CloudWatch: "Cierre ordenado listo: …".
+     - Si da 10, el compose de SSM no se actualizó: el paso 2 de §19.6 de C3 sigue pendiente. La Fase D no se ve
+       afectada.
+3. **Verificar la Fase D en el arranque:** en CloudWatch, "Limpieza de notificaciones activa: todos los días a las
+   05:00, leídas a los 30 días, sin leer a los 180".
+4. **Push del commit del frontend**, que lleva la wiki. Recién entonces las pestañas nuevas manejan `silenciosa`.
+5. **A la mañana siguiente:** en CloudWatch, "Limpieza de notificaciones: X borradas … en T ms" cerca de las 05:00
+   de Argentina (08:00 UTC).
+6. **Operativo D1, con el OK del usuario:**
+   1. Correr el preview del script por SSM:
+      `sudo docker exec -w /app amsa-gestion-backend npx ts-node --transpile-only prisma/scripts/limpiar-notificaciones-atraso.ts`.
+   2. Mostrarle el preview al usuario.
+   3. Con su OK, la misma línea con `--marcar-ajenas --borrar-huerfanas`.
+   4. Correr el preview otra vez: tiene que dar 0 y 0.
+   5. Borrar las remesas 93 y 98 desde el Historial.
+   6. Pedir a los admins que recarguen la pestaña.
+
+**Volver atrás:** se vuelve a la imagen anterior. No hay nada que deshacer en la base, salvo lo que haya hecho el
+script: lo borrado no se recupera sin un snapshot de RDS.
+
+### 11.9 Plan de pruebas
+
+**Backend.** Jest no chequea tipos (isolatedModules): **`npm run build` antes de commitear**.
+
+`backend/src/modules/notificaciones/notificaciones.service.spec.ts` (nuevo; hoy el servicio no tiene spec). Los
+dobles son de Prisma y `RealtimeService`.
+
+| # | Caso | Esperado |
+|---|---|---|
+| N-1 | `crear` con principal 3 e `incluirUsuariosConPermiso`; 4 y 5 tienen el permiso | 3 filas; `emitToUser(3,'notificacion:nueva')`, `emitToUser(4|5,'notificacion:silenciosa')`; ningún `nueva` a 4 ni a 5; un `contador` a cada uno |
+| N-2 | El principal también tiene el permiso | 1 fila para él, con `nueva` |
+| N-3 | Sin `incluirUsuariosConPermiso` (reversión, consolidación) | Solo `nueva` al principal |
+| N-4 | El payload de `silenciosa` | Mismas claves y valores que `nueva`, con el `id` propio de esa fila |
+| N-5 | `marcarTodas` con `count` que devuelve 1 | Emite `{ noLeidas: 1 }`, no 0 |
+| N-6 | `emitirContador` con `count` que tira | No tira; un `warn` |
+
+`backend/src/modules/notificaciones/notificaciones-limpieza.service.spec.ts` (nuevo):
+
+| # | Caso | Esperado |
+|---|---|---|
+| L-1 | La `condicion` armada con `ahora` fijo | Las tres ramas con `lt`. Exactamente 30 días no entra; 30 días y 1 ms, sí. Una leída hace 10 días y creada hace 200 no entra; una leída sin `leidaEn` y creada hace 31 días, sí |
+| L-2 | Tandas de 1.000, 1.000 y 3 | Tres `deleteMany`, total 2.003, corta en la tercera |
+| L-3 | Siempre 1.000 | Corta a las 50 tandas; `warn` de tope; `topeAlcanzado: true` |
+| L-4 | Una tanda devuelve 1.000 pero `deleteMany` borra 0 | Corta con un `warn`; no repite |
+| L-5 | Se borran no leídas de los usuarios 4 y 5 y solo leídas del 3 | `emitirContador` a 4 y 5; no al 3 |
+| L-6 | El `where` de `deleteMany` | `AND` de `id in` y la `condicion` |
+| L-7 | Variables inválidas (`0`, `abc`, vacío) / `DESACTIVADA=sí` | Defaults con `warn` / no consulta nada |
+| L-8 | `findMany` tira y se llama al método del cron | Un `logger.error` con stack; no tira |
+
+- **Los specs de imports siguen verdes sin tocar ningún assert.** Mockean `crear` y no ven el cambio de evento.
+- **Correr:** `npx jest src/modules/notificaciones src/modules/imports src/modules/realtime`, la suite completa y
+  `npm run build`. `LOG_DIR` al scratchpad. **Nunca** `npm run lint`.
+- **El script, contra la MySQL local** (no hay spec). Se siembran:
+  - una huérfana;
+  - una que apunta a una remesa posterior;
+  - una ajena sin leer;
+  - una propia sin leer;
+  - una reversión sin leer para quien no es el dueño;
+  - una leída de hace 40 días.
+
+  Se espera:
+  - el preview cuenta 1 ajena y 2 huérfanas;
+  - la "primera limpieza nocturna" cuenta 1;
+  - aplicado, la segunda corrida da 0 y 0;
+  - la propia y la reversión siguen sin leer.
+
+**Frontend.** Con el arnés de `frontend/tests` y un `describe('Fase D')` en
+`frontend/tests/paginas/campanita-contexto.test.tsx`. Para llamar `marcarLeida` y `marcarTodas`, un consumidor
+mínimo del contexto dentro del test, o la campanita real de `banco-campanita.tsx`.
+
+| # | Caso | Esperado |
+|---|---|---|
+| FD-1 | `notificacion:silenciosa` tras hidratar | Globito 3 → 4; `toasts()` vacío a los 300 ms. Si se monta la campanita abierta: un `GET /notificaciones` más |
+| FD-2 | `notificacion:nueva` tras hidratar | Un aviso con el título (el camino del dueño no cambió) |
+| FD-3 | El test "OBSERVADO" de `:185-203`, convertido en regresión | Tras la respuesta rezagada, el globito **sigue en 4**. Pasa de `describe('OBSERVADO…')` a la Fase D |
+| FD-4 | `marcarLeida`: el `POST` emite `contador {2}` y responde 100 ms después | Globito en 2 (hoy, 1) |
+| FD-5 | `marcarLeida`: el `POST` responde primero y el `contador {2}` llega 200 ms después | 2, y sigue en 2 |
+| FD-6 | `marcarTodas`: antes de la respuesta llegan `nueva` y `contador {1}` | 1 (hoy, 0) |
+| FD-7 | Dos hidrataciones cruzadas: la más vieja responde última | Queda el valor de la más nueva |
+| FD-8 | Cerrar sesión con una hidratación en vuelo | Queda en 0 |
+
+- Correr `npm test` (unos 5 minutos), `npx tsc --noEmit -p tsconfig.json` (sin errores nuevos contra la base:
+  medirla antes de empezar con `git show HEAD:`, nunca con `stash`) y `npm run build`.
+
+**Prueba manual** (la usa el auditor; sirve también para los usuarios que prueban). Local, con dos navegadores (uno
+normal y uno de incógnito). **A** tiene `importacion.ejecutar` y no tiene `ver_progreso_otros`; **B** es admin.
+
+| # | Pasos | Qué se tiene que ver |
+|---|---|---|
+| MD-1 | A importa un archivo chico | A: aviso emergente y +1. B: **sin aviso**, +1, la notificación en "Sin leer" y, mientras corría, la carga en "Importaciones en curso" |
+| MD-2 | Igual, pero con un archivo que falla, y otra carga que B cancela mientras corre | A: aviso de error en los dos casos. B: ningún aviso, +1 cada vez |
+| MD-3 | En las herramientas del navegador de B, los frames del websocket | `notificacion:silenciosa` + `notificacion:contador`; ningún `notificacion:nueva` |
+| MD-4 | B abre la campanita y marca leídas cinco notificaciones de a una, rápido; después, "Marcar todas" | Cada clic baja exactamente 1. Al final, 0, igual que `GET /api/notificaciones/contador` |
+| MD-5 | Con B en otra pestaña, A importa; B vuelve a la pestaña | El globito coincide con el contador del servidor |
+| MD-6 | En la base local, poner `leidaEn` hace 31 días a una leída y `creadoEn` hace 181 días a una sin leer de B; llamar a `limpiar()` desde un arnés con `LOG_DIR` temporal | Las dos desaparecen; el log de intent/done tiene las cantidades; el globito abierto de B baja sin recargar |
+| MD-7 | El script local: preview, aplicar y preview otra vez | Lo de §11.9 Backend |
+| MD-8 | La campanita en tema claro, oscuro y ancho de celular | Sin cambios visuales (la Fase D no toca la interfaz) |
+
+### 11.10 Documentación
+
+- **Wiki** (`docs/ayuda/`). Hoy ninguna página habla del aviso emergente ni de cuánto duran las notificaciones
+  (buscado).
+  - **`03-importacion/08-historial-y-problemas.md`**, dentro de "La campanita y el chip de la barra superior", un
+    párrafo nuevo: **Qué notificaciones te llegan y cuánto duran.**
+    - Al terminar una carga tuya (bien, con errores, cancelada, fallida o interrumpida por un reinicio) te llega una
+      notificación a la campanita y, con el sistema abierto, un aviso que aparece unos segundos en la pantalla.
+    - Con el permiso **Ver importaciones de otros usuarios**, también te llegan las de otras personas, pero solo a la
+      campanita: suman al número de sin leer, sin aviso en pantalla. Mientras corren, las ves en **Importaciones en
+      curso**.
+    - Las leídas se borran solas a los 30 días de leídas, y las sin leer a los 180 días de llegadas. Lo que se borra
+      es el aviso: la carga sigue en el Historial.
+    - Actualizar `revisado`.
+  - **`03-importacion/05-importar-un-archivo.md`**, en "La campanita": una oración con enlace
+    `/ayuda/importacion/historial-y-problemas` ("qué notificaciones te llegan y cuánto duran"). Actualizar `revisado`.
+  - Verificar con `cd frontend && npm run verificar-ayuda`, y que un agente revisor coteje las dos páginas contra el
+    código.
+- **`docs/notificaciones-spec.md`:**
+  - §3.5, "Toasts … solo para eventos en vivo": agregar "y solo para el destinatario principal; las copias por
+    permiso llegan como `notificacion:silenciosa`";
+  - §3.6, "Cleanup": implementado, con el enlace a §11.4;
+  - §4, paso 12: `completed`;
+  - una entrada en §5 (changelog) con el evento nuevo, el contador de `marcarTodas`, el cron, las variables y el
+    script.
+- **`backend/.env.example`:** las tres variables de §11.4, con una línea de comentario cada una.
+- **CHANGELOG.md:** la entrada la escribe quien orquesta al cerrar (Backend, Frontend, Deploy con la verificación de
+  C3c, Guion de prueba manual). Y en este documento, el bloque "Para retomar", el ítem de §4 "Fase D" y la fila 5.5
+  de §5.
+
+### 11.11 Criterios de aceptación
+
+1. **CD-1.** Cuando termina, falla, se cancela mientras corre o se interrumpe una carga de A, B (admin) recibe
+   `notificacion:silenciosa` y `notificacion:contador`, nunca `notificacion:nueva`, y A recibe `nueva` (N-1, MD-1 a
+   MD-3).
+2. **CD-2.** Una carga en cola que cancela B sigue notificando solo a A, con aviso emergente. Una reversión y una
+   consolidación siguen notificando solo a quien las pidió, con aviso.
+3. **CD-3.** Una pestaña con el bundle anterior, contra el backend nuevo, no muestra avisos de cargas ajenas y su
+   globito coincide con el servidor (por construcción: no conoce `silenciosa` y aplica `contador`).
+4. **CD-4.** Las pruebas FD-3 a FD-8 pasan. Con `git show HEAD:frontend/src/context/NotificacionesContext.tsx` en
+   lugar del contexto nuevo, FD-3, FD-4 y FD-6 fallan.
+5. **CD-5.** `marcarTodas` emite la cuenta real (N-5).
+6. **CD-6.** El cron borra exactamente lo que dice §11.4 y nada más (L-1). Corta por tope o por una tanda vacía con
+   un `warn` (L-3, L-4). Actualiza el contador solo de quienes perdieron no leídas (L-5).
+7. **CD-7.** Al arrancar, el log dice "Limpieza de notificaciones activa: …" y `NOTIFICACIONES_LIMPIEZA_DESACTIVADA=1`
+   lo cambia a "desactivada".
+8. **CD-8.** El script sin pasos, o con `--dry-run`, no escribe nada. Aplicado y corrido otra vez, da 0 ajenas y 0
+   huérfanas. Nunca marca una propia, una de reversión ni una posterior a `--hasta`.
+9. **CD-9.** Sin cambios en `schema.prisma` (`git diff` vacío) ni en `imports.service.ts`. Ningún assert existente
+   tocado.
+10. **CD-10.** Backend: `npm run build` y la suite completa en verde. Frontend: `npm test`, `tsc` sin errores nuevos
+    y `npm run build`. `verificar-ayuda` en verde.
+11. **CD-11.** En prod, después del deploy:
+    - "Limpieza de notificaciones activa" en CloudWatch;
+    - la verificación de C3c de §11.8 (StopTimeout 100, "sale con código 0", sin líneas de error de la espera);
+    - a la mañana siguiente, la línea "done" del cron.
+
+### 11.12 Paquetes de trabajo
+
+Son dos implementers en paralelo, sin archivos en común. El único contrato entre los dos es el nombre del evento,
+`notificacion:silenciosa`, con el payload idéntico al de `notificacion:nueva` (§11.6). Cada paquete es chico: uno
+solo también lo hace en una tarde.
+
+- **BE:**
+  - `notificaciones.service.ts`: `emitirContador`, las copias silenciosas y `marcarTodas`;
+  - el JSDoc de la interfaz;
+  - `notificaciones-limpieza.service.ts`, nuevo, y el módulo;
+  - `.env.example`;
+  - el script;
+  - los dos specs;
+  - `docs/notificaciones-spec.md`.
+- **FE:**
+  - `NotificacionesContext.tsx`;
+  - `frontend/tests/paginas/campanita-contexto.test.tsx`, y `tests/lib/banco-campanita.tsx` si hace falta un
+    consumidor;
+  - las dos páginas de la wiki.
+- **Quien orquesta:**
+  - una pasada de auditoría por paquete y la revisión de la wiki contra el código;
+  - el CHANGELOG y este documento;
+  - los commits, backend primero (los pushea el usuario);
+  - el deploy y el operativo D1.
+
+### 11.13 Qué se verificó y qué es suposición
+
+**Leído en el código (`cc2fb21`):**
+- dónde se decide el aviso y que el payload no distingue al dueño;
+- el inventario de destinatarios de §11.2, que no hay otro emisor de avisos por notificaciones y que todas las
+  difusiones pasan por `notificarResultadoCarga`;
+- las tres causas del globito: la primera la reproduce un test existente; la segunda y la tercera son por lectura;
+- `ScheduleModule.forRoot` en `reportes.module.ts:27`, la hora del contenedor, los horarios de los otros crons y que
+  el cierre ordenado detiene todos los crons;
+- los índices de `Notificacion`;
+- que 93 y 98 se pueden borrar desde el Historial (por lectura, no ejecutado);
+- que con nada corriendo la espera de `deploy.sh` no imprime nada;
+- que la imagen trae `ts-node` y `prisma/scripts`;
+- que no hace falta ningún permiso nuevo.
+
+**Suposiciones** (no se pudo leer prod):
+- los números del atraso (del 30/09) y el tamaño de `notificacion` (unas miles de filas): el preview del script los
+  mide antes de escribir nada;
+- que en un navegador real el contador del socket llega antes que la respuesta del `POST` (causa 2): el arreglo
+  funciona en los dos órdenes (FD-4 y FD-5);
+- que haya notificaciones que apuntan a remesas que reusaron el id tras un `TRUNCATE`: el script las cuenta aparte.
+
+### 11.14 Lo que necesita el OK del usuario
+
+- **D1, el atraso.** Recomendada: **(a)**, el script marca como leídas las ajenas sin leer anteriores al deploy y
+  borra las huérfanas, siempre después de ver el preview; 93 y 98 se borran desde el Historial. Alternativas en
+  §11.5.
+- **Adoptado por defecto, sin bloquear:**
+  - la retención de las leídas se cuenta desde que se leyeron, no desde que llegaron;
+  - el cron corre a las 05:00;
+  - el tope es de 50.000 por noche.
+
+  Si el usuario prefiere contar desde la llegada, es cambiar una condición y el caso L-1.
+
+**El 16/10 el usuario eligió D1 (a).**
+
+### 11.15 Lo que cambió en la Fase D después de la auditoría (16/10/2026)
+
+Hubo dos auditorías en paralelo, las dos con resultado PASA CON OBSERVACIONES y sin bloqueantes.
+
+**Backend, con la app real** contra MySQL y Redis locales:
+- Una carga de A, que no tiene el permiso, con B como admin conectado:
+  - A recibió `nueva` y `contador=1`;
+  - B recibió `silenciosa` y `contador=1`, y ningún `nueva`;
+  - los dos contadores coinciden con la base.
+- Una carga de un admin que además es dueño: un solo `nueva`.
+- `marcarTodas` emite la cuenta real.
+- `limpiar()` sobre 14 semillas borró exactamente las 6 previstas:
+  - una de 30 días exactos queda; una de 30 días y 1 ms se borra;
+  - una leída hace 10 días y creada hace 200 queda.
+- El contador se emite solo a quien perdió no leídas.
+- El script: el preview y `--dry-run` no escriben (mismo hash de la tabla), aplicar marca y borra lo previsto, y el
+  preview siguiente da 0 y 0.
+
+**Frontend y wiki contra el código:** el contrato coincide. La secuencia del globito se sostiene con reconexión,
+pedidos cruzados, modo estricto y polling.
+
+**Arreglos de quien orquesta, cada uno con su test:**
+1. **Las variables de retención** se validan con `/^\d+$/`: `1e1` y `0x10` pasaban sin aviso. El `warn` de un valor
+   inválido sale una sola vez; antes salía en cada corrida.
+2. **`borradas` de la limpieza** sale de `deleteMany.count`. El desglose de leídas y sin leer es de las candidatas, y
+   el log lo dice si difieren.
+3. **`--hasta` del script vale para los dos pasos**: lo que se creó desde ese instante no se toca. Ahora lo dice la
+   cabecera del script. En prod se aplica con `--hasta=<hora del deploy de la Fase D en UTC>`.
+4. **`notificaciones-spec.md`**: la tabla de eventos tiene `notificacion:silenciosa`, y el contador dice quién lo
+   recibe.
+5. **Cerrar sesión con una hidratación en vuelo** ya no repone la lista de cargas de la sesión anterior ni da por
+   hidratada a la siguiente. Esto ya pasaba antes de la Fase D: la sesión siguiente veía la carga, la persona y el
+   porcentaje de otra. Ahora hay un `sesionRef` que crece al cerrar sesión, y una respuesta de otra sesión no se aplica.
+   Lo cubre FD-9.
+6. **FD-8 pasaba también con el contexto viejo**, porque React aplicaba el cierre de sesión después de la respuesta.
+   Ahora espera un tic después de `logout`. FD-8 y FD-9 fallan contra el contexto de HEAD y pasan con el nuevo.
+7. **Wiki** (`08`):
+   - los colores del aviso: rojo también para la interrumpida por un reinicio y para la que no cargó ninguna fila;
+     "naranja", no "amarillo";
+   - una cancelada en cola por su dueño no avisa;
+   - "05:00, hora de Argentina";
+   - "la notificación", no "el aviso".
+
+**Sin verificar:**
+- el navegador real (el guion MD de §11.9, en el CHANGELOG);
+- el disparo real de las 05:00;
+- la imagen de Docker con el script adentro: se ve al correr el preview en prod.
+
+---
 ## PLAN PARA IMPLEMENTER
 
-> Este bloque es el de la **Fase A**, ya ejecutada. Los de la Fase B y de la primera entrega de la
-> Fase C están más abajo, al final del documento.
+> Este bloque es el de la **Fase A**, ya ejecutada. Los de la Fase B, de la primera entrega de la
+> Fase C y de la Fase D están más abajo, al final del documento.
 
 **Orden de implementación:**
 Dos paquetes en paralelo (§8.12). Dentro de cada uno:
@@ -6028,3 +6664,117 @@ Dos paquetes en paralelo (§10.12), con el contrato de §10.4 como único punto 
 - El diseño supone un solo proceso de backend (§10.2 dice qué se rompe con dos).
 
 **Criterios de aceptación:** CC-1 a CC-29 de §10.11.
+
+---
+## PLAN PARA IMPLEMENTER — Fase D
+
+El diseño completo está en [§11](#11-diseño-de-la-fase-d). Las decisiones de producto están cerradas (§5.5 y la
+limpieza, 16/10/2026). La única pendiente, D1 (§11.14), es operativa y no bloquea la implementación.
+
+**Orden de implementación** (dos paquetes en paralelo, sin archivos en común; el contrato es §11.6):
+
+- **Paquete BE:**
+  - BE-1. En `notificaciones.service.ts`:
+    - `emitirContador(usuarioId)`, público y que nunca tira;
+    - en `crear`, las copias reciben `notificacion:silenciosa` y el principal `notificacion:nueva`;
+    - `marcarLeida` y `marcarTodas` usan `emitirContador`; `marcarTodas` deja el 0 fijo.
+
+    Va primero porque es el contrato.
+  - BE-2. `notificaciones-limpieza.service.ts`: las variables, `limpiar(ahora)`, el `@Cron('0 5 * * *')` con su
+    `try/catch` y el log de `onModuleInit`. Se registra en `notificaciones.module.ts`.
+  - BE-3. Los dos specs (N-1 a N-6 y L-1 a L-8).
+  - BE-4. El script `limpiar-notificaciones-atraso.ts`, probado contra la MySQL local con los datos sembrados de §11.9.
+  - BE-5. `.env.example` y `docs/notificaciones-spec.md`.
+  - BE-6. Verificación: `npx jest src/modules/notificaciones src/modules/imports src/modules/realtime`, la suite
+    completa y **`npm run build`**.
+- **Paquete FE:**
+  - FE-0. Medir la base de `tsc --noEmit -p tsconfig.json` y de la suite.
+  - FE-1. En `NotificacionesContext.tsx`:
+    - el handler de `notificacion:silenciosa` (+1 y `nonce`, sin aviso);
+    - la regla de secuencia de §11.3, en `hidratar`, en los tres eventos, en `marcarLeida`, en `marcarTodas` y al
+      cerrar sesión.
+  - FE-2. Las pruebas FD-1 a FD-8 en `campanita-contexto.test.tsx`. FD-3 sale del `describe('OBSERVADO…')`.
+  - FE-3. La wiki: `08` y `05`, con `revisado` actualizado y `npm run verificar-ayuda`.
+  - FE-4. Verificación: `npm test`, `tsc` sin errores nuevos y `npm run build`.
+
+**Archivos a crear:**
+- `backend/src/modules/notificaciones/notificaciones-limpieza.service.ts`
+- `backend/src/modules/notificaciones/notificaciones-limpieza.service.spec.ts`
+- `backend/src/modules/notificaciones/notificaciones.service.spec.ts`
+- `backend/prisma/scripts/limpiar-notificaciones-atraso.ts`
+
+**Archivos a modificar:**
+- `backend/src/modules/notificaciones/notificaciones.service.ts`:
+  - `emitirContador`;
+  - el evento según sea principal o copia;
+  - `marcarTodas` con la cuenta real;
+  - un `debug` con "1 con aviso, N copias sin aviso".
+- `backend/src/modules/notificaciones/interfaces/crear-notificacion-params.interface.ts`: JSDoc de
+  `incluirUsuariosConPermiso`, que dice que las copias no generan aviso emergente.
+- `backend/src/modules/notificaciones/notificaciones.module.ts`: el provider `NotificacionesLimpiezaService`.
+- `backend/.env.example`: `NOTIFICACIONES_RETENCION_LEIDAS_DIAS=30`, `NOTIFICACIONES_RETENCION_NO_LEIDAS_DIAS=180` y
+  `NOTIFICACIONES_LIMPIEZA_DESACTIVADA=`.
+- `docs/notificaciones-spec.md`: §3.5, §3.6, §4 (paso 12) y una entrada de changelog.
+- `frontend/src/context/NotificacionesContext.tsx`: `notificacion:silenciosa` y la regla de secuencia del contador.
+- `frontend/tests/paginas/campanita-contexto.test.tsx`: `describe('Fase D')` con FD-1 a FD-8. El test OBSERVADO pasa
+  a ser FD-3.
+- `frontend/tests/lib/banco-campanita.tsx`: solo si hace falta un consumidor de `marcarLeida`/`marcarTodas`.
+- `docs/ayuda/03-importacion/08-historial-y-problemas.md` y `docs/ayuda/03-importacion/05-importar-un-archivo.md`.
+- **No se tocan:**
+  - `schema.prisma`;
+  - `imports.service.ts`, `reversion-acciones.service.ts`, `consolidacion.processor.ts`;
+  - `realtime/`;
+  - `permisos-catalogo.ts`;
+  - `NotificacionesPopover.tsx`, `NotificacionesBell.tsx`;
+  - ningún assert de un spec existente.
+
+**Cambios de schema:** ninguno. Sin índice nuevo (§11.4), sin backfill. El `db push` del deploy no hace nada.
+
+**Tests a escribir:**
+- **Backend:**
+  - `notificaciones.service.spec.ts`: N-1 a N-6, las copias silenciosas, el principal con el permiso, sin
+    difusión, el payload idéntico, `marcarTodas` y `emitirContador` que no tira.
+  - `notificaciones-limpieza.service.spec.ts`: L-1 a L-8, los bordes de 30 y 180 días, `leidaEn` contra
+    `creadoEn`, las tandas, el tope, la tanda que no borra, el contador solo a quienes perdieron no leídas, el `AND`
+    del `deleteMany`, las variables y el error del cron.
+- **Frontend:** FD-1 a FD-8 en `campanita-contexto.test.tsx`:
+  - la silenciosa sin aviso;
+  - la nueva con aviso;
+  - la respuesta rezagada;
+  - `marcarLeida` en los dos órdenes;
+  - `marcarTodas` con una nueva en el medio;
+  - las hidrataciones cruzadas;
+  - el logout.
+
+**Páginas de la wiki a tocar:**
+- `docs/ayuda/03-importacion/08-historial-y-problemas.md`, con el párrafo "Qué notificaciones te llegan y cuánto
+  duran";
+- `docs/ayuda/03-importacion/05-importar-un-archivo.md`, con una oración y el enlace.
+
+Correr `cd frontend && npm run verificar-ayuda` y pasar cada página por un agente revisor.
+
+**Skills a consultar:** BE: `nestjs-module`, `amsa-general`, `prisma-migration` (para lo que **no** se hace). FE:
+`react-component`.
+
+**Riesgos durante la implementación:**
+- **Invertir la regla de copia deja al dueño sin aviso.** La copia es `usuarioId !== destinatarioPrincipalId`, nunca
+  "tiene el permiso".
+- **La regla de secuencia del frontend:**
+  - La secuencia se toma **al salir** el pedido, no al volver.
+  - Los eventos del socket siempre se aplican.
+  - Un ajuste relativo (−1 o 0) solo se aplica si nada más nuevo llegó mientras volaba.
+  - Aplicarla al revés corre el globito en el otro sentido.
+- **El `deleteMany` del cron tiene que repetir la condición.** Sin eso, una notificación que se lee entre la lectura
+  y el borrado se borra igual. Y sin la guarda de una tanda que borra 0, el bucle repite las mismas filas hasta el
+  tope.
+- **Fechas:** se calculan en JS y viajan por la API de Prisma. Nada de SQL crudo con `NOW()`: la zona de la sesión
+  de RDS y la del contenedor no coinciden.
+- **El script nunca escribe sin un paso explícito,** y `--dry-run` gana. Lo corre quien orquesta en prod, con el OK
+  del usuario y después del deploy.
+- **Reglas de cada encargo:**
+  - nunca `git stash` (la base se mide con `git show HEAD:`);
+  - `LOG_DIR` al scratchpad en todo arnés;
+  - nada de `npm run lint`;
+  - `npm run build` del backend antes de entregar, porque jest no chequea tipos.
+
+**Criterios de aceptación:** CD-1 a CD-11 de §11.11.

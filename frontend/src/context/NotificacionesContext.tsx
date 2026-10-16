@@ -119,6 +119,14 @@ export const NotificacionesProvider: React.FC<{ children: React.ReactNode }> = (
     /** Número de pedido: una respuesta más vieja que la última aplicada se descarta (llegan desordenadas). */
     const pedidoRef = useRef(0);
     const ultimoAplicadoRef = useRef(0);
+    /**
+     * Secuencia del globito: crece con cada fuente de valor. Un evento del socket se aplica siempre; un pedido HTTP
+     * toma su número al SALIR y solo se aplica si, al volver, nada más nuevo llegó mientras volaba.
+     */
+    const secuenciaNoLeidasRef = useRef(0);
+    const ultimoNoLeidasRef = useRef(0);
+    /** Crece al cerrar sesión: una respuesta de la sesión anterior no se aplica a la siguiente (ni la lista de cargas). */
+    const sesionRef = useRef(0);
 
     const hidratar = useCallback(async () => {
         const hayToken = !!localStorage.getItem('amsa_token');
@@ -126,15 +134,24 @@ export const NotificacionesProvider: React.FC<{ children: React.ReactNode }> = (
         const inicio = Date.now();
         ultimaHidratacionRef.current = inicio;
         const pedido = ++pedidoRef.current;
+        const secuencia = ++secuenciaNoLeidasRef.current;
+        const sesion = sesionRef.current;
         // Independientes: que falle (o no corresponda pedir) una no arrastra a la otra. El contador y la lista
         // paginada (popover) salen del backend; acá se hidratan el contador y las importaciones en curso.
         const [contador, cargas] = await Promise.allSettled([
             obtenerContador(),
             puedeVerImportsRef.current ? obtenerCargasEnCurso() : Promise.resolve<EstadoCargaDto[] | null>(null),
         ]);
+        // Se cerró sesión mientras volaba: no repone el globito ni las cargas de otra persona, ni da por hidratada a la
+        // sesión que entre después.
+        if (sesion !== sesionRef.current) return;
         if (contador.status === 'fulfilled') {
-            setNoLeidas(contador.value.noLeidas);
+            // La hidratación ocurrió (los avisos pueden empezar), se aplique el valor o no.
             hidratadoRef.current = true;
+            if (secuencia > ultimoNoLeidasRef.current) {
+                ultimoNoLeidasRef.current = secuencia;
+                setNoLeidas(contador.value.noLeidas);
+            }
         }
         if (cargas.status === 'fulfilled' && cargas.value !== null && pedido > ultimoAplicadoRef.current) {
             ultimoAplicadoRef.current = pedido;
@@ -150,7 +167,10 @@ export const NotificacionesProvider: React.FC<{ children: React.ReactNode }> = (
     // Al montar con sesión y cada vez que cambia el token (login sin recargar). Sin sesión se limpia todo.
     useEffect(() => {
         if (!token) {
+            sesionRef.current++;
             hidratadoRef.current = false;
+            // Una hidratación en vuelo de la sesión anterior no repone su número.
+            ultimoNoLeidasRef.current = ++secuenciaNoLeidasRef.current;
             setNoLeidas(0);
             setImportsEnCurso([]);
             recibidoEnRef.current.clear();
@@ -198,9 +218,19 @@ export const NotificacionesProvider: React.FC<{ children: React.ReactNode }> = (
     useEffect(() => {
         if (!socket) return;
 
-        const onNotificacionNueva = (data: SocketNotificacionNueva) => {
+        const sumarNotificacion = () => {
+            ultimoNoLeidasRef.current = ++secuenciaNoLeidasRef.current;
             setNoLeidas((prev) => prev + 1);
             setNonce((n) => n + 1);
+        };
+
+        // Copia por permiso (carga de otra persona): cuenta y recarga el popover abierto, pero sin aviso emergente.
+        const onNotificacionSilenciosa = () => {
+            sumarNotificacion();
+        };
+
+        const onNotificacionNueva = (data: SocketNotificacionNueva) => {
+            sumarNotificacion();
             if (!hidratadoRef.current) return;
             // Severidad: un error es error; un resultado que no es limpio es advertencia; el resto, info.
             if (data.tipo === 'IMPORTACION_ERROR') {
@@ -213,6 +243,7 @@ export const NotificacionesProvider: React.FC<{ children: React.ReactNode }> = (
         };
 
         const onContador = (data: SocketContador) => {
+            ultimoNoLeidasRef.current = ++secuenciaNoLeidasRef.current;
             setNoLeidas(data.noLeidas);
         };
 
@@ -251,6 +282,7 @@ export const NotificacionesProvider: React.FC<{ children: React.ReactNode }> = (
         };
 
         socket.on('notificacion:nueva', onNotificacionNueva);
+        socket.on('notificacion:silenciosa', onNotificacionSilenciosa);
         socket.on('notificacion:contador', onContador);
         socket.on('import:iniciada', onImportIniciada);
         socket.on('import:progreso', onEstadoEnCurso);
@@ -258,6 +290,7 @@ export const NotificacionesProvider: React.FC<{ children: React.ReactNode }> = (
 
         return () => {
             socket.off('notificacion:nueva', onNotificacionNueva);
+            socket.off('notificacion:silenciosa', onNotificacionSilenciosa);
             socket.off('notificacion:contador', onContador);
             socket.off('import:iniciada', onImportIniciada);
             socket.off('import:progreso', onEstadoEnCurso);
@@ -267,14 +300,23 @@ export const NotificacionesProvider: React.FC<{ children: React.ReactNode }> = (
     }, [socket]);
 
     const marcarLeida = useCallback(async (id: number) => {
+        const secuencia = ++secuenciaNoLeidasRef.current;
         await apiMarcarLeida(id);
-        setNoLeidas((prev) => Math.max(0, prev - 1));
+        // El backend emite el contador absoluto antes de responder: si ese evento ya llegó, descontar de nuevo lo corre.
+        if (secuencia > ultimoNoLeidasRef.current) {
+            ultimoNoLeidasRef.current = secuencia;
+            setNoLeidas((prev) => Math.max(0, prev - 1));
+        }
         setNonce((n) => n + 1);
     }, []);
 
     const marcarTodas = useCallback(async () => {
+        const secuencia = ++secuenciaNoLeidasRef.current;
         await apiMarcarTodas();
-        setNoLeidas(0);
+        if (secuencia > ultimoNoLeidasRef.current) {
+            ultimoNoLeidasRef.current = secuencia;
+            setNoLeidas(0);
+        }
         setNonce((n) => n + 1);
     }, []);
 

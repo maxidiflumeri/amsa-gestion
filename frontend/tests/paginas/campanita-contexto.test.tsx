@@ -2,12 +2,13 @@
 // Portado del arnés de C1 (10) para C2b. Lo que espera 30 s o más va a tests/lento/campanita.test.tsx.
 import React from 'react';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { NotificacionesProvider } from '@fe/context/NotificacionesContext';
+import { NotificacionesProvider, useNotificaciones } from '@fe/context/NotificacionesContext';
+import { useAuth } from '@fe/context/AuthContext';
 import type { EstadoCargaDto } from '@fe/types/importProgreso';
 import { iso } from '../lib/fabricas';
 import { CONTADOR, EN_CURSO, ListaEnCurso as Lista, TODOS, corriendo, enCola, entrarRef, finalizada, idsEnCurso as ids, itemEnCurso as item, noLeidasMostradas as noLeidas } from '../lib/banco-campanita';
 import { ServidorFalso } from '../lib/servidor-falso';
-import { dormir, esperar, iniciarSesion, montar, pasar, type Montado } from '../lib/montar';
+import { dormir, esperar, iniciarSesion, montar, pasar, toasts, type Montado } from '../lib/montar';
 
 let srv: ServidorFalso; let v: Montado | null = null;
 let lista: EstadoCargaDto[]; let noLeidasServidor: number; let demoraLista = 0;
@@ -182,8 +183,45 @@ describe('lo de la Fase A en NotificacionesContext', () => {
     });
 });
 
-describe('OBSERVADO — la re-hidratación coincide con el alta de la notificación de la carga que terminó', () => {
-    it('con tiempos forzados (el contador se lee ANTES del alta y la respuesta llega DESPUÉS de los eventos) el globito queda uno abajo', async () => {
+// Consumidor mínimo del contexto: expone nonce y las acciones que cambian el globito.
+const ref: { leida: ((id: number) => Promise<void>) | null; todas: (() => Promise<void>) | null; refrescar: (() => Promise<void>) | null; salir: (() => void) | null } = { leida: null, todas: null, refrescar: null, salir: null };
+function Acciones() {
+    const { nonce, marcarLeida, marcarTodas, refrescar } = useNotificaciones();
+    ref.leida = marcarLeida; ref.todas = marcarTodas; ref.refrescar = refrescar; ref.salir = useAuth().logout;
+    return <span data-testid="nonce">{nonce}</span>;
+}
+const nonce = () => Number(document.querySelector('[data-testid="nonce"]')?.textContent);
+const notifNueva = (id: number, over: Record<string, unknown> = {}) => ({ id, tipo: 'IMPORTACION_FINALIZADA', titulo: `Carga ${id} terminó`, mensaje: 'x', payload: { resultado: 'OK' }, rutaAccion: null, creadoEn: iso(Date.now()), ...over });
+
+async function abrirConAcciones(esperarSocket = true) {
+    iniciarSesion(TODOS);
+    v = await montar(<NotificacionesProvider><Lista /><Acciones /></NotificacionesProvider>, { conSocket: true });
+    if (esperarSocket) await esperar(() => srv.sockets.size === 1, { que: 'el socket conectado' });
+    await pasar(500);
+}
+
+describe('Fase D — el globito de no leídas y las cargas ajenas', () => {
+    it('FD-1: notificacion:silenciosa suma al globito y avisa al popover (nonce), pero no muestra aviso emergente', async () => {
+        await abrirConAcciones();
+        expect(noLeidas()).toBe(3);
+        const n0 = nonce();
+        srv.emitir('notificacion:silenciosa', notifNueva(80));
+        await esperar(() => noLeidas() === 4, { que: 'el globito en 4' });
+        await pasar(300);
+        expect(toasts()).toEqual([]);
+        expect(nonce()).toBeGreaterThan(n0);
+        expect(noLeidas()).toBe(4);
+    });
+
+    it('FD-2: notificacion:nueva sigue mostrando el aviso del dueño', async () => {
+        await abrirConAcciones();
+        srv.emitir('notificacion:nueva', notifNueva(81, { titulo: 'Tu carga terminó' }));
+        await esperar(() => toasts().length > 0, { que: 'el aviso' });
+        expect(toasts()).toEqual([{ variante: 'info', texto: 'Tu carga terminó' }]);
+        expect(noLeidas()).toBe(4);
+    });
+
+    it('FD-3 (regresión del OBSERVADO): la respuesta rezagada del contador no baja el globito', async () => {
         lista = [corriendo(201), enCola(203, 1)];
         await abrir();
         expect(noLeidas()).toBe(3);
@@ -192,12 +230,92 @@ describe('OBSERVADO — la re-hidratación coincide con el alta de la notificaci
         lista = [enCola(203, 0)];
         srv.emitir('import:finalizada', finalizada(201));
         await pasar(100);
-        srv.emitir('notificacion:nueva', { id: 77, tipo: 'IMPORTACION_FINALIZADA', titulo: 'Importación finalizada', mensaje: 'x', payload: { resultado: 'OK' } });
+        srv.emitir('notificacion:nueva', notifNueva(77));
         srv.emitir('notificacion:contador', { noLeidas: 4 });
         await pasar(100);
-        const enElMedio = noLeidas();
+        expect(noLeidas()).toBe(4);
         await pasar(800);
-        console.log(`globito de no leídas: antes 3, tras los eventos ${enElMedio}, tras la respuesta rezagada del contador ${noLeidas()} (en el servidor hay 4)`);
-        expect(enElMedio).toBe(4);
+        expect(noLeidas()).toBe(4);
+    });
+
+    it('FD-4: marcarLeida — el contador del socket llega antes que la respuesta del POST: queda en 2, no en 1', async () => {
+        await abrirConAcciones();
+        srv.en('POST', /^\/notificaciones\/(\d+)\/leer$/, () => { srv.emitir('notificacion:contador', { noLeidas: 2 }); return { status: 201, body: {}, demoraMs: 100 }; });
+        await ref.leida!(10);
+        await pasar(300);
+        expect(noLeidas()).toBe(2);
+    });
+
+    it('FD-5: marcarLeida — responde el POST primero y el contador llega 200 ms después: 2 y sigue en 2', async () => {
+        await abrirConAcciones();
+        srv.en('POST', /^\/notificaciones\/(\d+)\/leer$/, () => { setTimeout(() => srv.emitir('notificacion:contador', { noLeidas: 2 }), 200); return { status: 201, body: {} }; });
+        await ref.leida!(10);
+        await pasar(50);
+        expect(noLeidas()).toBe(2);
+        await pasar(400);
+        expect(noLeidas()).toBe(2);
+    });
+
+    it('FD-6: marcarTodas — antes de la respuesta llegan una nueva y contador {1}: queda en 1, no en 0', async () => {
+        await abrirConAcciones();
+        srv.en('POST', /^\/notificaciones\/leer-todas$/, () => {
+            srv.emitir('notificacion:nueva', notifNueva(82));
+            srv.emitir('notificacion:contador', { noLeidas: 1 });
+            return { status: 201, body: {}, demoraMs: 100 };
+        });
+        await ref.todas!();
+        await pasar(300);
+        expect(noLeidas()).toBe(1);
+    });
+
+    it('marcarLeida y marcarTodas sin nada en el medio siguen descontando y poniendo 0', async () => {
+        await abrirConAcciones();
+        srv.en('POST', /^\/notificaciones\/(\d+)\/leer$/, () => ({ status: 201, body: {} }));
+        srv.en('POST', /^\/notificaciones\/leer-todas$/, () => ({ status: 201, body: {} }));
+        const n0 = nonce();
+        await ref.leida!(10);
+        await pasar(100);
+        expect(noLeidas()).toBe(2);
+        await ref.todas!();
+        await pasar(100);
+        expect(noLeidas()).toBe(0);
+        expect(nonce()).toBe(n0 + 2);
+    });
+
+    it('FD-7: dos hidrataciones cruzadas, la más vieja responde última: queda el valor de la más nueva', async () => {
+        await abrirConAcciones();
+        const valores = [{ noLeidas: 3, demoraMs: 600 }, { noLeidas: 5, demoraMs: 50 }];
+        srv.en('GET', CONTADOR, () => { const r = valores.shift()!; return { body: { noLeidas: r.noLeidas }, demoraMs: r.demoraMs }; });
+        const vieja = ref.refrescar!();
+        await pasar(100);
+        const nueva = ref.refrescar!();
+        await Promise.all([vieja, nueva]);
+        await pasar(200);
+        expect(noLeidas()).toBe(5);
+    });
+
+    it('FD-8: cerrar sesión con una hidratación en vuelo deja el globito en 0', async () => {
+        iniciarSesion(TODOS);
+        srv.en('GET', CONTADOR, () => ({ body: { noLeidas: 7 }, demoraMs: 800 }));
+        v = await montar(<NotificacionesProvider><Lista /><Acciones /></NotificacionesProvider>, { conSocket: true });
+        await pasar(200);
+        ref.salir!();
+        // Que React aplique el cierre de sesión ANTES de que llegue la respuesta (si no, la prueba pasa con el contexto
+        // viejo: lo encontró la auditoría de la Fase D).
+        await pasar(0);
+        await pasar(1500);
+        expect(noLeidas()).toBe(0);
+    });
+
+    it('FD-9: cerrar sesión con la lista de cargas en vuelo no repone las cargas de la sesión anterior (auditoría Fase D)', async () => {
+        lista = [corriendo(201)];
+        demoraLista = 800;
+        iniciarSesion(TODOS);
+        v = await montar(<NotificacionesProvider><Lista /><Acciones /></NotificacionesProvider>, { conSocket: true });
+        await pasar(200);
+        ref.salir!();
+        await pasar(0);
+        await pasar(1500);
+        expect(ids()).toEqual([]);
     });
 });

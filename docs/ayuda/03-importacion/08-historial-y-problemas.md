@@ -1,7 +1,7 @@
 <!--
 seccion: Importación de datos
 resumen: Ver qué pasó con una carga, revisar los errores fila por fila, y qué se puede deshacer y qué no.
-revisado: 2026-10-14
+revisado: 2026-10-16
 rutas: /historial-importaciones
 rutaPrincipal: /historial-importaciones
 -->
@@ -123,6 +123,18 @@ Desde la campanita se puede actuar sobre las cargas:
   (*"Importación retomada: quedó en la cola."*) y la ves aparecer en **Importaciones en curso**.
 - **Retomar desde una notificación retoma solo esa remesa**, aunque sea parte de una carga dividida. Para retomar toda
   la división de una vez, usá el encabezado de la división en el Historial.
+
+**Qué notificaciones te llegan y cuánto duran.** Cuando termina una carga tuya (bien, con errores o avisos,
+cancelada, fallida o interrumpida por un reinicio), te llega una notificación a la campanita y, con el sistema
+abierto, un aviso que aparece unos segundos abajo a la derecha de la pantalla: rojo si falló, se canceló, se
+interrumpió por un reinicio o no cargó ninguna fila; naranja si terminó con algunas filas con error, con advertencias
+o sin filas para procesar; azul si salió bien. Una carga que cancelás vos mismo mientras espera en la cola no avisa
+(ver "Cancelar una importación" en [Importar un archivo](/ayuda/importacion/importar-un-archivo)). Si tenés el permiso **Ver importaciones de otros usuarios**, también te
+llegan las notificaciones de las cargas de otras personas, pero **solo a la campanita**: suman al número de sin leer
+y las ves en la lista, sin aviso en pantalla. Mientras esas cargas corren, las ves en **Importaciones en curso**. Las
+notificaciones **leídas se borran solas a los 30 días de haberlas leído**, y las que **nunca leíste, a los 180 días de
+haber llegado**; el borrado se hace de madrugada (05:00, hora de Argentina). Lo que se borra es la notificación: la
+carga sigue en el Historial, con sus errores y su detalle.
 
 ## Buscar, paginar y cuánto tarda en actualizarse
 
