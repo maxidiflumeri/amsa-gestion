@@ -1,8 +1,17 @@
 # Progreso en tiempo real de las importaciones — diagnóstico y plan
 
-> ## Para retomar — estado al 14/10/2026 (leer esto primero)
+> ## Para retomar — estado al 16/10/2026 (leer esto primero)
 >
 > **En prod:** A, B, C1, C2a, C2b, C3a y C3b (C3b desde el 14/10/2026; imagen y deploy en el CHANGELOG).
+>
+> **C3c (el deploy no mata cargas a ciegas): implementada y auditada el 16/10/2026, sin desplegar.** El diseño está en
+> §19 del documento de C3, y lo que cambió al auditar, en §19.16. El deploy tiene tres pasos:
+> 1. el push;
+> 2. el paso en SSM, con `-target` de los dos parámetros (**nunca un `terraform apply` completo**: reemplazaría la
+>    EC2);
+> 3. la protección rige desde el deploy siguiente.
+>
+> El orden está en §19.6.
 >
 > **Desde el 30/09 no hubo ninguna carga real en prod**, y nada de C2 ni de C3 se vio en un navegador. La primera
 > carga real, y la primera acción masiva, son la medición que falta: ritmo (`filas/s`), post-proceso por paso y latido.
@@ -11,16 +20,13 @@
 > - C2 (interfaz): [imports-progreso-c2-spec.md](imports-progreso-c2-spec.md). Lo que cambió al auditar está en §18 y
 >   §19.
 > - C3 (resumen, revertir, deploy): [imports-progreso-c3-spec.md](imports-progreso-c3-spec.md). Lo que cambió al
->   auditar está en §16 (C3a) y §18 (C3b).
+>   auditar está en §16 (C3a), §18 (C3b) y §19.16 (C3c).
 >
 > **Lo que sigue, en este orden:**
-> 1. **C3c — que el deploy no mate cargas a ciegas.** Esbozada en §13.2 del documento de C3. Al recibir `SIGTERM`,
->    cortar la carga en curso con números exactos, como "interrumpida por un reinicio", con el mecanismo de cancelar de
->    C1. Además, `stop_grace_period` en el compose.
->    - Hoy nadie llama a `enableShutdownHooks`, y `node` es el proceso 1 del contenedor: la carga muere con `SIGKILL` a
->      los 10 s.
->    - El compose de la EC2 llega por el parámetro de SSM `_compose`, y eso necesita un `terraform apply`, no un push.
->    - Necesita diseño ejecutable.
+> 1. **Desplegar C3c** (§19.6 del documento de C3) y verificar en el deploy siguiente:
+>    - `StopTimeout` = 100;
+>    - en el log del deploy, la espera;
+>    - en CloudWatch, "Cierre ordenado (SIGTERM) … sale con código 0".
 > 2. **Fase D — notificaciones** (§4, "Fase D"):
 >    - el cron de limpieza de notificaciones (N12 de notificaciones-spec);
 >    - la decisión §5.5, que necesita el OK del usuario: si las cargas ajenas siguen con toast a todos los admins;

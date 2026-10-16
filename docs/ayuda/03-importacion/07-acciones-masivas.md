@@ -127,7 +127,7 @@ Si el servidor se reinicia mientras revierte, la reversión **no se retoma sola*
 interrumpida: H de T** (cuántos cambios alcanzó a deshacer de cuántos) y el botón sigue habilitado, con el
 cartel *"Revertir (sigue desde donde quedó)"*. Apretalo de nuevo: si alcanzó a deshacer algo, el diálogo dice *"Un intento anterior ya
 revirtió R cambios; ahora se deshacen los que faltan."* y sigue exactamente desde ahí, sin repetir lo que ya
-deshizo. Si el servidor se reinició, la pantalla puede seguir diciendo **Revirtiendo** y con el botón bloqueado
+deshizo. Si el reinicio fue ordenado (por ejemplo, una actualización del sistema), pasa a **Reversión interrumpida** en el acto. Si el servidor se cayó, la pantalla puede seguir diciendo **Revirtiendo** y con el botón bloqueado
 hasta unos 4 minutos, hasta que pasa a **Reversión interrumpida**. Si falló por otro motivo, el estado dice **La reversión falló** con el motivo, y se reintenta igual.
 
 Una acción se revierte **una sola vez**: el único caso en que Revertir se vuelve a usar es para terminar una
@@ -249,9 +249,11 @@ revertir: el sistema responde *"Los datos para revertir esta acción no se guard
 soporte.
 
 **¿Y si el servidor se reinició mientras corría la acción?**
-Una carga que se interrumpe **ya no se reinicia sola**: a los pocos minutos sin señal queda **fallida** con
+Si fue un reinicio ordenado (por ejemplo, una actualización del sistema), la carga queda **Interrumpida por un reinicio** en
+el acto, con el motivo *"La importación se interrumpió por un reinicio del servidor cuando llevaba N de M filas."* y los
+números exactos. Si el servidor se cayó, la carga **no se reinicia sola**: a los pocos minutos sin señal queda **fallida** con
 el motivo *"La importación se interrumpió: el servidor se reinició o dejó de responder mientras la
-procesaba."* Los cambios aplicados hasta el corte **se pueden revertir** con el botón **Revertir**, que cubre
+procesaba."* En los dos casos los cambios aplicados hasta el corte **se pueden revertir** con el botón **Revertir**, que cubre
 exactamente lo que alcanzó a hacer. **No vuelvas a cargar el archivo** antes de revertir.
 
 **¿Puedo cancelar una acción masiva que está corriendo?**

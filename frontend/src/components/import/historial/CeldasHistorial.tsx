@@ -74,8 +74,8 @@ export function CeldaFilas({ item }: { item: HistorialItemDto }) {
     const c = item.carga;
     if (!c.terminal) return <Typography variant="body2" color="text.secondary">—</Typography>;
     const multiclaves = item.categoria === 'MULTICLAVES';
-    const piso = c.resultado === 'FALLIDA' && c.cancelada !== true;
-    const titulo = `${multiclaves ? 'Trámites: total / válidos / rechazados' : 'Filas: total / OK / con error'}${piso ? '. En una carga interrumpida son un piso.' : ''}`;
+    const piso = c.resultado === 'FALLIDA' && c.cancelada !== true && c.interrumpidaPorReinicio !== true;
+    const titulo = `${multiclaves ? 'Trámites: total / válidos / rechazados' : 'Filas: total / OK / con error'}${piso ? '. En una carga fallida son un piso.' : ''}`;
     return (
         <Tooltip title={titulo}>
             <Typography variant="body2" component="span">

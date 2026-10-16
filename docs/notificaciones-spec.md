@@ -448,3 +448,18 @@ Diseño: `docs/imports-progreso-c2-spec.md` (§5.8). C2a no cambia cuándo ni a 
 - Cancelada: "La única fila ya procesada quedó cargada." y, en el motivo guardado, "cuando llevaba 1 de 1 fila" / "La única fila ya procesada dio error; …".
 
 Las notificaciones ya guardadas no se modifican.
+
+### 2026-10-16 — Progreso en tiempo real de las importaciones, Fase C entrega 3c (backend)
+
+Diseño: `docs/imports-progreso-c3-spec.md` (§19, y §19.16 para lo que cambió al auditar). Una carga cortada por el
+cierre ordenado del servidor (`SIGTERM` en un deploy) notifica a los mismos destinatarios que cualquier resultado del
+runner:
+- **Tipo y título:** tipo `IMPORTACION_ERROR`, título **"Importación interrumpida por un reinicio"**.
+- **Mensaje:** la primera línea del motivo ("La importación se interrumpió por un reinicio del servidor cuando llevaba
+  37 de 100 filas.") más la misma oración de la cancelada.
+- **`payload`:** lleva `interrumpidaPorReinicio: true`.
+
+**La oración de la cancelada y de la interrumpida, con filas con error.** Antes decía "Las {ok} filas ya procesadas
+quedaron cargadas", que era falso con errores: con 1 OK y 36 errores decía "La única fila ya procesada quedó cargada".
+Ahora dice "De las {ok+err} filas ya procesadas, {ok} quedaron cargadas." o "…, 1 quedó cargada.". Sin errores, y
+sin filas cargadas ("No se cargó ninguna fila."), el texto no cambia. Las notificaciones ya guardadas no se modifican.

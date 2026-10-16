@@ -6,6 +6,148 @@
 
 ---
 
+## [2026-10-16] — Importaciones, entrega C3c: un deploy ya no mata las cargas a ciegas
+
+Última parte de la entrega 3 de la Fase C. Diseño en §19 de
+[docs/imports-progreso-c3-spec.md](docs/imports-progreso-c3-spec.md); lo que cambió al auditar, en §19.16. Después
+queda la Fase D (notificaciones).
+
+**Estado: implementada y auditada el 16/10/2026, sin desplegar.**
+
+**El problema.** En un deploy, Docker manda `SIGTERM` y a los 10 s `SIGKILL`. Nadie atendía el `SIGTERM`: no se
+llamaba a `enableShutdownHooks`, y `node` es el proceso 1 del contenedor. Una carga en curso moría a mitad de un lote y
+el reaper la cerraba a los ~5 min como "se interrumpió", con "al menos N" y sin poder retomarla.
+
+**Ahora** la carga se corta en un punto seguro y queda FALLIDA, con los números exactos y el título "Importación
+interrumpida por un reinicio del servidor". Si no llegó a procesar ninguna fila, se puede retomar. Una reversión de
+C3b queda INTERRUMPIDA en el acto, y Revertir sigue desde ahí.
+
+Backend y frontend se hicieron en paralelo. Hubo dos auditorías, las dos con resultado PASA CON OBSERVACIONES y sin
+bloqueantes:
+- **backend, con la app real** contra MySQL y Redis locales, con `SIGTERM` a mitad de cada tipo de trabajo;
+- **frontend y wiki contra el código.**
+
+Las cuatro decisiones de §19.11 se tomaron con su recomendación, sin respuesta del usuario:
+- **D7:** la carga cortada queda FALLIDA con marca y título propios. No se cierra como cancelada, porque nadie la
+  canceló.
+- **D8:** si el reinicio llega con todas las filas procesadas, el post-proceso no se empieza.
+- **D9:** `deploy.sh` espera hasta 5 min a que no haya trabajos con latido, y después sigue.
+- **D10:** los topes son 75 s de espera, 10 s para cerrar Nest, vigía a los 90 s y `stop_grace_period: 100s`. Los tres
+  primeros se ajustan por entorno.
+
+### Medido con la app real (de la señal a la salida)
+
+| Caso | Tiempo | Resultado |
+|---|---|---|
+| Sin nada corriendo | 39 ms | código 0 |
+| DEUDORES, corte por fila | 66 ms | `ok` = casos de la remesa, exacto |
+| ACTUALIZACIONES, lote de 1.000 | 795 ms | en el borde del lote; ausentes sin tocar |
+| ACCIONES | 68 ms | snapshots = comentarios = `ok` |
+| Reversión | 31 ms | INTERRUMPIDA con 800 de 3.003; Revertir la terminó en el proceso nuevo |
+| División de 3 cortes | 80 ms | el 2 y el 3 arrancaron en el proceso nuevo |
+| ACTUALIZACIONES en el post-proceso, con 8.000 ausentes | 43,5 s | FINALIZADA |
+
+Al levantar después de cada caso, ningún job se volvió a ejecutar y el reaper no tocó las cortadas.
+
+### Backend
+
+- **Cierre ordenado** (`src/common/cierre/`). Es un handler propio de `SIGTERM`/`SIGINT` en `main.ts`, no
+  `enableShutdownHooks`: Nest cierra Prisma y Redis **antes** de esperar a los workers, no tiene tope y su re-envío de
+  la señal no mata al proceso 1. El cierre va en este orden:
+  1. detiene los crons;
+  2. cierra todos los workers de BullMQ, que se encuentran solos, para que no tomen otro job;
+  3. pide el corte a la carga y a la reversión;
+  4. espera hasta 75 s;
+  5. hace `app.close()` con un tope de 10 s y sale con `process.exit`.
+
+  El orden importa: si se cortara primero, el worker tomaría la remesa siguiente de una división. HTTP y socket.io
+  siguen atendiendo durante la espera, así el evento de la carga cortada llega en vivo.
+- **La carga** corta en los puntos de corte de C1, por fila o al terminar el lote. Queda FALLIDA con
+  `resumen.interrupcion`.
+  - `EstadoCargaDto.interrumpidaPorReinicio`, en el DTO y en el evento.
+  - El texto es "La importación se interrumpió por un reinicio del servidor cuando llevaba N de M filas.", seguido del
+    qué hacer de la cancelada.
+  - Notificación "Importación interrumpida por un reinicio".
+  - No escribe `cancelSolicitadaAt`. Si el usuario también canceló, gana la cancelación. Retomar borra la marca.
+  - Una carga que ya está en el post-proceso no se corta.
+- **La reversión** corta entre tandas y queda INTERRUMPIDA con H de T exactos. El job termina `completed`.
+- **Redis:** los dos clientes, Neotel y el lock de consolidación, se cierran con un tope de 2 s.
+- **Se borró** `PrismaService.enableShutdownHooks`. Era código muerto y registraba otros tres handlers.
+- **Infra:**
+  - `stop_grace_period: 100s` en `docker-compose.prod.yml`.
+  - `deploy.sh` espera hasta 5 min a que no haya cargas ni reversiones con latido de menos de 2 min. Consulta el
+    contenedor viejo; si no puede consultar, sigue.
+  - El polling del workflow pasa de 12 a 18 min.
+  - Variables nuevas en `.env.example`: `CIERRE_ESPERA_TRABAJOS_MS`, `CIERRE_APP_MS` y `CIERRE_TOPE_TOTAL_MS`.
+
+### Frontend
+
+- El título "Importación interrumpida por un reinicio del servidor" y el rótulo "Interrumpida por un reinicio", de
+  aviso, en el resultado del asistente, el detalle y el Historial. Los números son exactos: sin el "al menos N".
+- La columna Filas no dice "piso" para la cortada.
+- Contra un backend anterior, que no manda el campo, se ve como hoy.
+- Wiki `03-importacion`: `01`, `05`, `07` y `08`.
+
+### Después de las auditorías
+
+Cada arreglo lleva su test:
+- **Espera vencida: se sale sin cerrar Nest.** Antes, la fase 2 desconectaba Prisma con el lote todavía corriendo, y
+  quedaban errores que parecían una falla real. Termina como un `SIGKILL`, que es lo previsto, pero sin el ruido.
+- **Un socket que no contesta el cierre se corta al segundo.** Una pestaña cuyo equipo murió hacía esperar 10 s y
+  salir con código 1. Medido: código 0 en 1.032 ms.
+- **Si el arranque falla, por ejemplo con el puerto ocupado, el proceso sale con 1 y deja el error en el log.** Esto
+  ya pasaba antes de C3c: quedaba vivo, con los workers tomando jobs.
+- **La notificación de una carga cancelada o interrumpida con filas con error.** Decía "La única fila ya procesada
+  quedó cargada" con 37 procesadas. Ahora dice "De las 37 filas ya procesadas, 1 quedó cargada".
+- **Wiki:**
+  - "si no llegó a procesar ninguna fila" en vez de "si no cargó";
+  - el reinicio que no alcanza a cerrar la carga queda como una caída;
+  - el título nuevo en la tabla del Paso 5;
+  - se borró una frase falsa, anterior a C3c, sobre las canceladas en el Historial.
+- **Deuda** (§19.16):
+  - un `docker ps` que falla saltea la espera sin avisar;
+  - a `deploy.sh` le quedan 202 bytes de margen bajo el tope de 4.096 de SSM;
+  - sin verificar: el PID 1 y que `compose up -d` use el `stop_grace_period` nuevo.
+- **Medición:** «Cerrando ausentes» con 8.000 ausentes tardó 40 s en local. Con el doble ya no entra en la espera:
+  para eso está la espera previa de `deploy.sh`.
+- **Tests:**
+  - backend: 2.249, con `npm run build` OK;
+  - frontend: `npm test` 660 en 44 archivos, `tsc` sin errores nuevos.
+
+### Deploy
+
+**No correr `terraform apply` completo.** El plan del 16/10 reemplaza la EC2 porque cambió el AMI, y eso destruye
+Redis y los uploads.
+
+1. **Push** del backend y el frontend. No hay `db push`. Este deploy todavía mata como antes, porque el contenedor
+   viejo no tiene el handler.
+2. **Parámetros SSM `_compose` y `_deploy_sh`:**
+   - `terraform plan -lock=false -target=aws_ssm_parameter.compose -target=aws_ssm_parameter.deploy_sh -out=c3c.plan`,
+     y comprobar que toca solo esos dos;
+   - `terraform apply c3c.plan`;
+   - verificar con `aws ssm get-parameter`.
+
+   De paso se va `REPORTES_V2_STORAGE_PATH` de `_compose`, que el código no lee.
+3. **Desde el deploy siguiente** rige todo. Verificar:
+   - en el log del deploy, la espera;
+   - en CloudWatch, "Cierre ordenado (SIGTERM) … sale con código 0";
+   - `docker inspect amsa-gestion-backend --format '{{.Config.StopTimeout}}'` = 100.
+
+### Guion de prueba manual (local, con navegador)
+
+1. `cd backend && npm run build && node dist/main`, y anotar el PID. El log dice "Cierre ordenado listo…".
+2. Subir unos miles de filas de Deudores, confirmar y, con la carga en "Procesando", correr `kill -TERM <pid>`.
+3. En un segundo, el resultado dice **"Importación interrumpida por un reinicio del servidor"**, en naranja, con
+   "…llevaba N de M filas." y sin "al menos". El log termina con "sale con código 0".
+4. Llega la notificación "Importación interrumpida por un reinicio".
+5. Al levantar, el Historial dice "Interrumpida por un reinicio" y el tooltip de Filas no habla de piso.
+6. Hacer el mismo corte con un Excel grande mientras dice "Leyendo el archivo": aparece **Retomar**, y la carga entra
+   entera.
+7. Hacer el mismo corte con una acción masiva y después con su reversión: la reversión pasa a "Reversión interrumpida:
+   H de T" en el acto, y "Revertir (sigue desde donde quedó)" la termina.
+
+---
+
 ## [2026-10-14] — Importaciones, entrega C3b: acciones masivas cortables y reversibles
 
 Segunda parte de la entrega 3 de la Fase C. Diseño en §17 de

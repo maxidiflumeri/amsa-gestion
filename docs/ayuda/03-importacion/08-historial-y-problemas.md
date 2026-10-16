@@ -41,7 +41,8 @@ categoría, el estado, las filas, la fecha, la política y los botones.
 | **Leyendo el archivo** · **Procesando N %** · **Post-proceso** | En curso. Procesando muestra *"3.000 de 14.466"* y, si se puede calcular, cuánto falta. Debajo del estado hay una barra fina |
 | **Cancelando…** | Alguien pidió cancelarla y todavía no cortó: se corta al terminar la fila o el lote en curso |
 | **Cancelada** · **Cancelada antes de empezar** | La cortó una persona. Lo ya procesado quedó cargado (en la que se canceló antes de empezar, no se cargó nada) |
-| **No llegó a empezar** · **Fallida** | Se cortó sin una cancelación. La primera no cargó ninguna fila. Si el servidor se reinició o dejó de responder mientras procesaba, la carga se marca sola como fallida a los pocos minutos |
+| **Interrumpida por un reinicio** | El servidor se reinició a propósito (por ejemplo, para actualizar el sistema) mientras procesaba y la cortó de forma ordenada. Lo ya procesado quedó cargado y los números son exactos. Si no llegó a procesar ninguna fila, se puede retomar |
+| **No llegó a empezar** · **Fallida** | Se cortó sin una cancelación. La primera no cargó ninguna fila. Si el servidor se cayó, dejó de responder o se reinició sin llegar a cerrarla mientras procesaba, la carga se marca sola como fallida a los pocos minutos |
 | **Con advertencias** | Las filas se cargaron, pero el cierre de la carga (el post-proceso) no terminó |
 | **Finalizada con errores** | Cargó filas y algunas dieron error |
 | **Sin filas cargadas** | Terminó, pero todas las filas dieron error |
@@ -52,13 +53,14 @@ En una carga de **Acciones masivas**, si se pidió revertirla, debajo del estado
 **Revirtiendo 40 %**, **Revertida**, **Reversión interrumpida: H de T** (cuántos cambios alcanzó a deshacer de cuántos, y el
 motivo) o **La reversión falló**. Se actualiza sola, igual que las cargas.
 
-En las que ya terminaron mal o con salvedades (de **Cancelada** a **Sin filas**), pasando el mouse por el estado ves
+En las que ya terminaron mal o con salvedades (de **Cancelada** a **Sin filas**, incluida **Interrumpida por un reinicio**), pasando el mouse por el estado ves
 el título del resultado y la primera línea del motivo; el motivo entero está en el detalle. Si una carga no se
 puede retomar porque su corte ya figura en otra remesa, la grilla lo dice debajo del estado.
 
 La columna **Filas** muestra, en las cargas que terminaron, el total de filas procesadas, cuántas entraron y cuántas
 dieron error (*"Filas: total / OK / con error"*; en Claves de pago, *"Trámites: total / válidos / rechazados"*). En
-una carga interrumpida son un piso: lo que se alcanzó a contar. En las demás dice **—**.
+una carga fallida o interrumpida por una caída del servidor son un piso: lo que se alcanzó a contar. En una cancelada o una
+interrumpida por un reinicio son exactos. En las demás dice **—**.
 
 **Finalizada no significa "salió bien"**: significa que terminó. Mirá siempre la columna de filas y el
 resultado que mostró el paso 5 (ver [Importar un archivo](/ayuda/importacion/importar-un-archivo)). Una carga
@@ -541,8 +543,9 @@ cargó ninguna fila (la que "no llegó a empezar", por ejemplo); una que ya proc
 ejecutar. El cierre no corrió (la tabla de arriba dice qué es ese cierre en cada categoría) y, en Deudores y
 Deudores y Facturas, hay que borrar la remesa fallida antes de volver a subir el archivo. En Pagos, si entraron
 filas antes del corte, volver a subir el archivo las saltea y sus casos quedan sin consolidar: aplicá el
-mismo criterio que en la tabla de advertencias. Si la causa fue que el servidor se reinició o dejó de
-responder, el motivo de la carga lo dice y trae su propio paso a seguir según la categoría (no es el mismo
+mismo criterio que en la tabla de advertencias. Si la cortó un reinicio ordenado del servidor, el estado es **Interrumpida por un reinicio** y el motivo trae los números exactos y
+lo mismo que una cancelada. Si fue que el servidor se cayó, dejó de
+responder o se reinició sin llegar a cerrarla, el motivo de la carga lo dice y trae su propio paso a seguir según la categoría (no es el mismo
 en Deudores que en Acciones masivas): está en ese mismo apartado de Importar un archivo. Para una carga
 interrumpida rige ese motivo, no el criterio de arriba. En Deudores y Deudores y Facturas el motivo manda
 eliminar la remesa y volver a cargar; si no se puede eliminar (algún caso ya tiene gestión, o la remesa es

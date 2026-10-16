@@ -292,6 +292,7 @@ estados de la lista son los mismos que dice el Historial:
 | **Fallida** | Se cortó después de empezar |
 | **Cancelando…** | Se pidió cancelarla y todavía no cortó |
 | **Cancelada** · **Cancelada antes de empezar** | Alguien la canceló (ver "Cancelar una importación") |
+| **Interrumpida por un reinicio** | El servidor se reinició a propósito (por ejemplo, para actualizar el sistema) mientras la procesaba y la cortó de forma ordenada (ver "Si el servidor se reinició mientras se cargaba") |
 | **No llegó a empezar** | Falló sin haber empezado. Por ejemplo, quedó en la cola sin un trabajo que la procese y el sistema la cerró como fallida |
 
 Los estados terminales dicen **lo mismo en el Historial y en el detalle de la importación**; ver [Historial y
@@ -369,12 +370,14 @@ muestra Descartadas, Nuevos ni Actualizados, ni el ritmo en filas por segundo, n
 para eso, entrá al detalle. Cada carga tiene **Ver detalle** y un ícono para cancelar (el mismo diálogo de
 este paso; en una carga dividida ofrece **Cancelar todo lo que falta**, aunque la remesa que corre ya no se
 pueda cortar). Cuando una carga de adelante termina, la posición de las que esperan puede tardar unos segundos
-en actualizarse. Si una carga se interrumpe, además llega una notificación **"Importación fallida"** con la
-primera oración del motivo y cuántas filas se habían procesado. Si se cancela, la notificación (es de error,
+en actualizarse. Si una carga se interrumpe porque el servidor se cayó, además llega una notificación
+**"Importación fallida"** con la primera oración del motivo y cuántas filas se habían procesado; si la cortó un
+reinicio ordenado, se llama **"Importación interrumpida por un reinicio"** y dice cuántas filas quedaron cargadas
+(o que no se cargó ninguna). Si se cancela, la notificación (es de error,
 no de advertencia) se llama **"Importación cancelada"** y dice cuántas filas quedaron cargadas (o que no se
 cargó ninguna). **No siempre llega**: una carga cancelada en la cola notifica solo al dueño y solo si la
 canceló otra persona. Las notificaciones de una carga con errores o avisos traen **Descargar errores**, y las
-de una carga cancelada o fallida que no procesó ninguna fila traen **Retomar**; el botón no abre el detalle ni
+de una carga cancelada, interrumpida por un reinicio o fallida que no procesó ninguna fila traen **Retomar**; el botón no abre el detalle ni
 marca la notificación como leída. Antes de hacer algo, el sistema consulta cómo está la carga en ese momento
 (la notificación puede ser vieja) y, si ya no corresponde, te lo dice. Retomar desde una notificación vuelve a
 encolar solo esa remesa, aunque sea parte de una carga dividida. En el celular la campanita ocupa toda la
@@ -393,6 +396,7 @@ Cuando la carga termina, la pantalla dice cómo terminó, con un título y, si c
 | **El archivo no tenía filas para procesar** | No había filas para cargar | Si el filtro de la plantilla las descartó: *El filtro de la plantilla descartó las N filas.* Si hay filas de otros cortes de la división: *N filas son de otros cortes de la división.* Las dos oraciones pueden ir juntas |
 | **Importación finalizada con advertencias** | Las filas se cargaron, pero el post-proceso (consolidar, cerrar ausentes, recalcular montos) no terminó. Gana sobre "filas con error": puede haber filas con error y salir con este título | *Se cargaron N filas[ y M dieron error]. Pero el post-proceso no terminó: …* y, según la categoría, qué quedó sin hacer y qué hacer (tabla en [Historial y problemas](/ayuda/importacion/historial-y-problemas)). Termina con *"No hace falta volver a subir el archivo."* |
 | **Importación cancelada** | Alguien pidió cancelar y la carga cortó (ver "Cancelar una importación") | El motivo de la cancelación, tal cual: quién la pidió, cuántas filas llevaba y qué hacer. Los números son exactos |
+| **Importación interrumpida por un reinicio del servidor** | El servidor se reinició de forma ordenada (por ejemplo, al actualizar el sistema) mientras cargaba (ver "Si el servidor se reinició mientras se cargaba") | El motivo tal cual, con los números exactos y qué hacer |
 | **La importación falló** | La carga se cortó | El motivo. Si antes del corte se habían cargado filas: *Antes del corte se cargaron al menos N filas[ y M dieron error]; el cierre de la carga no corrió.* N son las exitosas, y el "al menos" es porque es un piso, no el número exacto (ver "La importación falló: qué hacer") |
 
 Una carga que falló o se canceló **nunca** se muestra como exitosa. Debajo del título van las métricas **Filas
@@ -538,7 +542,7 @@ Si ya está procesando, corta **después de la fila en curso** en Deudores, Deud
 Contactos, Enriquecimiento, Multirregistro y Multiarchivo, y **al terminar el lote en curso** (hasta 1.000
 filas) en Actualizaciones, Facturas y Claves de pago. Mientras no corta, la pantalla muestra el aviso
 *"Se pidió cancelar esta importación…"* (ver "Paso 4"). Los números de una cancelada son **exactos**, a
-diferencia de una carga interrumpida, donde figura "al menos N".
+diferencia de una carga interrumpida por una caída, donde figura "al menos N". Los de una interrumpida por un reinicio también son exactos.
 
 **Cuándo no se puede.** El botón queda deshabilitado, con el motivo debajo:
 
@@ -577,8 +581,8 @@ de origen y E dieron error."* seguido de su oración sobre el cierre; en las dem
 aplicadas y E dieron error; el cierre de la carga no corrió."*; en Acciones masivas, *"De las P filas ya
 procesadas, K quedaron aplicadas y E dieron error. Podés deshacerlas con Revertir desde el Historial…"*).
 
-**Dónde figura.** En el detalle y en la notificación (que no llega siempre: ver "Paso 4") dice **Cancelada**. El **Historial todavía no la
-distingue**: la muestra como **FALLIDA**, igual que los reportes que usan el estado de la remesa. Cancelar libera el
+**Dónde figura.** En el Historial, en el detalle y en la notificación (que no llega siempre: ver "Paso 4") dice **Cancelada**. Los
+reportes que usan el estado de la remesa la muestran como **FALLIDA**. Cancelar libera el
 bloqueo de una importación por vez: podés cargar otra.
 
 ---
@@ -590,12 +594,13 @@ con el progreso en cero. No hay que volver a subir el archivo ni se crea otra re
 a leer al procesar: si la falla era de la plantilla y la corregiste (el caso típico: faltaba el estado
 inicial), la corrección vale.
 
-**Cuándo se ofrece.** Solo cuando la carga **no cargó ninguna fila**. Hay dos situaciones:
+**Cuándo se ofrece.** Solo cuando la carga **no llegó a procesar ninguna fila**. Hay dos situaciones:
 
 1. **Nunca arrancó:** quedó en la cola sin trabajo y el sistema la cerró como "no llegó a empezar", o se
    canceló mientras esperaba en la cola.
-2. **Arrancó y falló o se canceló antes de la primera fila:** por ejemplo, una plantilla sin estado inicial,
-   un paquete que no se pudo leer o una cancelación mientras leía el archivo.
+2. **Arrancó y falló, se canceló o la cortó un reinicio ordenado del servidor antes de procesar la primera
+   fila:** por ejemplo, una plantilla sin estado inicial, un paquete que no se pudo leer, o una cancelación o un
+   reinicio mientras leía el archivo.
 
 **Retomar no arregla nada que esté en el archivo.** Vuelve a cargar la misma remesa con el mismo archivo; lo
 único que se relee es la plantilla. Si el problema es el archivo, hay que eliminar la remesa y volver a subir
@@ -604,8 +609,8 @@ encuentra(n) en el disco N de los M archivo(s) de la remesa: … Volvé a crear 
 de nuevo."*
 
 **Cuándo no.** Una carga que **ya procesó filas** no se puede retomar, en ninguna categoría: rige lo que
-dice su motivo (ver "La importación falló: qué hacer"). Una carga interrumpida que llegó a arrancar nunca es
-retomable, aunque su contador diga cero. Tampoco se pueden retomar las confirmadas antes de que existiera
+dice su motivo (ver "La importación falló: qué hacer"). Una carga interrumpida porque el servidor se cayó, que llegó a arrancar, nunca es
+retomable, aunque su contador diga cero; la cortada por un reinicio ordenado sí, si no llegó a procesar ninguna fila. Tampoco se pueden retomar las confirmadas antes de que existiera
 Retomar (octubre de 2026): su motivo sigue diciendo que hay que volver a importar el archivo. Si intentás retomar una que
 no corresponde, el sistema responde, por ejemplo, *"Esta importación ya procesó filas: no se puede retomar.
 Mirá el motivo de la falla para saber qué hacer."* Re-ejecutar una remesa sobre lo que ya se cargó **no
@@ -727,7 +732,25 @@ dice su motivo, más abajo, y no esta lista):
 - **Otras categorías:** el cierre que no corrió es el de la misma tabla; ahí dice qué quedó pendiente y
   qué hacer.
 
-**Si la carga se interrumpió.** Si el servidor se reinició o dejó de responder mientras procesaba, la carga
+**Si el servidor se reinició mientras se cargaba.** Cuando el sistema se actualiza, el servidor se reinicia y corta
+las cargas que están en curso en el momento. Si pasa, el título es **"Importación interrumpida por un reinicio del
+servidor"**, el estado en el Historial y en el detalle es **Interrumpida por un reinicio**, y la notificación de la
+campanita se llama **"Importación interrumpida por un reinicio"**. El motivo empieza así, con los números
+**exactos** (no hay un "al menos"):
+
+> La importación se interrumpió por un reinicio del servidor cuando llevaba N de M filas.
+
+(o *"…cuando llevaba N filas."* si no se sabía el total) y sigue, en otro párrafo, con lo mismo que una carga
+cancelada: qué quedó cargado, que el cierre de la carga no corrió y qué hacer según la categoría (eliminar y volver
+a subir en Deudores y Deudores y Facturas, **Revertir** en Acciones masivas, avisar a soporte en las demás). Si la
+carga todavía no había llegado a procesar ninguna fila (por ejemplo, la cortó mientras leía el archivo), el detalle
+ofrece **Retomar** (ver "Retomar una importación"), sin volver a subir el archivo. Si alguna fila ya se había
+procesado, aunque haya dado error, no se puede retomar. Si el reinicio llegó cuando ya se habían procesado todas las filas, el cierre de la
+carga tampoco se empieza: la carga queda cortada y el motivo lo dice. En cambio, si ya estaba en el post-proceso y
+alcanza a terminar mientras el servidor espera, la carga termina normal; si no alcanza, se corta con el servidor y
+queda como en el caso siguiente.
+
+**Si el servidor se cayó o no alcanzó a cerrar la carga.** Si el servidor dejó de responder (o se cayó sin avisar) mientras procesaba, o se reinició sin llegar a cerrar la carga, la carga
 **no se vuelve a ejecutar sola**: a los pocos minutos sin señal (normalmente entre 6 y 7) se marca como
 fallida, con un motivo que empieza así:
 

@@ -7,7 +7,10 @@
 >   [§17](#17-c3b-diseño-ejecutable).
 >   Lo que cambió al auditarla está en [§18](#18-lo-que-cambió-en-c3b-después-de-la-auditoría-14102026), que manda
 >   sobre §17.
-> - **C3c esbozada** (§13.2).
+> - **C3c diseñada, implementada y auditada el 16/10/2026, sin desplegar.** El diseño ejecutable está en
+>   [§19](#19-c3c-diseño-ejecutable) (el esbozo era §13.2). Lo que cambió al auditarla está en
+>   [§19.16](#1916-lo-que-cambió-en-c3c-después-de-la-auditoría-16102026), que manda sobre §19.1 a §19.15. El deploy
+>   necesita un paso en SSM, con `-target`: **nunca un `terraform apply` completo** (§19.6).
 >
 > Architect, 14/10/2026, sobre HEAD `38a25c2` (árbol limpio; A, B, C1, C2a y C2b en prod). Las referencias
 > `archivo:línea` son contra ese commit. Continúa [imports-progreso-realtime-spec.md](imports-progreso-realtime-spec.md)
@@ -648,6 +651,13 @@ snapshots van **en la misma transacción que cada caso** y no por lote (decidido
 de la reversión vive en una tabla nueva, `reversion_accion`, y cada snapshot se marca con `revertidoEn`.
 
 ### 13.2 C3c — El deploy no mata cargas a ciegas
+
+Reemplazado por el diseño ejecutable de [§19](#19-c3c-diseño-ejecutable). Lo que cambió respecto de este esbozo: no se
+usa `enableShutdownHooks` sino un handler propio que drena antes de `app.close()` (Nest cierra Prisma y Redis antes que
+los workers, y su re-envío de la señal no mata al PID 1); la carga cortada queda FALLIDA con una marca propia y no con el
+texto genérico de interrupción; la reversión también se corta; la gracia es de 75 s con `stop_grace_period: 100s`;
+`deploy.sh` espera hasta 5 min (D9); y el compose llega con un `terraform apply -target`, porque un `apply` completo
+reemplaza la EC2.
 
 **Lo que se leyó** (§15): `main.ts` no llama a `app.enableShutdownHooks()` y `PrismaService.enableShutdownHooks`
 (`prisma.service.ts:21-37`) no se llama nunca; el contenedor corre `node dist/main` como PID 1 (`Dockerfile.backend`) y
@@ -1688,3 +1698,654 @@ sus snapshots y los contadores exactos», seguido de «reintentar una reversión
   scratchpad. El `db push` local no se fuerza con `--accept-data-loss`.
 
 **Criterios de aceptación:** los de §17.15.
+
+---
+
+## 19. C3c: diseño ejecutable
+
+Architect, 16/10/2026, sobre HEAD `3ddc5f1` (árbol limpio; A…C3b en prod). Las referencias `archivo:línea` son contra
+ese commit. Reemplaza al esbozo de §13.2. Qué se verificó y qué es suposición: §19.12.
+
+**La idea en seis líneas.** (1) Un handler propio de `SIGTERM`/`SIGINT` en `main.ts`, no `enableShutdownHooks`: primero
+**drena** (cierra los workers para que no tomen otro job y pide el corte a la carga y a la reversión en curso), después
+`app.close()` con tope, después `process.exit`. (2) La carga corta en los puntos de corte de C1 (por fila o por lote) y
+cierra **FALLIDA con números exactos**, con la marca `resumen.interrupcion` y el texto "se interrumpió por un reinicio
+del servidor"; si no entregó filas, se puede retomar. (3) La reversión corta entre tandas y queda INTERRUMPIDA en el
+acto, con H de T exactos. (4) Topes: 75 s de drenaje, 10 s de Nest, vigía a los 90 s, `stop_grace_period: 100s`. (5)
+`deploy.sh` espera hasta 5 min a que no haya trabajos con latido antes del `db push`. (6) El compose y el `deploy.sh`
+llegan a la EC2 **solo** con un `terraform apply -target` de los dos parámetros: un `apply` completo **reemplaza la
+EC2** (§19.6).
+
+### 19.1 Alcance
+
+| Entra | No entra (y por qué) |
+|---|---|
+| Cierre ordenado del proceso ante `SIGTERM`/`SIGINT`, con tope | Puntos de corte dentro del post-proceso (backlog de §13.4: falta la medición) |
+| Carga de imports (todas las categorías, ACCIONES incluida) cortada con números exactos | Reanudar sola una carga o una reversión cortada (D4 y la regla de C1: nada se re-ejecuta solo) |
+| Reversión de C3b cortada entre tandas | Cortar los jobs de consolidación batch y de reportes: esperan o mueren como hoy (§19.3) |
+| Los otros workers: dejan de tomar jobs; el que corre tiene la misma espera | Cortar crons que ya están corriendo (los de madrugada): se detienen los que no arrancaron |
+| `stop_grace_period`, espera previa en `deploy.sh`, polling del workflow | Dos contenedores a la vez (rolling): el compose no lo hace y no hace falta |
+| Frontend: el título y el rótulo de una carga cortada por un reinicio | — |
+
+### 19.2 El orden de cierre
+
+**Lo que hace Nest hoy si se llamara a `enableShutdownHooks`** (leído en `node_modules/@nestjs/core@11.1.8`,
+`nest-application-context.js:195-222` y `nest-application.js:47-55`, y en `@nestjs/bullmq@11.0.4`,
+`bull.explorer.js:32-33`):
+
+1. `onModuleDestroy` de todos los módulos: `PrismaService.$disconnect()` (`prisma.service.ts:39-42`), `quit()` de los
+   clientes Redis de Neotel (`neotel-redis.service.ts:61-67`) y del lock de consolidación
+   (`consolidacion-redis-lock.service.ts:51-57`).
+2. `beforeApplicationShutdown`: el orquestador de `@nestjs/schedule` detiene los crons.
+3. `dispose()`: cierra socket.io y después el servidor HTTP.
+4. `onApplicationShutdown`: **recién acá** `@nestjs/bullmq` llama a `worker.close()`, que espera el job en curso.
+5. Saca sus listeners y se re-envía la señal (`process.kill(process.pid, signal)`).
+
+Es el orden equivocado para nosotros (la base y Redis se cierran **antes** de esperar al job), no tiene tope, y el paso 5
+no mata al proceso 1 (abajo). Por eso **no se llama a `enableShutdownHooks`** y se borra el método muerto
+`PrismaService.enableShutdownHooks` (`prisma.service.ts:21-37`), que además registraría otros tres handlers.
+
+**El orden nuevo** (`instalarCierreOrdenado(app)`, llamado al final de `bootstrap()` en `main.ts`):
+
+```
+SIGTERM o SIGINT (la primera; una segunda solo loguea warn "ya se está cerrando")
+  t0 ; vigía = setTimeout(salir(1) con log error, CIERRE_TOPE_TOTAL_MS).unref()          // 90 s
+  FASE 1 — drenar (CierreOrdenadoService.drenar, tope CIERRE_ESPERA_TRABAJOS_MS)          // 75 s
+     a. log intent: la señal, los trabajos en curso (trabajosEnCurso() de cada cortable) y el tope
+     b. detener los crons (SchedulerRegistry.getCronJobs() → stop()), cada uno en try/catch
+     c. worker.close() de TODOS los WorkerHost (DiscoveryService), sin await todavía      // ANTES del corte
+     d. cortarPorCierre() de cada provider que lo implemente (ImportService, ReversionAccionesService)
+     e. Promise.race([ todos los close(), dormir(tope) ])
+     f. log done con ms, o warn con lo que sigue en curso (trabajosEnCurso() otra vez y las colas sin cerrar)
+  FASE 2 — Promise.race([ app.close(señal), dormir(CIERRE_APP_MS) ])                        // 10 s
+     (onModuleDestroy → beforeApplicationShutdown → socket.io y HTTP → onApplicationShutdown; worker.close() ya
+      está resuelto y BullMQ devuelve la misma promesa: `worker.js:726-729`)
+  log "Cierre ordenado terminado en N ms; sale con código C" ; salir(C)   // 0 si las dos fases cerraron, 1 si no
+```
+
+- **Por qué `worker.close()` va antes del corte (c antes de d).** Si se corta primero, la carga cierra, el job termina y
+  el worker toma el siguiente de la cola (la remesa 2 de una división) antes de que se cierre. `close()` deja de pedir
+  jobs en el acto y sigue renovando el lock del que corre hasta que termina (`worker.js:726-760`: primero
+  `whenCurrentJobsFinished`, después `lockManager.close()`).
+- **HTTP y socket.io siguen atendiendo durante la fase 1.** Así el `import:finalizada` de la carga cortada y el
+  `accion:revertir:terminada` llegan en vivo, y quien esté usando la app sigue hasta el último momento. Lo que se pida
+  en ese rato (confirmar una carga, pedir una reversión) entra a la cola y lo toma el proceso nuevo. Un reporte
+  sincrónico en vuelo tiene los 10 s de la fase 2.
+- **Prisma y Redis se cierran al final** (fase 2), cuando ya no queda trabajo vivo. Si la fase 1 venció con un job
+  todavía corriendo (un post-proceso largo), ese job sigue con Prisma reconectándose solo o fallando: termina igual que
+  hoy con `SIGKILL` (§19.7).
+- **Un job que entra en la ventana de `close()`** (BullMQ ya lo había traído): `ImportService` crea su tracker con el
+  corte ya pedido (§19.4.2), así que corta antes de la primera fila y queda retomable.
+- **Los topes salen del entorno**, con estos valores por defecto y acotados al leerlos: `CIERRE_ESPERA_TRABAJOS_MS`
+  75000 (entre 1000 y 600000), `CIERRE_APP_MS` 10000, `CIERRE_TOPE_TOTAL_MS` 90000 (nunca menos que la suma de los otros
+  dos más 2 s). Van a `.env.example`. En desarrollo conviene bajarlos: `nest start --watch` reinicia con `SIGTERM` y
+  esperaría a una carga en curso.
+
+**Por qué 75 s.** El peor punto de corte es el **lote** de los processors con `processBatch` (ACTUALIZACIONES,
+FACTURAS, MULTICLAVES: `imports.service.ts:3669`, hasta `IMPORTS_BATCH_SIZE` = 1000 filas). No hay medición de cuánto
+tarda un lote en prod; la única cifra es la del diagnóstico (DEUDORES 108: ~51 s cada 1.000 filas), que es un camino
+**por fila** y por eso corta en menos de un segundo, pero se toma como cota de un lote. 75 s = un lote de ~50 s, una
+lectura de Excel que bloquea el event loop (el handler recién corre cuando termina) y el cierre. La primera carga real
+que se corte deja la medición en el log (`pedido hace N ms`, §19.9): con eso se ajusta.
+
+**El proceso 1.** `node dist/main` es el PID 1 del contenedor (`Dockerfile.backend:26`, sin `init` en el compose).
+- El kernel solo le entrega a un PID 1 las señales para las que instaló un handler (pid_namespaces(7)). Hoy no hay
+  ninguno: Docker manda `SIGTERM`, nadie lo atiende y a los 10 s llega el `SIGKILL`. Con cualquier handler, el `SIGTERM`
+  llega.
+- Con `enableShutdownHooks`, el paso 5 (`process.kill(pid, señal)` sin listeners) **se descarta** por la misma regla: el
+  proceso solo sale si el event loop queda vacío, y si queda un timer o un socket abierto espera al `SIGKILL` del
+  `stop_grace_period`. Cada deploy tardaría 100 s de más.
+- Con el handler propio y el `process.exit` explícito, PID 1 deja de importar. **No hace falta `init: true` ni tini**:
+  no hay procesos hijos que cosechar (ningún `child_process` en `backend/src`, y Prisma 6 usa el motor como librería: no
+  hay `engineType` en `schema.prisma`). Se deja fuera para que el cambio del compose sea una línea.
+
+### 19.3 Qué pasa con cada trabajo largo
+
+| Trabajo | Punto de corte | Cómo queda | ¿Retomable? | Qué ve el usuario |
+|---|---|---|---|---|
+| Carga, camino por fila (DEUDORES, DEUDORES_Y_FACTURAS, PAGOS, CONTACTOS, ENRIQUECIMIENTO, MULTIRREGISTRO, MULTIARCHIVO, ACCIONES) | La fila siguiente (`imports.service.ts:3679-3682`); una fila de MULTIARCHIVO tarda hasta 0,37 s | FALLIDA, `ok + err` exactos, sin post-proceso, `resumen.interrupcion` | Solo si no entregó ninguna fila (`resumen.sinFilasEntregadas`) | "Importación interrumpida por un reinicio del servidor" con el texto de §19.4.4 |
+| Carga, camino por lote (ACTUALIZACIONES, FACTURAS, MULTICLAVES) | Al terminar el lote en curso (`:3669`) | Ídem, con los lotes completos | Ídem | Ídem |
+| Carga leyendo un Excel o parseando un paquete | Después de la lectura (`cederYReleerCancelacion`, `:4118-4130`, ya mira la bandera) | Ídem, `sinFilasEntregadas` | **Sí** | Ídem, con «Retomar» |
+| Carga con todas las filas procesadas y el post-proceso sin empezar | `:3979` | Ídem: el post-proceso **no** arranca (D8) | No | Ídem; el texto dice que el cierre no corrió |
+| Carga en el post-proceso (`afterAll`) | Ninguno | Si termina dentro de los 75 s: FINALIZADA normal. Si no: muere con el proceso y el reaper la cierra a los ~5 min, como hoy | No | Lo de hoy |
+| Carga en cola (no arrancó) | — | Sigue EN_COLA; la toma el proceso nuevo | — | "En cola" durante el deploy |
+| Acción masiva (ACCIONES) | La fila siguiente (cada caso es su transacción, §17.5.1) | Ídem; lo aplicado tiene sus snapshots | No: se deshace con Revertir | El texto manda a Revertir |
+| Reversión de C3b | Antes de la tanda siguiente (`reversion-acciones.service.ts:388`); una tanda de 200 tarda ~55 ms (3.600 snapshots/s, §18) | INTERRUMPIDA en el acto, con H de T exactos | Sí: Revertir sigue desde ahí | El chip "Reversión interrumpida: H de T" (ya existe) |
+| Reversión en cola | — | Sigue EN_COLA con su job en `waiting`; la toma el proceso nuevo (el cron no la toca: `:621-626`) | — | "En cola" |
+| Consolidación batch (`consolidacion-queue`) | Ninguno | Si termina en 75 s, normal. Si no, muere; BullMQ la vuelve a correr **una vez** al levantar (`maxStalledCount` por defecto = 1), como hoy | — | Lo de hoy |
+| Reporte async (cola `reportes`) | Ninguno (su `isCancelled` es del usuario) | Ídem | — | Lo de hoy |
+| Crons (reaper, mora, promesas, convenios, limpieza de reportes) | — | Los que no arrancaron no arrancan; uno que está corriendo no se espera | — | — |
+
+### 19.4 Backend — lógica crítica
+
+#### 19.4.1 El coordinador (`src/common/cierre/`, nuevo)
+
+- `cortable-por-cierre.ts`: la interfaz.
+
+  ```ts
+  /** Un servicio con trabajo largo que sabe cortar en un punto seguro. */
+  export interface CortablePorCierre {
+      /** Pide el corte. Idempotente, sin IO, nunca tira. */
+      cortarPorCierre(): void;
+      /** Para el log: una línea por trabajo vivo, p. ej. "carga remesa=150 ACTUALIZACIONES 3.000/10.000 PROCESANDO". */
+      trabajosEnCurso(): string[];
+  }
+  ```
+
+- `cierre-ordenado.service.ts`: `CierreOrdenadoService.drenar(señal, topeMs): Promise<{ completo: boolean; ms: number }>`
+  con la fase 1 de §19.2. Usa `DiscoveryService` de `@nestjs/core`: los workers son las instancias de `WorkerHost`
+  (`.worker`, `@nestjs/bullmq/dist/hosts/worker-host.class.d.ts`), y los cortables, los providers con
+  `typeof instance.cortarPorCierre === 'function'`. Así un worker nuevo queda incluido sin tocar nada. Los crons, por
+  `SchedulerRegistry` (lo exporta `ScheduleModule.forRoot()`, que es global). Nunca tira: cada paso en su try/catch.
+- `cierre.module.ts`: `@Module({ imports: [DiscoveryModule], providers: [CierreOrdenadoService], exports: [...] })`,
+  importado en `app.module.ts`.
+- `instalar-cierre.ts`: `instalarCierreOrdenado(app, deps?)`, con la secuencia de §19.2. `deps` (proceso, `salir`,
+  reloj) es para el spec; por defecto `process` y `process.exit`.
+- **Sin cambiar constructores**: `ImportService` y `ReversionAccionesService` no reciben nada nuevo. Los specs que los
+  construyen a mano (decenas) no se tocan.
+
+#### 19.4.2 La carga (`imports.service.ts`, `progreso/progreso-tracker.ts`)
+
+**Tracker** (sin cambiar nada de lo que existe):
+- `avisarCortePorCierre()`: prende `cortePorCierre` y llama a `marcarPedido()` (`:295-299`), así todos los puntos de
+  corte de C1 (que miran `cancelacionPedida`) lo ven. No escribe.
+- Un flag aparte, `cancelacionDeUsuario`, que prenden `avisarCancelacion()` (`:290`) y los dos lugares donde la
+  compuerta o el reloj leen `cancelSolicitadaAt != null`. Sirve para decidir el cierre si llegan los dos pedidos.
+- `cerrarPorReinicio(c, { texto, sinFilasEntregadas })`: **el mismo contrato que `cancelar`** (`:775-835`: nunca tira,
+  detiene el reloj, espera la escritura en vuelo, escribe por la compuerta sin `abortarSiCancelada`, emite
+  `import:finalizada`), con `resultado: 'FALLIDA'` y la mezcla
+  `{ interrupcion: { motivo: 'REINICIO' }, ...(sinFilasEntregadas ? { sinFilasEntregadas: true } : {}) }`. Conviene un
+  privado común con `cancelar` que reciba el resultado y la mezcla; los specs de `cancelar` no cambian. **El evento
+  emitido tiene que traer `interrumpidaPorReinicio: true`**: la foto que se emite lleva el `resumen` ya mezclado (hoy
+  `cancelar` no lo necesita porque su marca es el `resultado`).
+
+**Servicio**:
+- `private cierrePedido = false`. `cortarPorCierre()`: lo prende y llama a `avisarCortePorCierre()` de cada tracker de
+  `cargasVivas` (`:228`). `trabajosEnCurso()`: una línea por carga viva con `tracker.estado` y `faseActual`.
+- Runner, justo después de `this.cargasVivas.set(remesaId, tracker)` (`:3493`): `if (this.cierrePedido)
+  tracker.avisarCortePorCierre()` (el job que entró en la ventana de `close()`).
+- `catch` del runner (`:4088-4090`):
+
+  ```
+  si error es CargaCanceladaError:
+      si tracker.cortePorCierre y !tracker.cancelacionDeUsuario → return cerrarCargaPorReinicio(…mismos argumentos…)
+      si no → return cerrarCargaCancelada(…)            // sin cambios: si el usuario también pidió, gana el usuario
+  ```
+
+- `cerrarCargaPorReinicio` (privado, al lado de `cerrarCargaCancelada`, `:3116-3149`): arma el texto con
+  `textoCancelacion({ …, motivo: 'REINICIO' })` → `tracker.cerrarPorReinicio(c, { texto, sinFilasEntregadas })` → si
+  `cerradaPorFuera`, warn y `{ ignorado: true }` → notifica (`notificarResultadoCarga`) → audita `IMPORT_FAIL`, WARN,
+  "Importación interrumpida por un reinicio del servidor remesa N" con `{ ok, err, procesadas, pedidoHaceMs }` → log
+  warn (§19.9) → `return { total, ok, err, interrumpida: true }`. **No relanza**: no es una falla.
+- Retomar (`:2633`): además de `sinFilasEntregadas` y `cancelacion`, se saca `interrupcion` del `resumen`. Si no, una
+  retomada que después falla por otra cosa diría "interrumpida por un reinicio".
+- **No se escribe `cancelSolicitadaAt`**: es el pedido de una persona. El corte por cierre vive en memoria; si el
+  proceso muere antes de cerrar, no queda rastro y la cierra el reaper (§19.7).
+
+**`bullmq/imports.processor.ts`** (`:89-100`): un resultado con `interrumpida: true` se trata como `cancelada`: warn
+"Importación interrumpida por el cierre del servidor remesa=… job=…", sin `IMPORT_OK`. El job termina `completed`: al
+levantar, BullMQ no lo da por perdido.
+
+#### 19.4.3 El contrato
+
+- `ResumenCarga` (`estado-carga.types.ts:16-28`): `interrupcion?: { motivo: 'REINICIO' }`.
+- `EstadoCargaDto`: `interrumpidaPorReinicio: boolean` =
+  `terminal && estadoProceso === 'FALLIDA' && !cancelada && resumen?.interrupcion?.motivo === 'REINICIO'`. `false` en
+  la rama sin fila de progreso (`estado-carga.ts:~263`). Una pestaña vieja lo ignora y ve una FALLIDA con su texto.
+- Sin cambio de schema: `resumen` ya es JSON. Sin `db push`.
+
+#### 19.4.4 Textos (`progreso/estado-carga.ts`)
+
+`textoCancelacion` (`:496`) gana `motivo?: 'CANCELACION' | 'REINICIO'`; sin él, devuelve **exactamente** lo de hoy. Con
+`REINICIO` cambia solo la primera línea (no usa `por`):
+
+| Caso | Primera línea |
+|---|---|
+| Con total | "La importación se interrumpió por un reinicio del servidor cuando llevaba {procesadas} de {total} filas." |
+| Sin total | "La importación se interrumpió por un reinicio del servidor cuando llevaba {procesadas} filas." |
+
+El segundo párrafo es el de la cancelada, por categoría y con los números exactos (`:507-555`): «Retomar» si no entregó
+filas; eliminar y volver a subir en DEUDORES; soporte en ACTUALIZACIONES y el resto; Revertir en ACCIONES. Todos siguen
+siendo ciertos: el corte es el mismo y el post-proceso no corrió.
+
+`textoNotificacion` (`:562`): un caso antes del `switch`, igual al de la cancelada (`:565-576`), con título
+**"Importación interrumpida por un reinicio"** y tipo `IMPORTACION_ERROR`.
+
+#### 19.4.5 La reversión (`reversion/reversion-acciones.service.ts`)
+
+- `private cierrePedido = false` y `private enCurso: { remesaId; hechos; total } | null` (lo actualiza cada tanda).
+  `cortarPorCierre()` y `trabajosEnCurso()`.
+- Al principio de cada vuelta del `for (;;)` (`:388`): si `cierrePedido`, `return this.cerrarPorReinicio(remesaId,
+  jobId, empresaId, t0)`. La tanda en curso termina entera (es una transacción).
+- `cerrarPorReinicio`: lee la fila; `updateMany({ remesaId, estado: 'REVIRTIENDO', jobId } → estado INTERRUMPIDA,
+  error, finishedAt)`, con el texto «Se interrumpió por un reinicio del servidor: se revirtieron {hechos} de {total}.
+  Revertir de nuevo sigue desde ahí.» (mismo formato de números que el cron, `:618`). Si afectó 1, `anunciarCierre(fila,
+  empresaId, false)` (`:649-657` hace lo mismo); si afectó 0, warn (otro la cerró). Log warn con H, T y los ms desde el
+  pedido. **No relanza**: el job termina `completed`.
+- El cron (`:607-630`) no cambia: sigue cubriendo la muerte sin cierre.
+
+#### 19.4.6 Redis y Prisma
+
+- `neotel-redis.service.ts:61` y `consolidacion-redis-lock.service.ts:51`: con `client.status` `wait` o `end` (nunca
+  conectó, o ya cerró), `disconnect()` sin `quit()`; si no, `Promise.race([quit(), dormir(2000)])` y `disconnect()` en
+  el `finally`. Con `lazyConnect` y Redis caído, `quit()` encola y reintenta ~10 s antes de rechazar
+  (`maxRetriesPerRequest` 20): suposición de la lectura de ioredis, se prueba en §19.10.3.
+- `prisma.service.ts`: se borra `enableShutdownHooks` (y el import de `INestApplication`). `onModuleDestroy` queda.
+
+### 19.5 Frontend (mínimo)
+
+- `types/importProgreso.ts`: `interrumpidaPorReinicio?: boolean` (opcional: un backend anterior no lo manda).
+- `utils/estadoCarga.ts`:
+  - `presentarResultado` (`:324`): antes del `switch`, como la cancelada (`:334-336`): severidad `warning`, título
+    **"Importación interrumpida por un reinicio del servidor"**, detalle = `estado.error` tal cual. **Sin** el "Antes del
+    corte se cargaron al menos…" de `:378-381`: los números son exactos.
+  - `rangoGravedad` (`:395`): el mismo rango que la cancelada.
+  - El rótulo del Historial (`:686`): "Interrumpida por un reinicio", `warning`.
+- `components/import/historial/CeldasHistorial.tsx:77`: `piso` excluye a la interrumpida por reinicio.
+- La reversión no cambia: el chip "Reversión interrumpida: H de T" ya existe (`utils/reversionAccion.ts:76`).
+
+### 19.6 Infra
+
+**`docker-compose.prod.yml`**: `stop_grace_period: 100s` en `backend`, con una línea de comentario (mayor que el vigía de
+90 s). Redis no cambia, así que `up -d` solo recrea el backend.
+
+**`infra/ec2/deploy.sh`**: entre el `pull` y el `db push`, una espera de hasta 5 min (D9):
+
+```
+si el contenedor amsa-gestion-backend está corriendo:
+  hasta 15 veces, cada 20 s:
+     n = docker exec -i -w /app amsa-gestion-backend node - <<JS   (Prisma API, no SQL crudo: evita la zona horaria)
+           cargas      = import_progreso con startedAt no nulo, finishedAt nulo y heartbeatAt > ahora − 2 min
+           reversiones = reversion_accion REVIRTIENDO con heartbeatAt > ahora − 2 min
+           imprime una línea por trabajo y al final el total
+         JS
+     si el comando falla → "no se pudo consultar: sigue sin esperar"; salir del bucle
+     si n == 0 → salir del bucle
+     echo "==> Esperando: <la línea>"
+  si se agotó: "==> Siguen trabajos en curso: el cierre ordenado los corta con números exactos"
+```
+
+- **Contra el contenedor viejo, no la imagen nueva**: es el proceso cuyas cargas importan, y `@prisma/client` está en
+  todas las imágenes, así que funciona desde el primer deploy.
+- **El latido de 2 min** deja afuera a una carga zombi (las remesas fantasma 93 y 98, o cualquier `PROCESANDO` que nadie
+  cerró): sin eso, cada deploy esperaría 5 min. `reversion_accion` existe en prod desde C3b.
+- **Los dos archivos tienen que seguir debajo de 4.096 bytes** (parámetros SSM `String` estándar; hoy 2.862 y 2.205
+  bytes). Comentarios cortos; verificar con `wc -c`.
+
+**`.github/workflows/deploy-backend.yml`**: el polling pasa de 72 a 108 vueltas de 10 s (18 min), por los 5 min de
+espera y los 100 s de gracia. `--timeout-seconds 900` es el plazo para **empezar** el comando, no para terminarlo (el de
+ejecución de `AWS-RunShellScript` es 3.600 s): no se toca.
+
+**Cómo llega a la EC2.** El compose y el `deploy.sh` viajan por los parámetros `/amsa-gestion/_compose` y
+`/amsa-gestion/_deploy_sh` (`infra/terraform/ssm.tf:47-57`); el push solo despliega la imagen y el workflow.
+
+> **No correr `terraform apply` completo.** El `terraform plan` del 16/10 (solo lectura, `-lock=false`) da
+> `Plan: 2 to add, 5 to change, 2 to destroy`: **`aws_instance.backend must be replaced`** (el AMI de
+> `data.aws_ssm_parameter.al2023_ami` cambió y fuerza el reemplazo), más el `target_group_attachment`, el EIP, la
+> política de IAM de GitHub, la alarma de CPU y los headers de CloudFront. Un apply completo destruye la EC2 con Redis y
+> el volumen de `uploads`.
+
+Camino (lo hace el usuario o quien orquesta, con su OK):
+1. `terraform plan -lock=false -target=aws_ssm_parameter.compose -target=aws_ssm_parameter.deploy_sh -out=c3c.plan`, y
+   comprobar que el plan toca **solo** esos dos.
+2. `terraform apply c3c.plan`. Alternativa equivalente: `aws ssm put-parameter --overwrite --type String --name … --value
+   file://…` con el contenido exacto del repo (un plan posterior no ve diferencia).
+3. Verificar: `aws ssm get-parameter --name /amsa-gestion/_compose --query Parameter.Value --output text | grep
+   stop_grace_period` y lo mismo con `deploy.sh`.
+
+**La línea de drift** (`REPORTES_V2_STORAGE_PATH=/app/storage`, que está en SSM y no en el repo desde `9b84407`): se va
+con el paso 2. Ningún archivo de `backend/src` la lee: no cambia nada.
+
+**Orden del deploy:**
+1. Push del backend con el workflow (`polling` 108). El contenedor viejo (`b49e95f`) no tiene handler: este deploy lo
+   mata como hoy, a los 10 s.
+2. En CloudWatch, el arranque nuevo dice "Cierre ordenado listo: …" (§19.9).
+3. Pasos 1-3 de arriba (SSM).
+4. **Desde el deploy siguiente** rige todo. Ahí se verifica: el log del deploy muestra la espera, CloudWatch muestra
+   "Cierre ordenado (SIGTERM) … terminado en N ms; sale con código 0", y `docker inspect amsa-gestion-backend --format
+   '{{.Config.StopTimeout}}'` da 100.
+
+Hacer el paso 3 antes del 1 también funciona: ese deploy esperaría 100 s al contenedor viejo, que ignora el `SIGTERM`.
+
+### 19.7 Si igual muere con `SIGKILL`
+
+Vigía vencido, `SIGKILL` de Docker, OOM o reinicio de la EC2: **la degradación es la de hoy y no se pierde nada de C1 ni
+de C3b**.
+- La carga: al levantar, BullMQ falla el job sin correrlo (`maxStalledCount: 0`, `imports.processor.ts:22`); el reaper
+  la cierra a los ~5 min como "se interrumpió: el servidor se reinició o dejó de responder", con "al menos N", no
+  retomable (salvo la que no arrancó: `SIN_JOB`, retomable).
+- La reversión: el cron la pasa a INTERRUMPIDA a los ≤ 4 min (§17.5.6) y Revertir sigue.
+- Consolidación y reportes: BullMQ los vuelve a correr una vez.
+- Retomar sigue igual: solo una carga que no entregó filas.
+
+### 19.8 Fallos silenciosos
+
+| Qué puede pasar sin que nadie lo note | Cómo se nota o se evita |
+|---|---|
+| Una carga cortada por el deploy parece una falla cualquiera, con "al menos N" | Título y rótulo propios, números exactos, `interrumpidaPorReinicio` en el DTO (tests de frontend y backend) |
+| El cierre no se pudo escribir (la base no responde en el apagado) | Queda PROCESANDO; `error` en el log ("No se pudo marcar…", ya existe) y el reaper la cierra a los ~5 min |
+| La remesa 2 de una división arranca en el proceso viejo y se corta con 0 filas | `worker.close()` antes del corte; la que entra igual por la ventana corta antes de la primera fila y es retomable (prueba real) |
+| `resumen.interrupcion` sobrevive a un retomar y una falla posterior dice "reinicio" | Retomar la borra (`:2633`, test) |
+| El compose no llegó a SSM (el apply falló por los 4 KB o no se corrió) y la gracia sigue en 10 s | Paso 3 de §19.6 (`grep stop_grace_period`) y `StopTimeout` = 100 en el deploy siguiente; `wc -c` antes |
+| Un `apply` completo reemplaza la EC2 | Advertencia de §19.6 y en el PLAN; solo `-target` |
+| La espera de `deploy.sh` se queda 5 min por una carga zombi | Filtro de latido de 2 min |
+| La espera falla (contenedor caído, imagen rara) y el deploy se cuelga | Si el comando falla, sigue sin esperar y lo dice |
+| El workflow da "failed" mientras el deploy sigue en la EC2 | Polling a 18 min |
+| Un job que sobrevivió al drenaje corre con Prisma cerrado | Termina como con `SIGKILL` (§19.7); el warn de la fase 1 lo nombra |
+| Un cron de madrugada se corta a mitad | No se espera (fuera de alcance); los deploys son de día |
+| En desarrollo, `--watch` tarda en reiniciar con una carga en curso | `CIERRE_ESPERA_TRABAJOS_MS` en `.env` |
+
+### 19.9 Logging
+
+Logger `CierreOrdenado` (y los de cada servicio), según CLAUDE.md:
+
+| Cuándo | Nivel | Línea |
+|---|---|---|
+| Al instalar el handler | `log` | `Cierre ordenado listo: espera hasta 75000 ms, Nest 10000 ms, vigía 90000 ms` |
+| Llega la señal | `log` | `Cierre ordenado (SIGTERM): 1 trabajo en curso [carga remesa=150 ACTUALIZACIONES 3.000/10.000 PROCESANDO]; espera hasta 75000 ms` |
+| Segunda señal | `warn` | `Cierre ordenado: llegó SIGTERM otra vez; ya se está cerrando` |
+| Fin de la fase 1 | `log` / `warn` | `Cierre ordenado: 4 colas cerradas y sin trabajos en curso en 1830 ms` / `Cierre ordenado: a los 75000 ms siguen en curso [...]; se cortan con el proceso (los cierra el reaper o el cron)` |
+| Carga cortada | `warn` | `Remesa 150 interrumpida por el cierre del servidor con ok=3000 err=12 (cortó en lote; pedido hace 1420 ms) en 64000ms` |
+| Reversión cortada | `warn` | `Revertir remesa=88: cortada por el cierre del servidor, 2400 de 9000 snapshots (pedido hace 60 ms)` |
+| Fin de la fase 2 | `log` / `warn` | `Cierre ordenado terminado en 2100 ms; sale con código 0` / `Cierre ordenado: Nest no terminó de cerrar en 10000 ms` |
+| Vigía | `error` | `Cierre ordenado: pasaron 90000 ms sin terminar; sale con código 1` |
+| Redis | `log` | `Conexión Redis (lock) cerrada en 3 ms` |
+
+Lo que da la medición para ajustar la gracia: `pedido hace N ms` en la línea de la carga cortada.
+
+### 19.10 Plan de pruebas
+
+#### 19.10.1 Backend (jest y **`npm run build`**: jest no chequea tipos)
+
+- `src/common/cierre/cierre-ordenado.service.spec.ts` (nuevo):
+  - sin trabajos: `drenar` termina enseguida y cierra todos los workers;
+  - **orden**: el `close()` de todas las colas se llama antes de cualquier `cortarPorCierre()`;
+  - espera a un worker que tarda y devuelve `completo: true`;
+  - tope (timers falsos): un worker que nunca cierra da `completo: false` a los 75 s, con el warn que nombra lo que sigue;
+  - un `cortarPorCierre()` que tira no frena a los demás;
+  - detiene los crons.
+- `src/common/cierre/instalar-cierre.spec.ts` (nuevo; proceso falso, `salir` espía, app falsa): `SIGTERM` → `drenar`
+  → `app.close` → `salir(0)`; una segunda señal no drena dos veces; `app.close` que no termina → `salir(1)` a los 10 s;
+  `drenar` que cuelga → el vigía, `salir(1)` a los 90 s; error en `drenar` → `salir(1)`; topes del entorno acotados.
+- `src/modules/imports/imports-cierre-reinicio.spec.ts` (nuevo, con los dobles de `imports-progreso-fase-c1.spec.ts`):
+  - **por fila**: el corte pedido durante la fila 37 deja `ok + err = 37`, sin `afterAll`, FALLIDA,
+    `resumen.interrupcion`, el texto de §19.4.4, **sin** `cancelSolicitadaAt` escrito, `{ interrumpida: true }`, y la
+    notificación "Importación interrumpida por un reinicio";
+  - **por lote**: pedido durante el lote 2 de 3 → el lote 2 persistido y el 3 sin procesar;
+  - en el último lote: el `afterAll` no corre;
+  - durante el `afterAll`: termina y la carga queda FINALIZADA, sin marca;
+  - durante la lectura: `sinFilasEntregadas` y `retomable: true`;
+  - una carga que arranca con el corte ya pedido: corta antes de la primera fila, retomable;
+  - corte y cancelación del usuario a la vez: queda CANCELADA;
+  - ACCIONES: corta entre filas y el texto manda a Revertir;
+  - retomar borra `interrupcion` del `resumen`.
+- `progreso/estado-carga.spec.ts`: `textoCancelacion` con `REINICIO` (con total, sin total, sin filas entregadas y una
+  categoría de cada rama: el segundo párrafo es idéntico al de la cancelada); sin `motivo`, idéntico a hoy; el DTO
+  (`true` solo en una FALLIDA terminal con la marca; `false` en una CANCELADA, una FINALIZADA y una heredada);
+  `textoNotificacion`.
+- `progreso/progreso-tracker-reinicio.spec.ts` (nuevo): `avisarCortePorCierre` prende `cancelacionPedida` y
+  `cortePorCierre` sin escribir ni tocar `cancelacionDeUsuario`; `cerrarPorReinicio` escribe FALLIDA, mezcla sin pisar
+  `origen` ni `cancelacion`, y emite `import:finalizada` con `interrumpidaPorReinicio: true`.
+- `bullmq/imports.processor.spec.ts`: `{ interrumpida: true }` no audita `IMPORT_OK`.
+- `reversion/reversion-acciones.service.spec.ts`: el corte entre tandas deja INTERRUMPIDA con H de T exactos y la tanda
+  en curso completa, no relanza y anuncia; con la fila ya cerrada por otro (afecta 0), warn sin anuncio.
+- Los dos servicios de Redis: `quit()` que nunca resuelve → a los 2 s, `disconnect()`; `status: 'wait'` → `disconnect()`
+  sin `quit()`.
+
+#### 19.10.2 Frontend (vitest con el arnés de `frontend/tests`, `npx tsc --noEmit -p tsconfig.json`, `npm run build`)
+
+`tests/unit/`: `presentarResultado` con `interrumpidaPorReinicio` (título, `warning`, detalle sin "al menos"); el rótulo
+del Historial; `piso` en `CeldasHistorial`; un DTO sin el campo se presenta como hoy.
+
+#### 19.10.3 La prueba real (el auditor, contra MySQL y Redis locales)
+
+`npm run build`, después `LOG_DIR=<scratchpad>/logs PORT=3001 node dist/main` en segundo plano. Los datos, con los
+arneses de `/home/maxi/.claude/projects/-home-maxi-Documentos-GitHub-amsa-gestion/arneses-auditoria/` (`auditoria-be-c1`
+y el de C3b de §18; ajustar las rutas, ver su `LEEME.md`). En cada caso: arrancar, esperar a que `procesadas > 0`, `kill
+-TERM <pid>`, medir de la señal a la salida y consultar la base.
+
+| Caso | Qué tiene que dar |
+|---|---|
+| Sin nada corriendo | Sale en menos de 3 s, código 0 |
+| DEUDORES de ~20.000 filas | Corta en menos de 1 s desde la señal; FALLIDA, `$.interrupcion.motivo = 'REINICIO'`, `ok` = casos de la remesa, `err` = filas de error; texto exacto |
+| ACTUALIZACIONES de 3 lotes o más | `ok + err` múltiplo del lote (o el total); los ausentes sin tocar; el tiempo hasta cortar queda medido |
+| ACCIONES de 20.000 casos | Casos con snapshots = comentarios = `ok`; Revertir después la deshace entera |
+| Reversión de esa acción | INTERRUMPIDA en menos de 1 s, `hechos` = snapshots con `revertidoEn`; al levantar, Revertir sigue y termina sin duplicar contactos |
+| División de 3 cortes, `SIGTERM` durante el primero | El primero cortado; el 2 y el 3 siguen EN_COLA; al levantar, el 2 arranca en el proceso nuevo |
+| ACTUALIZACIONES en el post-proceso | Termina FINALIZADA si entra en la espera |
+| Espera vencida (`CIERRE_ESPERA_TRABAJOS_MS=3000 CIERRE_APP_MS=1000 CIERRE_TOPE_TOTAL_MS=6000`, ACTUALIZACIONES con `IMPORTS_BATCH_SIZE=5000`) | Sale con código 1 a los ~3 s, **sin cerrar Nest** (§19.16); al levantar, el reaper la cierra como hoy. El vigía solo salta con el event loop bloqueado |
+| Doble `SIGTERM` | Un solo drenaje |
+| Al levantar después de cada caso | Ningún job re-ejecutado; el reaper no toca las cortadas |
+
+**Opcional, PID 1:** `unshare -rpf --mount-proc node dist/main` deja a node como proceso 1 de su espacio de PIDs.
+`kill -TERM` desde afuera: con C3c sale; con `3ddc5f1` no (prueba la premisa). Si el entorno no deja `unshare -r`, queda
+como no verificado.
+
+### 19.11 Decisiones para el usuario (si no responde, se sigue con la recomendada)
+
+- **D7. Cómo queda una carga que corta un reinicio.**
+  - (a) **Recomendada:** FALLIDA con la marca `interrupcion`, título "Importación interrumpida por un reinicio del
+    servidor", números exactos y el qué hacer de la cancelada; retomable si no entregó filas. Toca cuatro lugares del
+    frontend.
+  - (b) Cerrarla como cancelada: cero frontend, pero dice "cancelada" y nadie la canceló.
+- **D8. El reinicio llega con todas las filas procesadas y el post-proceso sin empezar.**
+  - (a) **Recomendada:** no lo empieza. Queda cortada con números exactos, como una cancelada en el último lote: el
+    estado es conocido.
+  - (b) Lo empieza y apuesta a que termine en la espera. Si no termina, queda a medias y sin saber qué hizo.
+- **D9. `deploy.sh` espera a que no haya trabajos en curso.**
+  - (a) **Recomendada:** hasta 5 min y después sigue (el cierre ordenado corta lo que quede). Evita cortar las cargas
+    cortas, que son la mayoría, sin trabar el deploy.
+  - (b) No espera: más simple, pero cada deploy con una ACTUALIZACIONES en curso termina en "avisá a soporte".
+  - (c) Espera y aborta el deploy si sigue habiendo: no corta nunca, pero hay que relanzar el workflow (y buildear de
+    nuevo).
+- **D10. Los topes.** (a) **Recomendada:** 75 s de espera, vigía a los 90 s y `stop_grace_period` de 100 s, ajustables
+  por entorno, hasta tener la medición. (b) Más largos (150 s): cubren un lote más lento, a costa de deploys que pueden
+  tardar 2 min más.
+
+### 19.12 Qué se verificó y qué es suposición
+
+**Leído contra `3ddc5f1`:** `main.ts`; `prisma.service.ts`; `neotel-redis.service.ts:40-67`;
+`consolidacion-redis-lock.service.ts:1-80`; los cuatro `@Processor` (`imports`, `reversion-acciones`, `consolidacion`,
+`reportes`); los crons (`reaper-cargas.scheduler.ts`, `mora`, `promesas`, `convenios`, `ejecuciones.cleanup`);
+`imports.service.ts` (`:60-76`, `:228-240`, `:2633`, `:3100-3149`, `:3420-3540`, `:3655-3760`, `:3970-4150`,
+`:5022-5110`); `progreso-tracker.ts` (`:200-300`, `:470-474`, `:700-835`); `estado-carga.ts` (`:380-560`, `:562-625`);
+`estado-carga.types.ts`; `reversion-acciones.service.ts` (`:350-440`, `:600-664`); frontend `utils/estadoCarga.ts`
+(`:300-400`, `:686`) y `CeldasHistorial.tsx:77`; `Dockerfile.backend`; `docker-compose.prod.yml`; `infra/ec2/deploy.sh`;
+`deploy-backend.yml`; `ssm.tf`. En `node_modules`: el orden de cierre de `@nestjs/core@11.1.8`, `worker.close()` de
+`bullmq@5.70.4` (memoizado, espera el job y después suelta el lock) y `bull.explorer.js` de `@nestjs/bullmq@11.0.4`.
+
+**Ejecutado:** `terraform plan -lock=false` (solo lectura) el 16/10: el reemplazo de la EC2 y `_compose` con cambios;
+`_deploy_sh` sin cambios. `wc -c` de los archivos que van a SSM. Nada contra MySQL ni Redis; la app no se levantó.
+`docker` no está en este entorno.
+
+**Suposiciones** (cada una con su salida):
+- Que un lote tarda hasta ~50 s: no hay medición en prod. Salida: la línea `pedido hace N ms` y D10.
+- Que `docker compose up -d` para el contenedor viejo con el `stop_grace_period` del compose nuevo. Si usa el
+  `StopTimeout` del contenedor viejo, rige desde el segundo deploy después del cambio de SSM: no hay riesgo, solo un
+  deploy más.
+- Que Prisma 6 se reconecta solo después de `$disconnect()` si un job sobrevivió al drenaje: sin consecuencia, ese job
+  termina como con `SIGKILL`.
+- El comportamiento de `quit()` de ioredis con Redis caído (§19.4.6): se prueba.
+- La regla de señales del PID 1: de la documentación del kernel; prueba opcional con `unshare` (§19.10.3).
+
+### 19.13 Documentación
+
+- **Wiki** (`docs/ayuda/03-importacion/`), en el mismo commit que el frontend:
+  - `05-importar-un-archivo.md` (`~:706-770`, "Si la carga se interrumpió"): la interrumpida por un reinicio, con el
+    número exacto y «Retomar» si no cargó filas; la otra (el servidor se cayó) queda como está.
+  - `08-historial-y-problemas.md` (la tabla de estados, `:44`, y `:469`, `:544`): el rótulo "Interrumpida por un
+    reinicio".
+  - `01-como-funciona.md:122`: la fila de estados.
+  - `07-acciones-masivas.md` (`:126-130`, `:251-253`): con un reinicio ordenado, la reversión queda Interrumpida en el
+    acto; la ventana de ~4 min queda solo para una caída.
+  - `cd frontend && npm run verificar-ayuda`, y una revisión de la wiki contra el código (la regla de la memoria).
+- **Specs:** este documento (§13.2 y el encabezado); el bloque "Para retomar" de `imports-progreso-realtime-spec.md`.
+- **CHANGELOG:** una entrada al cerrar, con el deploy y el paso de SSM.
+- **`backend/.env.example`:** las tres variables de §19.2.
+
+### 19.14 Criterios de aceptación (C3c)
+
+1. Con la app levantada y nada corriendo, `SIGTERM` la cierra en menos de 3 s con código 0 y las líneas de §19.9.
+2. Una DEUDORES cortada por `SIGTERM` queda FALLIDA con `resumen.interrupcion.motivo = 'REINICIO'`, `ok` = casos de la
+   remesa, sin `cancelSolicitadaAt`, y el texto "La importación se interrumpió por un reinicio del servidor cuando
+   llevaba N de T filas." con N exacto.
+3. Una ACTUALIZACIONES cortada a mitad tiene `ok + err` en un borde de lote y no tocó a los ausentes.
+4. Una carga cortada antes de su primera fila tiene `retomable: true` y Retomar la procesa entera.
+5. Ninguna carga cortada corrió su `afterAll`; una que ya estaba en el `afterAll` termina FINALIZADA si entra en la
+   espera.
+6. Una reversión cortada queda INTERRUMPIDA en menos de 1 s con `hechos` = snapshots con `revertidoEn`, y Revertir la
+   termina sin duplicar contactos.
+7. En una división cortada en la remesa 1, las remesas 2..N no arrancan en el proceso viejo y arrancan en el nuevo.
+8. El `import:finalizada` de la cortada trae `interrumpidaPorReinicio: true`; el frontend muestra el título de §19.5 sin
+   "al menos", y el Historial, el rótulo nuevo.
+9. Si el drenaje no termina, el proceso sale con código 1 al vencer la espera, sin cerrar Nest (§19.16), y al levantar la carga la cierra el reaper
+   como hoy.
+10. `npm test` y `npm run build` del backend; `npm test`, `tsc` y `npm run build` del frontend; `verificar-ayuda`: en
+    verde.
+11. `docker-compose.prod.yml` y `deploy.sh` miden menos de 4.096 bytes; `PrismaService` ya no tiene
+    `enableShutdownHooks` y nadie llama a `app.enableShutdownHooks()`.
+12. En prod, en el deploy siguiente al cambio de SSM: el log del deploy muestra la espera, CloudWatch muestra "Cierre
+    ordenado (SIGTERM) … sale con código 0" y `StopTimeout` = 100.
+
+### 19.15 Paquetes de trabajo
+
+**Dos implementers en paralelo, sin archivos en común:**
+- **BE** (backend + infra): `src/common/cierre/*` (nuevo), `main.ts`, `app.module.ts`, `prisma.service.ts`, los dos
+  servicios de Redis, `imports.service.ts`, `progreso/progreso-tracker.ts`, `progreso/estado-carga.ts` y
+  `estado-carga.types.ts`, `bullmq/imports.processor.ts`, `reversion/reversion-acciones.service.ts`, sus specs,
+  `.env.example`, `docker-compose.prod.yml`, `infra/ec2/deploy.sh`, `.github/workflows/deploy-backend.yml`. Estimado:
+  medio día.
+- **FE** (frontend + wiki): `types/importProgreso.ts`, `utils/estadoCarga.ts`, `CeldasHistorial.tsx`, sus tests y las
+  cuatro páginas de la wiki. El contrato es una sola clave (`interrumpidaPorReinicio`) y los textos de §19.4.4: no
+  espera al backend. Estimado: una hora y media.
+- **Quien orquesta:** la prueba real con el auditor, CHANGELOG, los specs y el paso de SSM con el OK del usuario.
+
+### 19.16 Lo que cambió en C3c después de la auditoría (16/10/2026)
+
+Hubo dos auditorías en paralelo, las dos con resultado PASA CON OBSERVACIONES y sin bloqueantes:
+- **Backend, con la app real** contra MySQL y Redis locales: los casos de §19.10.3, salvo el del PID 1, porque el
+  entorno no permite `unshare`.
+- **Frontend y wiki contra el código**, con un script que pasa el DTO armado por el backend por los helpers del
+  frontend.
+
+**Lo medido** (de la señal a la salida, topes por defecto):
+
+| Caso | Medido |
+|---|---|
+| Sin nada corriendo | 39 ms, código 0 |
+| DEUDORES por fila | 66 ms; `ok` = casos de la remesa, exacto |
+| ACTUALIZACIONES, lote de 1.000 | 795 ms, en el borde del lote, ausentes sin tocar |
+| ACTUALIZACIONES, lote de 5.000 | 3.787 ms: un lote de 5.000 tarda ~4 s en local |
+| ACCIONES | 68 ms; snapshots = comentarios = `ok` |
+| Reversión | 31 ms; INTERRUMPIDA con 800 de 3.003 exactos; Revertir la terminó en el proceso nuevo |
+| División de 3 | 80 ms; el 2 y el 3 arrancaron en el proceso nuevo |
+| ACTUALIZACIONES en el post-proceso (8.000 ausentes) | 43,5 s, FINALIZADA |
+| Corte leyendo un Excel de 60.000 filas | 1,2 s; retomable, y Retomar la cargó entera |
+
+**Ojo con el post-proceso medido:** «Cerrando ausentes» con 8.000 ausentes tardó 40 s en local. Con el doble ya no
+entra en los 75 s, y esa carga terminaría como con `SIGKILL`. La espera previa de `deploy.sh` (D9) es la que lo
+evita.
+
+**Arreglos de quien orquesta, cada uno con su test:**
+1. **Espera vencida: se sale sin cerrar Nest.** Antes, la fase 2 hacía el `$disconnect` de Prisma con el lote todavía
+   corriendo. El lote fallaba con tres líneas ERROR que parecían una falla real ("Engine is not yet connected") y ni
+   siquiera podía marcar la carga, que quedaba para el reaper. Ahora, con el drenaje incompleto, `instalarCierreOrdenado`
+   loguea un warn y sale con código 1 sin llamar a `app.close()`. Termina como un `SIGKILL` (§19.7), pero sin el ruido.
+   Con esto, el vigía solo salta si el event loop se bloquea.
+2. **Los sockets que no contestan el cierre se cortan al segundo.** Nest cierra socket.io con el cierre del WebSocket,
+   que espera la respuesta del navegador. Una pestaña cuyo equipo murió no contesta: la fase 2 llegaba a su tope de
+   10 s y salía con código 1, y el criterio 12 daba 1 sin que hubiera nada mal. Ahora el handler anota las conexiones
+   que hacen `upgrade` y, si a los `CORTE_SOCKETS_MS` (1.000 ms) de empezar la fase 2 queda alguna, la corta con un
+   warn. Medido con un cliente bloqueado: código 0 en 1.032 ms (antes, código 1 en 10.017 ms). Un cliente que contesta
+   sale en 40 ms, sin el warn.
+3. **Si el arranque falla, el proceso sale.** Esto ya pasaba antes de C3c: `bootstrap()` no tenía `catch`, y con
+   `EADDRINUSE` el proceso quedaba vivo, con los workers tomando jobs sin servidor HTTP ni cierre ordenado. Ahora
+   tiene `catch`, que loguea, hace `Logger.flush()` y sale con 1. El flush hace falta porque con `bufferLogs` el error
+   quedaba en el búfer y no se escribía nada. Medido: sale con 1 y el error queda en el log.
+4. **La notificación de una carga cortada con filas con error.** Este error viene del texto de la cancelada, que tiene
+   el mismo problema. Con 1 OK y 36 errores decía "La única fila ya procesada quedó cargada" debajo de "llevaba 37 de
+   300 filas". Ahora dice "De las 37 filas ya procesadas, 1 quedó cargada". El cambio vale para la interrumpida y para la
+   cancelada (`oracionCargadas` en `estado-carga.ts`). Sin errores, el texto no cambia.
+5. **Wiki:**
+   - el título nuevo, en la notificación del Paso 4 y en la tabla del Paso 5;
+   - "si no llegó a procesar ninguna fila", en vez de "si no cargó": `retomable` mira `sinFilasEntregadas`, y una
+     fila que dio error dentro del processor ya cuenta como procesada;
+   - un reinicio que no alcanza a cerrar la carga queda como la de una caída;
+   - una frase falsa, anterior a C3c, que decía que el Historial muestra las canceladas como FALLIDA.
+6. **Frontend:** el tooltip de la columna Filas dice "En una carga fallida son un piso", en vez de "interrumpida", que
+   ahora es otro estado. El texto de prueba de los tests nuevos es una salida real del backend.
+
+**Deuda, sin arreglar:**
+- Si `docker ps` falla, `deploy.sh` saltea la espera sin avisar (`deploy.sh:34`). Si `docker compose pull` funcionó un
+  paso antes, es improbable.
+- La línea "Conexión Redis (lock) cerrada" no sale cuando el cliente lazy nunca conectó.
+- El texto de una carga cortada mientras leía dice "llevaba 0 de 60.000 filas". Es correcto, pero suena raro.
+- `deploy.sh` mide 3.894 bytes: quedan 202 de margen hasta el tope de los parámetros SSM.
+- Sin verificar: el PID 1 (el entorno no permite `unshare`) y que `docker compose up -d` use el `stop_grace_period`
+  nuevo. Las dos cosas se ven en el primer deploy con el compose nuevo: `StopTimeout` = 100 y la línea del cierre en
+  CloudWatch.
+
+---
+
+## PLAN PARA IMPLEMENTER — Fase C, entrega 3c
+
+**Orden de implementación:**
+- Paso 1 (BE): `src/common/cierre/` (interfaz, servicio, módulo, `instalarCierreOrdenado`) con sus specs; `main.ts` lo
+  instala después de `listen`; `app.module.ts` importa `CierreModule`; se borra `PrismaService.enableShutdownHooks`. Va
+  primero porque el resto se engancha a la interfaz. **`npm run build`**.
+- Paso 2 (BE): tracker (`avisarCortePorCierre`, `cancelacionDeUsuario`, `cerrarPorReinicio`), `estado-carga.types.ts`
+  (`interrupcion`, `interrumpidaPorReinicio`), `estado-carga.ts` (`textoCancelacion` con `motivo`, el DTO,
+  `textoNotificacion`), y en `imports.service.ts` `cortarPorCierre`, `trabajosEnCurso`, el corte al crear el tracker, el
+  `catch`, `cerrarCargaPorReinicio` y el retomar; `imports.processor.ts`. Specs de §19.10.1. **`npm run build`**.
+- Paso 3 (BE): reversión (§19.4.5) y Redis (§19.4.6), con sus specs. **`npm run build`**.
+- Paso 4 (BE): `.env.example`, `docker-compose.prod.yml`, `deploy.sh` (§19.6, `wc -c` < 4096 en los dos), el polling del
+  workflow.
+- En paralelo (FE): tipos → `utils/estadoCarga.ts` → `CeldasHistorial.tsx` → tests → wiki → `npm test` (con
+  `FE_TEST_PUERTO` propio), `tsc`, `npm run build`, `verificar-ayuda`.
+- Paso final (quien orquesta y el auditor): la prueba real de §19.10.3; CHANGELOG; specs; deploy y SSM en el orden de
+  §19.6.
+
+**Archivos a crear:**
+- `backend/src/common/cierre/cortable-por-cierre.ts`, `cierre-ordenado.service.ts`, `cierre.module.ts`,
+  `instalar-cierre.ts`, `cierre-ordenado.service.spec.ts`, `instalar-cierre.spec.ts`;
+- `backend/src/modules/imports/imports-cierre-reinicio.spec.ts`;
+- `backend/src/modules/imports/progreso/progreso-tracker-reinicio.spec.ts`.
+
+**Archivos a modificar:**
+- `backend/src/main.ts`: `instalarCierreOrdenado(app)` al final de `bootstrap()`.
+- `backend/src/app.module.ts`: importa `CierreModule`.
+- `backend/src/prisma/prisma.service.ts`: se borra `enableShutdownHooks`.
+- `backend/src/modules/neotel/neotel-redis.service.ts`, `backend/src/modules/consolidacion/consolidacion-redis-lock.service.ts`:
+  cierre acotado.
+- `backend/src/modules/imports/progreso/progreso-tracker.ts`: corte por cierre y `cerrarPorReinicio`.
+- `backend/src/modules/imports/progreso/estado-carga.types.ts` y `estado-carga.ts`: marca, DTO, textos.
+- `backend/src/modules/imports/imports.service.ts`: `cortarPorCierre`, `trabajosEnCurso`, runner, cierre, retomar.
+- `backend/src/modules/imports/bullmq/imports.processor.ts`: el resultado `interrumpida`.
+- `backend/src/modules/imports/reversion/reversion-acciones.service.ts`: corte entre tandas.
+- Specs existentes: `estado-carga.spec.ts`, `imports.processor.spec.ts`, `reversion-acciones.service.spec.ts`.
+- `backend/.env.example`, `docker-compose.prod.yml`, `infra/ec2/deploy.sh`, `.github/workflows/deploy-backend.yml`.
+- `frontend/src/types/importProgreso.ts`, `frontend/src/utils/estadoCarga.ts`,
+  `frontend/src/components/import/historial/CeldasHistorial.tsx`, tests en `frontend/tests/unit/`.
+
+**Cambios de schema:** ninguno. `resumen` ya es JSON. Sin `db push` ni backfill.
+
+**Tests a escribir:** los de §19.10.1 y §19.10.2. Los indispensables: "el `close()` de los workers va antes del corte",
+"una carga cortada por fila da `ok + err` exactos, FALLIDA con la marca y sin `afterAll`" y "retomar borra la marca".
+
+**Páginas de la wiki a tocar:** `docs/ayuda/03-importacion/05-importar-un-archivo.md`, `08-historial-y-problemas.md`,
+`01-como-funciona.md`, `07-acciones-masivas.md`.
+
+**Skills a consultar:** nestjs-module, bullmq-worker, react-component, amsa-general.
+
+**Riesgos durante la implementación:**
+- **Nunca `terraform apply` completo**: reemplaza la EC2 (§19.6). Solo `-target` de los dos parámetros, y lo corre quien
+  orquesta con el OK del usuario. Los implementers no tocan AWS.
+- **`imports.service.ts` tiene 5.485 líneas**: anclas únicas y una copia antes de cada edición grande.
+- **No llamar a `app.enableShutdownHooks()`**: duplicaría el handler y su re-envío de la señal no mata al PID 1.
+- **El evento de la cortada tiene que llevar la marca**: si la foto que emite `cerrarPorReinicio` no lleva el `resumen`
+  mezclado, la base dice "reinicio" y el socket no. Hay un test para eso.
+- **`deploy.sh` y el compose bajo 4.096 bytes**, o el `apply` falla y la gracia sigue en 10 s sin que nadie lo note.
+- **Jest no chequea tipos:** `npm run build` antes de cada commit. **No** `git stash`. **No** `npm run lint` ni
+  `eslint --fix` global. Con la app levantada, `LOG_DIR` al scratchpad.
+
+**Criterios de aceptación:** los de §19.14.

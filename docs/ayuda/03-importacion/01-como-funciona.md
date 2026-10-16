@@ -118,8 +118,9 @@ hora arreglando después.
 | **En cola** | Confirmada y esperando su turno |
 | **Leyendo el archivo** · **Procesando N %** · **Post-proceso** | Cargando. Está en curso |
 | **Cancelando…** · **Cancelada** · **Cancelada antes de empezar** | Alguien pidió cortarla. La notificación no siempre llega: una carga cancelada en la cola notifica solo al dueño y solo si la canceló otra persona |
+| **Interrumpida por un reinicio** | El servidor se reinició a propósito (por ejemplo, al actualizar el sistema) y cortó la carga de forma ordenada. Lo ya procesado quedó cargado, con los números exactos; si no llegó a procesar ninguna fila, se puede retomar |
 | **Finalizada** · **Finalizada con errores** · **Sin filas cargadas** · **Sin filas** · **Con advertencias** | Terminó. Cada una dice cómo |
-| **Fallida** · **No llegó a empezar** | Se cortó. Si el servidor se reinició o dejó de responder mientras procesaba, la carga se marca sola como fallida a los pocos minutos (normalmente entre 6 y 7) y no se vuelve a ejecutar sola |
+| **Fallida** · **No llegó a empezar** | Se cortó. Si el servidor se cayó, dejó de responder o se reinició sin llegar a cerrarla mientras procesaba, la carga se marca sola como fallida a los pocos minutos (normalmente entre 6 y 7) y no se vuelve a ejecutar sola |
 
 El Historial y el **detalle** de una carga dicen el mismo estado, y el Historial se actualiza solo. La tabla
 completa, con lo que dice debajo de cada estado, está en [Historial y problemas](/ayuda/importacion/historial-y-problemas).

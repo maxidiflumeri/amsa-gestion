@@ -327,12 +327,20 @@ export function presentarResultado(
         EstadoCargaDto,
         'resultado' | 'ok' | 'err' | 'procesadas' | 'descartadas' | 'error' | 'errorPostProceso' | 'tipo'
     > &
-        Partial<Pick<EstadoCargaDto, 'descartadasPorFiltro' | 'fueraDeCorte' | 'cancelada'>>,
+        Partial<Pick<EstadoCargaDto, 'descartadasPorFiltro' | 'fueraDeCorte' | 'cancelada' | 'interrumpidaPorReinicio'>>,
 ): ResultadoPresentado {
     // Una cancelada viaja como FALLIDA (§10.4.2): se mira antes del switch. Su `error` ya trae los párrafos y
     // el número exacto de filas cargadas: se muestra tal cual, sin el "Antes del corte se cargaron al menos…".
     if (estaCancelada(estado)) {
         return { severidad: 'warning', titulo: 'Importación cancelada', detalle: estado.error ? estado.error : null };
+    }
+    // Cortada por un reinicio (C3c): FALLIDA con números exactos en `error`, sin el "al menos" de la fallida común.
+    if (estaInterrumpidaPorReinicio(estado)) {
+        return {
+            severidad: 'warning',
+            titulo: 'Importación interrumpida por un reinicio del servidor',
+            detalle: estado.error ? estado.error : null,
+        };
     }
     switch (estado.resultado) {
         case 'OK':
@@ -391,8 +399,10 @@ export function presentarResultado(
 }
 
 /** Orden de gravedad para elegir el encabezado del resumen: menor número = peor. Una cancelada va entre FALLIDA y CON_ADVERTENCIAS. */
-function rangoGravedad(estado: Pick<EstadoCargaDto, 'resultado' | 'ok'> & Partial<Pick<EstadoCargaDto, 'cancelada'>>): number {
-    if (estaCancelada(estado)) return 1;
+function rangoGravedad(
+    estado: Pick<EstadoCargaDto, 'resultado' | 'ok'> & Partial<Pick<EstadoCargaDto, 'cancelada' | 'interrumpidaPorReinicio'>>,
+): number {
+    if (estaCancelada(estado) || estaInterrumpidaPorReinicio(estado)) return 1;
     switch (estado.resultado) {
         case 'FALLIDA':
             return 0;
@@ -505,6 +515,13 @@ export function esAvisoDeCarga(errorMsg: unknown): boolean {
 /** La carga terminó por una cancelación. */
 export function estaCancelada(estado: Partial<Pick<EstadoCargaDto, 'cancelada'>>): boolean {
     return estado.cancelada === true;
+}
+
+/** La carga la cortó un reinicio ordenado del servidor (C3c). Una cancelada del usuario nunca cuenta como tal. */
+export function estaInterrumpidaPorReinicio(
+    estado: Partial<Pick<EstadoCargaDto, 'cancelada' | 'interrumpidaPorReinicio'>>,
+): boolean {
+    return estado.interrumpidaPorReinicio === true && estado.cancelada !== true;
 }
 
 /** El backend dice que se puede pedir la cancelación ahora. */
@@ -684,6 +701,7 @@ export function etiquetaDeEstado(
     // Terminal.
     const conTooltip = (etiqueta: string, status: StatusValue) => armar(etiqueta, status, null, tooltipDeResultado(c));
     if (estaCancelada(c)) return conTooltip(c.startedAt == null ? 'Cancelada antes de empezar' : 'Cancelada', 'warning');
+    if (estaInterrumpidaPorReinicio(c)) return conTooltip('Interrumpida por un reinicio', 'warning');
     switch (c.resultado) {
         case 'FALLIDA':
             return c.startedAt == null ? conTooltip('No llegó a empezar', 'failed') : conTooltip('Fallida', 'failed');

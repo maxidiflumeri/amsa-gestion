@@ -127,6 +127,10 @@ export interface EstadoCargaDto {
      *  texto de la cancelación: una pestaña que no conoce este campo la muestra como fallida con ese
      *  motivo, que es cierto. */
     cancelada: boolean;
+    /** Terminó cortada por un reinicio ordenado del servidor (C3c). Con `true`, `resultado` viaja como 'FALLIDA',
+     *  `cancelada` es false y `error` trae el texto con los números exactos. Opcional: un backend anterior a C3c no lo
+     *  manda y la carga se muestra como una fallida con su motivo. */
+    interrumpidaPorReinicio?: boolean;
     /** Nombre de quien pidió la cancelación, si se sabe. */
     canceladaPor: string | null;
     /** Se puede pedir la cancelación ahora. Lo calcula el backend (§10.4.1). */
