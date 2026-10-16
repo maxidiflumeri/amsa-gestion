@@ -362,7 +362,9 @@ Estos avisos pueden aparecer abajo:
 
 **La campanita.** Mientras hay cargas en curso, la barra superior muestra al lado de la campanita un chip que
 las resume: *Importando 43 %*, *Importación en cola*, *Cancelando importación* o, si son varias, *3
-importaciones*. Tocarlo abre la campanita. En **Importaciones en curso** cada carga muestra la fase, el
+importaciones*. Tocarlo te lleva al **detalle** de la carga que se está procesando (si todas esperan en la cola, al de
+la primera de la cola), donde ves su avance y, si es una carga dividida, todas sus remesas. Las notificaciones se
+abren con la campanita. En **Importaciones en curso** cada carga muestra la fase, el
 porcentaje, el "faltan" y los contadores **Procesadas**, **OK**, **Err** y **Total**: por ejemplo, la posición
 en la cola, el paso del post-proceso o *Procesando · 43% · faltan ~4 min*. En una carga dividida el encabezado
 agrega la posición, por ejemplo *· 2 de 3*, y si se pidió cancelar, la fase se reemplaza por *Cancelando…*. No

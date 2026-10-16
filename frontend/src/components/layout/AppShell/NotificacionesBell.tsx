@@ -22,7 +22,7 @@ const NotificacionesBell: React.FC = () => {
 
     return (
         <>
-            <ChipImportaciones onAbrir={abrir} />
+            <ChipImportaciones />
             <Tooltip title="Notificaciones">
                 <IconButton
                     ref={botonRef}

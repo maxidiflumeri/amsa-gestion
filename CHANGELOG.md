@@ -6,6 +6,45 @@
 
 ---
 
+## [2026-10-16] — La campanita con una carga dividida, el chip al detalle y la primera carga real medida
+
+**Lo reportó el usuario en la primera carga real después de las fases A-D:** una carga dividida de DEUDORES para la
+empresa 10, con 19.538 filas en 5 cortes (remesas 150 a 154).
+
+### Frontend
+
+- **Campanita: la lista de notificaciones no se podía scrollear con 5 cargas en curso.**
+  - Las tarjetas de "Importaciones en curso" ocupaban todo el alto del panel (560 px), y la lista quedaba en 0 px.
+  - Recién con 3 en curso volvía a aparecer.
+  - Ahora las tarjetas tienen su propio scroll con un tope (`min(240px, 40vh)`), y la lista conserva al menos 160 px.
+  - Test: `tests/componentes/campanita-scroll.test.tsx`, a 1280 y 360 px.
+- **El chip "Importando N %" de la barra superior lleva al detalle** de la carga que se está procesando; si todas
+  esperan en la cola, al de la primera de la cola. Antes abría la campanita, y ahora cada botón hace una cosa: la
+  campanita abre las notificaciones. El detalle de una remesa de una división muestra todas sus remesas, en vivo.
+  - Tests TH-2 y TH-3 de `chip-importaciones.test.tsx`.
+  - Wiki: `05` y `08`.
+- **Tests:** `npm test` da 673 en 45 archivos; `tsc` sin errores nuevos.
+
+### La primera carga real, medida en CloudWatch
+
+| Remesa | Filas | Tiempo | Ritmo |
+|---|---|---|---|
+| 150 | 14.047 | 6 min 14 s | 37,5 filas/s |
+| 151 | 1.957 | 1 min 12 s | 27,1 filas/s |
+| 152 | 1.524 | 58 s | 26,1 filas/s |
+| 153 | 1.520 | 58 s | 26,2 filas/s |
+| 154 | 490 | 17 s | 29 filas/s |
+
+- En total, de punta a punta: 9 min 40 s.
+- Cada corte arrancó en el mismo segundo en que terminó el anterior.
+- DEUDORES no tiene post-proceso (0-1 ms).
+- Ningún ERROR.
+
+**Para C3c:** un lote de 1.000 filas de DEUDORES tarda ~27-38 s. Como DEUDORES corta por fila, un deploy la cortaría en
+menos de un segundo. Las categorías que cortan por lote siguen sin medición en prod.
+
+---
+
 ## [2026-10-16] — Importaciones, Fase D: las cargas ajenas no interrumpen, y las notificaciones se limpian solas
 
 Última fase del progreso en tiempo real de las importaciones. El diseño está en §11 de

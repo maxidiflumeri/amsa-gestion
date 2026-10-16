@@ -17,8 +17,11 @@
 > completo**: hasta `cc2fb21` reemplazaba la EC2, y todavía revierte el CSP de CloudFront que necesita la Toolbar de
 > Neotel.
 >
-> **Desde el 30/09 no hubo ninguna carga real en prod**, y nada de C2 ni de C3 se vio en un navegador. La primera
-> carga real, y la primera acción masiva, son la medición que falta: ritmo (`filas/s`), post-proceso por paso y latido.
+> **La primera carga real después de las fases (16/10/2026)** fue una DEUDORES dividida en 5, con 19.538 filas en
+> 9 min 40 s, a 26-37 filas/s y sin errores. La vio el usuario en el navegador. Los números están en el CHANGELOG. Al
+> verla salieron dos cambios de la campanita: el scroll con muchas cargas en curso, y el chip que lleva al detalle.
+> Falta medir en prod una carga que corte por lote (ACTUALIZACIONES, FACTURAS, MULTICLAVES) y la primera acción
+> masiva.
 >
 > **Documentos:**
 > - C2 (interfaz): [imports-progreso-c2-spec.md](imports-progreso-c2-spec.md). Lo que cambió al auditar está en §18 y

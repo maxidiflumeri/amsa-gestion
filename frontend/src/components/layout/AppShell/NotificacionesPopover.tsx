@@ -111,16 +111,23 @@ const NotificacionesPopover: React.FC<NotificacionesPopoverProps> = ({
                             Importaciones en curso ({importsEnCurso.length})
                         </Typography>
                     </Box>
-                    {importsEnCurso.map((imp) => (
-                        <ImportEnCursoItem
-                            key={imp.remesaId}
-                            carga={imp}
-                            conectado={conectado}
-                            hermanasEnCurso={imp.grupoId != null ? importsEnCurso.filter((i) => i.grupoId === imp.grupoId) : undefined}
-                            onRefrescar={() => void refrescar()}
-                            onNavegar={onClose}
-                        />
-                    ))}
+                    {/* Con su propio scroll y un tope de alto: con una carga dividida son cinco tarjetas o más y, sin
+                        tope, aplastaban la lista de notificaciones a 0 px y no se podía scrollear (16/10/2026). */}
+                    <Box
+                        data-testid="campanita-en-curso"
+                        sx={{ maxHeight: 'min(240px, 40vh)', overflowY: 'auto', flexShrink: 0 }}
+                    >
+                        {importsEnCurso.map((imp) => (
+                            <ImportEnCursoItem
+                                key={imp.remesaId}
+                                carga={imp}
+                                conectado={conectado}
+                                hermanasEnCurso={imp.grupoId != null ? importsEnCurso.filter((i) => i.grupoId === imp.grupoId) : undefined}
+                                onRefrescar={() => void refrescar()}
+                                onNavegar={onClose}
+                            />
+                        ))}
+                    </Box>
                     {!conectado && (
                         <Typography
                             variant="caption"
@@ -138,15 +145,20 @@ const NotificacionesPopover: React.FC<NotificacionesPopoverProps> = ({
                 value={tab}
                 onChange={(_, v) => setTab(v)}
                 variant="fullWidth"
-                sx={{ borderTop: `1px solid ${theme.palette.divider}`, minHeight: 40 }}
+                sx={{ borderTop: `1px solid ${theme.palette.divider}`, minHeight: 40, flexShrink: 0 }}
             >
                 <Tab label={`Sin leer${noLeidas > 0 ? ` (${noLeidas})` : ''}`} sx={{ minHeight: 40, fontSize: '0.8rem' }} />
                 <Tab label="Leídas" sx={{ minHeight: 40, fontSize: '0.8rem' }} />
             </Tabs>
             <Divider />
 
-            {/* Lista scrolleable */}
-            <Box ref={scrollRef} onScroll={handleScroll} sx={{ overflowY: 'auto', flexGrow: 1, minHeight: 0 }}>
+            {/* Lista scrolleable: siempre conserva lugar, aunque haya muchas importaciones en curso arriba. */}
+            <Box
+                ref={scrollRef}
+                onScroll={handleScroll}
+                data-testid="campanita-lista"
+                sx={{ overflowY: 'auto', flexGrow: 1, minHeight: 160 }}
+            >
                 {items.length === 0 && !loading && (
                     <Box
                         sx={{

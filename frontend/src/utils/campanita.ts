@@ -22,6 +22,18 @@ export function textoChipImportaciones(cargas: EstadoCargaDto[]): string | null 
 }
 
 /**
+ * A qué carga lleva el chip de la barra superior: la que está corriendo (el worker procesa de a una), y si todas
+ * esperan en la cola, la primera de la cola. null sin cargas.
+ */
+export function remesaDelChip(cargas: EstadoCargaDto[]): number | null {
+    if (cargas.length === 0) return null;
+    const corriendo = cargas.find((c) => c.fase !== 'EN_COLA');
+    if (corriendo) return corriendo.remesaId;
+    const delante = (c: EstadoCargaDto) => (typeof c.enColaDelante === 'number' ? c.enColaDelante : Number.POSITIVE_INFINITY);
+    return [...cargas].sort((a, b) => delante(a) - delante(b))[0].remesaId;
+}
+
+/**
  * Remesa de una notificación de importación terminada: `entidadId` si `entidadTipo` es REMESA; si no, el número de
  * `rutaAccion` (`/historial-importaciones/{id}`). null para cualquier otro tipo de notificación o una ruta que no es esa.
  */
