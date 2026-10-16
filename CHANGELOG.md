@@ -12,7 +12,13 @@
 [docs/imports-progreso-realtime-spec.md](docs/imports-progreso-realtime-spec.md), y lo que cambió al auditar, en
 §11.15.
 
-**Estado: implementada y auditada el 16/10/2026, sin desplegar.**
+**Estado: desplegada el 16/10/2026** (18:11 UTC, imagen `c3771ef`). Verificado en prod:
+- **arranque:** "Limpieza de notificaciones activa…", sin WARN ni ERROR;
+- **atraso:** se aplicó el script con `--hasta=2026-10-16T18:10:53Z`. Marcó 158 ajenas como leídas y borró 404
+  huérfanas, 116 de ellas de remesas que reusaron el id. La tabla pasó de 724 a 320 filas, y lo que quedó sin leer es
+  de cada uno (24 y 55). El preview de control dio 0 y 0.
+
+Las remesas 93 y 98 quedaron sin notificaciones, con 0 casos; se borran desde el Historial.
 
 **Decisiones del usuario:**
 - **§5.5:** las cargas de otra persona ya no le muestran un aviso emergente a quien tiene **Ver importaciones de otros
@@ -123,7 +129,11 @@ Arreglos, cada uno con su test:
 [docs/imports-progreso-c3-spec.md](docs/imports-progreso-c3-spec.md); lo que cambió al auditar, en §19.16. Después
 queda la Fase D (notificaciones).
 
-**Estado: implementada y auditada el 16/10/2026, sin desplegar.**
+**Estado: desplegada el 16/10/2026** (14:08 UTC, imagen `b3dbced`). El paso de SSM se aplicó con `-target` el mismo
+día. Verificado en el deploy siguiente (el de la Fase D, 18:10 UTC):
+- el contenedor viejo atendió el `SIGTERM`: "Cierre ordenado (SIGTERM): 0 trabajos en curso", 4 colas cerradas,
+  "terminado en 193 ms; sale con código 0". Antes, Docker lo mataba a los 10 s;
+- `StopTimeout=100`.
 
 **El problema.** En un deploy, Docker manda `SIGTERM` y a los 10 s `SIGKILL`. Nadie atendía el `SIGTERM`: no se
 llamaba a `enableShutdownHooks`, y `node` es el proceso 1 del contenedor. Una carga en curso moría a mitad de un lote y

@@ -4,10 +4,13 @@
 >
 > **En prod:** A, B, C1, C2a, C2b, C3a, C3b y C3c (C3c desplegada el 16/10/2026; imagen y deploy en el CHANGELOG).
 >
-> **Fase D (notificaciones): diseñada, implementada y auditada el 16/10/2026.** El diseño está en
-> [§11](#11-diseño-de-la-fase-d), y lo que cambió al auditar, en §11.15. Su deploy es el primero después del paso SSM de
-> C3c, así que ahí se verifica C3c (§11.8). Después viene el script del atraso en prod (D1 (a), elegida por el
-> usuario): primero el preview y, con el OK del usuario, aplicar con `--hasta`.
+> **Fase D (notificaciones): en prod desde el 16/10/2026** (18:11 UTC, imagen `c3771ef`). El diseño está en
+> [§11](#11-diseño-de-la-fase-d), y lo que cambió al auditar, en §11.15.
+> - El script del atraso se aplicó con el OK del usuario: 158 ajenas marcadas y 404 huérfanas borradas, y el preview
+>   de control dio 0 y 0.
+> - C3c quedó verificada en ese deploy: cierre ordenado en 193 ms con código 0, y `StopTimeout=100`.
+>
+> **Con esto se terminan las fases A a D.**
 >
 > **C3c (el deploy no mata cargas a ciegas): en prod desde el 16/10/2026.** El diseño está en §19 del documento de C3, y
 > lo que cambió al auditar, en §19.16. El paso en SSM se aplicó con `-target` el 16/10. **Nunca un `terraform apply`
@@ -24,15 +27,8 @@
 >   auditar está en §16 (C3a), §18 (C3b) y §19.16 (C3c).
 >
 > **Lo que sigue, en este orden:**
-> 1. **Verificar C3c en el deploy siguiente**, que es el de la Fase D (cómo, en §11.8):
->    - `StopTimeout` = 100;
->    - en el log del deploy, la espera (con nada corriendo no imprime ninguna línea);
->    - en CloudWatch, "Cierre ordenado (SIGTERM) … sale con código 0".
-> 2. **Fase D en prod:**
->    - el arranque dice "Limpieza de notificaciones activa…";
->    - el script del atraso: preview, aplicar con `--hasta=<deploy>` y preview en 0 (§11.8);
->    - después, borrar las remesas 93 y 98 desde el Historial;
->    - a la mañana siguiente, la línea de fin del cron de las 05:00.
+> 1. **Borrar las remesas 93 y 98 desde el Historial.** Tienen 0 casos y ya no tienen notificaciones.
+> 2. **El 17/10, mirar en CloudWatch la línea de fin del cron de las 05:00.** Tiene que borrar unas 60 leídas viejas.
 > 3. **Deuda anotada en los documentos de C2 y C3**, entre otras:
 >    - una baja retirada repetida se vuelve a contar;
 >    - dos valores de `resultado` del cierre de ausentes, que no se agregaron;
