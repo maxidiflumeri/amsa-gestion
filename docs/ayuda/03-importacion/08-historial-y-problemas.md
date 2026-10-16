@@ -100,8 +100,9 @@ La campanita de la barra superior **no muestra las vistas previas sin confirmar*
 
 **La campanita y el chip de la barra superior.** Mientras haya cargas en curso, al lado de la campanita aparece un
 chip que las resume: *Importando 43 %* si hay una procesando, *Importación en cola* si todavía no arrancó,
-*Cancelando importación* si se pidió cortarla, y *3 importaciones* si son varias. Tocarlo lleva al detalle de la carga
-que se está procesando (o de la primera de la cola, si ninguna arrancó). En el
+*Cancelando importación* si se pidió cortarla, y *3 importaciones* si son varias. Tocarlo abre el paso **Importando**
+del asistente con la carga que se está procesando (o la primera de la cola, si ninguna arrancó) y, si es una carga
+dividida, con todas sus remesas; sin permiso para importar, lleva al detalle de esa carga. En el
 celular el chip se reduce a un ícono (el texto queda como etiqueta del botón) y la campanita se abre a pantalla
 completa, con el botón **Cerrar** arriba a la derecha. La campanita también se cierra sola al ir a otra pantalla, y el
 botón "atrás" del navegador del celular hace las dos cosas: la cierra y vuelve a la pantalla anterior.

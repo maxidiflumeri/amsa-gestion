@@ -273,8 +273,8 @@ Historial. **También la carga dividida**: las N remesas se confirman juntas con
 la cola del servidor, que las carga en orden; esta pantalla no arranca ninguna.
 
 **Carga dividida.** El título dice *"Carga dividida: remesa 2 de 5"* y, debajo, el texto *"Las remesas se
-cargan una después de la otra en el servidor. Podés cerrar esta pantalla: siguen igual, y las ves en la
-campanita y en el Historial."* Después hay **una sola tarjeta**: arriba los pasos y la barra de la remesa que
+cargan una después de la otra en el servidor. Podés cerrar esta pantalla: siguen igual, y volvés acá tocando
+el indicador de importaciones de la barra de arriba."* Después hay **una sola tarjeta**: arriba los pasos y la barra de la remesa que
 se está cargando, con sus contadores, y abajo el bloque de la división, con una barra del grupo
 (*"Remesas terminadas: 1 de 3"*) y una línea por remesa —número, corte, estado y su barra finita—. Los
 estados de la lista son los mismos que dice el Historial:
@@ -362,9 +362,10 @@ Estos avisos pueden aparecer abajo:
 
 **La campanita.** Mientras hay cargas en curso, la barra superior muestra al lado de la campanita un chip que
 las resume: *Importando 43 %*, *Importación en cola*, *Cancelando importación* o, si son varias, *3
-importaciones*. Tocarlo te lleva al **detalle** de la carga que se está procesando (si todas esperan en la cola, al de
-la primera de la cola), donde ves su avance y, si es una carga dividida, todas sus remesas. Las notificaciones se
-abren con la campanita. En **Importaciones en curso** cada carga muestra la fase, el
+importaciones*. Tocarlo te vuelve a abrir esta pantalla del paso **Importando** con la carga que se está procesando
+(si todas esperan en la cola, con la primera de la cola) y, si es una carga dividida, con todas sus remesas: así podés
+salir del asistente y volver cuando quieras. Si no tenés permiso para importar, te lleva al detalle de esa carga. Las
+notificaciones se abren con la campanita. En **Importaciones en curso** cada carga muestra la fase, el
 porcentaje, el "faltan" y los contadores **Procesadas**, **OK**, **Err** y **Total**: por ejemplo, la posición
 en la cola, el paso del post-proceso o *Procesando · 43% · faltan ~4 min*. En una carga dividida el encabezado
 agrega la posición, por ejemplo *· 2 de 3*, y si se pidió cancelar, la fase se reemplaza por *Cancelando…*. No

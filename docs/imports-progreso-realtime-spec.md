@@ -5161,8 +5161,8 @@ cada pantalla que ya existe muestra lo nuevo en su lugar. Todo campo nuevo del D
   las remesas del grupo; y polléa con las mismas reglas que `useEstadoCarga` (10 s con el socket
   caído, 30 s si está callado) hasta que todas son terminales. Consultas con `silencioso`.
 - El paso muestra: "Carga dividida: remesa {orden} de {total}"; el texto **"Las remesas se cargan una
-  después de la otra en el servidor. Podés cerrar esta pantalla: siguen igual, y las ves en la campanita
-  y en el Historial."** (reemplaza al de `:1114-1121`); una lista con una línea por remesa (número,
+  después de la otra en el servidor. Podés cerrar esta pantalla: siguen igual, y volvés acá tocando el indicador de
+  importaciones de la barra de arriba."** (reemplaza al de `:1114-1121`); una lista con una línea por remesa (número,
   corte y estado: En cola · Procesando 43 % · Finalizada · Falló · Cancelada · No llegó a empezar); y el
   `ImportProgress` de la remesa **actual**, que es la primera en curso según `grupoOrden`.
 - Cuando todas son terminales pasa a "Resultado" con las N. Si `total` es mayor que las remesas que

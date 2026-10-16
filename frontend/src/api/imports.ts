@@ -98,6 +98,12 @@ export async function ejecutarGrupo(body: EjecutarGrupoBody): Promise<EjecutarGr
 }
 
 /** Las remesas de una carga dividida, por `grupoOrden`. Consulta de fondo. */
+/** El corte de una remesa de una división ("3082 · 3GH"), del detalle de la remesa. null si no tiene. */
+export async function obtenerCorteRemesa(remesaId: number): Promise<string | null> {
+    const { data } = await api.get<{ corte?: string | null }>(`/import/remesas/${remesaId}`, { silencioso: true });
+    return typeof data?.corte === 'string' && data.corte.trim() !== '' ? data.corte : null;
+}
+
 export async function obtenerGrupo(grupoId: string): Promise<GrupoCargaRespuesta> {
     const { data } = await api.get<GrupoCargaRespuesta>(`/import/grupos/${encodeURIComponent(grupoId)}`, {
         silencioso: true,

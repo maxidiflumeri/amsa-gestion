@@ -32,6 +32,8 @@ export interface BancoC1 {
     pub: (evento: string, dto: EstadoCargaDto) => void;
     texto: () => string;
     siguienteId: number;
+    /** El corte de cada remesa en `GET /import/remesas/:id` (para seguir una división con ?seguir=). */
+    cortesDeRemesa?: Record<number, string>;
 }
 
 export const CORTES_3 = () => [
@@ -47,7 +49,7 @@ export function campoMultipart(p: Pedido, nombre: string): string | null {
 }
 const json = (p: Pedido) => { try { return JSON.parse(p.cuerpo.toString('utf8') || '{}'); } catch { return {}; } };
 
-export async function armarBancoC1(o: { permisos?: string[]; usuarioId?: number; aceptarSockets?: boolean } = {}): Promise<BancoC1> {
+export async function armarBancoC1(o: { permisos?: string[]; usuarioId?: number; aceptarSockets?: boolean; ruta?: string; sembrar?: (b: BancoC1) => void } = {}): Promise<BancoC1> {
     const srv = new ServidorFalso();
     if (o.aceptarSockets === false) srv.aceptarSockets = false;
     await srv.levantar();
@@ -99,7 +101,13 @@ export async function armarBancoC1(o: { permisos?: string[]; usuarioId?: number;
         const e = b.estados[Number(m[1])];
         return e ? { body: { ...e, servidorAhora: iso(Date.now()) } } : { status: 404, body: { message: 'No existe' } };
     });
-    b.v = await montar(<ImportWizard />, { conSocket: true });
+    // El detalle de una remesa: lo pide el asistente al seguir una división (?seguir=) para mostrar el corte de cada una.
+    srv.en('GET', /^\/import\/remesas\/(\d+)$/, (m) => {
+        const id = Number(m[1]);
+        return b.estados[id] ? { body: { id, corte: b.cortesDeRemesa?.[id] ?? null } } : { status: 404, body: { message: 'No existe' } };
+    });
+    o.sembrar?.(b);
+    b.v = await montar(<ImportWizard />, { conSocket: true, ...(o.ruta ? { ruta: o.ruta } : {}) });
     b.texto = () => limpio(b.v.contenedor.textContent ?? '');
     return b;
 }

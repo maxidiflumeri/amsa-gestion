@@ -234,7 +234,7 @@ describe('textos del frontend contra §10 (carácter por carácter donde el spec
         const leer = (r: string) => fs.readFileSync(`${FE}/src/${r}`, 'utf8').replace(/\s*\n\s*/g, ' ');
         const fuentes = ['pages/ImportWizard.tsx', 'pages/ImportDetail.tsx', 'components/import/ImportProgress.tsx', 'components/import/progreso/TarjetaProgreso.tsx', 'components/import/ImportSummary.tsx', 'components/import/AvisosCarga.tsx', 'utils/estadoCarga.ts', 'components/layout/AppShell/ImportEnCursoItem.tsx'].map(leer).join('\n');
         const esperados = [
-            'Las remesas se cargan una después de la otra en el servidor. Podés cerrar esta pantalla: siguen igual, y las ves en la campanita y en el Historial.',
+            'Las remesas se cargan una después de la otra en el servidor. Podés cerrar esta pantalla: siguen igual, y volvés acá tocando el indicador de importaciones de la barra de arriba.',
             'Si lo cargás de nuevo, sus casos quedan duplicados',
             'Esta importación todavía no empezó. Si la cancelás no se carga ninguna fila, y después la podés retomar desde su detalle.',
             'Se pidió cancelar esta importación. Se corta al terminar la fila o el lote en curso; lo ya procesado queda cargado.',

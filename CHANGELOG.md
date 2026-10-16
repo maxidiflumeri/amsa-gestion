@@ -18,12 +18,25 @@ empresa 10, con 19.538 filas en 5 cortes (remesas 150 a 154).
   - Recién con 3 en curso volvía a aparecer.
   - Ahora las tarjetas tienen su propio scroll con un tope (`min(240px, 40vh)`), y la lista conserva al menos 160 px.
   - Test: `tests/componentes/campanita-scroll.test.tsx`, a 1280 y 360 px.
-- **El chip "Importando N %" de la barra superior lleva al detalle** de la carga que se está procesando; si todas
-  esperan en la cola, al de la primera de la cola. Antes abría la campanita, y ahora cada botón hace una cosa: la
-  campanita abre las notificaciones. El detalle de una remesa de una división muestra todas sus remesas, en vivo.
-  - Tests TH-2 y TH-3 de `chip-importaciones.test.tsx`.
-  - Wiki: `05` y `08`.
-- **Tests:** `npm test` da 673 en 45 archivos; `tsc` sin errores nuevos.
+- **El chip "Importando N %" de la barra superior vuelve a abrir el paso "Importando" del asistente** con la carga
+  que se está procesando (si todas esperan en la cola, con la primera), y si es una carga dividida, con todas sus
+  remesas. Antes abría la campanita, y ahora cada botón hace una cosa: la campanita abre las notificaciones.
+  - **Por qué:** al salir del asistente, esa pantalla no se podía recuperar.
+  - **Ruta nueva:** `/carga?seguir=<remesaId>`.
+    - El asistente consulta el estado de la carga y abre el paso "Importando".
+    - Si es una división, pide el corte de cada remesa al detalle, para mostrar "3082 · 3GH".
+    - Si la carga ya terminó, pasa directo a "Resultado".
+    - Si el usuario estaba armando otra importación, pregunta antes de tirarla.
+    - "Nueva importación" deja de seguirla.
+  - **Sin permiso para importar** (`importacion.ejecutar`), el chip lleva al detalle de la remesa.
+  - **El aviso de la división** dice cómo volver: "…y volvés acá tocando el indicador de importaciones de la barra de
+    arriba." Se cambió también en §10 del spec, que lo fija.
+  - **Tests:**
+    - `tests/paginas/asistente-seguir.test.tsx`: una división, cualquier remesa de la división, una carga sola, una
+      división ya terminada y una remesa que no existe;
+    - TH-2 y TH-3 de `chip-importaciones.test.tsx`.
+  - **Wiki:** `05` y `08`.
+- **Tests:** `npm test` da 679 en 46 archivos; `tsc` sin errores nuevos.
 
 ### La primera carga real, medida en CloudWatch
 

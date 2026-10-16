@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import { isAxiosError } from "axios";
-import { Link as RouterLink, useNavigate } from "react-router-dom";
+import { Link as RouterLink, useNavigate, useSearchParams } from "react-router-dom";
 import {
     Alert,
     AlertTitle,
@@ -57,7 +57,9 @@ import ImportProgress, { BotonCancelarCarga, MENSAJE_NO_SEGUIDA } from "../compo
 import TarjetaProgreso from "../components/import/progreso/TarjetaProgreso";
 import {
     ejecutarGrupo,
+    obtenerCorteRemesa,
     obtenerEstadoCarga,
+    obtenerGrupo,
     retomarGrupo,
     retomarRemesa,
     type CorteYaCargado,
@@ -233,7 +235,7 @@ function PasoImportandoGrupo({ grupoId, cortes, noEncoladas, omitidas, onTermina
                         : "Carga dividida"}
                 </AlertTitle>
                 Las remesas se cargan una después de la otra en el servidor. Podés cerrar esta pantalla: siguen igual,
-                y las ves en la campanita y en el Historial.
+                y volvés acá tocando el indicador de importaciones de la barra de arriba.
             </Alert>
 
             {noEncoladas.length > 0 && (
@@ -417,6 +419,8 @@ export default function ImportWizard() {
     const [resultadosPrevios, setResultadosPrevios] = useState<EstadoCargaDto[]>([]);
     // true cuando el paso "Importando" ya vio la carga en curso o terminada.
     const seguimientoRef = useRef(false);
+    // El corte de cada remesa cuando se sigue una división que no se armó en esta pantalla (?seguir=): no hay vista previa.
+    const [cortesSeguidos, setCortesSeguidos] = useState<Record<number, string> | null>(null);
     /** La primera remesa de una división recién confirmada mientras `ejecutar-grupo` no responde (§16.6): el vigía la mira. */
     const [esperandoGrupo, setEsperandoGrupo] = useState<number | null>(null);
     const { tardando: ejecutarGrupoTarda } = useVigiaGrupo(grupoId === null ? esperandoGrupo : null, (g) => {
@@ -428,6 +432,8 @@ export default function ImportWizard() {
     const borradorConfirmadoRef = useRef(false);
     // Cada "Nueva importación" empieza una carga nueva: lo que responda tarde un pedido de la anterior no la toca.
     const cargaNroRef = useRef(0);
+
+    const [searchParams, setSearchParams] = useSearchParams();
 
     // ─── Carga de plantillas ─────────────────────────────────
     useEffect(() => {
@@ -930,7 +936,7 @@ export default function ImportWizard() {
         setActiveStep(4);
     }, []);
 
-    const handleNewImport = () => {
+    const reiniciarAsistente = () => {
         cargaNroRef.current += 1;
         setEsperandoGrupo(null);
         setActiveStep(0);
@@ -969,7 +975,92 @@ export default function ImportWizard() {
         setCargaInicial(null);
         setEsDivision(false);
         setResultadosPrevios([]);
+        setCortesSeguidos(null);
     };
+
+    const handleNewImport = () => {
+        reiniciarAsistente();
+        // Una "Nueva importación" deja de seguir la carga del chip: recargar la página no la vuelve a abrir.
+        if (searchParams.has("seguir")) setSearchParams({}, { replace: true });
+    };
+
+    // ─── Seguir una carga que ya está en curso (?seguir=<remesaId>) ───
+    // El chip "Importando N %" de la barra superior lleva acá: abre el paso "Importando" con esa carga o con toda su
+    // división, aunque no se haya armado en esta pantalla (o se haya salido de ella).
+    const seguirParam = searchParams.get("seguir");
+    const seguir = seguirParam !== null && /^\d+$/.test(seguirParam) ? Number(seguirParam) : null;
+    const pasoRef = useRef(activeStep);
+    pasoRef.current = activeStep;
+    const seguidaRef = useRef<{ remesaId: number | null; grupoId: string | null }>({ remesaId: null, grupoId: null });
+    seguidaRef.current = { remesaId, grupoId };
+
+    useEffect(() => {
+        if (seguir === null) return;
+        let vigente = true;
+        void (async () => {
+            let carga: EstadoCargaDto;
+            try {
+                carga = await obtenerEstadoCarga(seguir);
+            } catch (err) {
+                if (vigente) notify.error(err as Error);
+                return;
+            }
+            if (!vigente) return;
+            const actual = seguidaRef.current;
+            // Ya está en pantalla: el mismo paso "Importando" con esa carga o con su división.
+            if (
+                pasoRef.current >= 3 &&
+                (actual.remesaId === carga.remesaId || (carga.grupoId !== null && actual.grupoId === carga.grupoId))
+            ) {
+                return;
+            }
+            // Si estaba armando otra importación, se pregunta antes de tirar lo que eligió y subió.
+            if (pasoRef.current === 1 || pasoRef.current === 2) {
+                const acepta = await confirm({
+                    title: "Ver la importación en curso",
+                    description: "Se deja la importación que estás armando: lo que elegiste y subiste no se guarda.",
+                    confirmLabel: "Ver la importación en curso",
+                });
+                if (!vigente) return;
+                if (!acepta) {
+                    setSearchParams({}, { replace: true });
+                    return;
+                }
+            }
+            reiniciarAsistente();
+            const nro = cargaNroRef.current;
+            setEmpresaId(carga.empresaId);
+            setRemesaId(carga.remesaId);
+            seguimientoRef.current = true;
+            if (carga.grupoId === null) {
+                setCargaInicial(carga);
+                setColaRemesas([carga.remesaId]);
+                setActiveStep(3);
+                return;
+            }
+            setEsDivision(true);
+            setGrupoId(carga.grupoId);
+            setActiveStep(3);
+            // El corte de cada remesa ("3082 · 3GH") para la lista. Si no se puede, la lista muestra solo los números.
+            try {
+                const g = await obtenerGrupo(carga.grupoId);
+                const pares = await Promise.all(
+                    g.remesas.map(async (r) => [r.remesaId, await obtenerCorteRemesa(r.remesaId).catch(() => null)] as const),
+                );
+                if (!vigente || cargaNroRef.current !== nro) return;
+                const cortesDelGrupo: Record<number, string> = {};
+                for (const [id, corte] of pares) if (corte !== null) cortesDelGrupo[id] = corte;
+                setCortesSeguidos(cortesDelGrupo);
+            } catch {
+                // Sin los cortes la pantalla sigue funcionando.
+            }
+        })();
+        return () => {
+            vigente = false;
+        };
+        // Solo cuando cambia la carga a seguir: lo demás se lee por ref o se reinicia adentro.
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [seguir]);
 
     // Números que chocan entre sí. La combinación 3G / 3GH del archivo real produce el mismo
     // sugerido para las dos, así que el choque hay que mostrarlo, no dejarlo llegar al backend.
@@ -1529,7 +1620,7 @@ export default function ImportWizard() {
                             <PasoImportandoGrupo
                                 key={`${grupoId}:${intentoSeguimiento}`}
                                 grupoId={grupoId}
-                                cortes={Object.fromEntries(remesasPreview.map((r) => [r.remesaId, r.corte]))}
+                                cortes={cortesSeguidos ?? Object.fromEntries(remesasPreview.map((r) => [r.remesaId, r.corte]))}
                                 noEncoladas={noEncoladas}
                                 omitidas={omitidas}
                                 onTerminaron={handleGrupoTerminado}

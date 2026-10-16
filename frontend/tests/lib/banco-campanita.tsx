@@ -88,7 +88,13 @@ interface Opciones {
 
 function Ubicacion() {
     navegador.ir = useNavigate();
-    return <span data-testid="ruta">{useLocation().pathname}</span>;
+    const { pathname, search } = useLocation();
+    return (
+        <>
+            <span data-testid="ruta">{pathname}</span>
+            <span data-testid="ruta-busqueda">{search}</span>
+        </>
+    );
 }
 /** Para cambiar de ruta desde la prueba sin pasar por la campanita (un enlace de la página, el «atrás» del navegador). */
 export const navegador: { ir: NavigateFunction | null } = { ir: null };
@@ -166,6 +172,8 @@ export async function armarCampanita(o: Opciones = {}): Promise<BancoCampanita> 
 }
 
 export const ruta = () => document.querySelector('[data-testid="ruta"]')?.textContent ?? '';
+/** La ruta con su query (`/carga?seguir=201`). */
+export const rutaCompleta = () => ruta() + (document.querySelector('[data-testid="ruta-busqueda"]')?.textContent ?? '');
 export const campanitaAbierta = () => document.querySelector('[role="dialog"], .MuiPopover-root') != null;
 /** Abre la campanita con un clic en la campana y espera a que dibuje. */
 export async function abrirCampanita() {

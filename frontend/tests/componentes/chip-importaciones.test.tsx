@@ -5,7 +5,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { fijarAncho } from '../lib/ancho';
 import { RAIZ_FE } from '../lib/raiz';
 import { clic, esperar, limpio, pasar } from '../lib/montar';
-import { armarCampanita, campanitaAbierta, corriendo, enCola, finalizada, ruta, type BancoCampanita } from '../lib/banco-campanita';
+import { armarCampanita, campanitaAbierta, corriendo, enCola, finalizada, rutaCompleta, type BancoCampanita } from '../lib/banco-campanita';
 
 let b: BancoCampanita | null = null;
 afterEach(async () => { if (b) { await b.v.desmontar(); await b.srv.bajar(); } b = null; });
@@ -50,27 +50,34 @@ describe('TH-1 — el chip sigue a las cargas en curso', () => {
     });
 });
 
-describe('TH-2 — el chip lleva al detalle de la carga en curso (16/10/2026: la campanita ya abre las notificaciones)', () => {
-    it('un clic en el chip va al detalle de la carga y no abre la campanita', async () => {
+describe('TH-2 — el chip abre el paso «Importando» de la carga en curso (16/10/2026: la campanita ya abre las notificaciones)', () => {
+    it('un clic en el chip va al asistente siguiendo esa carga y no abre la campanita', async () => {
         b = await armarCampanita({ enCurso: [corriendo(201, { progreso: 43 })] });
         await esperar(() => chipDeImportaciones() !== null, { que: 'el chip' });
         await clic(chipDeImportaciones(), 'el chip');
-        await esperar(() => ruta() === '/historial-importaciones/201', { que: 'el detalle de la 201' });
+        await esperar(() => rutaCompleta() === '/carga?seguir=201', { que: 'el asistente siguiendo la 201' });
         expect(campanitaAbierta()).toBe(false);
+    });
+
+    it('sin permiso para importar, lleva al detalle de la remesa', async () => {
+        b = await armarCampanita({ permisos: ['importacion.ver_historial', 'importacion.ver_progreso_otros'], enCurso: [corriendo(201, { progreso: 43 })] });
+        await esperar(() => chipDeImportaciones() !== null, { que: 'el chip' });
+        await clic(chipDeImportaciones(), 'el chip');
+        await esperar(() => rutaCompleta() === '/historial-importaciones/201', { que: 'el detalle de la 201' });
     });
 
     it('con una división, va a la que está corriendo aunque no sea la primera de la lista', async () => {
         b = await armarCampanita({ enCurso: [enCola(152, 0), corriendo(151, { progreso: 10 }), enCola(153, 1)] });
         await esperar(() => chipDeImportaciones() !== null, { que: 'el chip' });
         await clic(chipDeImportaciones(), 'el chip');
-        await esperar(() => ruta() === '/historial-importaciones/151', { que: 'el detalle de la que corre' });
+        await esperar(() => rutaCompleta() === '/carga?seguir=151', { que: 'el asistente siguiendo la que corre' });
     });
 
     it('si todas esperan en la cola, va a la primera de la cola', async () => {
         b = await armarCampanita({ enCurso: [enCola(162, 2), enCola(160, 0), enCola(161, 1)] });
         await esperar(() => chipDeImportaciones() !== null, { que: 'el chip' });
         await clic(chipDeImportaciones(), 'el chip');
-        await esperar(() => ruta() === '/historial-importaciones/160', { que: 'el detalle de la primera de la cola' });
+        await esperar(() => rutaCompleta() === '/carga?seguir=160', { que: 'el asistente siguiendo la primera de la cola' });
     });
 });
 
@@ -83,7 +90,7 @@ describe('TH-3 — en un celular queda solo el ícono', () => {
         expect(b.v.contenedor.querySelectorAll('.MuiChip-root')).toHaveLength(0);
         expect(limpio(b.v.contenedor.textContent ?? '')).not.toMatch(/Importando/);
         await clic(boton, 'el ícono');
-        await esperar(() => ruta() === '/historial-importaciones/201', { que: 'el detalle de la 201' });
+        await esperar(() => rutaCompleta() === '/carga?seguir=201', { que: 'el asistente siguiendo la 201' });
     });
 
     it('a 1280 px es un Chip con el texto visible y sin botón de ícono aparte', async () => {

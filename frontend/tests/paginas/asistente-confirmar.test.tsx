@@ -92,7 +92,7 @@ describe('confirmar una división: un solo pedido', () => {
         expect(cuerpo(pedidos[0])).toEqual({ remesaIds: [141, 142, 143] });
         expect(b.srv.cuantos('POST', SUELTA)).toBe(0);
         const info = alertas(b.v.contenedor).find((a) => /Carga dividida/.test(a.texto))!;
-        expect(info.texto).toBe('Carga dividida: remesa 1 de 3' + enElSpec10('Las remesas se cargan una después de la otra en el servidor. Podés cerrar esta pantalla: siguen igual, y las ves en la campanita y en el Historial.'));
+        expect(info.texto).toBe('Carga dividida: remesa 1 de 3' + enElSpec10('Las remesas se cargan una después de la otra en el servidor. Podés cerrar esta pantalla: siguen igual, y volvés acá tocando el indicador de importaciones de la barra de arriba.'));
     });
 
     it('de punta a punta por eventos: la pestaña no dispara NINGÚN POST después de confirmar; termina en Resultado con las 3', async () => {
