@@ -211,6 +211,10 @@ export class ProgresoTracker {
     /** Se supo que alguien pidió cancelar (compuerta, reloj o `avisarCancelacion`). No se apaga. */
     private cancelacionPedidaFlag = false;
     private cancelacionDesdeMs: number | null = null;
+    /** Un USUARIO pidió cancelar (compuerta, reloj o `avisarCancelacion`). Distingue su pedido del corte por cierre. */
+    private cancelacionDeUsuarioFlag = false;
+    /** El servidor se está cerrando y pidió el corte (C3c). Solo memoria: no se escribe `cancelSolicitadaAt`. */
+    private cortePorCierreFlag = false;
     private canceladaPorNombre: string | null = null;
 
     constructor(
@@ -286,8 +290,28 @@ export class ProgresoTracker {
             : null;
     }
 
+    /** `true` si una persona pidió cancelar. Si además se cerró el servidor, gana la persona. */
+    get cancelacionDeUsuario(): boolean {
+        return this.cancelacionDeUsuarioFlag;
+    }
+
+    /** `true` si el cierre ordenado del servidor pidió el corte. */
+    get cortePorCierre(): boolean {
+        return this.cortePorCierreFlag;
+    }
+
     /** Atajo en memoria: lo llama `cancelarCarga` después de su commit. Idempotente; no escribe. */
     avisarCancelacion(): void {
+        this.cancelacionDeUsuarioFlag = true;
+        this.marcarPedido();
+    }
+
+    /**
+     * El servidor se está cerrando (SIGTERM): pide el corte por los mismos puntos que la cancelación de C1, que miran
+     * `cancelacionPedida`. Idempotente, sin IO. NO escribe `cancelSolicitadaAt`: ese es el pedido de una persona.
+     */
+    avisarCortePorCierre(): void {
+        this.cortePorCierreFlag = true;
         this.marcarPedido();
     }
 
@@ -311,6 +335,7 @@ export class ProgresoTracker {
         if (leido.cancelSolicitadaAt == null) return;
         const cuando = leido.cancelSolicitadaAt instanceof Date ? leido.cancelSolicitadaAt : new Date(leido.cancelSolicitadaAt);
         for (const d of destinos) d.cancelSolicitadaAt = cuando;
+        this.cancelacionDeUsuarioFlag = true;
         this.marcarPedido();
         const nombre = leerResumen(leido.resumen ?? this.mem.resumen)?.cancelacion?.nombre;
         if (typeof nombre === 'string' && nombre) this.canceladaPorNombre = nombre;
@@ -773,8 +798,31 @@ export class ProgresoTracker {
      * columna `resultado` guarda `CANCELADA`; el DTO la traduce a `FALLIDA` + `cancelada: true`.
      */
     async cancelar(c: ContadoresCarga, o: { texto: string; sinFilasEntregadas: boolean }): Promise<EstadoCargaDto> {
+        return this.cerrarCortada('cancelar', RESULTADO_CANCELADA, 'cancelada', c, o.texto, o.sinFilasEntregadas, {});
+    }
+
+    /**
+     * Cierre de una carga que cortó el cierre ordenado del servidor (C3c). Mismo contrato que `cancelar`, pero la
+     * columna `resultado` guarda `FALLIDA` y la marca es `resumen.interrupcion` (que viaja en el evento emitido:
+     * la foto lleva el `resumen` ya mezclado). Los contadores son exactos por la misma razón que en `cancelar`.
+     */
+    async cerrarPorReinicio(c: ContadoresCarga, o: { texto: string; sinFilasEntregadas: boolean }): Promise<EstadoCargaDto> {
+        return this.cerrarCortada('cerrarPorReinicio', 'FALLIDA', 'interrumpida por un reinicio', c, o.texto, o.sinFilasEntregadas, {
+            interrupcion: { motivo: 'REINICIO' },
+        });
+    }
+
+    private async cerrarCortada(
+        nombre: string,
+        resultado: ResultadoCarga | typeof RESULTADO_CANCELADA,
+        comoQueda: string,
+        c: ContadoresCarga,
+        texto: string,
+        sinFilasEntregadas: boolean,
+        marca: Partial<ResumenCarga>,
+    ): Promise<EstadoCargaDto> {
         if (this.terminado) {
-            this.logger.error(`cancelar() sobre la remesa ${this.info.remesaId}, que ya terminó: no se pisa el estado terminal`);
+            this.logger.error(`${nombre}() sobre la remesa ${this.info.remesaId}, que ya terminó: no se pisa el estado terminal`);
             return this.estado;
         }
         this.terminando = true;
@@ -795,8 +843,8 @@ export class ProgresoTracker {
             descartadas: c.descartadas,
             fueraDeCorte: c.fueraDeCorte !== undefined ? c.fueraDeCorte : this.mem.fueraDeCorte,
             adelantoDelLote: 0,
-            resultado: RESULTADO_CANCELADA,
-            error: recortarMotivo(o.texto),
+            resultado,
+            error: recortarMotivo(texto),
             heartbeatAt: ahora,
             finishedAt: ahora,
         };
@@ -808,7 +856,7 @@ export class ProgresoTracker {
                 foto.rev = await this.persistir(
                     { estadoProceso: 'FALLIDA', okFilas: c.ok, errFilas: c.err },
                     foto,
-                    this.mezclaDeCierre(o.sinFilasEntregadas ? { sinFilasEntregadas: true } : {}),
+                    this.mezclaDeCierre({ ...marca, ...(sinFilasEntregadas ? { sinFilasEntregadas: true as const } : {}) }),
                 );
                 this.mem = foto;
                 this.terminado = true;
@@ -817,7 +865,7 @@ export class ProgresoTracker {
         } catch (e: any) {
             if (e instanceof CargaCerradaPorFueraError) return this.armar({ ...foto, rev: this.mem.rev });
             this.logger.error(
-                `No se pudo marcar la remesa ${this.info.remesaId} como cancelada: ${motivoLegible(e)}. ` +
+                `No se pudo marcar la remesa ${this.info.remesaId} como ${comoQueda}: ${motivoLegible(e)}. ` +
                 'Queda en PROCESANDO y no se emite import:finalizada.',
                 e?.stack,
             );

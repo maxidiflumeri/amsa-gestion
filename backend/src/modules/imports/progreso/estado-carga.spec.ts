@@ -941,6 +941,7 @@ describe('C2a — corteRepetidoEn y singulares', () => {
         const n = (o: Partial<EstadoCargaDto>) => textoNotificacion(dto(o)).mensaje;
         expect(n({ cancelada: true, error: 'Cancelada.', ok: 1 })).toBe('Cancelada. La única fila ya procesada quedó cargada.');
         expect(n({ cancelada: true, error: 'Cancelada.', ok: 2 })).toBe('Cancelada. Las 2 filas ya procesadas quedaron cargadas.');
+        expect(n({ cancelada: true, error: 'Cancelada.', ok: 1, err: 36 })).toBe('Cancelada. De las 37 filas ya procesadas, 1 quedó cargada.');
         expect(n({ resultado: 'OK', ok: 1 })).toBe('Se procesó 1 fila correctamente.');
         expect(n({ resultado: 'OK', ok: 2 })).toBe('Se procesaron 2 filas correctamente.');
         expect(n({ resultado: 'CON_ERRORES', ok: 1, err: 1 })).toBe('Se cargó 1 fila y 1 dio error.');
@@ -1022,5 +1023,122 @@ describe('C3a — resumenCategoria en el estado de la carga', () => {
         );
         expect(dto.cancelada).toBe(true);
         expect(dto.resumenCategoria).toEqual(CAT);
+    });
+});
+
+describe('C3c — la carga interrumpida por un reinicio del servidor', () => {
+    const ORIGEN = { v: 1, origen: { remesaOrigenId: null, remesaOrigenIds: null } };
+    const ini = new Date('2026-10-16T11:00:00Z');
+    const fin = new Date('2026-10-16T12:00:00Z');
+    const base = { ok: 0, err: 0, total: 0, categoria: 'DEUDORES', conCorte: false, por: null, arranco: true, sinFilasEntregadas: false };
+    const primera = (t: string) => t.split('\n\n')[0];
+    const segundo = (t: string) => t.split('\n\n').slice(1).join('\n\n');
+
+    describe('textoCancelacion con motivo REINICIO', () => {
+        it('primera línea con total y sin total', () => {
+            expect(primera(textoCancelacion({ ...base, ok: 1_250, err: 50, total: 14_466, motivo: 'REINICIO' })))
+                .toBe('La importación se interrumpió por un reinicio del servidor cuando llevaba 1.300 de 14.466 filas.');
+            expect(primera(textoCancelacion({ ...base, ok: 20, total: 0, motivo: 'REINICIO' })))
+                .toBe('La importación se interrumpió por un reinicio del servidor cuando llevaba 20 filas.');
+            expect(primera(textoCancelacion({ ...base, ok: 1, total: 0, motivo: 'REINICIO' })))
+                .toBe('La importación se interrumpió por un reinicio del servidor cuando llevaba 1 fila.');
+        });
+
+        it('no usa «por»: aunque venga un nombre', () => {
+            expect(textoCancelacion({ ...base, por: 'Ana', ok: 5, total: 10, motivo: 'REINICIO' })).not.toContain('Ana');
+        });
+
+        it('sin filas entregadas: «Retomar»', () => {
+            const t = textoCancelacion({ ...base, total: 50, sinFilasEntregadas: true, motivo: 'REINICIO' });
+            expect(primera(t)).toBe('La importación se interrumpió por un reinicio del servidor cuando llevaba 0 de 50 filas.');
+            expect(segundo(t)).toContain('usá «Retomar»');
+        });
+
+        it('el segundo párrafo es idéntico al de la cancelada, en cada rama de categoría', () => {
+            for (const categoria of ['DEUDORES', 'ACTUALIZACIONES', 'ACCIONES', 'PAGOS']) {
+                for (const err of [0, 3]) {
+                    const d = { ...base, categoria, ok: 40, err, total: 100, por: 'Ana' };
+                    expect(segundo(textoCancelacion({ ...d, motivo: 'REINICIO' }))).toBe(segundo(textoCancelacion(d)));
+                }
+            }
+            expect(segundo(textoCancelacion({ ...base, categoria: 'ACCIONES', ok: 4, total: 9, motivo: 'REINICIO' }))).toContain('Revertir');
+        });
+
+        it('sin motivo (o CANCELACION) devuelve exactamente lo de hoy', () => {
+            const d = { ...base, por: 'Ana', ok: 1_250, err: 50, total: 14_466 };
+            expect(textoCancelacion({ ...d, motivo: 'CANCELACION' })).toBe(textoCancelacion(d));
+            expect(primera(textoCancelacion(d))).toBe('La importación fue cancelada por Ana cuando llevaba 1.300 de 14.466 filas.');
+        });
+    });
+
+    describe('interrumpidaPorReinicio en el DTO', () => {
+        const dtoDe = (resultado: string, resumen: unknown, estadoProceso: 'FALLIDA' | 'FINALIZADA' = 'FALLIDA') =>
+            armarEstadoCarga(
+                remesaBase({ estadoProceso }),
+                filaBase({ fase: 'TERMINADA', resultado, encoladaAt: ini, startedAt: ini, finishedAt: fin, resumen: resumen as any }),
+            );
+
+        it('true solo en una FALLIDA terminal con la marca', () => {
+            const e = dtoDe('FALLIDA', { ...ORIGEN, interrupcion: { motivo: 'REINICIO' } });
+            expect(e.interrumpidaPorReinicio).toBe(true);
+            expect(e.cancelada).toBe(false);
+            expect(e.resultado).toBe('FALLIDA');
+        });
+
+        it('false en una CANCELADA, una FINALIZADA, una FALLIDA común y una heredada', () => {
+            expect(dtoDe('CANCELADA', { ...ORIGEN, interrupcion: { motivo: 'REINICIO' } }).interrumpidaPorReinicio).toBe(false);
+            expect(dtoDe('OK', { ...ORIGEN, interrupcion: { motivo: 'REINICIO' } }, 'FINALIZADA').interrumpidaPorReinicio).toBe(false);
+            expect(dtoDe('FALLIDA', ORIGEN).interrumpidaPorReinicio).toBe(false);
+            expect(dtoDe('FALLIDA', null).interrumpidaPorReinicio).toBe(false);
+            expect(armarEstadoCarga(remesaBase({ estadoProceso: 'FALLIDA' }), null).interrumpidaPorReinicio).toBe(false);
+        });
+
+        it('una carga en curso con la marca (no debería pasar) no es interrumpida: no es terminal', () => {
+            const e = armarEstadoCarga(
+                remesaBase({ estadoProceso: 'PROCESANDO' }),
+                filaBase({ fase: 'PROCESANDO', encoladaAt: ini, startedAt: ini, resumen: { ...ORIGEN, interrupcion: { motivo: 'REINICIO' } } as any }),
+            );
+            expect(e.interrumpidaPorReinicio).toBe(false);
+        });
+
+        it('retomable cuando no entregó filas', () => {
+            const e = dtoDe('FALLIDA', { ...ORIGEN, sinFilasEntregadas: true, interrupcion: { motivo: 'REINICIO' } });
+            expect(e.retomable).toBe(true);
+            expect(e.interrumpidaPorReinicio).toBe(true);
+        });
+    });
+
+    describe('textoNotificacion', () => {
+        const interrumpida = (o: Partial<EstadoCargaDto>): EstadoCargaDto => ({
+            ...armarEstadoCarga(
+                remesaBase({ estadoProceso: 'FALLIDA' }),
+                filaBase({ fase: 'TERMINADA', resultado: 'FALLIDA', encoladaAt: ini, finishedAt: fin, resumen: { ...ORIGEN, interrupcion: { motivo: 'REINICIO' } } as any }),
+            ),
+            ...o,
+        });
+
+        it('con filas: tipo error, título propio y cuántas quedaron cargadas', () => {
+            const n = textoNotificacion(interrumpida({
+                error: 'La importación se interrumpió por un reinicio del servidor cuando llevaba 37 de 100 filas.\n\nDe las 37…', ok: 34, err: 3, procesadas: 37,
+            }));
+            expect(n).toEqual({
+                tipo: 'IMPORTACION_ERROR',
+                titulo: 'Importación interrumpida por un reinicio',
+                mensaje: 'La importación se interrumpió por un reinicio del servidor cuando llevaba 37 de 100 filas. De las 37 filas ya procesadas, 34 quedaron cargadas.',
+            });
+        });
+
+        it('con filas con error: dice de cuántas procesadas quedaron cargadas (auditoría C3c)', () => {
+            expect(textoNotificacion(interrumpida({ error: 'Corte.', ok: 1, err: 36 })).mensaje)
+                .toBe('Corte. De las 37 filas ya procesadas, 1 quedó cargada.');
+            expect(textoNotificacion(interrumpida({ error: 'Corte.', ok: 1200, err: 34 })).mensaje)
+                .toBe('Corte. De las 1.234 filas ya procesadas, 1.200 quedaron cargadas.');
+            expect(textoNotificacion(interrumpida({ error: 'Corte.', ok: 0, err: 5 })).mensaje).toBe('Corte. No se cargó ninguna fila.');
+        });
+
+        it('con una fila y sin filas', () => {
+            expect(textoNotificacion(interrumpida({ error: 'Corte.', ok: 1 })).mensaje).toBe('Corte. La única fila ya procesada quedó cargada.');
+            expect(textoNotificacion(interrumpida({ error: 'Corte.', ok: 0 })).mensaje).toBe('Corte. No se cargó ninguna fila.');
+        });
     });
 });

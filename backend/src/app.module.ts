@@ -6,6 +6,7 @@ import { AppController } from './app.controller';
 import { AppService } from './app.service';
 import { winstonConfig } from './common/logger/winston.config';
 import { RequestContextModule } from './common/logger/request-context.module';
+import { CierreModule } from './common/cierre/cierre.module';
 import { PrismaModule } from './prisma/prisma.module';
 import { DeudoresModule } from './modules/deudores/deudores.module';
 import { ParametrosModule } from './modules/parametros/parametros.module';
@@ -39,6 +40,7 @@ import { MulticlavesModule } from './modules/multiclaves/multiclaves.module';
     WinstonModule.forRoot(winstonConfig()),
     RequestContextModule,
     PrismaModule,
+    CierreModule,
     BullModule.forRoot({
       connection: {
         host: process.env.REDIS_HOST || 'localhost',

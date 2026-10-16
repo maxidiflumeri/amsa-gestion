@@ -29,6 +29,7 @@ import {
     textoNotificacion,
 } from './progreso/estado-carga';
 import type { EstadoCargaDto } from './progreso/estado-carga.types';
+import type { CortablePorCierre } from '../../common/cierre/cortable-por-cierre';
 import { parseMultirregistro } from './utils/multirregistro-parser';
 import { ArchivosMultiarchivo, parseMultiarchivo } from './utils/multiarchivo-parser';
 import { resolverRolesArchivos } from './utils/roles-multiarchivo';
@@ -216,7 +217,7 @@ function borradoMaxCasos(): number {
 const UMBRAL_LATIDO_DEFAULT_MS = 5 * 60_000;
 
 @Injectable()
-export class ImportService {
+export class ImportService implements CortablePorCierre {
     private readonly logger = new Logger(ImportService.name);
 
     /**
@@ -226,6 +227,9 @@ export class ImportService {
      * inmortal a esa carga para el reaper.
      */
     private readonly cargasVivas = new Map<number, ProgresoTracker>();
+
+    /** El servidor se está cerrando (C3c): las cargas que entren desde ahora cortan antes de su primera fila. */
+    private cierrePedido = false;
 
     constructor(
         private prisma: PrismaService,
@@ -238,6 +242,36 @@ export class ImportService {
         private readonly promesas: PromesasService,
         private readonly auditoria: AuditoriaHelper,
     ) { }
+
+    // --- CIERRE ORDENADO (C3c) ---
+    /** Pide el corte de las cargas vivas en sus puntos de corte de C1. Idempotente, sin IO, nunca tira. */
+    cortarPorCierre(): void {
+        this.cierrePedido = true;
+        for (const [remesaId, tracker] of this.cargasVivas) {
+            try {
+                tracker.avisarCortePorCierre();
+            } catch (e: any) {
+                this.logger.warn(`No se pudo pedir el corte por cierre de la remesa ${remesaId}: ${e?.message}`);
+            }
+        }
+    }
+
+    /** Una línea por carga viva, para el log del cierre. */
+    trabajosEnCurso(): string[] {
+        const lineas: string[] = [];
+        for (const [remesaId, tracker] of this.cargasVivas) {
+            try {
+                const e = tracker.estado;
+                lineas.push(
+                    `carga remesa=${remesaId} ${e.tipo} ${conPuntoDeMiles(e.procesadas)}/${conPuntoDeMiles(e.totalEsperado)} ` +
+                    `${e.estadoProceso} ${e.fase}${e.subfase ? ` (${e.subfase})` : ''}`,
+                );
+            } catch {
+                lineas.push(`carga remesa=${remesaId}`);
+            }
+        }
+        return lineas;
+    }
 
     // --- PLANTILLAS ---
     /**
@@ -2630,7 +2664,7 @@ export class ImportService {
                         }));
                     } else {
                         const previo = leerResumen(f.resumen) ?? {};
-                        const { sinFilasEntregadas: _marca, cancelacion: _cancelacion, ...resto } = previo;
+                        const { sinFilasEntregadas: _marca, cancelacion: _cancelacion, interrupcion: _interrupcion, ...resto } = previo;
                         const resumen = { ...resto, v: 1, retomas: (previo.retomas ?? 0) + 1 } as Prisma.InputJsonObject;
                         origenes.set(f.id, {
                             remesaOrigenId: previo.origen?.remesaOrigenId ?? null,
@@ -3112,6 +3146,51 @@ export class ImportService {
         }
     }
 
+    /**
+     * El runner vivo cierra una carga que cortó el cierre ordenado del servidor (C3c): contadores exactos, sin cierre
+     * de carga, FALLIDA con `resumen.interrupcion`. Lo aplicado queda aplicado. No es una falla: no relanza.
+     */
+    private async cerrarCargaPorReinicio(
+        tracker: ProgresoTracker,
+        remesa: { categoria: string | null; filtroFilas: unknown },
+        c: { ok: number; err: number; descartadas: number; fueraDeCorte: number | null },
+        x: { total: number; filasEntregadas: boolean; ownerId: number | null; t0: number; remesaId: number; donde?: string },
+    ): Promise<{ total: number; ok: number; err: number; interrumpida?: true; ignorado?: true }> {
+        const sinFilasEntregadas = !x.filasEntregadas;
+        const pedidoHaceMs = tracker.cancelacionPedidaHaceMs;
+        const texto = textoCancelacion({
+            ok: c.ok, err: c.err, total: tracker.estado.totalEsperado, categoria: remesa.categoria,
+            conCorte: this.tieneCortePropio(remesa.filtroFilas), por: null, arranco: true, sinFilasEntregadas,
+            motivo: 'REINICIO',
+        });
+        const estado = await tracker.cerrarPorReinicio(c, { texto, sinFilasEntregadas });
+        if (tracker.cerradaPorFuera) {
+            this.logger.warn(`La remesa ${x.remesaId} fue cerrada por fuera mientras se interrumpía por el cierre del servidor: no se notifica (ok=${c.ok} err=${c.err})`);
+            return { total: x.total, ok: c.ok, err: c.err, ignorado: true };
+        }
+        await this.notificarResultadoCarga(estado, x.ownerId, tracker.noSePudoRegistrar);
+        try {
+            await this.auditoria.log({
+                modulo: AuditModulo.IMPORT,
+                entidad: 'Remesa',
+                tipo: AuditTipo.IMPORT_FAIL,
+                severidad: AuditSeveridad.WARN,
+                estado: AuditEstado.FALLIDO,
+                usuarioId: x.ownerId,
+                entidadId: x.remesaId,
+                resumen: `Importación interrumpida por un reinicio del servidor remesa ${estado.numeroRemesa}`,
+                data: { contexto: { ok: c.ok, err: c.err, procesadas: c.ok + c.err, pedidoHaceMs } },
+            });
+        } catch (e: any) {
+            this.logger.warn(`No se pudo auditar la interrupción por reinicio de la remesa ${x.remesaId}: ${e?.message}`);
+        }
+        this.logger.warn(
+            `Remesa ${x.remesaId} interrumpida por el cierre del servidor con ok=${c.ok} err=${c.err} ` +
+            `(cortó ${x.donde ?? 'en una compuerta'}; pedido hace ${pedidoHaceMs ?? '?'} ms; el cierre de la carga no corrió) en ${Date.now() - x.t0}ms`,
+        );
+        return { total: x.total, ok: c.ok, err: c.err, interrumpida: true };
+    }
+
     /** El runner vivo cierra una carga cancelada (§10.5.3): contadores exactos, sin cierre de carga. No es una falla: no relanza. */
     private async cerrarCargaCancelada(
         tracker: ProgresoTracker,
@@ -3390,7 +3469,7 @@ export class ImportService {
         remesaId: number,
         remesaOrigenId?: number,
         remesaOrigenIds?: number[],
-    ): Promise<{ total: number; ok: number; err: number; ignorado?: true; cancelada?: true }> {
+    ): Promise<{ total: number; ok: number; err: number; ignorado?: true; cancelada?: true; interrumpida?: true }> {
         const usuarioId: number | undefined = job.data?.usuarioId;
         const t0 = Date.now();
 
@@ -3491,6 +3570,8 @@ export class ImportService {
             remesa.progreso ?? null,
         );
         this.cargasVivas.set(remesaId, tracker);
+        // El job que BullMQ ya había traído cuando se pidió el cierre: corta antes de su primera fila (y es retomable).
+        if (this.cierrePedido) tracker.avisarCortePorCierre();
 
         let ok = 0;
         let err = 0;
@@ -4086,7 +4167,12 @@ export class ImportService {
             }
             // Cancelación pedida (§10.5.3): no es una falla. Se cierra con los contadores exactos, sin cierre de carga.
             if (error instanceof CargaCanceladaError) {
-                return this.cerrarCargaCancelada(tracker, remesa, { ok, err, descartadas, fueraDeCorte }, { total, filasEntregadas, ownerId: ownerId ?? null, t0, remesaId, donde: error.donde });
+                const datosCierre = { total, filasEntregadas, ownerId: ownerId ?? null, t0, remesaId, donde: error.donde };
+                // Si además lo pidió una persona, gana la persona: queda CANCELADA.
+                if (tracker.cortePorCierre && !tracker.cancelacionDeUsuario) {
+                    return this.cerrarCargaPorReinicio(tracker, remesa, { ok, err, descartadas, fueraDeCorte }, datosCierre);
+                }
+                return this.cerrarCargaCancelada(tracker, remesa, { ok, err, descartadas, fueraDeCorte }, datosCierre);
             }
             // Un error de negocio (plantilla sin estado inicial, archivo que falta…) es `warn`; una falla
             // inesperada, `error` con stack. El detalle completo va solo al log.
@@ -4212,6 +4298,7 @@ export class ImportService {
                     errFilas: estado.errFilas,
                     totalFilas: estado.totalFilas,
                     ...(estado.cancelada ? { cancelada: true } : {}),
+                    ...(estado.interrumpidaPorReinicio ? { interrumpidaPorReinicio: true } : {}),
                 },
                 rutaAccion: `/historial-importaciones/${estado.remesaId}`,
                 destinatarioPrincipalId: ownerId,

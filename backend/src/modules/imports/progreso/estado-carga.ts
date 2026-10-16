@@ -262,6 +262,7 @@ export function armarEstadoCarga(
             resumenCategoria: null,
             cancelada: false,
             canceladaPor: null,
+            interrumpidaPorReinicio: false,
             cancelable: false,
             retomable: false,
             corteRepetidoEn: null,
@@ -327,6 +328,8 @@ export function armarEstadoCarga(
         resumenCategoria: terminal ? resumenCategoriaDe(resumen) : null,
         cancelada,
         canceladaPor: typeof resumen?.cancelacion?.nombre === 'string' ? resumen.cancelacion.nombre : null,
+        interrumpidaPorReinicio:
+            terminal && estadoProceso === 'FALLIDA' && !cancelada && resumen?.interrupcion?.motivo === 'REINICIO',
         cancelable: esCancelable(r.categoria, fila),
         retomable: esRetomable(estadoProceso, fila) && !(extras.corteRepetidoEn && extras.corteRepetidoEn.length > 0),
         corteRepetidoEn: extras.corteRepetidoEn && extras.corteRepetidoEn.length > 0 ? extras.corteRepetidoEn : null,
@@ -486,6 +489,8 @@ export interface EntradaTextoCancelacion {
     arranco: boolean;
     /** Ningún processor fue llamado. */
     sinFilasEntregadas: boolean;
+    /** Por qué se cortó. Sin él (o 'CANCELACION'), el texto es el de una cancelación del usuario. */
+    motivo?: 'CANCELACION' | 'REINICIO';
 }
 
 /**
@@ -498,7 +503,12 @@ export function textoCancelacion(d: EntradaTextoCancelacion): string {
     const procesadas = d.ok + d.err;
     const total = d.total != null && Number.isFinite(d.total) && d.total > 0 ? d.total : null;
     let primera: string;
-    if (!d.arranco) primera = `La importación fue cancelada${por} antes de empezar.`;
+    if (d.motivo === 'REINICIO') {
+        // Cierre ordenado del servidor: la carga arrancó, así que `arranco` no se mira.
+        primera = total != null
+            ? `La importación se interrumpió por un reinicio del servidor cuando llevaba ${conPuntoDeMiles(procesadas)} de ${conPuntoDeMiles(total)} ${plural(total, 'fila', 'filas')}.`
+            : `La importación se interrumpió por un reinicio del servidor cuando llevaba ${conPuntoDeMiles(procesadas)} ${plural(procesadas, 'fila', 'filas')}.`;
+    } else if (!d.arranco) primera = `La importación fue cancelada${por} antes de empezar.`;
     else if (total != null) {
         primera = `La importación fue cancelada${por} cuando llevaba ${conPuntoDeMiles(procesadas)} de ${conPuntoDeMiles(total)} ${plural(total, 'fila', 'filas')}.`;
     } else primera = `La importación fue cancelada${por} cuando llevaba ${conPuntoDeMiles(procesadas)} ${plural(procesadas, 'fila', 'filas')}.`;
@@ -558,9 +568,35 @@ export function textoCancelacion(d: EntradaTextoCancelacion): string {
     return `${primera}\n\n${segundo}`;
 }
 
+/**
+ * Segunda oración de la notificación de una carga cortada (cancelada o interrumpida por un reinicio). Con filas con
+ * error dice de cuántas procesadas quedaron cargadas: "Las 34 filas ya procesadas" sobre 37 procesadas era falso.
+ */
+function oracionCargadas(e: EstadoCargaDto): string {
+    if (e.ok <= 0) return ' No se cargó ninguna fila.';
+    if (e.err > 0) {
+        return ` De las ${conPuntoDeMiles(e.ok + e.err)} filas ya procesadas, ${conPuntoDeMiles(e.ok)} ` +
+            `${e.ok === 1 ? 'quedó cargada' : 'quedaron cargadas'}.`;
+    }
+    return e.ok === 1
+        ? ' La única fila ya procesada quedó cargada.'
+        : ` Las ${conPuntoDeMiles(e.ok)} filas ya procesadas quedaron cargadas.`;
+}
+
 /** Título, mensaje y tipo de la notificación según cómo terminó la carga (§8.5.5). */
 export function textoNotificacion(e: EstadoCargaDto, opciones: { sinRegistrar?: boolean } = {}): TextoNotificacion {
     let r: TextoNotificacion;
+    // Cortada por el cierre ordenado del servidor: igual que la cancelada, con su propio título.
+    if (e.interrumpidaPorReinicio === true) {
+        r = {
+            tipo: 'IMPORTACION_ERROR',
+            titulo: 'Importación interrumpida por un reinicio',
+            mensaje:
+                conPunto(primeraLineaDelMotivo(e.error)) +
+                oracionCargadas(e),
+        };
+        return aplicarNota(r, opciones.sinRegistrar === true);
+    }
     // Una cancelada es de tipo ERROR y no FINALIZADA: una pestaña vieja le pondría el tilde verde (§10.5.8).
     if (e.cancelada === true) {
         r = {
@@ -568,11 +604,7 @@ export function textoNotificacion(e: EstadoCargaDto, opciones: { sinRegistrar?: 
             titulo: 'Importación cancelada',
             mensaje:
                 conPunto(primeraLineaDelMotivo(e.error)) +
-                (e.ok > 0
-                    ? e.ok === 1
-                        ? ' La única fila ya procesada quedó cargada.'
-                        : ` Las ${conPuntoDeMiles(e.ok)} filas ya procesadas quedaron cargadas.`
-                    : ' No se cargó ninguna fila.'),
+                oracionCargadas(e),
         };
         return aplicarNota(r, opciones.sinRegistrar === true);
     }

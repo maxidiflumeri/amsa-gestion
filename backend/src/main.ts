@@ -1,6 +1,6 @@
 import { NestFactory } from '@nestjs/core';
 import { AppModule } from './app.module';
-import { ValidationPipe } from '@nestjs/common';
+import { Logger, ValidationPipe } from '@nestjs/common';
 import { json } from 'express';
 import * as bodyParser from 'body-parser';
 import { WinstonModule, WINSTON_MODULE_NEST_PROVIDER } from 'nest-winston';
@@ -8,6 +8,7 @@ import { winstonConfig } from './common/logger/winston.config';
 import { LoggingInterceptor } from './common/interceptors/logging.interceptor';
 import { RequestContextInterceptor } from './common/interceptors/request-context.interceptor';
 import { RequestContextService } from './common/logger/request-context';
+import { instalarCierreOrdenado } from './common/cierre/instalar-cierre';
 
 async function bootstrap() {
     const app = await NestFactory.create(AppModule, {
@@ -49,5 +50,15 @@ async function bootstrap() {
     app.use(json());
 
     await app.listen(process.env.PORT ?? 3000);
+
+    // Sin app.enableShutdownHooks(): el cierre lo maneja este handler (drena, cierra con tope y sale).
+    instalarCierreOrdenado(app);
 }
-bootstrap();
+// Si el arranque falla (por ejemplo, el puerto ocupado), el proceso no puede quedar vivo: los workers de BullMQ ya
+// tomarían jobs sin servidor HTTP y sin el cierre ordenado.
+bootstrap().catch((err: Error) => {
+    new Logger('Bootstrap').error(`El arranque falló: ${err.message}`, err.stack);
+    // Con `bufferLogs` los logs quedan en el búfer hasta que la app termina de arrancar: sin esto, no queda nada.
+    Logger.flush();
+    process.exit(1);
+});

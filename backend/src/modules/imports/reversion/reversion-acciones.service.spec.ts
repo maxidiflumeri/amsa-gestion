@@ -681,6 +681,96 @@ describe('ejecutar', () => {
 });
 
 // ─────────────────────────────────────────────────────────────────────────────────────────────
+// El cierre ordenado del servidor (C3c, docs/imports-progreso-c3-spec.md §19.4.5)
+// ─────────────────────────────────────────────────────────────────────────────────────────────
+describe('ejecutar — el cierre ordenado del servidor', () => {
+    const muchos = () => Array.from({ length: 600 }, (_, i) => snap(i + 1, 'deudor', i + 1, 'UPDATE', { estadoSituacionId: 41 }, i + 1));
+    const deudores = (): Array<[number, Record<string, unknown>]> => Array.from({ length: 600 }, (_, i) => [i + 1, { estadoSituacionId: 42 }]);
+
+    it('el corte pedido durante la 2da tanda: esa tanda completa, queda INTERRUMPIDA con H de T exactos, anuncia y no relanza', async () => {
+        const e = armar({ reversion: enCola(), snaps: muchos(), deudores: deudores() });
+        const original = e.prisma.deudor.updateMany.getMockImplementation()!;
+        let n = 0;
+        let lineas: string[] = [];
+        e.prisma.deudor.updateMany.mockImplementation(async (a: unknown) => {
+            n++;
+            if (n === 250) {
+                e.svc.cortarPorCierre();
+                lineas = e.svc.trabajosEnCurso();
+            }
+            return original(a);
+        });
+
+        await expect(e.svc.ejecutar(5, 'revertir-5-1')).resolves.toBeUndefined();
+
+        const s = e.estado();
+        expect(s.reversion).toMatchObject({
+            estado: 'INTERRUMPIDA', hechos: 400, total: 600,
+            error: 'Se interrumpió por un reinicio del servidor: se revirtieron 400 de 600. Revertir de nuevo sigue desde ahí.',
+        });
+        expect(s.reversion!.finishedAt).not.toBeNull();
+        expect(s.snaps.filter((x) => x.revertidoEn !== null)).toHaveLength(400);
+        expect(s.remesa.accionRevertidaEn).toBeNull();
+        expect(e.realtime.emitReversionTerminada).toHaveBeenCalledTimes(1);
+        expect(e.realtime.emitReversionTerminada.mock.calls[0][0]).toMatchObject({ estado: 'INTERRUMPIDA', hechos: 400, total: 600 });
+        expect(e.notificaciones.crear).toHaveBeenCalledTimes(1);
+        expect(e.notificaciones.crear.mock.calls[0][0]).toMatchObject({ tipo: 'IMPORTACION_ERROR', titulo: 'La reversión no terminó' });
+        expect(e.auditoria.log).not.toHaveBeenCalled();
+        expect(lineas).toEqual([expect.stringContaining('reversión remesa=5')]);
+        expect(e.svc.trabajosEnCurso()).toEqual([]);
+    });
+
+    it('con el corte ya pedido al empezar: no deshace nada y queda retomable (0 de T)', async () => {
+        const e = armar({ reversion: enCola() });
+        e.svc.cortarPorCierre();
+        await e.svc.ejecutar(5, 'revertir-5-1');
+        expect(e.prisma.deudor.updateMany).not.toHaveBeenCalled();
+        expect(e.estado().reversion).toMatchObject({ estado: 'INTERRUMPIDA', hechos: 0, total: 4 });
+        expect(e.estado().snaps.every((x) => x.revertidoEn === null)).toBe(true);
+    });
+
+    it('una INTERRUMPIDA por el cierre se retoma: el siguiente job sigue desde ahí y no duplica contactos', async () => {
+        const e = armar({ reversion: enCola() });
+        e.svc.cortarPorCierre();
+        await e.svc.ejecutar(5, 'revertir-5-1');
+        // Proceso nuevo: sin corte pedido, la fila vuelve a EN_COLA con otro jobId (lo hace `solicitar`).
+        const nuevo = armar({ reversion: enCola({ jobId: 'revertir-5-2', intentos: 2, hechos: 0, total: 4 }) });
+        await nuevo.svc.ejecutar(5, 'revertir-5-2');
+        expect(nuevo.estado().reversion).toMatchObject({ estado: 'TERMINADA', hechos: 4, total: 4 });
+        expect(nuevo.estado().contactos).toHaveLength(1);
+    });
+
+    it('con la fila ya cerrada por otro (afecta 0): warn y sin anuncio', async () => {
+        const warn = jest.spyOn(Logger.prototype, 'warn').mockImplementation();
+        const e = armar({ reversion: enCola() });
+        e.svc.cortarPorCierre();
+        // Después del arranque del job, otro (el cron) la deja INTERRUMPIDA.
+        const original = e.prisma.reversion_accion.update.getMockImplementation()!;
+        e.prisma.reversion_accion.update.mockImplementationOnce(async (a: unknown) => {
+            const r = await original(a);
+            e.estado().reversion!.estado = 'INTERRUMPIDA';
+            return r;
+        });
+
+        await e.svc.ejecutar(5, 'revertir-5-1');
+
+        expect(e.estado().reversion).toMatchObject({ estado: 'INTERRUMPIDA', error: null });
+        expect(e.realtime.emitReversionTerminada).not.toHaveBeenCalled();
+        expect(e.notificaciones.crear).not.toHaveBeenCalled();
+        expect(warn.mock.calls.some(([m]) => String(m).includes('la fila ya estaba cerrada'))).toBe(true);
+        jest.restoreAllMocks();
+    });
+
+    it('cortarPorCierre es idempotente y sin trabajos no hay líneas', () => {
+        const e = armar();
+        expect(e.svc.trabajosEnCurso()).toEqual([]);
+        e.svc.cortarPorCierre();
+        e.svc.cortarPorCierre();
+        expect(e.svc.trabajosEnCurso()).toEqual([]);
+    });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────────────────────
 // El endpoint de compatibilidad (C3a)
 // ─────────────────────────────────────────────────────────────────────────────────────────────
 

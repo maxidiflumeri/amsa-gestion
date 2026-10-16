@@ -18,6 +18,7 @@ import {
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Redis } from 'ioredis';
+import { cerrarRedisAcotado } from '../../common/cierre/cerrar-redis';
 
 const LOCK_KEY = 'lock:consolidacion';
 const META_KEY = 'lock:consolidacion:meta';
@@ -49,11 +50,7 @@ export class ConsolidacionRedisLockService implements OnModuleInit, OnModuleDest
     }
 
     async onModuleDestroy(): Promise<void> {
-        try {
-            await this.client.quit();
-        } catch (err) {
-            this.logger.warn(`Error al cerrar conexión Redis (lock): ${(err as Error).message}`);
-        }
+        await cerrarRedisAcotado(this.client, 'lock', this.logger);
     }
 
     /**

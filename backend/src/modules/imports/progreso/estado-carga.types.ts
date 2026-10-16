@@ -21,6 +21,8 @@ export interface ResumenCarga {
     sinFilasEntregadas?: true;
     /** Quién pidió la cancelación. */
     cancelacion?: { usuarioId: number; nombre: string };
+    /** La carga la cortó el cierre ordenado del servidor (un deploy o un reinicio): el corte es exacto. Lo borra «Retomar». */
+    interrupcion?: { motivo: 'REINICIO' };
     /** Veces que se retomó. Informativo. */
     retomas?: number;
     /** Lo que hizo el processor (C3a). Lo escribe el runner vivo al cerrar; una carga cerrada por el reaper no lo tiene. */
@@ -150,6 +152,9 @@ export interface EstadoCargaDto {
     cancelada: boolean;
     /** Nombre de quien pidió la cancelación, si se sabe. */
     canceladaPor: string | null;
+    /** La cortó el cierre ordenado del servidor (deploy o reinicio). `resultado` es 'FALLIDA' y `error` trae
+     *  el texto con los números exactos. Una pestaña que no conoce el campo la ve como fallida con ese motivo. */
+    interrumpidaPorReinicio: boolean;
     /** Se puede pedir la cancelación ahora. Lo calcula el backend (§10.4.1). */
     cancelable: boolean;
     /** Terminó sin haber cargado ninguna fila y se puede volver a encolar tal cual. Lo calcula el

@@ -100,6 +100,13 @@ export class ImportsProcessor extends WorkerHost {
         return result;
       }
 
+      // Una carga cortada por el cierre ordenado del servidor (C3c) tampoco: el runner ya la cerró, la notificó y
+      // auditó. El job termina `completed` para que BullMQ no lo dé por perdido al levantar.
+      if (result?.interrumpida) {
+        this.logger.warn(`Importación interrumpida por el cierre del servidor remesa=${remesaId} job=${job.id}`);
+        return result;
+      }
+
       this.logger.log(`Importación completada remesa=${remesaId} job=${job.id}`);
 
       await this.auditoria.log({

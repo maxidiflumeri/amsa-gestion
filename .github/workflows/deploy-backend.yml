@@ -76,9 +76,10 @@ jobs:
             --query "Command.CommandId" --output text)
           echo "SSM CommandId: $CMD_ID"
 
-          # Poll hasta estado terminal (~12 min): el 1er pull arm64 + db push + up es lento.
+          # Poll hasta estado terminal (~18 min): el 1er pull arm64 + db push + up es lento, y deploy.sh puede
+          # esperar hasta 5 min a las cargas en curso y el stop_grace_period es de 100 s.
           FINAL=""
-          for i in $(seq 1 72); do
+          for i in $(seq 1 108); do
             STATUS=$(aws ssm get-command-invocation \
               --command-id "$CMD_ID" --instance-id "$INSTANCE_ID" \
               --query Status --output text 2>/dev/null || echo Pending)

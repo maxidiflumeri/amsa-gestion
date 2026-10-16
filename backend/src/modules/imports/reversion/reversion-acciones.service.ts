@@ -23,6 +23,7 @@ import { RealtimeService } from '../../realtime/realtime.service';
 import { NotificacionesService } from '../../notificaciones/notificaciones.service';
 import { AuditoriaHelper } from '../../transacciones/auditoria.helper';
 import { RequestContextService } from 'src/common/logger/request-context';
+import type { CortablePorCierre } from '../../../common/cierre/cortable-por-cierre';
 import { leerResumen } from '../progreso/estado-carga';
 import type {
     CoberturaReversion,
@@ -94,8 +95,14 @@ export interface ResultadoCompat {
 }
 
 @Injectable()
-export class ReversionAccionesService {
+export class ReversionAccionesService implements CortablePorCierre {
     private readonly logger = new Logger(ReversionAccionesService.name);
+
+    /** El servidor se está cerrando (C3c): la reversión en curso corta antes de la tanda siguiente. */
+    private cierrePedido = false;
+    private cierrePedidoDesdeMs: number | null = null;
+    /** Reversiones que ESTE proceso está deshaciendo ahora, con lo último que informó cada tanda. */
+    private readonly enCurso = new Map<number, { hechos: number; total: number }>();
 
     /** Pausa entre lecturas del endpoint de compatibilidad. Pública para que los tests no esperen de verdad. */
     esperar: (ms: number) => Promise<void> = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -349,6 +356,19 @@ export class ReversionAccionesService {
         }
     }
 
+    // ── El cierre ordenado del servidor (C3c) ─────────────────────────────────────────────────
+
+    /** Pide el corte: el job lo ve al empezar la tanda siguiente. Idempotente, sin IO, nunca tira. */
+    cortarPorCierre(): void {
+        if (!this.cierrePedido) this.cierrePedidoDesdeMs = this.ahora();
+        this.cierrePedido = true;
+    }
+
+    /** Una línea por reversión viva, para el log del cierre. */
+    trabajosEnCurso(): string[] {
+        return [...this.enCurso].map(([remesaId, e]) => `reversión remesa=${remesaId} ${e.hechos}/${e.total} REVIRTIENDO`);
+    }
+
     // ── El job ───────────────────────────────────────────────────────────────────────────────
 
     async ejecutar(remesaId: number, jobId: string): Promise<void> {
@@ -383,9 +403,12 @@ export class ReversionAccionesService {
                 where: { remesaId },
                 data: { total: previa.hechos + pendientes, startedAt: previa.startedAt ?? new Date(this.ahora()), heartbeatAt: new Date(this.ahora()) },
             });
+            this.enCurso.set(remesaId, { hechos: previa.hechos, total: previa.hechos + pendientes });
 
             let cursor: bigint | null = null;
             for (;;) {
+                // Punto de corte del cierre ordenado: entre tandas, nunca a mitad de una (cada tanda es una transacción).
+                if (this.cierrePedido) return await this.cerrarPorReinicio(remesaId, jobId, empresaId, t0);
                 const tanda: Array<{ id: bigint; entidad: string; entidadId: number; accion: string; datosPrevios: Prisma.JsonValue }> =
                     await this.prisma.accion_masiva_snapshot.findMany({
                         where: { remesaId, revertidoEn: null, ...(cursor != null ? { id: { lt: cursor } } : {}) },
@@ -397,6 +420,7 @@ export class ReversionAccionesService {
 
                 const fila: FilaReversion = await this.deshacerTanda(remesaId, jobId, tanda);
                 cursor = tanda[tanda.length - 1].id;
+                this.enCurso.set(remesaId, { hechos: fila.hechos, total: fila.total });
 
                 if (this.ahora() - ultimoProgreso >= ENTRE_PROGRESOS_MS) {
                     ultimoProgreso = this.ahora();
@@ -432,7 +456,35 @@ export class ReversionAccionesService {
             this.logger.error(`Revertir remesa=${remesaId}: falló tras ${Date.now() - t0}ms: ${motivo}`, e?.stack);
             await this.cerrarComoFallida(remesaId, jobId, motivo, empresaId);
             throw e;
+        } finally {
+            this.enCurso.delete(remesaId);
         }
+    }
+
+    /**
+     * El cierre del servidor cortó la reversión entre tandas (C3c): INTERRUMPIDA en el acto, con H de T exactos, en vez
+     * de esperar al cron. Revertir de nuevo sigue desde ahí. No relanza: el job termina `completed`.
+     */
+    private async cerrarPorReinicio(remesaId: number, jobId: string, empresaId: number, t0: number): Promise<void> {
+        const pedidoHaceMs = this.cierrePedidoDesdeMs != null ? Math.max(0, this.ahora() - this.cierrePedidoDesdeMs) : null;
+        const actual = await this.prisma.reversion_accion.findUnique({ where: { remesaId } });
+        const hechos = actual?.hechos ?? 0;
+        const total = actual?.total ?? 0;
+        const texto = `Se interrumpió por un reinicio del servidor: se revirtieron ${hechos} de ${total}. Revertir de nuevo sigue desde ahí.`;
+        const r = await this.prisma.reversion_accion.updateMany({
+            where: { remesaId, estado: 'REVIRTIENDO', jobId },
+            data: { estado: 'INTERRUMPIDA', error: texto, finishedAt: new Date(this.ahora()) },
+        });
+        if (r.count === 0) {
+            this.logger.warn(`Revertir remesa=${remesaId}: cortada por el cierre del servidor, pero la fila ya estaba cerrada (otro la cerró): no se pisa`);
+            return;
+        }
+        const fila = await this.prisma.reversion_accion.findUnique({ where: { remesaId } });
+        if (fila) await this.anunciarCierre(fila, empresaId || (await this.empresaDe(remesaId)), false);
+        this.logger.warn(
+            `Revertir remesa=${remesaId}: cortada por el cierre del servidor, ${hechos} de ${total} snapshots ` +
+            `(pedido hace ${pedidoHaceMs ?? '?'} ms) en ${Date.now() - t0}ms`,
+        );
     }
 
     /** Una tanda en UNA transacción: marca los snapshots y deshace sus cambios, o no hace nada. */

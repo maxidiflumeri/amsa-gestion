@@ -10,6 +10,8 @@ services:
     image: ${BACKEND_IMAGE}
     container_name: amsa-gestion-backend
     restart: always
+    # Mayor que el vigía del cierre ordenado (90 s, CIERRE_TOPE_TOTAL_MS): ahí lo corta el proceso, no Docker.
+    stop_grace_period: 100s
     # Secretos / por-entorno (DATABASE_URL, JWT_SECRET, NEOTEL_SIP_ENCRYPTION_KEY,
     # SENDER_*, GOOGLE_CLIENT_ID, JWT_EXPIRES_IN, BACKEND_IMAGE) → ver render-env.sh
     env_file:

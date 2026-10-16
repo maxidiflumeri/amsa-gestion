@@ -161,3 +161,30 @@ describe('ImportsProcessor — una carga cancelada', () => {
         expect(h.auditoria.log.mock.calls[0][0].resumen).toBe('Import OK remesa 5');
     });
 });
+
+// ── Fase C, entrega 3c (docs/imports-progreso-c3-spec.md §19.4.2) ─────────────────────────────────────
+describe('ImportsProcessor — una carga interrumpida por el cierre del servidor', () => {
+    beforeAll(() => Logger.overrideLogger(false));
+    afterEach(() => jest.restoreAllMocks());
+
+    const armarInterrumpida = (resultado: Record<string, unknown>) => {
+        const importService: any = { processImportJob: jest.fn().mockResolvedValue(resultado) };
+        const auditoria: any = { log: jest.fn().mockResolvedValue(undefined) };
+        const requestContext: any = { run: (_ctx: unknown, fn: () => unknown) => fn() };
+        const processor = new ImportsProcessor(importService, auditoria, requestContext);
+        const job: any = { id: 'j8', queueName: 'import-queue', data: { remesaId: 6, usuarioId: 3 } };
+        return { processor, auditoria, job };
+    };
+
+    it('no audita IMPORT_OK, no se loguea como completada, avisa con un warn y devuelve el resultado tal cual (el job termina completed)', async () => {
+        const log = jest.spyOn(Logger.prototype, 'log');
+        const warn = jest.spyOn(Logger.prototype, 'warn');
+        const h = armarInterrumpida({ total: 2500, ok: 1000, err: 0, interrumpida: true });
+
+        await expect(h.processor.process(h.job)).resolves.toEqual({ total: 2500, ok: 1000, err: 0, interrumpida: true });
+
+        expect(h.auditoria.log).not.toHaveBeenCalled();
+        expect(log.mock.calls.some(([m]) => String(m).includes('completada'))).toBe(false);
+        expect(warn.mock.calls.some(([m]) => String(m).includes('Importación interrumpida por el cierre del servidor remesa=6 job=j8'))).toBe(true);
+    });
+});

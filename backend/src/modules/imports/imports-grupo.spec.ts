@@ -693,6 +693,20 @@ describe('retomarRemesas', () => {
         expect(h.realtime.emitImportProgreso.mock.calls[0][0].rev).toBeGreaterThan(40);
     });
 
+    it('G-18c: retomar una carga interrumpida por un reinicio borra resumen.interrupcion (si no, una falla posterior diría «reinicio»)', async () => {
+        const h = armar({
+            remesas: [cancelada(11, {}, {
+                resultado: 'FALLIDA', cancelSolicitadaAt: null,
+                resumen: { ...ORIGEN, origen: { remesaOrigenId: 77, remesaOrigenIds: null }, sinFilasEntregadas: true, interrupcion: { motivo: 'REINICIO' } },
+            })],
+        });
+
+        await h.service.retomarRemesas({ remesaIds: [11] }, DUENO);
+
+        expect(h.remesa(11).progreso!.resumen).toEqual({ v: 1, origen: { remesaOrigenId: 77, remesaOrigenIds: null }, retomas: 1 });
+        expect(h.remesa(11).estadoProceso).toBe('PENDIENTE');
+    });
+
     it('G-18b: retomar dos veces seguidas: la segunda encuentra la remesa en cola y da 409 (doble clic)', async () => {
         const h = armar({ remesas: [cancelada(11)] });
         await h.service.retomarRemesas({ remesaIds: [11] }, DUENO);

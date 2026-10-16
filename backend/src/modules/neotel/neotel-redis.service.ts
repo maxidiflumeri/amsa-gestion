@@ -6,6 +6,7 @@ import {
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Redis } from 'ioredis';
+import { cerrarRedisAcotado } from '../../common/cierre/cerrar-redis';
 
 /**
  * NeotelRedisService — capa de caché Redis para el estado del agente.
@@ -59,11 +60,7 @@ export class NeotelRedisService implements OnModuleInit, OnModuleDestroy {
     }
 
     async onModuleDestroy() {
-        try {
-            await this.client.quit();
-        } catch (err) {
-            this.logger.warn(`Error al cerrar conexión Redis: ${(err as Error).message}`);
-        }
+        await cerrarRedisAcotado(this.client, 'neotel', this.logger);
     }
 
     // ─── Claves ───────────────────────────────────────────────────────────────
