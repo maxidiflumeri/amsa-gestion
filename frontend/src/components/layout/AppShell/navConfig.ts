@@ -59,11 +59,12 @@ export const navConfig: NavItem[] = [
     {
         label: 'Administración',
         icon: 'AdminPanelSettings',
-        requiredPermissions: ['admin.gestionar_roles', 'admin.gestionar_usuarios', 'auditoria.ver'],
+        requiredPermissions: ['admin.gestionar_roles', 'admin.gestionar_usuarios', 'auditoria.ver', 'asistente.administrar'],
         children: [
             { label: 'Roles', icon: 'Shield', path: '/admin/roles', requiredPermissions: ['admin.gestionar_roles'] },
             { label: 'Usuarios', icon: 'People', path: '/admin/usuarios', requiredPermissions: ['admin.gestionar_usuarios'] },
             { label: 'Auditoría', icon: 'FactCheck', path: '/auditoria', requiredPermissions: ['auditoria.ver'] },
+            { label: 'Consumo del asistente', icon: 'AutoAwesome', path: '/asistente/consumo', requiredPermissions: ['asistente.administrar'] },
             { label: 'Neotel (test)', icon: 'Phone', path: '/admin/neotel-test', requiredPermissions: ['telefonia.admin'] },
         ],
     },

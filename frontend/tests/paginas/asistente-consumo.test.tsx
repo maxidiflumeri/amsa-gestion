@@ -1,0 +1,313 @@
+// Asistente de IA, Fase A: la pantalla de consumo y su lugar en el menú (docs/asistente-spec.md §12.3 y §16.2).
+import { act } from 'react';
+import { afterEach, describe, expect, it } from 'vitest';
+import { alertas, boton, clic, esperar, limpio, pasar, toasts } from '../lib/montar';
+import {
+    PATCH_CONFIG, PATCH_FUNCION, PERMISOS_ADMIN_IA, armarIA, bajarIA, configIA, consumoIA, rutaActual, type BancoIA,
+} from '../lib/banco-ia';
+
+let b: BancoIA | null = null;
+afterEach(async () => { await bajarIA(b); b = null; });
+
+const menu = () => limpio(document.querySelector('nav, .MuiDrawer-docked')?.textContent ?? '');
+const pagina = () => limpio(document.querySelector('main')?.textContent ?? '');
+/** El control de un campo, a partir del texto de su etiqueta. */
+function campo(etiqueta: RegExp): HTMLInputElement {
+    const l = Array.from(document.querySelectorAll('label')).find((x) => etiqueta.test(x.textContent ?? ''));
+    const el = l ? document.getElementById(l.getAttribute('for') ?? '') : null;
+    if (!el) throw new Error(`No hay un campo «${etiqueta}»`);
+    return el as HTMLInputElement;
+}
+async function escribirCampo(el: HTMLInputElement, valor: string) {
+    await act(async () => {
+        Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value')!.set!.call(el, valor);
+        el.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+}
+const cargada = (que = '/Gasto del mes/') => esperar(() => /Gasto del mes/.test(pagina()), { que: `la pantalla (${que})` });
+const barra = () => document.querySelector('[role="progressbar"][aria-label="Gasto del mes sobre el tope"]');
+
+describe('El menú', () => {
+    it('«Consumo del asistente» está en Administración solo con asistente.administrar', async () => {
+        b = await armarIA({ permisos: [...PERMISOS_ADMIN_IA, 'auditoria.ver'] });
+        await clic(boton(/^Administración$/) ?? Array.from(document.querySelectorAll('[role="button"], button')).find((x) => limpio(x.textContent ?? '') === 'Administración') ?? null, 'Administración');
+        await esperar(() => /Consumo del asistente/.test(menu()), { que: 'el ítem del menú' });
+        await bajarIA(b);
+
+        b = await armarIA({ permisos: ['asistente.usar', 'auditoria.ver'] });
+        await clic(Array.from(document.querySelectorAll('[role="button"], button')).find((x) => limpio(x.textContent ?? '') === 'Administración') ?? null, 'Administración');
+        await esperar(() => /Auditoría/.test(menu()), { que: 'Administración abierto' });
+        expect(menu()).not.toContain('Consumo del asistente');
+    });
+
+    it('con solo asistente.administrar el grupo Administración aparece (antes quedaba escondido) y el ítem lleva a la pantalla', async () => {
+        b = await armarIA({ permisos: ['asistente.administrar'] });
+        await clic(Array.from(document.querySelectorAll('[role="button"], button')).find((x) => limpio(x.textContent ?? '') === 'Administración') ?? null, 'Administración');
+        const item = await esperar(() => Array.from(document.querySelectorAll('[role="button"], button')).find((x) => limpio(x.textContent ?? '') === 'Consumo del asistente'), { que: 'el ítem' });
+        await clic(item, 'Consumo del asistente');
+        await esperar(() => rutaActual() === '/asistente/consumo', { que: 'la ruta' });
+        await cargada();
+    });
+
+    it('sin el permiso, entrar a la ruta a mano muestra que no hay permiso y no le pide nada al servidor', async () => {
+        b = await armarIA({ permisos: ['asistente.usar'], ruta: '/asistente/consumo' });
+        await esperar(() => /No tenés permiso para ver el consumo del asistente/.test(pagina()), { que: 'el aviso' });
+        expect(b.srv.cuantos('GET', /^\/asistente\/(consumo|config)/)).toBe(0);
+    });
+});
+
+describe('Indicadores y tablas', () => {
+    it('muestran los números del servidor', async () => {
+        b = await armarIA({ permisos: PERMISOS_ADMIN_IA, ruta: '/asistente/consumo' });
+        await cargada();
+        const t = pagina();
+        expect(t).toContain('US$ 42,00 de US$ 100,00');
+        expect(t).toContain('42 % del tope');
+        expect(t).toContain('US$ 91,50');                 // proyección
+        expect(t).toContain('1.234');                      // preguntas
+        expect(t).toContain('12 personas · 1.900 llamadas al modelo');
+        expect(t).toContain('US$ 0,0034');                 // costo por pregunta
+        expect(t).toContain('75 %');                       // 30 de 40 votos a favor
+        expect(t).toContain('30 a favor · 10 en contra · 1.194 sin calificar');
+        expect(t).toContain('87 %');                       // tasa de caché
+        expect(t).toContain('Maxi Di Flumeri');
+        expect(t).toContain('Ana Pérez');
+        expect(t).toContain('Ayuda y navegación');
+        expect(barra()!.getAttribute('aria-valuenow')).toBe('42');
+        expect(b.srv.cuantos('GET', /^\/asistente\/consumo$/)).toBe(1);
+        // Cada cosa se pide una sola vez: un pedido repetido sin parar (efecto con una dependencia inestable) pisaría lo que se está editando.
+        await pasar(400);
+        expect(b.srv.cuantos('GET', /^\/asistente\/config$/)).toBe(1);
+        expect(b.srv.cuantos('GET', /^\/asistente\/consumo$/)).toBe(1);
+    });
+
+    it('la barra del gasto se pone amarilla desde el porcentaje de aviso y roja al llegar al tope', async () => {
+        b = await armarIA({ permisos: PERMISOS_ADMIN_IA, ruta: '/asistente/consumo', consumo: consumoIA({ gastoUsd: 85 }) });
+        await cargada();
+        expect(barra()!.className).toContain('MuiLinearProgress-colorWarning');
+        await bajarIA(b);
+        b = await armarIA({ permisos: PERMISOS_ADMIN_IA, ruta: '/asistente/consumo', consumo: consumoIA({ gastoUsd: 100 }) });
+        await cargada();
+        expect(barra()!.className).toContain('MuiLinearProgress-colorError');
+        await bajarIA(b);
+        b = await armarIA({ permisos: PERMISOS_ADMIN_IA, ruta: '/asistente/consumo', consumo: consumoIA({ gastoUsd: 10 }) });
+        await cargada();
+        expect(barra()!.className).toContain('MuiLinearProgress-colorPrimary');
+    });
+
+    it('la lista de 👎 muestra pregunta, respuesta, comentario y fuentes, y el contador de lo que no está en la documentación', async () => {
+        b = await armarIA({ permisos: PERMISOS_ADMIN_IA, ruta: '/asistente/consumo' });
+        await cargada();
+        const t = pagina();
+        expect(t).toContain('Respuestas con 👎');
+        expect(t).toContain('¿Cómo anulo un cupón?');
+        expect(t).toContain('Eso no está en la documentación.');
+        expect(t).toContain('Qué faltó: Falta explicar cómo se anula');
+        expect(t).toContain('Cupones de pago');
+        expect(t).toContain('No está en la documentación: 7');
+    });
+
+    it('un mes sin movimiento no rompe nada', async () => {
+        b = await armarIA({
+            permisos: PERMISOS_ADMIN_IA, ruta: '/asistente/consumo',
+            consumo: consumoIA({ gastoUsd: 0, proyeccionUsd: 0, totales: { preguntas: 0, llamadas: 0, usuarios: 0, costoPorPregunta: 0, tasaCache: 0 }, porUsuario: [], porDia: [], negativasRecientes: [], calidad: { positivas: 0, negativas: 0, sinCalificar: 0, sinDocumentar: 0 } }),
+        });
+        await cargada();
+        expect(pagina()).toContain('Sin votos');
+        expect(pagina()).toContain('Todavía no hay preguntas este mes.');
+        expect(pagina()).toContain('Nadie usó el asistente este mes.');
+        expect(pagina()).toContain('Ninguna respuesta con 👎 en octubre de 2026.');
+    });
+
+    it('cambiar el mes vuelve a pedir el consumo de ese mes', async () => {
+        b = await armarIA({ permisos: PERMISOS_ADMIN_IA, ruta: '/asistente/consumo' });
+        await cargada();
+        await escribirCampo(campo(/^Mes$/), '2026-09');
+        await esperar(() => b!.srv.de('GET', /^\/asistente\/consumo/).some((p) => p.ruta.includes('mes=2026-09')), { que: 'el pedido del otro mes' });
+    });
+
+    it('un error al pedir el consumo se ve y se puede reintentar', async () => {
+        b = await armarIA({ permisos: PERMISOS_ADMIN_IA, ruta: '/asistente/consumo' });
+        await cargada();
+        b.srv.en('GET', /^\/asistente\/consumo$/, () => ({ status: 400, body: { message: 'Mes inválido' } }));
+        await escribirCampo(campo(/^Mes$/), '2026-08');
+        await esperar(() => alertas().some((a) => a.texto.includes('Mes inválido')), { que: 'el error' });
+        expect(boton('Reintentar')).not.toBeNull();
+    });
+});
+
+describe('Respuestas con 👎 y errores', () => {
+    it('la respuesta se dibuja como markdown, sin los asteriscos crudos', async () => {
+        b = await armarIA({
+            permisos: PERMISOS_ADMIN_IA, ruta: '/asistente/consumo',
+            consumo: consumoIA({ negativasRecientes: [{ mensajeId: 56, fecha: '2026-10-15T15:00:00.000Z', usuario: 'Ana Pérez', pregunta: '¿Cómo?', respuesta: 'Entrá a **Gestión** y:\n\n- tocá uno\n- tocá dos', comentario: null, fuentes: [] }] }),
+        });
+        await cargada();
+        const caja = await esperar(() => document.querySelector('[data-testid="respuesta-negativa"]'), { que: 'la respuesta' });
+        expect(caja.querySelector('strong')?.textContent).toBe('Gestión');
+        expect(caja.querySelectorAll('li').length).toBe(2);
+        expect(caja.textContent).not.toContain('**');
+    });
+
+    it('el aviso de «ninguna respuesta con 👎» dice el mes elegido', async () => {
+        b = await armarIA({ permisos: PERMISOS_ADMIN_IA, ruta: '/asistente/consumo' });
+        await cargada();
+        b.consumo = consumoIA({ mes: '2026-08', negativasRecientes: [] });
+        await escribirCampo(campo(/^Mes$/), '2026-08');
+        await esperar(() => pagina().includes('Ninguna respuesta con 👎 en agosto de 2026.'), { que: 'el aviso del mes' });
+    });
+
+    it('un 500 no muestra «Internal server error»: texto en castellano; con mensaje del backend, ese', async () => {
+        b = await armarIA({ permisos: PERMISOS_ADMIN_IA, ruta: '/asistente/consumo' });
+        await cargada();
+        b.srv.en('GET', /^\/asistente\/consumo$/, () => ({ status: 500, body: { statusCode: 500, message: 'Internal server error' } }));
+        await escribirCampo(campo(/^Mes$/), '2026-08');
+        await esperar(() => alertas().some((a) => a.severidad === 'error' && a.texto.includes('No se pudo cargar el consumo del asistente. Probá de nuevo en un rato.')), { que: 'el error en castellano' });
+        expect(alertas().some((a) => /Internal server error/i.test(a.texto))).toBe(false);
+
+        b.srv.en('GET', /^\/asistente\/consumo$/, () => ({ status: 500, body: { statusCode: 500, mensaje: 'La base no responde.' } }));
+        await clic(boton('Reintentar'), 'Reintentar');
+        await esperar(() => alertas().some((a) => a.texto.includes('La base no responde.')), { que: 'el mensaje del backend' });
+    });
+});
+
+describe('Alertas', () => {
+    it('una pausa del servidor y «nadie tiene el permiso» se avisan', async () => {
+        b = await armarIA({
+            permisos: PERMISOS_ADMIN_IA, ruta: '/asistente/consumo',
+            consumo: consumoIA({ pausa: { codigo: 'TOPE_MENSUAL', mensaje: 'El asistente llegó al tope de gasto de este mes y se pausó para todos.' } }),
+            config: configIA({ sinAdministradores: true }),
+        });
+        await cargada();
+        await esperar(() => alertas().length === 2, { que: 'las dos alertas' });
+        const textos = alertas().map((a) => a.texto);
+        expect(textos).toContain('El asistente llegó al tope de gasto de este mes y se pausó para todos.');
+        expect(textos).toContain('Nadie tiene el permiso Administrar el asistente: los avisos de consumo no le llegan a nadie.');
+        expect(alertas().every((a) => a.severidad === 'warning')).toBe(true);
+    });
+
+    it('sin pausa ni problema de permisos no hay alertas', async () => {
+        b = await armarIA({ permisos: PERMISOS_ADMIN_IA, ruta: '/asistente/consumo' });
+        await cargada();
+        await pasar(200);
+        expect(alertas()).toEqual([]);
+    });
+});
+
+describe('Configuración', () => {
+    it('Guardar manda solo lo que cambió, con un aviso de éxito, y vuelve a pedir el consumo', async () => {
+        b = await armarIA({ permisos: PERMISOS_ADMIN_IA, ruta: '/asistente/consumo' });
+        await cargada();
+        await esperar(() => Array.from(document.querySelectorAll('label')).some((l) => /Tope mensual$/.test(limpio(l.textContent ?? ''))), { que: 'el formulario' });
+        const guardar = () => boton('Guardar');
+        expect(guardar()!.disabled).toBe(true);
+        await escribirCampo(campo(/^Tope mensual$/), '150');
+        expect(guardar()!.disabled).toBe(false);
+        const antes = b.srv.cuantos('GET', /^\/asistente\/consumo$/);
+        await clic(guardar(), 'Guardar');
+        await esperar(() => b!.srv.cuantos('PATCH', PATCH_CONFIG) === 1, { que: 'el PATCH' });
+        expect(b.cuerpos('PATCH', PATCH_CONFIG)[0]).toEqual({ topeMensualUsd: 150 });
+        await esperar(() => toasts().some((x) => x.variante === 'success' && /Configuración del asistente guardada/.test(x.texto)), { que: 'el aviso de éxito' });
+        await esperar(() => b!.srv.cuantos('GET', /^\/asistente\/consumo$/) > antes, { que: 'el consumo actualizado' });
+        expect(guardar()!.disabled).toBe(true);
+    });
+
+    it('el interruptor general y el resto de los campos viajan juntos', async () => {
+        b = await armarIA({ permisos: PERMISOS_ADMIN_IA, ruta: '/asistente/consumo' });
+        await cargada();
+        await esperar(() => document.querySelector('input[type="checkbox"][class*="MuiSwitch"]'), { que: 'los interruptores' });
+        const general = Array.from(document.querySelectorAll<HTMLInputElement>('input[type="checkbox"]')).find((i) => /activo para todos/.test(limpio(i.closest('label')?.textContent ?? '')));
+        expect(general).toBeTruthy();
+        await clic(general!, 'el interruptor general');
+        await escribirCampo(campo(/Avisar al llegar a/), '90');
+        await escribirCampo(campo(/Preguntas por persona por día/), '50');
+        await escribirCampo(campo(/Tope por pregunta/), '0,1');
+        await clic(boton('Guardar'), 'Guardar');
+        await esperar(() => b!.srv.cuantos('PATCH', PATCH_CONFIG) === 1, { que: 'el PATCH' });
+        expect(b.cuerpos('PATCH', PATCH_CONFIG)[0]).toEqual({ habilitado: false, avisoPorcentaje: 90, limiteDiarioUsuario: 50, topeTurnoUsd: 0.1 });
+    });
+
+    it('un valor fuera de rango se marca y no deja guardar', async () => {
+        b = await armarIA({ permisos: PERMISOS_ADMIN_IA, ruta: '/asistente/consumo' });
+        await cargada();
+        await esperar(() => Array.from(document.querySelectorAll('label')).some((l) => /Tope mensual$/.test(limpio(l.textContent ?? ''))), { que: 'el formulario' });
+        await escribirCampo(campo(/Avisar al llegar a/), '100');
+        expect(pagina()).toContain('Un entero entre 10 y 99');
+        expect(boton('Guardar')!.disabled).toBe(true);
+        await escribirCampo(campo(/Avisar al llegar a/), '80');
+        await escribirCampo(campo(/^Tope mensual$/), '');
+        expect(boton('Guardar')!.disabled).toBe(true);
+        expect(b.srv.cuantos('PATCH', PATCH_CONFIG)).toBe(0);
+    });
+
+    it('el tope mensual admite 2 decimales y el tope por pregunta 4: con más, Guardar queda deshabilitado y el campo lo explica', async () => {
+        b = await armarIA({ permisos: PERMISOS_ADMIN_IA, ruta: '/asistente/consumo' });
+        await cargada();
+        await esperar(() => Array.from(document.querySelectorAll('label')).some((l) => /Tope mensual$/.test(limpio(l.textContent ?? ''))), { que: 'el formulario' });
+        await escribirCampo(campo(/^Tope mensual$/), '100,555');
+        expect(boton('Guardar')!.disabled).toBe(true);
+        expect(pagina()).toContain('Hasta 2 decimales');
+        await escribirCampo(campo(/^Tope mensual$/), '100,55');
+        expect(boton('Guardar')!.disabled).toBe(false);
+        expect(pagina()).not.toContain('Hasta 2 decimales');
+        await escribirCampo(campo(/^Tope por pregunta$/), '0,05555');
+        expect(boton('Guardar')!.disabled).toBe(true);
+        expect(pagina()).toContain('Hasta 4 decimales');
+        await escribirCampo(campo(/^Tope por pregunta$/), '0,0555');
+        expect(boton('Guardar')!.disabled).toBe(false);
+        expect(b.srv.cuantos('PATCH', PATCH_CONFIG)).toBe(0);
+    });
+
+    it('los precios del modelo en uso se editan y se mandan completos dentro de «precios»', async () => {
+        b = await armarIA({ permisos: PERMISOS_ADMIN_IA, ruta: '/asistente/consumo' });
+        await cargada();
+        const entrada = await esperar(() => document.querySelector<HTMLInputElement>('input[aria-label="Normal: Entrada"]'), { que: 'la tabla de precios' });
+        expect(entrada.value).toBe('0.11');
+        expect(pagina()).toContain('us.anthropic.claude-haiku-5-5');
+        await escribirCampo(entrada, '0,12');
+        await clic(boton('Guardar'), 'Guardar');
+        await esperar(() => b!.srv.cuantos('PATCH', PATCH_CONFIG) === 1, { que: 'el PATCH' });
+        const enviado = b.cuerpos('PATCH', PATCH_CONFIG)[0] as { precios: Record<string, { entrada: number; umbralLargo: number; largo: { salida: number } }> };
+        expect(Object.keys(enviado)).toEqual(['precios']);
+        expect(enviado.precios['us.anthropic.claude-haiku-5-5'].entrada).toBe(0.12);
+        expect(enviado.precios['us.anthropic.claude-haiku-5-5'].umbralLargo).toBe(100000);
+        expect(enviado.precios['us.anthropic.claude-haiku-5-5'].largo.salida).toBe(2.75);
+    });
+
+    it('si el servidor rechaza el guardado, avisa y deja el botón para volver a intentar', async () => {
+        b = await armarIA({ permisos: PERMISOS_ADMIN_IA, ruta: '/asistente/consumo' });
+        await cargada();
+        await esperar(() => Array.from(document.querySelectorAll('label')).some((l) => /Tope mensual$/.test(limpio(l.textContent ?? ''))), { que: 'el formulario' });
+        b.srv.en('PATCH', PATCH_CONFIG, () => ({ status: 400, body: { message: 'topeMensualUsd debe ser menor o igual a 10000' } }));
+        await escribirCampo(campo(/^Tope mensual$/), '5000');
+        await clic(boton('Guardar'), 'Guardar');
+        await esperar(() => toasts().some((x) => x.variante === 'error' && /10000/.test(x.texto)), { que: 'el aviso de error' });
+        await esperar(() => boton('Guardar') && !boton('Guardar')!.disabled, { que: 'Guardar habilitado otra vez' });
+    });
+});
+
+describe('Por función', () => {
+    it('el interruptor y el tope de cada función se guardan por separado', async () => {
+        b = await armarIA({ permisos: PERMISOS_ADMIN_IA, ruta: '/asistente/consumo' });
+        await cargada();
+        const sw = await esperar(() => { const i = document.querySelector<HTMLInputElement>('input[aria-label="Activar «Ayuda y navegación»"]'); return i && !i.disabled ? i : null; }, { que: 'el interruptor de la función' });
+        await clic(sw, 'el interruptor');
+        await esperar(() => b!.srv.cuantos('PATCH', PATCH_FUNCION) === 1, { que: 'el PATCH de la función' });
+        expect(b.srv.de('PATCH', PATCH_FUNCION)[0].ruta).toBe('/asistente/funciones/ayuda');
+        expect(b.cuerpos('PATCH', PATCH_FUNCION)[0]).toEqual({ habilitada: false });
+
+        const tope = document.querySelector<HTMLInputElement>('input[aria-label="Tope mensual de «Ayuda y navegación» en USD"]')!;
+        const guardarTope = () => document.querySelector<HTMLButtonElement>('button[aria-label="Guardar el tope de «Ayuda y navegación»"]')!;
+        expect(guardarTope().disabled).toBe(true);
+        await escribirCampo(tope, '20');
+        await clic(guardarTope(), 'guardar el tope');
+        await esperar(() => b!.srv.cuantos('PATCH', PATCH_FUNCION) === 2, { que: 'el tope' });
+        expect(b.cuerpos('PATCH', PATCH_FUNCION)[1]).toEqual({ topeMensualUsd: 20 });
+        // Vaciarlo es «sin tope propio».
+        await esperar(() => document.querySelector<HTMLInputElement>('input[aria-label="Tope mensual de «Ayuda y navegación» en USD"]')!.value === '20', { que: 'el tope guardado' });
+        await escribirCampo(document.querySelector<HTMLInputElement>('input[aria-label="Tope mensual de «Ayuda y navegación» en USD"]')!, '');
+        await clic(guardarTope(), 'guardar sin tope');
+        await esperar(() => b!.srv.cuantos('PATCH', PATCH_FUNCION) === 3, { que: 'sin tope' });
+        expect(b.cuerpos('PATCH', PATCH_FUNCION)[2]).toEqual({ topeMensualUsd: null });
+    });
+});

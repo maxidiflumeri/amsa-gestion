@@ -1,7 +1,7 @@
 <!--
 seccion: Administración
 resumen: Qué puede hacer cada persona en el sistema, y por qué un permiso nuevo no se ve hasta volver a entrar.
-revisado: 2026-08-20
+revisado: 2026-10-16
 rutas: /admin/roles
 rutaPrincipal: /admin/roles
 -->
@@ -85,6 +85,22 @@ Uno nuevo, de la sección **Convenios**:
   mano y no tener este, o al revés. Si además pasa de la clave de saldo total a la de quita (o al
   revés) con un cupón ya emitido, el sistema pide **también** *Cancelar convenios* — anula el convenio
   anterior. Ver [Cupones de pago](/ayuda/gestion/cupones-de-pago).
+
+---
+
+## Los permisos del asistente
+
+Son tres, de la sección **Asistente**:
+
+- **Usar el asistente** — muestra el botón **Asistente** en la barra y deja hacerle preguntas. Ver
+  [El asistente](/ayuda/primeros-pasos/el-asistente).
+- **Administrar el asistente** — deja ver el **consumo**, cambiar los topes y pausarlo. Ve también las
+  respuestas que la gente marcó con 👎. Ver [Consumo del asistente](/ayuda/administracion/consumo-del-asistente).
+- **Asistente: armar reportes** — todavía **no hace nada**. Está reservado para cuando el asistente pueda armar
+  plantillas de reportes (siempre con confirmación). Tildarlo hoy no cambia nada.
+
+El asistente le explica a cada persona lo que **su rol** puede hacer: si alguien le pregunta cómo hacer algo
+que no tiene habilitado, le dice qué permiso le falta y que se lo pida a quien administra los roles.
 
 ---
 

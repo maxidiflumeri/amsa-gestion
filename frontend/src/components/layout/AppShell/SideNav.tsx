@@ -36,6 +36,7 @@ import PeopleIcon from '@mui/icons-material/People';
 import TuneIcon from '@mui/icons-material/Tune';
 import FactCheckIcon from '@mui/icons-material/FactCheck';
 import DashboardIcon from '@mui/icons-material/Dashboard';
+import AutoAwesomeIcon from '@mui/icons-material/AutoAwesome';
 
 import { navConfig, NavItem } from './navConfig';
 import { useNavigate, useLocation } from 'react-router-dom';
@@ -65,6 +66,7 @@ const iconMap: Record<string, React.ReactNode> = {
     Tune: <TuneIcon />,
     FactCheck: <FactCheckIcon />,
     Dashboard: <DashboardIcon />,
+    AutoAwesome: <AutoAwesomeIcon />,
 };
 
 function getIcon(name: string): React.ReactNode {

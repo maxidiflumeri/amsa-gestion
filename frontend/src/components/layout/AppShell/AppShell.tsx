@@ -4,6 +4,8 @@ import { Outlet } from 'react-router-dom';
 import AppBarComponent from './AppBar';
 import SideNav from './SideNav';
 import { useAuth } from '../../../context/AuthContext';
+import { AsistenteProvider } from '../../../context/AsistenteContext';
+import AsistentePanel from '../../asistente/AsistentePanel';
 
 const SIDEBAR_COLLAPSED_KEY = 'app_sidebar_collapsed';
 
@@ -48,46 +50,51 @@ const AppShell: React.FC = () => {
     };
 
     return (
-        <Box sx={{ display: 'flex', minHeight: '100vh' }}>
-            {/* AppBar */}
-            <AppBarComponent
-                onMenuClick={handleMenuClick}
-                isDesktop={isDesktop}
-                collapsed={collapsed}
-                user={user}
-            />
+        <AsistenteProvider>
+            <Box sx={{ display: 'flex', minHeight: '100vh' }}>
+                {/* AppBar */}
+                <AppBarComponent
+                    onMenuClick={handleMenuClick}
+                    isDesktop={isDesktop}
+                    collapsed={collapsed}
+                    user={user}
+                />
 
-            {/* Side navigation */}
-            <SideNav
-                open={isDesktop ? true : mobileOpen}
-                onClose={handleDrawerClose}
-                variant={isDesktop ? 'permanent' : 'temporary'}
-                collapsed={collapsed}
-            />
+                {/* Side navigation */}
+                <SideNav
+                    open={isDesktop ? true : mobileOpen}
+                    onClose={handleDrawerClose}
+                    variant={isDesktop ? 'permanent' : 'temporary'}
+                    collapsed={collapsed}
+                />
 
-            {/* Main content */}
-            <Box
-                component="main"
-                sx={{
-                    flexGrow: 1,
-                    minWidth: 0,
-                    display: 'flex',
-                    flexDirection: 'column',
-                    bgcolor: 'background.default',
-                }}
-            >
-                <Toolbar />
+                {/* Main content */}
                 <Box
+                    component="main"
                     sx={{
                         flexGrow: 1,
-                        px: { xs: 2, sm: 3, md: 4 },
-                        py: { xs: 2, sm: 3 },
+                        minWidth: 0,
+                        display: 'flex',
+                        flexDirection: 'column',
+                        bgcolor: 'background.default',
                     }}
                 >
-                    <Outlet />
+                    <Toolbar />
+                    <Box
+                        sx={{
+                            flexGrow: 1,
+                            px: { xs: 2, sm: 3, md: 4 },
+                            py: { xs: 2, sm: 3 },
+                        }}
+                    >
+                        <Outlet />
+                    </Box>
                 </Box>
+
+                {/* El asistente vive acá y no en la barra: la conversación tiene que sobrevivir a «Sí, llevarme». */}
+                <AsistentePanel />
             </Box>
-        </Box>
+        </AsistenteProvider>
     );
 };
 

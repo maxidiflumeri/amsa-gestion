@@ -23,6 +23,7 @@ import UsuariosPage from '../pages/admin/UsuariosPage';
 import NeotelTestPage from '../pages/admin/NeotelTestPage';
 import AuditoriaPage from '../pages/auditoria/AuditoriaPage';
 import DashboardsPage from '../pages/dashboards/DashboardsPage';
+import AsistenteConsumo from '../pages/asistente/AsistenteConsumo';
 import EmbeddedShell from '../components/layout/EmbeddedShell';
 import TelefoniaCaso from '../pages/telefonia/TelefoniaCaso';
 import TelefoniaHome from '../pages/telefonia/TelefoniaHome';
@@ -67,6 +68,7 @@ const AppRoutes = () => {
                 <Route path="admin/neotel-test" element={<NeotelTestPage />} />
                 <Route path="auditoria" element={<AuditoriaPage />} />
                 <Route path="dashboards" element={<DashboardsPage />} />
+                <Route path="asistente/consumo" element={<AsistenteConsumo />} />
             </Route>
         </Routes>
     );

@@ -36,6 +36,9 @@ Un caso se cancela solo, cuando el saldo llega a cero. **No hay ninguna razón p
 Desde la solapa Pagos, botón **Cargar**, interruptor en *Promesa*. Se completa la fecha prometida y,
 opcionalmente, el monto.
 
+Hacen falta dos permisos: **Cargar pagos manuales**, para que aparezca el botón **Cargar**, y **Cargar promesas
+de pago**, para que se pueda elegir *Promesa* (sin él, esa opción aparece apagada).
+
 **La fecha tiene límites**: no puede ser anterior a hoy, ni ir más allá de **7 días** (configurable por
 empresa, entre 1 y 30). El calendario ya viene acotado.
 
@@ -201,6 +204,10 @@ Las anuladas no se listan en la ficha. Están en los reportes y en la auditoría
 ### No me deja cargar un pago
 
 La cuenta está cancelada, o falta el permiso **Cargar pagos manuales**.
+
+### No puedo elegir "Promesa" al cargar
+
+Falta el permiso **Cargar promesas de pago**.
 
 ### No puedo borrar un pago
 

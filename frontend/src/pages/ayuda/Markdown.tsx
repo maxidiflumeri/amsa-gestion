@@ -17,7 +17,17 @@ const Markdown: React.FC<{
     texto: string
     /** Si está, los enlaces a `/ayuda/...` llaman a esto con el slug en vez de navegar. */
     onNavegarInterno?: (slug: string) => void
-}> = ({ texto, onNavegarInterno }) => (
+    /**
+     * Tipografía y márgenes de un panel angosto (el asistente): `body2`, párrafos y listas apretados, títulos chicos.
+     * También saca las imágenes: el texto lo escribe un modelo y no debe poder cargar nada de afuera.
+     */
+    compacto?: boolean
+    /**
+     * Si está, decide cómo se dibuja CADA enlace (con su destino y su contenido). El asistente lo usa para que solo
+     * los `/ayuda/<slug>` que existen sean clicables y todo lo demás quede como texto plano.
+     */
+    onEnlace?: (href: string, hijos: React.ReactNode) => React.ReactNode
+}> = ({ texto, onNavegarInterno, compacto = false, onEnlace }) => (
     <Box
         sx={{
             '& h1': { typography: 'h4', fontWeight: 900, mt: 0, mb: 2 },
@@ -66,6 +76,18 @@ const Markdown: React.FC<{
             },
             '& img': { maxWidth: '100%', borderRadius: 1, border: '1px solid', borderColor: 'divider' },
             '& hr': { border: 0, borderTop: '1px solid', borderColor: 'divider', my: 4 },
+            // `&&` sube la especificidad: pisa solo lo que se nombra y deja el resto (el scroll del código, el borde de la cita) como está.
+            ...(compacto && {
+                '&& h1, && h2, && h3': { typography: 'subtitle2', fontWeight: 700, mt: 1.5, mb: 0.5 },
+                '&& p': { typography: 'body2', lineHeight: 1.6, mb: 1, '&:last-child': { mb: 0 } },
+                '&& li': { typography: 'body2', lineHeight: 1.6, mb: 0.25 },
+                '&& ol, && ul': { pl: 2.5, mb: 1, mt: 0.5 },
+                '&& pre': { p: 1, mb: 1, maxWidth: '100%' },
+                '&& blockquote': { px: 1.5, mb: 1 },
+                '&& hr': { my: 1.5 },
+                overflowWrap: 'anywhere',
+                minWidth: 0,
+            }),
         }}
     >
         <Box sx={{ '& > div:first-of-type > *:first-of-type': { mt: 0 } }}>
@@ -73,12 +95,14 @@ const Markdown: React.FC<{
                 <ReactMarkdown
                     remarkPlugins={[remarkGfm]}
                     components={{
+                        ...(compacto && { img: () => null }),
                         table: ({ children }) => (
                             <Box sx={{ overflowX: 'auto', mb: 2 }}>
                                 <table>{children}</table>
                             </Box>
                         ),
                         a: ({ href, children }) => {
+                            if (onEnlace) return <>{onEnlace(href ?? '', children)}</>
                             const externo = !!href && /^[a-z]+:/i.test(href)
                             if (externo) {
                                 return (

@@ -6,10 +6,147 @@
 
 ---
 
+## [2026-10-17] — Asistente de IA, Fase A: ayuda de uso y navegación, con medición y topes de gasto
+
+Primera fase del asistente, que con el tiempo va a ser un copiloto de trabajo dentro de la plataforma. El diseño está
+en [docs/asistente-spec.md](docs/asistente-spec.md), y lo que cambió al auditar, en su §23. Maqueta aprobada:
+https://claude.ai/artifact/YSqMEKNMaji5akfLfB5QTo
+
+**Estado: implementada y auditada el 17/10/2026, sin desplegar.**
+
+**Decisiones del usuario:**
+- **Proveedor:** AWS Bedrock con Claude.
+- **Cómo usa la wiki:** índice + páginas a pedido, sin RAG vectorial (§ Decisiones).
+- **Permisos asignables a cualquier rol.**
+- **Control de gasto:** medición y topes en vez de créditos por usuario. Los créditos quedan para más adelante; el
+  registro de llamadas los deja a medio día de trabajo.
+- **Tope mensual inicial: USD 100,** configurable.
+
+### Qué hace
+- **El botón "Asistente"** de la barra superior abre un panel en cualquier pantalla.
+  - En pantallas de 1536 px o más queda fijo y corre el contenido; en las más chicas se superpone; en el celular
+    ocupa toda la pantalla.
+- **Responde preguntas de uso con la wiki** (`docs/ayuda/`) y cita la página. Si algo no está documentado, lo dice.
+- **Sabe en qué pantalla está la persona y qué permisos tiene.** No le explica algo que no puede hacer: le dice qué
+  permiso falta y a quién pedírselo.
+- **Ofrece llevar a la pantalla** ("¿Querés que te lleve…?" → **Sí, llevarme**). El backend valida la ruta contra el
+  mapa de pantallas y los permisos.
+- **No consulta datos de casos ni escribe nada.**
+- **La respuesta aparece mientras se escribe,** y **Detener** también corta el pedido al modelo.
+- **👍/👎 por respuesta.**
+
+### Backend
+- **Módulo `asistente`.**
+  - Usa **Claude Haiku 5.5 en Bedrock** (`us.anthropic.claude-haiku-5-5`), con `AnthropicBedrock` de
+    `@anthropic-ai/bedrock-sdk`, detrás de una interfaz.
+    - Mantle no tiene Haiku 5.5 en esta cuenta, y un SCP de la organización bloquea el perfil `global.`.
+    - Con `ASISTENTE_BEDROCK_ENDPOINT` se cambia de vía.
+  - **El prompt fijo va en caché:** herramientas, instrucciones, mapa de pantallas e índice de las 41 páginas,
+    11.781 tokens. Lo variable (pantalla, permisos, persona) va en un mensaje `system` por turno.
+  - **Herramientas:** `leer_pagina` y `ofrecer_ir_a`.
+  - **Streaming por SSE** sobre `POST /api/asistente/preguntar`, con ping cada 15 s.
+- **Medición:** una fila por llamada en `asistente_llamada`, con tokens, caché, costo en USD y ms.
+- **Topes:**
+  - mensual global, con aviso al 80 % a quienes tienen `asistente.administrar` y pausa al 100 %;
+  - un interruptor y un tope por función;
+  - un tope por respuesta (USD 0,05);
+  - un límite diario por persona (100).
+  - Las pausas responden **429** con su `codigo`.
+- **Conversaciones:** se guardan 90 días; las llamadas, 400.
+- **Permisos nuevos:** `asistente.usar`, `asistente.reportes` (Fase B, todavía sin funcionalidad) y
+  `asistente.administrar`.
+- **Schema:** 5 tablas nuevas, aditivas.
+- **La wiki viaja en la imagen del backend:** `Dockerfile.backend` y `.dockerignore`.
+- **`infra/terraform/bedrock.tf`:** permiso de Bedrock para el rol de la EC2 (`aws_iam_role_policy.ec2_bedrock`).
+- **Set de evaluación:** `backend/scripts/asistente-eval/`, 50 preguntas reales con umbrales.
+
+### Frontend
+- **Botón, panel y contexto del asistente**, con un parser SSE propio (`fetch` + `ReadableStream`).
+- **Markdown seguro.**
+- **Tarjetas de acción** y un visor de la ayuda dentro del panel.
+- **Sugerencias por pantalla.**
+- **Pantalla "Consumo del asistente"** (`/asistente/consumo`, en Administración): gasto del mes contra el tope, por
+  función y por persona, calidad, respuestas con 👎 y configuración.
+- **Wiki:**
+  - `01-primeros-pasos/04-el-asistente.md`, nueva;
+  - `06-administracion/04-consumo-del-asistente.md`, nueva;
+  - roles y permisos;
+  - en pagos y promesas, los dos permisos que hacen falta para cargar una promesa.
+
+### Medido
+- **Set de evaluación completo:**
+  - 97 % de páginas correctas;
+  - USD 0,0024 por pregunta;
+  - p95 9,3 s;
+  - prompt máximo 50 mil tokens.
+- **Con 10 a 12 personas y 10 a 15 preguntas por día:** unos **USD 6 a 15 por mes**, a precios de Bedrock.
+- **Lo gastado en Bedrock** entre el diseño, la implementación y las auditorías: menos de USD 0,30.
+
+### Después de las auditorías
+Las dos dieron PASA CON OBSERVACIONES, sin bloqueantes. Los arreglos están en §23 del spec, cada uno con su test:
+- una respuesta vacía ya no rompe la conversación (antes, Bedrock daba 400 en cada pregunta siguiente);
+- las pausas pasan de 503 a 429, así no alarman ni se loguean como error;
+- "no está en la documentación" se pide como frase exacta, y el contador cuenta las paráfrasis;
+- no se repiten DNI ni teléfonos;
+- arreglos chicos de robustez: el emoji en el título, el `null`, la carrera del primer `upsert`, la salida de un
+  turno abortado y el tope por turno;
+- frontend:
+  - el panel fijo desde 1536 px;
+  - el cartel de pausa se va solo;
+  - el parser tolera un `\r\n` partido;
+  - accesibilidad;
+  - textos y validaciones de la pantalla de consumo;
+- la wiki.
+
+**Tests:** backend 2.517, con `npm run build` OK. Frontend `npm test` en verde.
+
+**Deuda (§23):**
+- los avisos tapan el compositor con el panel fijo;
+- el cartel "nadie tiene el permiso";
+- los avisos del 80 % y el 100 % se gastan una vez por mes: **no** hay que probarlos en prod bajando y subiendo el tope.
+
+### Deploy (en este orden)
+1. **Permiso de Bedrock para la EC2,** con el OK del usuario:
+   - `terraform plan -lock=false -target=aws_iam_role_policy.ec2_bedrock -out=asis.plan`, y comprobar que dice 1 to add
+     y nada más;
+   - `terraform apply asis.plan`.
+
+   **Nunca un apply completo:** también revertiría el CSP de CloudFront de la Toolbar de Neotel.
+2. **AWS Budgets de USD 120,** con el mail que elija el usuario. La receta está en §13.3 del spec.
+3. **Push.** Lleva el `db push` de las 5 tablas.
+4. **En Administración > Roles,** asignar **Usar el asistente** y **Administrar el asistente** a ADMIN.
+   - Durante la primera semana, solo a ADMIN.
+   - Sin esto nadie ve el botón y nadie recibe el aviso del 80 %.
+5. **Verificar:**
+   - el arranque sin ERROR;
+   - una pregunta desde el panel;
+   - la pantalla de consumo con la llamada registrada.
+
+### Guion de prueba manual (navegador)
+1. Como ADMIN, con los permisos asignados: el botón **Asistente** está a la izquierda del **?**, y en Administración
+   está **Consumo del asistente**.
+2. En Reportes: "¿Dónde creo una plantilla de reportes?".
+   - El texto aparece de a poco y cierra con **Fuente**.
+   - Al terminar aparece "¿Querés que te lleve…?". **Sí, llevarme** abre la pantalla.
+3. Tocar la fuente: la ayuda se abre dentro del panel.
+4. 👎 con un comentario: aparece en **Consumo del asistente**.
+5. **Detener** a mitad de una respuesta: queda "Detuviste la respuesta.".
+6. Como un OPERADOR con **Usar el asistente**, la misma pregunta: tiene que nombrar el permiso que falta y no ofrecer
+   llevarlo.
+7. A 360 px y en modo oscuro: el panel ocupa toda la pantalla y se lee bien.
+
+---
+
 ## [2026-10-16] — Inicio, Fase 1 "Tu día": la página de inicio deja de decir "Próximamente"
 
 Diseño en [docs/inicio-spec.md](docs/inicio-spec.md), y lo que cambió al auditar en su §12. La maqueta la aprobó el
-usuario como primera versión. **Estado: implementada y auditada el 16/10/2026, sin desplegar.**
+usuario como primera versión.
+
+**Estado: desplegada el 16/10/2026** (21:39 UTC, imagen `f547838`). Verificado en prod:
+- el índice `Comentario_usuarioId_origen_fecha_idx` quedó creado;
+- `mi-dia` responde en 12-21 ms;
+- no hay ERROR;
+- el cierre ordenado volvió a andar (189 ms, código 0).
 
 **Decisiones del usuario:**
 - **Fase 1 para todos, según sus permisos.** El usuario pidió que quede claro qué ve el gestor, que en prod es el rol

@@ -17,7 +17,17 @@ export type Respuesta = {
      * (su XHR se queda esperando), así que el corte a mitad de cuerpo se simula en el adaptador de axios (ver `adaptadorQueSeCorta`).
      */
     cortar?: boolean;
+    /**
+     * Respuesta en streaming (SSE): cada trozo se escribe tal cual, con `pausaMs` entre uno y otro, para que el cliente los
+     * reciba de a uno. Un evento SSE se arma con `evento('texto', { delta: 'Hola' })`; un trozo puede cortar un evento a la mitad.
+     * - `cerrar: false`: después del último trozo la conexión queda abierta hasta que el cliente la corte (para probar "Detener").
+     * - `destruir: true`: después del último trozo se corta la conexión de golpe, sin cerrar el cuerpo (red caída a mitad).
+     */
+    stream?: { trozos: string[]; pausaMs?: number; tipo?: string; cerrar?: boolean; destruir?: boolean; status?: number };
 };
+
+/** Un evento SSE tal como lo manda el backend del asistente: `event: <nombre>\ndata: <json>\n\n`. */
+export const evento = (nombre: string, data: unknown) => `event: ${nombre}\ndata: ${JSON.stringify(data)}\n\n`;
 type Manejador = (m: RegExpMatchArray, p: Pedido) => Respuesta | Promise<Respuesta>;
 
 export class ServidorFalso {
@@ -29,6 +39,8 @@ export class ServidorFalso {
     conexionesTotales = 0;
     /** false = el handshake de socket.io se rechaza (tiempo real bloqueado). */
     aceptarSockets = true;
+    /** Cuántas respuestas en streaming terminaron porque el CLIENTE cortó la conexión (no por fin del guion). */
+    streamsCortadosPorElCliente = 0;
 
     en(metodo: string, patron: RegExp, manejar: Manejador) { this.rutas.unshift({ metodo, patron, manejar }); return this; }
 
@@ -50,6 +62,27 @@ export class ServidorFalso {
                         const resp = await r.manejar(m, pedido);
                         if (resp.demoraMs) await new Promise((ok) => setTimeout(ok, resp.demoraMs));
                         if (resp.cortar) { res.destroy(); return; }
+                        if (resp.stream) {
+                            const st = resp.stream;
+                            let cerradoPorCliente = false;
+                            let destruidoPorMi = false;
+                            res.on('close', () => { if (!res.writableFinished && !destruidoPorMi) { cerradoPorCliente = true; this.streamsCortadosPorElCliente++; } });
+                            res.writeHead(st.status ?? 200, { 'content-type': st.tipo ?? 'text/event-stream; charset=utf-8', 'cache-control': 'no-cache, no-transform' });
+                            res.flushHeaders();
+                            for (const trozo of st.trozos) {
+                                if (cerradoPorCliente) return;
+                                res.write(trozo);
+                                if (st.pausaMs) await new Promise((ok) => setTimeout(ok, st.pausaMs));
+                            }
+                            if (st.destruir) { destruidoPorMi = true; res.destroy(); return; }
+                            if (st.cerrar === false) {
+                                // Abierta hasta que el cliente corte (o el servidor se baje).
+                                await new Promise<void>((ok) => { if (cerradoPorCliente) ok(); else res.once('close', () => ok()); });
+                                return;
+                            }
+                            if (!cerradoPorCliente) res.end();
+                            return;
+                        }
                         if (resp.crudo) {
                             res.writeHead(resp.status ?? 200, { 'content-type': resp.crudo.tipo, ...(resp.crudo.cabeceras ?? {}) });
                             res.end(resp.crudo.contenido);

@@ -7,7 +7,7 @@ import { describe, expect, it } from 'vitest';
 import { RAIZ_FE } from '../lib/raiz';
 
 const TOPE = 280;
-const CARPETAS = ['components/import/progreso', 'components/import/historial'];
+const CARPETAS = ['components/import/progreso', 'components/import/historial', 'components/asistente', 'pages/asistente'];
 const ARCHIVOS = [
     'components/import/ImportProgress.tsx',
     'pages/ImportWizard.tsx',
@@ -22,6 +22,10 @@ const ARCHIVOS = [
     'components/layout/AppShell/AccionesNotificacion.tsx',
     'components/layout/AppShell/ImportEnCursoItem.tsx',
     'components/layout/AppShell/ChipImportaciones.tsx',
+    // Asistente de IA, Fase A (el botón, el panel y la pantalla de consumo; el panel se mide aparte en asistente-tema.test.tsx)
+    'components/layout/AppShell/AppShell.tsx',
+    'context/AsistenteContext.tsx',
+    'pages/ayuda/Markdown.tsx',
 ];
 
 const EN_SRC = (rel: string) => path.join(RAIZ_FE, 'src', rel);

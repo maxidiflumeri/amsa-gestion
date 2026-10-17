@@ -157,6 +157,14 @@ export const TODOS_LOS_PERMISOS: PermisoSeccion[] = [
             { key: 'telefonia.admin', label: 'Administrar telefonía', descripcion: 'Panel de prueba de Neotel: sesión, estado y campaña del agente' },
         ],
     },
+    {
+        seccion: 'Asistente',
+        permisos: [
+            { key: 'asistente.usar', label: 'Usar el asistente', descripcion: 'Abre el asistente de ayuda y navegación desde la barra superior' },
+            { key: 'asistente.reportes', label: 'Asistente: armar reportes', descripcion: 'Próximamente: el asistente arma plantillas de reportes, siempre con tu confirmación' },
+            { key: 'asistente.administrar', label: 'Administrar el asistente', descripcion: 'Ve el consumo, configura los topes y pausa el asistente' },
+        ],
+    },
 ];
 
 export const TODAS_LAS_KEYS: string[] = TODOS_LOS_PERMISOS.flatMap((s) =>

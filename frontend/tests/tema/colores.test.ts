@@ -19,6 +19,18 @@ const ARCHIVOS = [
     'hooks/useUltimosErrores.ts',
     'hooks/useVigiaGrupo.ts',
     'components/import/PreviewTable.tsx',
+    // Asistente de IA, Fase A
+    'components/asistente/AsistenteBoton.tsx',
+    'components/asistente/AsistentePanel.tsx',
+    'components/asistente/MensajeBurbuja.tsx',
+    'components/asistente/TarjetaIrA.tsx',
+    'components/asistente/VisorAyudaInline.tsx',
+    'components/asistente/sugerencias.ts',
+    'context/AsistenteContext.tsx',
+    'api/asistente.ts',
+    'pages/asistente/AsistenteConsumo.tsx',
+    'pages/asistente/ConfiguracionAsistente.tsx',
+    'pages/ayuda/Markdown.tsx',
 ];
 const COLOR_A_MANO = /#[0-9a-fA-F]{3,8}\b|\brgba?\(|\bhsla?\(/;
 

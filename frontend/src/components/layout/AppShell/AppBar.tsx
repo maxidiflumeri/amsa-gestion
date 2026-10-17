@@ -17,6 +17,7 @@ import UserMenu from './UserMenu';
 import NotificacionesBell from './NotificacionesBell';
 import ConexionIndicador from './ConexionIndicador';
 import AyudaContextual from '../../../pages/ayuda/AyudaContextual';
+import AsistenteBoton from '../../asistente/AsistenteBoton';
 import { usePageMeta } from '../../../context/PageMetaContext';
 import { Link as RouterLink } from 'react-router-dom';
 
@@ -133,6 +134,7 @@ const AppBarComponent: React.FC<AppBarProps> = ({
                     )}
                 </Box>
 
+                <AsistenteBoton />
                 <AyudaContextual />
                 <ConexionIndicador />
                 <NotificacionesBell />
