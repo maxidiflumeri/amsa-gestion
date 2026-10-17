@@ -12,7 +12,16 @@ Primera fase del asistente, que con el tiempo va a ser un copiloto de trabajo de
 en [docs/asistente-spec.md](docs/asistente-spec.md), y lo que cambió al auditar, en su §23. Maqueta aprobada:
 https://claude.ai/artifact/YSqMEKNMaji5akfLfB5QTo
 
-**Estado: implementada y auditada el 17/10/2026, sin desplegar.**
+**Estado: desplegada el 17/10/2026** (02:30 UTC, imagen `6107c64`). Pasos 1 a 4 del deploy hechos. Verificado en prod:
+- arranque sin ERROR, con el índice de la wiki cargado (41 páginas, 18.101 caracteres) y la limpieza de las 04:30 activa;
+- las 5 tablas creadas, con la configuración por defecto (USD 100 por mes, aviso al 80 %, USD 0,05 por turno);
+- ADMIN tiene los tres permisos y OPERADOR ninguno;
+- primeras 5 preguntas reales: 9 llamadas sin error con el rol de la EC2, de 3,6 a 7,3 s por respuesta, USD 0,0137 en
+  total (unos USD 0,0027 por pregunta, como en la evaluación); la caché pega desde la segunda llamada y una oferta de
+  "llevarme" fue aceptada.
+
+Pendiente: en uno o dos días, mirar en Cost Explorer con qué nombre de servicio salen los cargos de Claude 5.5 y
+ajustar el filtro del budget `amsa-gestion-asistente-bedrock` si no coincide.
 
 **Decisiones del usuario:**
 - **Proveedor:** AWS Bedrock con Claude.
