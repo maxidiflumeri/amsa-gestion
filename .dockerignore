@@ -3,7 +3,9 @@
 .github
 frontend
 varios
-docs
+# La wiki de ayuda sí va a la imagen (el asistente la lee al arrancar); el resto de docs/ no.
+docs/*
+!docs/ayuda
 infra
 **/node_modules
 **/dist

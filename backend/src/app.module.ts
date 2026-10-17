@@ -34,6 +34,7 @@ import { MoraModule } from './modules/mora/mora.module';
 import { PagosModule } from './modules/pagos/pagos.module';
 import { PromesasModule } from './modules/promesas/promesas.module';
 import { MulticlavesModule } from './modules/multiclaves/multiclaves.module';
+import { AsistenteModule } from './modules/asistente/asistente.module';
 
 @Module({
   imports: [
@@ -74,6 +75,7 @@ import { MulticlavesModule } from './modules/multiclaves/multiclaves.module';
     PromesasModule,
     PagosModule,
     MulticlavesModule,
+    AsistenteModule,
   ],
   controllers: [AppController],
   providers: [AppService],

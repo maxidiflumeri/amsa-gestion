@@ -43,3 +43,15 @@ describeSiHayFront('catálogo de permisos: backend y frontend en sincronía', ()
         expect(sobrantes).toEqual([]);
     });
 });
+
+describe('catálogo de permisos: asistente', () => {
+    it('declara los tres permisos del asistente (sin esto no aparecen en Roles y nadie los puede asignar)', () => {
+        expect(TODAS_LAS_KEYS).toEqual(
+            expect.arrayContaining(['asistente.usar', 'asistente.reportes', 'asistente.administrar']),
+        );
+    });
+
+    it('no repite claves', () => {
+        expect(new Set(TODAS_LAS_KEYS).size).toBe(TODAS_LAS_KEYS.length);
+    });
+});

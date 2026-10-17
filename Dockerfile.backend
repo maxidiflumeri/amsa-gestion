@@ -22,5 +22,9 @@ RUN npm ci
 COPY backend .
 RUN npx prisma generate && npm run build
 
+# La wiki de ayuda: el asistente la lee al arrancar (ASISTENTE_WIKI_DIR o /app/docs/ayuda). Va al final para no
+# invalidar la capa del build.
+COPY docs/ayuda ./docs/ayuda
+
 EXPOSE 3001
 CMD ["node", "dist/main"]

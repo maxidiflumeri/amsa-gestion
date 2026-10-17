@@ -529,6 +529,9 @@ model usuario {
   pagosManuales      pago[]                          @relation("PagoUsuario")
   promesas           promesa_pago[]                  @relation("PromesaUsuario")
   tasasMoraCargadas  tasa_mora[]                     @relation("TasaMoraUsuario")
+  asistenteConversaciones asistente_conversacion[]
+  asistenteMensajes       asistente_mensaje[]
+  asistenteLlamadas       asistente_llamada[]
 
   @@index([rolId])
 }
@@ -1104,4 +1107,123 @@ model indice_mora {
 
   @@id([empresaId, tipo, fecha])
   @@index([empresaId, tipo, fecha])
+}
+
+// ============ Asistente de IA (docs/asistente-spec.md §4) ============
+
+/// Configuración del asistente: una sola fila, id = 1. Se crea sola (upsert) la primera vez que se lee.
+model asistente_config {
+  id                     Int      @id @default(1)
+  habilitado             Boolean  @default(true)
+  /// Tope mensual global en USD. Al 100 % el asistente se pausa para todos.
+  topeMensualUsd         Decimal  @default(100) @db.Decimal(10, 2)
+  /// Porcentaje del tope al que se avisa a quienes tienen asistente.administrar.
+  avisoPorcentaje        Int      @default(80)
+  /// Preguntas por persona por día (hora de Argentina). Protege de bucles, no raciona.
+  limiteDiarioUsuario    Int      @default(100)
+  /// Tope de gasto de un turno (todas sus llamadas). Corta bucles de herramientas.
+  topeTurnoUsd           Decimal  @default(0.05) @db.Decimal(10, 4)
+  /// Tabla de precios por modelo, USD por millón de tokens. Si falta el modelo en uso, se usa la de código; si
+  /// tampoco está ahí, el asistente no llama (nunca se cuenta un costo en cero).
+  precios                Json?
+  /// "2026-10" del último aviso enviado. Hace idempotente el aviso: updateMany ... where avisoXXMes != mes.
+  avisoParcialMes        String?  @db.VarChar(7)
+  avisoTopeMes           String?  @db.VarChar(7)
+  actualizadoPorId       Int?
+  updatedAt              DateTime @updatedAt
+}
+
+/// Funciones del asistente ("ayuda" en la Fase A; "reportes" en la B). Interruptor y tope propio opcional.
+model asistente_funcion {
+  clave          String   @id @db.VarChar(30)
+  nombre         String   @db.VarChar(80)
+  habilitada     Boolean  @default(true)
+  /// null = sin tope propio (solo rige el global).
+  topeMensualUsd Decimal? @db.Decimal(10, 2)
+  updatedAt      DateTime @updatedAt
+}
+
+model asistente_conversacion {
+  id          Int      @id @default(autoincrement())
+  usuarioId   Int
+  funcion     String   @default("ayuda") @db.VarChar(30)
+  /// La primera pregunta, recortada a 120 caracteres.
+  titulo      String   @db.VarChar(160)
+  /// sha1 del índice de la wiki con el que arrancó. Si cambia (deploy), el historial se reenvía igual: no hay
+  /// thinking guardado, así que solo se pierde la caché.
+  versionWiki String   @db.VarChar(40)
+  turnos      Int      @default(0)
+  costoUsd    Decimal  @default(0) @db.Decimal(12, 6)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  usuario     usuario  @relation(fields: [usuarioId], references: [id], onDelete: Cascade, map: "AsistenteConversacion_usuarioId_fkey")
+  mensajes    asistente_mensaje[]
+  llamadas    asistente_llamada[]
+
+  @@index([usuarioId, updatedAt])
+  @@index([updatedAt])
+}
+
+model asistente_mensaje {
+  id             Int       @id @default(autoincrement())
+  conversacionId Int
+  usuarioId      Int
+  /// 'usuario' | 'asistente'
+  rol            String    @db.VarChar(10)
+  /// Usuario: la pregunta. Asistente: la respuesta completa (todos los bloques de texto del turno, en orden).
+  texto          String    @db.Text
+  /// Pantalla desde la que se preguntó (solo rol 'usuario').
+  ruta           String?   @db.VarChar(200)
+  /// Los MessageParam exactos que este mensaje aporta al historial, SIN bloques de thinking. Usuario:
+  /// [{user: pregunta}, {system: contexto}]. Asistente: [assistant(tool_use), user(tool_result), …, assistant(texto)].
+  apiMensajes    Json
+  /// [{slug, titulo}] — citas válidas encontradas en el texto.
+  fuentes        Json?
+  /// [{id, tipo:'ir_a', ruta, etiqueta, motivo, resultado: null|'aceptada'|'rechazada'}]
+  acciones       Json?
+  /// 'en_curso' | 'ok' | 'cortado' | 'rechazado' | 'error'
+  estado         String    @default("ok") @db.VarChar(12)
+  /// 1 = 👍, -1 = 👎, null = sin calificar.
+  calificacion   Int?      @db.TinyInt
+  comentario     String?   @db.VarChar(500)
+  ms             Int?
+  createdAt      DateTime  @default(now())
+  conversacion   asistente_conversacion @relation(fields: [conversacionId], references: [id], onDelete: Cascade, map: "AsistenteMensaje_conversacionId_fkey")
+  usuario        usuario   @relation(fields: [usuarioId], references: [id], onDelete: Cascade, map: "AsistenteMensaje_usuarioId_fkey")
+
+  @@index([conversacionId, id])
+  @@index([usuarioId, rol, createdAt])
+  @@index([calificacion, createdAt])
+}
+
+/// Una fila por llamada al modelo (un turno con herramientas hace varias). Sin contenido: sobrevive a la limpieza
+/// de conversaciones (conversacionId queda null) para que el consumo del mes no cambie al borrar.
+model asistente_llamada {
+  id               Int       @id @default(autoincrement())
+  usuarioId        Int?
+  conversacionId   Int?
+  mensajeId        Int?
+  funcion          String    @db.VarChar(30)
+  modelo           String    @db.VarChar(80)
+  iteracion        Int       @db.TinyInt
+  tokensEntrada    Int       @default(0)
+  tokensSalida     Int       @default(0)
+  /// Parte de tokensSalida que fue thinking (output_tokens_details.thinking_tokens). Informativo: ya está en salida.
+  tokensThinking   Int       @default(0)
+  cacheLectura     Int       @default(0)
+  cacheEscritura5m Int       @default(0)
+  cacheEscritura1h Int       @default(0)
+  costoUsd         Decimal   @default(0) @db.Decimal(12, 6)
+  ms               Int
+  stopReason       String?   @db.VarChar(20)
+  /// Clase de error del SDK o código propio si la llamada falló (costo 0).
+  error            String?   @db.VarChar(120)
+  requestId        String?   @db.VarChar(20)
+  createdAt        DateTime  @default(now())
+  usuario          usuario?  @relation(fields: [usuarioId], references: [id], onDelete: SetNull, map: "AsistenteLlamada_usuarioId_fkey")
+  conversacion     asistente_conversacion? @relation(fields: [conversacionId], references: [id], onDelete: SetNull, map: "AsistenteLlamada_conversacionId_fkey")
+
+  @@index([createdAt])
+  @@index([funcion, createdAt])
+  @@index([usuarioId, createdAt])
 }
