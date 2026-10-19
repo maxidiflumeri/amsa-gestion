@@ -1,4 +1,5 @@
 import type { MessageParam, MessageCreateParamsNonStreaming, TextBlockParam, Tool } from '@anthropic-ai/sdk/resources/messages';
+import { Coincidencia, rotuloCoincidencia } from '../wiki/buscador';
 
 /** Tope de salida por llamada; el thinking cuenta adentro (docs/asistente-spec.md §7.1). */
 export const MAX_TOKENS_SALIDA = 2048;
@@ -20,7 +21,7 @@ export function armarSystem(instrucciones: string, mapa: string, indice: string)
 }
 
 /**
- * Las dos herramientas, en orden fijo (cambiar el orden o los enums invalida la caché). `strict` solo con el endpoint
+ * Las tres herramientas, en orden fijo (cambiar el orden o los enums invalida la caché). `strict` solo con el endpoint
  * `runtime`: Mantle no tiene structured outputs. El backend valida igual.
  */
 export function armarTools(slugs: string[], rutas: string[], strict: boolean): Tool[] {
@@ -41,6 +42,24 @@ export function armarTools(slugs: string[], rutas: string[], strict: boolean): T
                     },
                 },
                 required: ['slug'],
+                additionalProperties: false,
+            },
+        },
+        {
+            name: 'buscar_en_wiki',
+            description:
+                'Busca palabras en el texto completo de todas las páginas de la wiki, no solo en el índice: también en las subsecciones, las tablas y los "Qué puede salir mal". Devuelve las secciones donde aparecen, con su página y un fragmento. Usala cuando el tema no figura en el índice ni en las coincidencias del turno, y siempre antes de decir que algo no está en la documentación.',
+            ...extra,
+            input_schema: {
+                type: 'object',
+                properties: {
+                    texto: {
+                        type: 'string',
+                        description:
+                            'Las palabras a buscar: las de la persona o las que usaría la pantalla. Pocas y concretas. Ej.: "bloques repetitivos", "importes negativos".',
+                    },
+                },
+                required: ['texto'],
                 additionalProperties: false,
             },
         },
@@ -83,6 +102,10 @@ export interface DatosContexto {
     pagina: { slug: string; titulo: string; cuerpo: string } | null;
     /** La página de la pantalla ya está en los mensajes que se van a enviar. */
     paginaYaPresente: boolean;
+    /** La persona está leyendo esa página en Documentación (`/ayuda/<slug>`), no es la ayuda de una pantalla. */
+    paginaAbiertaEnDocumentacion?: boolean;
+    /** Dónde aparecen en la wiki las palabras de la pregunta (búsqueda automática). */
+    coincidencias?: Coincidencia[];
 }
 
 const DIAS = ['domingo', 'lunes', 'martes', 'miércoles', 'jueves', 'viernes', 'sábado'];
@@ -114,8 +137,27 @@ export function armarContexto(d: DatosContexto): string {
         `- Pantallas que puede abrir: ${d.rutasAbribles.length ? d.rutasAbribles.join(', ') : 'ninguna'}`,
         '',
     ];
+    const coincidencias = d.coincidencias ?? [];
+    if (coincidencias.length > 0) {
+        lineas.push(
+            'Secciones de la wiki donde aparecen las palabras de la pregunta (búsqueda automática en el texto completo; puede traer coincidencias que no vienen al caso):',
+            ...coincidencias.map((c) => `- ${rotuloCoincidencia(c)}${c.fragmento ? `: «${c.fragmento}»` : ''}`),
+            '',
+        );
+    }
     if (!d.pagina) {
         lineas.push('Esta pantalla no tiene página de ayuda principal.');
+    } else if (d.paginaAbiertaEnDocumentacion) {
+        if (d.paginaYaPresente) {
+            lineas.push(`La persona tiene abierta en Documentación la página [${d.pagina.slug}], que ya está más arriba en la conversación.`);
+        } else {
+            lineas.push(
+                `Página que la persona tiene abierta en Documentación: [${d.pagina.slug}] ${d.pagina.titulo}`,
+                `<pagina slug="${d.pagina.slug}">`,
+                d.pagina.cuerpo,
+                '</pagina>',
+            );
+        }
     } else if (d.paginaYaPresente) {
         lineas.push(`La página de ayuda de esta pantalla ([${d.pagina.slug}]) ya está más arriba en la conversación.`);
     } else {

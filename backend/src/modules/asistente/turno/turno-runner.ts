@@ -23,14 +23,129 @@ import {
     rutasAbribles,
     validarIrA,
 } from '../rutas/rutas-catalogo';
+import { Coincidencia, OpcionesBusqueda, rotuloCoincidencia } from '../wiki/buscador';
+import { PaginaWiki } from '../wiki/parsear-pagina';
 import { PuertoWiki } from '../wiki/wiki-indice';
 import { extraerCitas } from './citas';
 import { MENSAJE_MODELO_NO_DISPONIBLE, TopeError } from './errores';
 
-/** Iteraciones máximas del loop de herramientas por turno. */
-export const MAX_ITERACIONES = 4;
+/** Iteraciones máximas del loop de herramientas por turno (buscar → leer → leer → responder entra con margen). */
+export const MAX_ITERACIONES = 5;
 /** Páginas que se pueden leer con `leer_pagina` en una respuesta. */
 export const MAX_LECTURAS = 3;
+/** Búsquedas con `buscar_en_wiki` en una respuesta. */
+export const MAX_BUSQUEDAS = 2;
+
+/**
+ * La búsqueda automática con la pregunta, que va en el contexto del turno: solo palabras distintivas y pocas
+ * coincidencias, para que lo que el índice ya resuelve no se llene de ruido.
+ */
+export const BUSQUEDA_AUTOMATICA: OpcionesBusqueda = {
+    limite: 4,
+    porPagina: 2,
+    minCobertura: 0.5,
+    minRelativo: 0.35,
+    soloDistintivas: true,
+    largoFragmento: 140,
+};
+/** La búsqueda que pide el modelo con `buscar_en_wiki`. */
+export const BUSQUEDA_HERRAMIENTA: OpcionesBusqueda = { limite: 6, porPagina: 2, minRelativo: 0.2, largoFragmento: 220 };
+
+/** El `tool_result` de `buscar_en_wiki`. */
+export function resultadoBusqueda(texto: string, coincidencias: Coincidencia[]): string {
+    if (coincidencias.length === 0) {
+        return `No hay coincidencias para «${texto}» en la wiki. Podés probar con otras palabras; si tampoco aparece, no está documentado.`;
+    }
+    return [
+        `Coincidencias para «${texto}» en el texto completo de la wiki, de la más a la menos relevante:`,
+        ...coincidencias.map((c, i) => `${i + 1}. ${rotuloCoincidencia(c)}${c.fragmento ? `\n   «${c.fragmento}»` : ''}`),
+        'Para responder con una de estas, leé su página con leer_pagina, salvo que ya esté en la conversación.',
+    ].join('\n');
+}
+
+/**
+ * En `/ayuda/<slug>` la persona está leyendo esa página: es "la página de la pantalla". Antes el contexto decía que
+ * Documentación no tenía página y el modelo no sabía qué tenía abierto (el 👎 del 18/10/2026).
+ */
+export function paginaAbiertaEnDocumentacion(ruta: string, wiki: Pick<PuertoWiki, 'pagina'>): PaginaWiki | undefined {
+    const m = /^\/ayuda\/(.+)$/.exec(limpiarRuta(ruta));
+    return m ? wiki.pagina(m[1]) : undefined;
+}
+
+/** Lo mismo que se compara para decir que un texto repite a otro: el comienzo, sin diferencias de espacios. */
+const COMIENZO_REPETIDO = 80;
+
+function comienzo(t: string): string {
+    return t.replace(/\s+/g, ' ').trim().slice(0, COMIENZO_REPETIDO);
+}
+
+/** El texto de una iteración y dónde empieza dentro del texto del turno. */
+export interface SegmentoTexto {
+    inicio: number;
+    texto: string;
+}
+
+/**
+ * Si el texto de una iteración empieza igual que el de otra posterior, queda solo el posterior: después de mostrar la
+ * tarjeta, el modelo a veces reescribe la respuesta entera (6 de 16 en el código de prod, set de evaluación del
+ * 19/10/2026). Corta por posición, así que nunca toca otra aparición del mismo texto.
+ */
+export function sinRespuestasRepetidas(textoTurno: string, segmentos: SegmentoTexto[]): string {
+    const aSacar = segmentos.filter((sg, i) => {
+        const a = comienzo(sg.texto);
+        return a.length >= 40 && segmentos.slice(i + 1).some((b) => comienzo(b.texto) === a);
+    });
+    if (aSacar.length === 0) return textoTurno;
+    let out = textoTurno;
+    for (const sg of [...aSacar].reverse()) out = out.slice(0, sg.inicio) + out.slice(sg.inicio + sg.texto.length);
+    return out.replace(/\n{3,}/g, '\n\n').trim();
+}
+
+/** Una oferta de llevar a otra pantalla: "¿Querés que te lleve…?", "Si querés, te llevo…", "Puedo llevarte…". */
+const RE_OFERTA = /(?:que\s+te\s+lleve|\bte\s+llevo\b|\bllevarte\b)/i;
+/** No es una oferta: la niega ("no te puedo llevar")… */
+const RE_NEGACION = /\b(no|sin|nunca)\b/i;
+/** …o la cita: la tarjeta dice **¿Querés que te lleve a «…»?**, o "¿Querés que te lleve…?" entre comillas. */
+const RE_CITA = /(?:["«“]|\*\*)\s*¿/;
+
+/** ¿El texto ofrece llevar a la persona a otra pantalla? (También lo usa el set de evaluación.) */
+export function ofreceEnTexto(texto: string): boolean {
+    return oracionesDe(texto).some(esOferta);
+}
+
+function esOferta(oracion: string): boolean {
+    return RE_OFERTA.test(oracion) && !RE_NEGACION.test(oracion) && !RE_CITA.test(oracion);
+}
+
+/** Las oraciones de una línea, con su puntuación y el espacio que las sigue. */
+function oracionesDe(linea: string): string[] {
+    return linea.match(/[^.!?\n]*(?:[.!?]+|$)\s*/g)?.filter((o) => o !== '') ?? [];
+}
+
+/**
+ * Saca la oferta de ir a otra pantalla escrita en el texto cuando no hubo tarjeta: la persona no tiene botón para
+ * aceptarla (el 👎 del 17/10/2026). Va por oración: no toca las que la niegan o la citan, y una línea que queda vacía
+ * (o con solo la viñeta) se va entera.
+ */
+export function quitarOfertaSinTarjeta(texto: string): string {
+    let cambio = false;
+    const lineas = texto.split('\n').map((linea) => {
+        const m = /^(\s*(?:[-*]|\d+\.)\s+)?(.*)$/.exec(linea)!;
+        const vineta = m[1] ?? '';
+        const oraciones = oracionesDe(m[2]);
+        const quedan = oraciones.filter((o) => !esOferta(o));
+        if (quedan.length === oraciones.length) return linea;
+        cambio = true;
+        const resto = quedan.join('').trim();
+        return resto ? `${vineta}${resto}` : null;
+    });
+    if (!cambio) return texto;
+    return lineas
+        .filter((l): l is string => l !== null)
+        .join('\n')
+        .replace(/\n{3,}/g, '\n\n')
+        .trim();
+}
 
 export const TEXTO_RECHAZO = 'No puedo responder eso. Probá reformular la pregunta o buscá en la Documentación.';
 const SUFIJO_CORTADA = '\n\n_(La respuesta quedó cortada.)_';
@@ -148,7 +263,9 @@ export class TurnoRunner {
 
         // --- Armado del request ---------------------------------------------------------------------------------
         const actual = resolverRuta(e.ruta);
-        const pagina = wiki.paginaPrincipalParaRuta(limpiarRuta(e.ruta));
+        const abierta = paginaAbiertaEnDocumentacion(e.ruta, wiki);
+        const pagina = abierta ?? wiki.paginaPrincipalParaRuta(limpiarRuta(e.ruta));
+        const coincidencias = wiki.buscar(e.pregunta, BUSQUEDA_AUTOMATICA);
         const system = armarSystem(INSTRUCCIONES, mapaDePantallas(), wiki.indice);
         const tools = armarTools(
             wiki.slugs,
@@ -179,6 +296,8 @@ export class TurnoRunner {
             rutasAbribles: rutasAbribles(e.persona.permisos),
             pagina: pagina ? { slug: pagina.slug, titulo: pagina.titulo, cuerpo: pagina.cuerpo } : null,
             paginaYaPresente: pagina ? presentes.has(pagina.slug) : false,
+            paginaAbiertaEnDocumentacion: !!abierta,
+            coincidencias,
         });
         if (pagina) presentes.add(pagina.slug);
 
@@ -194,7 +313,9 @@ export class TurnoRunner {
         let costoTurno = 0;
         let llamadas = 0;
         let lecturas = 0;
+        let busquedas = 0;
         let ofertas = 0;
+        const segmentos: SegmentoTexto[] = [];
         const acciones: AccionIrA[] = [];
         let estado: EstadoTurno = 'ok';
 
@@ -232,6 +353,17 @@ export class TurnoRunner {
                 presentes.add(slug);
                 e.emitir({ evento: 'herramienta', data: { nombre: 'leer_pagina', slug, titulo: p.titulo } });
                 return { content: p.cuerpo, esError: false };
+            }
+            if (nombre === 'buscar_en_wiki') {
+                const texto = (typeof input.texto === 'string' ? input.texto : '').trim().slice(0, 200);
+                if (!texto) return { content: 'Falta qué buscar.', esError: true };
+                if (busquedas >= MAX_BUSQUEDAS) {
+                    return { content: 'Ya buscaste dos veces en esta respuesta.', esError: true };
+                }
+                busquedas++;
+                // Sin el texto buscado: puede traer lo que escribió la persona.
+                e.emitir({ evento: 'herramienta', data: { nombre: 'buscar_en_wiki' } });
+                return { content: resultadoBusqueda(texto, wiki.buscar(texto, BUSQUEDA_HERRAMIENTA)), esError: false };
             }
             if (nombre === 'ofrecer_ir_a') {
                 const ruta = typeof input.ruta === 'string' ? input.ruta : '';
@@ -318,6 +450,8 @@ export class TurnoRunner {
             let msg: Message;
             try {
                 msg = await stream.finalMessage();
+                // El texto de esta iteración es lo último que se agregó al del turno.
+                if (textoIter) segmentos.push({ inicio: textoTurno.length - textoIter.length, texto: textoIter });
             } catch (err: any) {
                 const abortado = e.signal.aborted || err?.constructor?.name === 'APIUserAbortError';
                 llamadas++;
@@ -387,6 +521,7 @@ export class TurnoRunner {
             // tool_use: el mensaje con thinking es válido DENTRO del turno; lo guardado va sin thinking.
             messages.push({ role: 'assistant', content: msg.content });
             apiNuevos.push({ role: 'assistant', content: sinThinking(msg.content) });
+            const ofertasAntes = acciones.length;
             const resultados: ToolResultBlockParam[] = usos.map((b) => {
                 const r = ejecutar(b.name, b.input, b.id);
                 return {
@@ -399,6 +534,15 @@ export class TurnoRunner {
             messages.push({ role: 'user', content: resultados });
             apiNuevos.push({ role: 'user', content: resultados });
 
+            // La respuesta ya está completa (tiene su fuente) y lo único que pidió es la tarjeta, que se mostró: no hace
+            // falta otra llamada. Con ella, el modelo a veces reescribía la respuesta entera o comentaba la tarjeta.
+            const soloTarjetas = usos.every((b) => b.name === 'ofrecer_ir_a') && acciones.length - ofertasAntes === usos.length;
+            if (soloTarjetas && /^Fuente:/m.test(textoTurno)) {
+                apiNuevos.push({ role: 'assistant', content: [{ type: 'text', text: 'Listo.' }] });
+                estado = 'ok';
+                break;
+            }
+
             if (iter === MAX_ITERACIONES - 1) {
                 estado = 'cortado';
                 textoTurno += SUFIJO_SIN_TERMINAR;
@@ -406,6 +550,21 @@ export class TurnoRunner {
             }
         }
 
+        // Solo con el turno terminado bien: si la reescritura quedó cortada, la versión completa es la anterior.
+        if (estado === 'ok') {
+            const sinRepetir = sinRespuestasRepetidas(textoTurno, segmentos);
+            if (sinRepetir !== textoTurno) {
+                this.logger.warn(`La respuesta se repitió después de una herramienta: queda la última versión (mensaje=${e.ids.mensajeId})`);
+                textoTurno = sinRepetir;
+            }
+        }
+        if (estado !== 'rechazado' && acciones.length === 0) {
+            const sinOferta = quitarOfertaSinTarjeta(textoTurno);
+            if (sinOferta !== textoTurno) {
+                this.logger.warn(`La respuesta ofrecía ir a una pantalla sin la tarjeta: se saca del texto (mensaje=${e.ids.mensajeId})`);
+                textoTurno = sinOferta;
+            }
+        }
         if (estado === 'ok' && textoTurno.trim() === '') textoTurno = TEXTO_VACIO;
 
         let fuentes: FuenteAyuda[] = [];

@@ -414,7 +414,7 @@
     "ruta": "/gestion",
     "pregunta": "¿Se puede mandar WhatsApp a los deudores desde el sistema?",
     "debe": [
-      "no está en la documentación"
+      "no está en la documentación|AMSA Sender"
     ],
     "noDebe": [
       "sí, se puede"
@@ -474,7 +474,7 @@
     "ruta": "/gestion",
     "pregunta": "¿Quién ganó el Mundial 2022?",
     "debe": [
-      "solo (puedo )?ayud"
+      "solo (puedo |puede )?ayud"
     ],
     "noDebe": [
       "Argentina|Messi"
@@ -522,6 +522,189 @@
     ],
     "debe": [
       "Crear reportes"
+    ]
+  },
+  {
+    "id": "G01",
+    "rol": "ADMIN",
+    "ruta": "/",
+    "pregunta": "¿Qué son los bloques repetitivos?",
+    "paginas": [
+      "importacion/crear-plantilla"
+    ],
+    "noDebe": [
+      "no est[aá] en la documentaci[oó]n"
+    ]
+  },
+  {
+    "id": "G02",
+    "rol": "ADMIN",
+    "ruta": "/",
+    "pregunta": "En la carga de plantillas para importación de archivos hay una sección de bloques repetitivos, ¿qué es?",
+    "paginas": [
+      "importacion/crear-plantilla"
+    ],
+    "noDebe": [
+      "no est[aá] en la documentaci[oó]n"
+    ]
+  },
+  {
+    "id": "G03",
+    "rol": "ADMIN",
+    "ruta": "/ayuda/importacion/crear-plantilla",
+    "pregunta": "¿Qué son las iteraciones?",
+    "paginas": [
+      "importacion/crear-plantilla"
+    ],
+    "noDebe": [
+      "no est[aá] en la documentaci[oó]n"
+    ]
+  },
+  {
+    "id": "G04",
+    "rol": "ADMIN",
+    "ruta": "/plantillas",
+    "pregunta": "Importé un archivo y los importes quedaron mil veces más chicos, ¿qué pasó?",
+    "paginas": [
+      "importacion/crear-plantilla",
+      "ajustes/cartera-nueva-de-cero"
+    ],
+    "noDebe": [
+      "no est[aá] en la documentaci[oó]n"
+    ]
+  },
+  {
+    "id": "G05",
+    "rol": "ADMIN",
+    "ruta": "/carga",
+    "pregunta": "La importación quedó en procesando y no avanza, ¿qué hago?",
+    "paginas": [
+      "importacion/importar-un-archivo",
+      "importacion/historial-y-problemas"
+    ],
+    "noDebe": [
+      "no est[aá] en la documentaci[oó]n"
+    ]
+  },
+  {
+    "id": "G06",
+    "rol": "ADMIN",
+    "ruta": "/gestion",
+    "pregunta": "Le mandé un mail a un deudor y rebotó, ¿qué hago?",
+    "paginas": [
+      "telefonia-y-email/enviar-un-email"
+    ],
+    "noDebe": [
+      "no est[aá] en la documentaci[oó]n"
+    ]
+  },
+  {
+    "id": "G07",
+    "rol": "OPERADOR",
+    "ruta": "/gestion",
+    "pregunta": "La promesa venció hace un día y sigue vigente, ¿es un error?",
+    "paginas": [
+      "gestion/pagos-y-promesas"
+    ],
+    "noDebe": [
+      "no est[aá] en la documentaci[oó]n"
+    ]
+  },
+  {
+    "id": "G08",
+    "rol": "ADMIN",
+    "ruta": "/reportes",
+    "pregunta": "En Excel las fechas del reporte salen con el mes y el día al revés",
+    "paginas": [
+      "reportes/formatos"
+    ],
+    "noDebe": [
+      "no est[aá] en la documentaci[oó]n"
+    ]
+  },
+  {
+    "id": "G09",
+    "rol": "ADMIN",
+    "ruta": "/plantillas",
+    "pregunta": "¿Para qué sirve removeDashes?",
+    "paginas": [
+      "importacion/categorias",
+      "importacion/importar-un-archivo"
+    ],
+    "noDebe": [
+      "no est[aá] en la documentaci[oó]n"
+    ]
+  },
+  {
+    "id": "G10",
+    "rol": "ADMIN",
+    "ruta": "/carga",
+    "pregunta": "El comentario de la acción masiva salió con {{col2}} literal, ¿por qué?",
+    "paginas": [
+      "importacion/acciones-masivas"
+    ],
+    "noDebe": [
+      "no est[aá] en la documentaci[oó]n"
+    ]
+  },
+  {
+    "id": "G11",
+    "rol": "ADMIN",
+    "ruta": "/plantillas",
+    "pregunta": "¿Qué es el PAYMENT_ID de los archivos de pagos?",
+    "paginas": [
+      "importacion/categorias"
+    ],
+    "noDebe": [
+      "no est[aá] en la documentaci[oó]n"
+    ]
+  },
+  {
+    "id": "G12",
+    "rol": "OPERADOR",
+    "ruta": "/gestion",
+    "pregunta": "¿Qué significa que la fecha de cálculo aparezca en naranja?",
+    "paginas": [
+      "gestion/la-ficha"
+    ],
+    "noDebe": [
+      "no est[aá] en la documentaci[oó]n"
+    ]
+  },
+  {
+    "id": "G13",
+    "rol": "ADMIN",
+    "ruta": "/admin/usuarios",
+    "pregunta": "Le cambié el nombre a un usuario y volvió al anterior",
+    "paginas": [
+      "administracion/usuarios"
+    ],
+    "noDebe": [
+      "no est[aá] en la documentaci[oó]n"
+    ]
+  },
+  {
+    "id": "G14",
+    "rol": "ADMIN",
+    "ruta": "/carga",
+    "pregunta": "¿Qué pasa si el archivo de pagos trae importes negativos?",
+    "paginas": [
+      "importacion/categorias",
+      "gestion/pagos-y-promesas",
+      "importacion/importar-un-archivo"
+    ],
+    "noDebe": [
+      "no est[aá] en la documentaci[oó]n"
+    ]
+  },
+  {
+    "id": "G15",
+    "rol": "ADMIN",
+    "ruta": "/plantillas",
+    "pregunta": "y como es el modulo de crear reportes? que posibilidades tengo?",
+    "paginas": [
+      "reportes/como-funciona",
+      "reportes/armar-un-reporte"
     ]
   }
 ]

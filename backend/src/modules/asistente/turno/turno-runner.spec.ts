@@ -12,6 +12,11 @@ import { usoAbortado,
     MAX_ITERACIONES,
     TEXTO_RECHAZO,
     TurnoRunner,
+    paginaAbiertaEnDocumentacion,
+    ofreceEnTexto,
+    quitarOfertaSinTarjeta,
+    resultadoBusqueda,
+    sinRespuestasRepetidas,
 } from './turno-runner';
 
 const wiki = WikiIndice.desdeDirectorio(path.join(__dirname, '..', '__fixtures__', 'ayuda'));
@@ -263,16 +268,16 @@ describe('TurnoRunner', () => {
         expect(ctx).not.toContain('<pagina slug');
     });
 
-    it('4 iteraciones con herramientas: estado cortado y la última llamada es la 4.ª', async () => {
+    it('5 iteraciones con herramientas: estado cortado y la última llamada es la 5.ª', async () => {
         const paso = (i: number): PasoGuion => ({
             content: [usoHerramienta(`t${i}`, 'leer_pagina', { slug: 'primeros-pasos/inicio' })],
             stop_reason: 'tool_use',
         });
-        const { runner, registradas, entrada } = armar([paso(0), paso(1), paso(2), paso(3), paso(4)]);
+        const { runner, registradas, entrada } = armar([paso(0), paso(1), paso(2), paso(3), paso(4), paso(5)]);
         const r = await runner.correr(entrada());
-        expect(MAX_ITERACIONES).toBe(4);
-        expect(r.llamadas).toBe(4);
-        expect(registradas).toHaveLength(4);
+        expect(MAX_ITERACIONES).toBe(5);
+        expect(r.llamadas).toBe(5);
+        expect(registradas).toHaveLength(5);
         expect(r.estado).toBe('cortado');
         expect(r.texto).toContain('No llegué a terminar');
         // El historial queda coherente: termina en un mensaje del asistente.
@@ -443,6 +448,212 @@ describe('TurnoRunner', () => {
         expect(r.estado).toBe('ok');
         expect(r.texto).not.toContain('No llegué a terminar');
         expect(r.apiAsistente.at(-1)?.role).toBe('assistant');
+    });
+
+    describe('buscar_en_wiki y la búsqueda automática (el 👎 del 18/10: "bloques repetitivos" no estaba en el índice)', () => {
+        it('busca en el texto completo, avisa al navegador sin el texto buscado y la tercera búsqueda es is_error', async () => {
+            const { runner, cliente, eventos, entrada } = armar([
+                {
+                    content: [
+                        usoHerramienta('b1', 'buscar_en_wiki', { texto: 'permiso Crear reportes' }),
+                        usoHerramienta('b2', 'buscar_en_wiki', { texto: 'columnas' }),
+                        usoHerramienta('b3', 'buscar_en_wiki', { texto: 'otra cosa' }),
+                        usoHerramienta('b4', 'buscar_en_wiki', { texto: '   ' }),
+                    ],
+                    stop_reason: 'tool_use',
+                },
+                { deltas: ['ok'], content: [texto('ok')], stop_reason: 'end_turn' },
+            ]);
+            await runner.correr(entrada());
+            const res = cliente.llamadas[1].messages[3].content as any[];
+            expect(res[0].content).toContain('[reportes/armar-un-reporte] Armar un reporte');
+            expect(res[0].content).toContain('leé su página con leer_pagina');
+            expect(res[0].is_error).toBeUndefined();
+            expect(res[1].content).toContain('Paso a paso');
+            expect(res[2]).toMatchObject({ is_error: true, content: 'Ya buscaste dos veces en esta respuesta.' });
+            expect(res[3]).toMatchObject({ is_error: true, content: 'Falta qué buscar.' });
+            const herramientas = eventos.filter((e) => e.evento === 'herramienta');
+            expect(herramientas).toEqual([
+                { evento: 'herramienta', data: { nombre: 'buscar_en_wiki' } },
+                { evento: 'herramienta', data: { nombre: 'buscar_en_wiki' } },
+            ]);
+        });
+
+        it('sin coincidencias, el resultado lo dice y sugiere otras palabras', () => {
+            expect(resultadoBusqueda('xyzzy', [])).toBe(
+                'No hay coincidencias para «xyzzy» en la wiki. Podés probar con otras palabras; si tampoco aparece, no está documentado.',
+            );
+        });
+
+        it('el contexto del turno trae dónde aparecen las palabras distintivas de la pregunta', async () => {
+            const { runner, cliente, entrada } = armar([{ deltas: ['ok'], content: [texto('ok')], stop_reason: 'end_turn' }]);
+            await runner.correr(entrada({ pregunta: '¿Cómo elijo las columnas?', ruta: '/gestion' }));
+            const ctx = cliente.llamadas[0].messages[1].content as string;
+            expect(ctx).toContain('Secciones de la wiki donde aparecen las palabras de la pregunta');
+            expect(ctx).toContain('- [reportes/armar-un-reporte] Armar un reporte › Paso a paso');
+        });
+
+        it('una pregunta sin palabras distintivas no agrega coincidencias', async () => {
+            const { runner, cliente, entrada } = armar([{ deltas: ['ok'], content: [texto('ok')], stop_reason: 'end_turn' }]);
+            await runner.correr(entrada({ pregunta: '¿y eso?' }));
+            expect(cliente.llamadas[0].messages[1].content as string).not.toContain('Secciones de la wiki donde aparecen');
+        });
+    });
+
+    describe('la página abierta en Documentación', () => {
+        it('en /ayuda/<slug> esa página va en el contexto como la que la persona tiene abierta, y no se vuelve a leer', async () => {
+            const { runner, cliente, entrada } = armar([
+                { content: [usoHerramienta('1', 'leer_pagina', { slug: 'reportes/armar-un-reporte' })], stop_reason: 'tool_use' },
+                { deltas: ['ok'], content: [texto('ok')], stop_reason: 'end_turn' },
+            ]);
+            await runner.correr(entrada({ ruta: '/ayuda/reportes/armar-un-reporte#paso-a-paso' }));
+            const ctx = cliente.llamadas[0].messages[1].content as string;
+            expect(ctx).toContain('- Pantalla actual: /ayuda — Documentación');
+            expect(ctx).toContain('Página que la persona tiene abierta en Documentación: [reportes/armar-un-reporte] Armar un reporte');
+            expect(ctx).toContain('<pagina slug="reportes/armar-un-reporte">');
+            const res = (cliente.llamadas[1].messages[3].content as any[])[0];
+            expect(res.content).toBe('Esa página ya está más arriba en esta conversación.');
+        });
+
+        it('una ruta de Documentación que no es una página sigue sin página', () => {
+            expect(paginaAbiertaEnDocumentacion('/ayuda', wiki)).toBeUndefined();
+            expect(paginaAbiertaEnDocumentacion('/ayuda/no/existe', wiki)).toBeUndefined();
+            expect(paginaAbiertaEnDocumentacion('/ayuda/reportes/armar-un-reporte/', wiki)?.slug).toBe('reportes/armar-un-reporte');
+        });
+    });
+
+    describe('la oferta escrita sin tarjeta (el 👎 del 17/10: "¿Querés que te lleve…?" sin botón)', () => {
+        it('quitarOfertaSinTarjeta saca la oración de la oferta y deja el resto, con la fuente', () => {
+            const t = 'Podés armar columnas y filtros.\n\n¿Querés que te lleve al formulario de nueva plantilla de reportes?\n\nFuente: [Armar un reporte](/ayuda/reportes/armar-un-reporte)';
+            expect(quitarOfertaSinTarjeta(t)).toBe('Podés armar columnas y filtros.\n\nFuente: [Armar un reporte](/ayuda/reportes/armar-un-reporte)');
+            expect(quitarOfertaSinTarjeta('Listo. ¿Te llevo a Reportes?')).toBe('Listo.');
+            // Las que se escapaban (auditoría): sin la pregunta, también son ofertas.
+            expect(quitarOfertaSinTarjeta('Está en Historial. Si querés, te llevo a la pantalla.')).toBe('Está en Historial.');
+            expect(quitarOfertaSinTarjeta('Está en Reportes. Puedo llevarte a **Nueva plantilla de reportes**.')).toBe('Está en Reportes.');
+        });
+
+        it('no rompe el texto de alrededor: espacios, viñetas (auditoría)', () => {
+            expect(quitarOfertaSinTarjeta('Listo, ya está. ¿Te llevo a Reportes? Ahí vas a ver tus plantillas.')).toBe('Listo, ya está. Ahí vas a ver tus plantillas.');
+            expect(quitarOfertaSinTarjeta('- ¿Te llevo a X?\n- Otra cosa.')).toBe('- Otra cosa.');
+        });
+
+        it('no toca la oferta negada ni la citada, como cuando explica la tarjeta (auditoría)', () => {
+            for (const t of [
+                'No te puedo llevar a Roles: te falta el permiso.',
+                'No puedo llevarte a Roles porque tu rol no la abre.',
+                'A veces el asistente te muestra una tarjeta: **¿Querés que te lleve a «…»?** con dos botones.',
+                'La tarjeta dice "¿Querés que te lleve a Reportes?" con dos botones.',
+            ]) {
+                expect(quitarOfertaSinTarjeta(t)).toBe(t);
+                expect(ofreceEnTexto(t)).toBe(false);
+            }
+        });
+
+        it('sin ofrecer_ir_a, la pregunta escrita no llega al navegador y se avisa', async () => {
+            const t = 'Elegís columnas.\n\n¿Querés que te lleve a Nueva plantilla de reportes?\n\nFuente: [Armar un reporte](/ayuda/reportes/armar-un-reporte)';
+            const { runner, entrada } = armar([{ deltas: [t], content: [texto(t)], stop_reason: 'end_turn' }]);
+            const r = await runner.correr(entrada());
+            expect(r.texto).not.toContain('te lleve');
+            expect(r.texto).toContain('Elegís columnas.');
+            expect(r.fuentes).toEqual([{ slug: 'reportes/armar-un-reporte', titulo: 'Armar un reporte' }]);
+            expect(Logger.prototype.warn).toHaveBeenCalledWith(expect.stringContaining('ofrecía ir a una pantalla sin la tarjeta'));
+        });
+
+        it('con la tarjeta mostrada, el texto queda como vino', async () => {
+            const t = 'Elegís columnas. ¿Querés que te lleve?';
+            const { runner, entrada } = armar([
+                { deltas: [t], content: [texto(t), usoHerramienta('o1', 'ofrecer_ir_a', { ruta: '/reportes/nuevo', motivo: 'crear' })], stop_reason: 'tool_use' },
+                { deltas: [''], content: [texto('Fuente: [Armar un reporte](/ayuda/reportes/armar-un-reporte)')], stop_reason: 'end_turn' },
+            ]);
+            const r = await runner.correr(entrada());
+            expect(r.acciones).toHaveLength(1);
+            expect(r.texto).toContain('¿Querés que te lleve?');
+        });
+    });
+
+    describe('la respuesta repetida después de la tarjeta (set de evaluación del 19/10: 4 de 65)', () => {
+        const RESPUESTA = 'Para un archivo de ancho fijo, la plantilla se arma así:\n\n1. Abrí una muestra.\n2. Elegí el formato.';
+
+        /** Arma el texto del turno como el runner: los textos separados por un párrafo, con su posición. */
+        const turnoDe = (textos: string[]) => {
+            let t = '';
+            const segmentos = textos.map((x) => {
+                if (t) t += '\n\n';
+                const inicio = t.length;
+                t += x;
+                return { inicio, texto: x };
+            });
+            return { t, segmentos };
+        };
+
+        it('sinRespuestasRepetidas deja la última versión y respeta lo que no se repite', () => {
+            const vieja = `${RESPUESTA}\n\n¿Querés que te lleve a crear la plantilla?`;
+            const nueva = `${RESPUESTA}\n\nFuente: [Crear](/ayuda/importacion/crear-plantilla)`;
+            const a = turnoDe([vieja, nueva]);
+            expect(sinRespuestasRepetidas(a.t, a.segmentos)).toBe(nueva);
+            const b = turnoDe([RESPUESTA, 'Fuente: x']);
+            expect(sinRespuestasRepetidas(b.t, b.segmentos)).toBe(`${RESPUESTA}\n\nFuente: x`);
+            // Un comienzo corto ("Listo.") no alcanza para decir que se repitió.
+            const c = turnoDe(['Listo.', 'Listo.']);
+            expect(sinRespuestasRepetidas(c.t, c.segmentos)).toBe('Listo.\n\nListo.');
+        });
+
+        it('corta por posición: no rompe otra iteración que contiene el mismo texto (auditoría)', () => {
+            const x = turnoDe([`Hola. ${RESPUESTA}`, RESPUESTA, RESPUESTA]);
+            expect(sinRespuestasRepetidas(x.t, x.segmentos)).toBe(`Hola. ${RESPUESTA}\n\n${RESPUESTA}`);
+        });
+
+        it('si la reescritura quedó cortada, no se saca la versión completa (auditoría)', async () => {
+            const completa = `${RESPUESTA}\n\nFuente: [Armar un reporte](/ayuda/reportes/armar-un-reporte)`;
+            const { runner, entrada } = armar([
+                { deltas: [completa], content: [texto(completa), usoHerramienta('l1', 'leer_pagina', { slug: 'primeros-pasos/inicio' })], stop_reason: 'tool_use' },
+                { deltas: [RESPUESTA], content: [texto(RESPUESTA)], stop_reason: 'max_tokens' },
+            ]);
+            const r = await runner.correr(entrada());
+            expect(r.estado).toBe('cortado');
+            expect(r.texto).toContain('Fuente: [Armar un reporte]');
+        });
+
+        it('el turno muestra una sola vez la respuesta que el modelo reescribió después de ofrecer_ir_a', async () => {
+            const primera = `${RESPUESTA}\n\n¿Querés que te lleve a crear la plantilla?`;
+            const segunda = `${RESPUESTA}\n\nFuente: [Armar un reporte](/ayuda/reportes/armar-un-reporte)`;
+            const { runner, cliente, entrada } = armar([
+                { deltas: [primera], content: [texto(primera), usoHerramienta('o1', 'ofrecer_ir_a', { ruta: '/reportes/nuevo', motivo: 'crear' })], stop_reason: 'tool_use' },
+                { deltas: [segunda], content: [texto(segunda)], stop_reason: 'end_turn' },
+            ]);
+            const r = await runner.correr(entrada());
+            expect(r.texto).toBe(segunda);
+            expect(r.acciones).toHaveLength(1);
+            expect(cliente.llamadas).toHaveLength(2);
+            expect(Logger.prototype.warn).toHaveBeenCalledWith(expect.stringContaining('La respuesta se repitió'));
+        });
+
+        it('con la respuesta completa (tiene su fuente) y la tarjeta mostrada, no hace otra llamada', async () => {
+            const t = `${RESPUESTA}\n\nFuente: [Armar un reporte](/ayuda/reportes/armar-un-reporte)`;
+            const { runner, cliente, registradas, entrada } = armar([
+                { deltas: [t], content: [texto(t), usoHerramienta('o1', 'ofrecer_ir_a', { ruta: '/reportes/nuevo', motivo: 'crear' })], stop_reason: 'tool_use' },
+                { deltas: ['no debería llamarse'], content: [texto('no debería llamarse')], stop_reason: 'end_turn' },
+            ]);
+            const r = await runner.correr(entrada());
+            expect(cliente.llamadas).toHaveLength(1);
+            expect(registradas).toHaveLength(1);
+            expect(r.estado).toBe('ok');
+            expect(r.texto).toBe(t);
+            expect(r.acciones).toHaveLength(1);
+            expect(r.fuentes).toEqual([{ slug: 'reportes/armar-un-reporte', titulo: 'Armar un reporte' }]);
+            // El historial queda cerrado con un mensaje del asistente, después del tool_result.
+            expect(r.apiAsistente.map((m) => m.role)).toEqual(['assistant', 'user', 'assistant']);
+        });
+
+        it('si la tarjeta no se pudo mostrar (sin permiso), sigue y el modelo puede corregir', async () => {
+            const t = `${RESPUESTA}\n\nFuente: [Armar un reporte](/ayuda/reportes/armar-un-reporte)`;
+            const { runner, cliente, entrada } = armar([
+                { deltas: [t], content: [texto(t), usoHerramienta('o1', 'ofrecer_ir_a', { ruta: '/reportes/nuevo', motivo: 'crear' })], stop_reason: 'tool_use' },
+                { deltas: ['Te falta el permiso.'], content: [texto('Te falta el permiso.')], stop_reason: 'end_turn' },
+            ]);
+            await runner.correr(entrada({ persona: { nombre: 'Ana', rol: 'OPERADOR', permisos: OPERADOR } }));
+            expect(cliente.llamadas).toHaveLength(2);
+        });
     });
 
     it('un turno abortado estima la salida por el texto ya emitido', () => {

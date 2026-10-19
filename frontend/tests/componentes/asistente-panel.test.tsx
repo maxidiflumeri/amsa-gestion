@@ -78,6 +78,18 @@ describe('El texto llega de a trozos', () => {
         expect(ultimaBurbuja()).toContain('Listo, así se arma.');
     });
 
+    it('«herramienta» de búsqueda muestra «Buscando en la documentación…» y después la lectura', async () => {
+        b = await armarIA();
+        b.preguntar = () => respuestaSse([ev.inicio(), ev.busqueda(), ev.herramienta('importacion/crear-plantilla', 'Crear una plantilla'), ev.texto('Son bloques.'), ev.fin('Son bloques.')], 250);
+        await abrirPanel();
+        await preguntarAlAsistente('¿Qué son los bloques repetitivos?');
+        await esperar(() => ultimaBurbuja().includes('Buscando en la documentación…'), { que: 'el aviso de búsqueda', cada: 10 });
+        await esperar(() => ultimaBurbuja().includes('Leyendo «Crear una plantilla»…'), { que: 'el aviso de lectura', cada: 10 });
+        await esperarTerminada();
+        expect(ultimaBurbuja()).not.toContain('Buscando');
+        expect(ultimaBurbuja()).toContain('Son bloques.');
+    });
+
     it('antes del primer texto dice «Pensando…»', async () => {
         b = await armarIA();
         b.preguntar = () => respuestaSse([ev.inicio(), ev.texto('Hola'), ev.fin('Hola')], 300);

@@ -19,8 +19,8 @@ import { useNotify } from '../hooks/useNotify';
 export interface MensajeVista extends MensajeAsistente {
     /** Identidad estable en pantalla: el `id` cambia cuando el servidor confirma el mensaje, la `clave` no. */
     clave: string;
-    /** Título de la página que está leyendo en este momento («Leyendo «…»…»). */
-    leyendo?: string | null;
+    /** Lo que está haciendo antes de escribir: «Leyendo «…»…» o «Buscando en la documentación…». */
+    actividad?: string | null;
     /** Por qué falló la respuesta (estado `error`); el texto parcial, si lo hubo, queda en `texto`. */
     errorTexto?: string;
     /** El error fue un tope: reintentar no tiene sentido. */
@@ -211,7 +211,7 @@ export const AsistenteProvider: React.FC<{ children: React.ReactNode }> = ({ chi
         setMensajes((prev) => [
             ...prev,
             { clave: `l${-idU}`, id: idU, rol: 'usuario', texto: pregunta, ruta, fuentes: [], acciones: [], estado: 'ok', calificacion: null, createdAt: ahora },
-            { clave: `l${-idA}`, id: idA, rol: 'asistente', texto: '', ruta: null, fuentes: [], acciones: [], estado: 'en_curso', calificacion: null, createdAt: ahora, leyendo: null },
+            { clave: `l${-idA}`, id: idA, rol: 'asistente', texto: '', ruta: null, fuentes: [], acciones: [], estado: 'en_curso', calificacion: null, createdAt: ahora, actividad: null },
         ]);
 
         let accionesVivas: AccionIrA[] = [];
@@ -230,12 +230,14 @@ export const AsistenteProvider: React.FC<{ children: React.ReactNode }> = ({ chi
                 }
                 case 'texto':
                     textoRef.current += e.data.delta;
-                    actualizarAsistente((m) => (m.leyendo ? { ...m, leyendo: null } : m));
+                    actualizarAsistente((m) => (m.actividad ? { ...m, actividad: null } : m));
                     programarVolcado();
                     break;
-                case 'herramienta':
-                    actualizarAsistente((m) => ({ ...m, leyendo: e.data.titulo }));
+                case 'herramienta': {
+                    const actividad = e.data.nombre === 'buscar_en_wiki' ? 'Buscando en la documentación…' : `Leyendo «${e.data.titulo}»…`;
+                    actualizarAsistente((m) => ({ ...m, actividad }));
                     break;
+                }
                 case 'accion':
                     accionesVivas = [...accionesVivas, { ...e.data, resultado: null }];
                     break;
@@ -243,7 +245,7 @@ export const AsistenteProvider: React.FC<{ children: React.ReactNode }> = ({ chi
                     cancelarVolcado();
                     textoRef.current = e.data.texto;
                     const fin = e.data;
-                    actualizarAsistente((m) => ({ ...m, id: fin.mensajeId, texto: fin.texto, fuentes: fin.fuentes, acciones: fin.acciones ?? accionesVivas, estado: fin.estado, leyendo: null }));
+                    actualizarAsistente((m) => ({ ...m, id: fin.mensajeId, texto: fin.texto, fuentes: fin.fuentes, acciones: fin.acciones ?? accionesVivas, estado: fin.estado, actividad: null }));
                     idAsistenteRef.current = fin.mensajeId;
                     break;
                 }
@@ -252,7 +254,7 @@ export const AsistenteProvider: React.FC<{ children: React.ReactNode }> = ({ chi
                     const tope = e.data.codigo === 'TOPE_MENSUAL' || e.data.codigo === 'TOPE_FUNCION';
                     const parcial = textoRef.current;
                     const idError = e.data.mensajeId;
-                    actualizarAsistente((m) => ({ ...m, id: idError ?? m.id, texto: parcial, estado: 'error', leyendo: null, errorTexto: e.data.mensaje, errorDeTope: tope }));
+                    actualizarAsistente((m) => ({ ...m, id: idError ?? m.id, texto: parcial, estado: 'error', actividad: null, errorTexto: e.data.mensaje, errorDeTope: tope }));
                     if (idError) idAsistenteRef.current = idError;
                     if (tope) setEstado((s) => ({ habilitado: false, limiteDiario: s?.limiteDiario ?? { usadas: 0, limite: 0 }, pausa: { codigo: e.data.codigo as 'TOPE_MENSUAL' | 'TOPE_FUNCION', mensaje: e.data.mensaje } }));
                     break;
@@ -270,7 +272,7 @@ export const AsistenteProvider: React.FC<{ children: React.ReactNode }> = ({ chi
             if (!montadoRef.current) return 'enviado';
             const parcial = textoRef.current;
             if ((e as { name?: string })?.name === 'AbortError') {
-                actualizarAsistente((m) => ({ ...m, texto: parcial, estado: 'cortado', leyendo: null, detenido: true }));
+                actualizarAsistente((m) => ({ ...m, texto: parcial, estado: 'cortado', actividad: null, detenido: true }));
             } else if (e instanceof ErrorPregunta) {
                 resultado = 'rechazado';
                 // Se decide por `codigo` y no por el status: el backend manda PAUSADO y los topes como 429 (503 en versiones viejas).
@@ -294,11 +296,11 @@ export const AsistenteProvider: React.FC<{ children: React.ReactNode }> = ({ chi
                     setAviso({ tipo: 'perdida', mensaje: 'Esa conversación ya no existe. Empezá una nueva.' });
                 } else {
                     resultado = 'enviado';
-                    actualizarAsistente((m) => ({ ...m, texto: parcial, estado: 'error', leyendo: null, errorTexto: e.message }));
+                    actualizarAsistente((m) => ({ ...m, texto: parcial, estado: 'error', actividad: null, errorTexto: e.message }));
                 }
             } else {
                 const mensaje = e instanceof ErrorConexion ? e.message : 'No se pudo completar la respuesta.';
-                actualizarAsistente((m) => ({ ...m, texto: parcial, estado: 'error', leyendo: null, errorTexto: mensaje }));
+                actualizarAsistente((m) => ({ ...m, texto: parcial, estado: 'error', actividad: null, errorTexto: mensaje }));
             }
         } finally {
             if (abortRef.current === ac) abortRef.current = null;
@@ -306,7 +308,7 @@ export const AsistenteProvider: React.FC<{ children: React.ReactNode }> = ({ chi
             if (montadoRef.current) {
                 setEnviando(false);
                 // Lo que quedó sin volcar (el último trozo llegó entre un cuadro y el siguiente).
-                actualizarAsistente((m) => (m.estado === 'en_curso' ? { ...m, estado: 'error', leyendo: null, errorTexto: 'Se cortó la conexión con el servidor' } : m));
+                actualizarAsistente((m) => (m.estado === 'en_curso' ? { ...m, estado: 'error', actividad: null, errorTexto: 'Se cortó la conexión con el servidor' } : m));
             }
         }
         return resultado;

@@ -1,7 +1,7 @@
 <!--
 seccion: Primeros pasos
 resumen: Qué es el asistente, qué te puede explicar, qué no hace y cómo sacarle provecho.
-revisado: 2026-10-16
+revisado: 2026-10-19
 -->
 # El asistente
 
@@ -12,8 +12,8 @@ y qué significa lo que ves en pantalla. Está en la barra de arriba, con el bot
 botón es solo un ícono, sin la palabra).
 
 Responde **solo con la Documentación** de esta misma plataforma (la que ves en el menú, en Documentación).
-Si le preguntás algo que ahí no está, te lo dice: *"Eso no está en la documentación"*, en vez de inventar una
-respuesta.
+Busca en **todo el texto** de la Documentación, no solo en los títulos de las páginas. Si le preguntás algo que
+ahí no está, te lo dice: *"Eso no está en la documentación"*, en vez de inventar una respuesta.
 
 ## Antes de empezar
 
@@ -29,8 +29,9 @@ hay que cerrar sesión y volver a entrar.
    para responderte. Si preguntás "¿qué puedo hacer acá?", habla de esa pantalla.
 3. Escribí tu pregunta y apretá **Enter**. Para escribir un salto de línea, **Shift + Enter**. Entran hasta
    2000 caracteres.
-4. La respuesta aparece de a poco, mientras se escribe. Si ves que no es lo que querías, apretá
-   **Detener** y reformulá.
+4. Antes de escribir, a veces avisa qué está haciendo: *Buscando en la documentación…* o *Leyendo «…»…*, con el
+   nombre de la página. Después la respuesta aparece de a poco, mientras se escribe. Si ves que no es lo que
+   querías, apretá **Detener** y reformulá.
 
 Si todavía no escribiste nada, el panel te ofrece unas preguntas de ejemplo para la pantalla en la que estás.
 Un clic y se envía. Solo aparecen las que tienen sentido con **tus permisos**.
@@ -135,9 +136,11 @@ Mientras tanto, la Documentación sigue disponible desde el menú y desde el bot
 
 **No veo el botón Asistente.** Te falta el permiso *Usar el asistente*, o te lo dieron y no cerraste sesión.
 
-**Me dice "Eso no está en la documentación".** Es una respuesta correcta: ese tema no está escrito. Probá
-preguntarlo de otra forma, o buscalo en Documentación. Esas preguntas quedan contadas, para que se escriba la
-página que falta.
+**Me dice "Eso no está en la documentación".** Antes de decirlo, el asistente busca el tema en todo el texto de
+la Documentación, así que casi siempre es cierto: ese tema no está escrito. Esas preguntas quedan contadas, para
+que se escriba la página que falta. Si sabés que sí está (por ejemplo, lo leíste en una página), marcá 👎 y contá
+en **¿Qué faltó?** dónde lo viste: es un error del asistente y así se corrige. Mientras tanto, probá preguntarlo
+con las palabras que usa la pantalla.
 
 **La respuesta quedó cortada.** Pasa cuando es muy larga: termina con *"La respuesta quedó cortada"*. Pedile
 que continúe, o preguntá algo más concreto.
@@ -177,7 +180,8 @@ desactualizada, o el asistente puede haberla entendido mal. Ante la duda, abrí 
 No. Te explica cómo se hace y te puede llevar a la pantalla, pero lo cargás vos.
 
 **¿Ve lo que tengo abierto en pantalla?**
-Solo sabe el **nombre de la pantalla** en que estás, no lo que hay escrito ni los datos de los casos.
+Solo sabe el **nombre de la pantalla** en que estás, no lo que hay escrito ni los datos de los casos. En
+**Documentación**, además, sabe qué página tenés abierta: podés preguntarle por algo de esa página.
 
 **¿Se entera de mi rol?**
 Sí: usa los permisos de tu rol para no explicarte cosas que no podés hacer, y te dice qué permiso te falta.

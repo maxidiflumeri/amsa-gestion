@@ -6,6 +6,124 @@
 
 ---
 
+## [2026-10-19] — Asistente: busca en el texto completo de la wiki antes de decir que algo no está
+
+Arreglo de los dos 👎 que dejó el usuario probando la Fase A en prod. El detalle está en
+[docs/asistente-spec.md §24](docs/asistente-spec.md), que manda sobre el resto del spec en lo que cambia.
+
+**Estado: sin desplegar.**
+
+### Lo que pasó
+- **"¿Qué son los bloques repetitivos?"** (18/10, respuesta 18, con el comentario *"Recorrés mejor la documentación
+  para encontrar lo que le pedí"*):
+  - contestó "Eso no está en la documentación" **sin leer ninguna página**;
+  - en la repregunta leyó una página equivocada;
+  - recién lo encontró cuando el usuario le dijo dónde estaba.
+
+  **La causa:** es un `###` de "Crear una plantilla de importación", y el índice que ve el modelo solo lista los `##`.
+- **La respuesta 8** (17/10, sin comentario) terminó con "¿Querés que te lleve…?" escrito en el texto y sin la
+  tarjeta: no había botón para aceptar.
+
+### Cuánto más se podía dar
+- **En prod**, las dos respuestas "Eso no está en la documentación" que hubo eran falsas: las dos fueron sobre bloques
+  repetitivos.
+- De los 302 subtítulos `###` de la wiki, en **118** al menos la mitad de sus palabras no está en ningún lado del
+  índice. Casi todos son
+  entradas de "Qué puede salir mal", que es lo que más va a preguntar la gente.
+- El set de evaluación (97 %) no lo detectaba: sus preguntas nombran temas que están en títulos.
+- **Línea de base** con 15 preguntas nuevas sobre temas escondidos (categoría G), dos vueltas: **24/30**.
+  - "Bloques repetitivos" e "iteraciones" (preguntado desde la página que lo explica) dieron "no está en la
+    documentación" las dos veces.
+  - removeDashes salió "no aparece en la wiki", y sí aparece.
+
+### Backend
+- **Búsqueda por palabras en el texto completo de la wiki** (`wiki/buscador.ts`). Es BM25 sobre las 698 secciones
+  (`##`, `###` y `####`), sin acentos y con plural y singular unificados. Los identificadores como
+  `CLAVE_NO_CARGADA` o `removeDashes` se buscan tal cual. No es RAG vectorial.
+  - **En cada turno**, el contexto trae hasta 4 secciones donde aparecen las palabras distintivas de la pregunta.
+  - **La herramienta nueva `buscar_en_wiki`**, hasta 2 veces por respuesta, sirve para buscar con otras palabras.
+- **Prompt:** "Eso no está en la documentación" solo después de buscarlo.
+  - La regla de la oferta queda como estaba: las dos redacciones que prohibían escribir "¿Querés que te lleve…?"
+    bajaron las ofertas con tarjeta.
+- **En `/ayuda/<slug>`** el contexto lleva la página que la persona tiene abierta. Antes decía que Documentación no
+  tenía página.
+- **Si igual escribe la oferta sin la tarjeta,** se sacan del texto final las oraciones que ofrecen llevar ("¿Querés
+  que te lleve…?", "Si querés, te llevo…", "Puedo llevarte…"), con un `warn`. No toca las negadas ni las citadas, como
+  cuando explica la tarjeta.
+- **La respuesta repetida.** Después de la tarjeta, el modelo a veces reescribe la respuesta entera y se muestra dos
+  veces. Ya pasaba con el código de prod: 6 de 16 en las preguntas con tarjeta. En prod no le pasó a nadie todavía.
+  Se arregla en dos capas:
+  - si la respuesta ya tiene su `Fuente:` y lo único que pidió es la tarjeta, el turno termina sin otra llamada
+    (ahorra unos 3 s en cada respuesta con tarjeta);
+  - si igual una iteración empieza igual que otra posterior, queda solo la posterior (`sinRespuestasRepetidas`, por
+    posición y solo con el turno en `ok`).
+- **`MAX_ITERACIONES` pasa de 4 a 5.** El evento `herramienta` suma `{nombre: 'buscar_en_wiki'}`, sin el texto buscado.
+- **Set de evaluación:**
+  - categoría G (15 preguntas);
+  - chequeo global de oferta escrita sin tarjeta;
+  - umbrales nuevos;
+  - cuenta las búsquedas, las respuestas que el modelo reescribió y las ofertas que escribió sin tarjeta (sobre lo que
+    escribió el modelo, antes de las redes).
+  - C01 (WhatsApp) acepta una respuesta que nombre AMSA Sender. La wiki lo dice en el cuerpo de dos páginas: el "no
+    está" que exigía era el mismo error.
+
+### Frontend
+- El panel muestra **Buscando en la documentación…** mientras busca. El campo `leyendo` de la burbuja pasa a ser
+  `actividad`, con el texto entero.
+- **Wiki `01-primeros-pasos/04-el-asistente`:**
+  - busca en todo el texto;
+  - qué hacer si dice "no está" y sabés que está;
+  - en Documentación sabe qué página tenés abierta;
+  - los avisos de actividad.
+
+### Después de la auditoría
+PASA CON OBSERVACIONES, sin bloqueantes. Los 10 hallazgos están en §24.4 del spec, cada uno con su test. Los
+principales:
+- **los identificadores con guion bajo no se encontraban** (alta);
+- **la red de la oferta borraba la pregunta cuando explicaba la tarjeta, y se le escapaban "te llevo" y "llevarte"**;
+- **la raíz no unificaba nombre/nombres ni mes/meses**;
+- **pedirle al modelo que no repita hacía que le contestara al mensaje**: se reemplazó por el corte después de la
+  tarjeta.
+
+### Medido contra Bedrock
+- **Categoría G:** 24/30 con el código de prod → **15/15**.
+- **Páginas de A+B:** **39/39**.
+- **Lo que no está documentado (C):** sigue diciendo "no está", 3/3.
+- **Respuestas reescritas:** 6 de 16 con el código de prod → 0 de 65.
+- **Ofertas escritas sin tarjeta:** 0 de 65.
+- **Costo medio:** USD 0,0028 por pregunta, unos USD 0,0004 más.
+- **Latencia:** p50 6,5 s. El p95 de la última corrida, 18,6 s, fueron picos de Bedrock: las cinco más lentas,
+  repetidas, tardaron entre 1,9 y 10,1 s.
+- **Gasto en Bedrock del día** entre la línea de base, las pruebas y la auditoría: USD 1,02 en 309 preguntas.
+
+**Tests:**
+- backend: 2.561 en total (214 del asistente), con `npm run build` OK;
+- frontend: `npm test` 879 en 56 archivos (`asistente-panel.test.tsx` 40/40) y `tsc` sin errores nuevos;
+- `verificar-ayuda` OK.
+
+### Deploy
+1. **Push.** No hay `db push` ni variables nuevas.
+2. **Verificar en prod:**
+   - el arranque sin ERROR;
+   - "¿Qué son los bloques repetitivos?" desde Inicio: tiene que citar "Crear una plantilla de importación".
+
+### Guion de prueba manual
+1. Desde **Inicio**, "¿Qué son los bloques repetitivos?":
+   - antes de escribir puede aparecer *Buscando en la documentación…* o *Leyendo «Crear una plantilla de importación»…*;
+   - la respuesta explica las iteraciones y cita esa página.
+2. En **Documentación**, abrir "Crear una plantilla de importación" y preguntar "¿Qué son las iteraciones?": responde
+   con esa página, sin decir que no está.
+3. Desde **Plantillas de importación**, "¿cómo es el módulo de crear reportes? ¿qué posibilidades tengo?": si ofrece
+   llevarte, es con la tarjeta **Sí, llevarme**, nunca con la pregunta escrita sola.
+4. Una pregunta que de verdad no está, por ejemplo "¿Hay una app del sistema para el celular?": sigue diciendo "Eso no
+   está en la documentación".
+5. En **Importación de Datos > Historial**, "¿Qué significa CLAVE_NO_CARGADA?": cita **Historial y problemas**.
+6. Desde Inicio, "¿Cómo funcionan las tarjetas Sí, llevarme del asistente?": la explicación queda entera, sin "****"
+   ni comillas vacías donde iba la pregunta de la tarjeta.
+7. **Detener** mientras dice *Buscando en la documentación…*: queda "Detuviste la respuesta." y el aviso se va.
+
+---
+
 ## [2026-10-17] — Asistente de IA, Fase A: ayuda de uso y navegación, con medición y topes de gasto
 
 Primera fase del asistente, que con el tiempo va a ser un copiloto de trabajo dentro de la plataforma. El diseño está

@@ -115,7 +115,7 @@ const MensajeBurbuja: React.FC<Props> = ({ mensaje, panelQuedaAbierto, puedeRein
         >
             {escribiendo && !enOtraPestania && sinTexto && (
                 <Typography variant="body2" color="text.secondary" role="status">
-                    {mensaje.leyendo ? `Leyendo «${mensaje.leyendo}»…` : 'Pensando…'}
+                    {mensaje.actividad ?? 'Pensando…'}
                 </Typography>
             )}
             {!sinTexto && <Markdown texto={mensaje.texto} compacto onEnlace={enlace} />}
@@ -128,9 +128,9 @@ const MensajeBurbuja: React.FC<Props> = ({ mensaje, panelQuedaAbierto, puedeRein
                     Esta respuesta todavía se está escribiendo
                 </Alert>
             )}
-            {escribiendo && !sinTexto && mensaje.leyendo && (
+            {escribiendo && !sinTexto && mensaje.actividad && (
                 <Typography variant="caption" color="text.secondary" role="status" sx={{ display: 'block', mt: 0.5 }}>
-                    Leyendo «{mensaje.leyendo}»…
+                    {mensaje.actividad}
                 </Typography>
             )}
             {mensaje.detenido && (

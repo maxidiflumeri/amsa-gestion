@@ -1,4 +1,5 @@
 import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
+import { Coincidencia, OpcionesBusqueda } from './buscador';
 import { PaginaWiki } from './parsear-pagina';
 import { PuertoWiki, WikiIndice, resolverDirectorioWiki } from './wiki-indice';
 
@@ -69,5 +70,9 @@ export class WikiIndiceService implements OnModuleInit, PuertoWiki {
 
     paginaPrincipalParaRuta(ruta: string): PaginaWiki | undefined {
         return this.wiki?.paginaPrincipalParaRuta(ruta);
+    }
+
+    buscar(texto: string, opciones?: OpcionesBusqueda): Coincidencia[] {
+        return this.wiki?.buscar(texto, opciones) ?? [];
     }
 }

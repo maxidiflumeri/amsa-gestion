@@ -1,7 +1,8 @@
 # Asistente de IA — Fase A (base común + v1 "ayuda y navegación") — spec
 
-> **Estado:** implementada y auditada el 17/10/2026, sin desplegar. El diseño se hizo sobre `f547838`. Lo que cambió
-> al auditar está en [§23](#23-lo-que-cambió-después-de-la-auditoría-17102026), que manda sobre el resto. El tope
+> **Estado:** implementada y auditada el 17/10/2026, en prod desde ese día. El diseño se hizo sobre `f547838`. Lo que
+> cambió al auditar está en [§23](#23-lo-que-cambió-después-de-la-auditoría-17102026), que manda sobre el resto. La
+> búsqueda en el texto completo de la wiki, del 19/10, está en [§24](#24-búsqueda-en-el-texto-completo-de-la-wiki-19102026). El tope
 > mensual por defecto es **USD 100**, que es lo que acordó el usuario (D-5).
 > Maqueta aprobada: https://claude.ai/artifact/YSqMEKNMaji5akfLfB5QTo, escena v1. La escena v2, el constructor de
 > reportes, es la Fase B.
@@ -67,7 +68,7 @@ configuración + la política IAM de Mantle (§13.1), sin tocar la lógica.
 
 **Qué se rompe si sale mal:**
 - **Costo descontrolado** (bucle de herramientas, historial que crece, prompt que pasa los 100k y salta a la tarifa ×5).
-  Mitigado por: 4 iteraciones máx. por turno, tope de USD por turno, recorte de historial a 60k tokens, límite diario,
+  Mitigado por: 5 iteraciones máx. por turno (4 hasta §24), tope de USD por turno, recorte de historial a 60k tokens, límite diario,
   tope mensual con pausa y AWS Budgets por fuera (§11).
 - **Respuestas inventadas** sobre cómo funciona el sistema. Mitigado por: prompt que obliga a citar, validación de las
   citas en el backend (se descartan slugs inexistentes), set de evaluación con umbral (§16.3) y 👍/👎.
@@ -1339,6 +1340,194 @@ Se acepta: con el thinking guardado, el recorte a 60k rompería las firmas (400)
 - **Haiku 5.5 con mensajes `role: "system"` a mitad de conversación** no figura en la tabla de disponibilidad de la
   referencia, aunque funciona. Hay que vigilarlo.
 - **Con `max_tokens`, la respuesta sale `cortada` sin `fuentes`** aunque se hayan leído páginas.
+
+---
+
+## 24. Búsqueda en el texto completo de la wiki (19/10/2026)
+
+Este § manda sobre §7.3, §8.1, §8.2, §8.3 y §16.3 en lo que cambia.
+
+### 24.1 Lo que pasó
+
+Dos 👎 del usuario en prod, leídos de `asistente_mensaje` (conversaciones 1 y 4):
+
+1. **18/10, respuesta 18.** Comentario: *"Recorrés mejor la documentación para encontrar lo que le pedí"*.
+   - "¿Qué son los bloques repetitivos?" desde Inicio: contestó "Eso no está en la documentación" **sin leer ninguna
+     página** (una sola llamada, `end_turn`).
+   - La repregunta, "en la carga de plantillas… hay una sección de bloques repetitivos": leyó Multirregistro, que no es,
+     y repitió que no estaba.
+   - Recién cuando el usuario le dijo la página, desde `/ayuda/importacion/crear-plantilla`, la leyó y lo encontró. En
+     ese turno el contexto decía "Esta pantalla no tiene página de ayuda principal": no sabía qué página tenía abierta.
+2. **17/10, respuesta 8, sin comentario.** Terminó con "¿Querés que te lleve al formulario de nueva plantilla de
+   reportes?" escrito en el texto, sin llamar a `ofrecer_ir_a`: no había botón para aceptar.
+
+**La causa del primero.** "Bloques repetitivos" es un `###` de `importacion/crear-plantilla`, y el índice (§10.1) solo
+lista los `##`. El modelo decide con el índice, y lo que no figura ahí lo da por no documentado.
+
+**Cuánto más está escondido igual** (medido sobre la wiki de este commit):
+- **302** títulos `###`. En **118**, al menos la mitad de sus palabras no aparece en ningún lado del índice (con el
+  criterio "más de la mitad", 75). Casi todos son
+  entradas de "Qué puede salir mal": "Los importes quedaron mil veces más chicos", "La importación quedó procesando y
+  no avanza", "Rebotó", "La fecha de cálculo está en naranja".
+- El índice tiene 18 mil caracteres; la wiki, 441 mil.
+- **El set de evaluación no lo veía:** sus 50 preguntas nombran temas que están en títulos o resúmenes.
+
+**Línea de base** con el código anterior: 15 preguntas nuevas (**categoría G**: temas que están dentro de una página),
+dos vueltas, USD 0,10. Resultado: 24/30. Las fallas se repiten igual en las dos vueltas:
+- **G01**, el caso del 👎: "no está en la documentación", 2 de 2.
+- **G03**, "¿Qué son las iteraciones?" desde la página que lo explica: "no está", 2 de 2.
+- **G09**, removeDashes: dijo que la wiki no lo nombra.
+
+### 24.2 Qué cambió
+
+**Búsqueda léxica en el texto completo** (`wiki/buscador.ts`). No es RAG vectorial: sigue la decisión de §1.
+- Corta cada página en secciones por sus títulos `##`, `###` y `####` (698 en la wiki real), sin tomar como título
+  un `#` dentro de un bloque de código.
+- Puntúa con BM25. Suman además las palabras que están en el título de la sección, en el de su sección madre o en el
+  de la página, y dos palabras seguidas en el mismo orden.
+- Normaliza sin acentos y con una raíz liviana para el plural: saca la "s" final y después la "e" final ("bloques" y
+  "bloque" → "bloqu", "nombres" y "nombre" → "nombr", "meses" y "mes" → "mes").
+- **Los identificadores van tal cual.** El guion bajo de `CLAVE_NO_CARGADA` o `{{importe_cupon}}` no se borra del
+  texto (solo el de una cursiva `_así_`), y un identificador de la pregunta (con guion bajo o camelCase, como
+  `removeDashes`) que está tal cual en una sección le suma 15 y la cubre entera: sus palabras sueltas ("clave",
+  "cargada") están en muchas secciones.
+- Descarta las palabras vacías, también las de pregunta: "Para qué sirve", "Cómo funciona" y "Qué significa" son
+  títulos de casi todas las páginas.
+- Se arma al cargar la wiki (unos 80 ms) y busca en 1 a 7 ms.
+
+**Por dos caminos:**
+1. **Automático, en el contexto de cada turno** (`BUSQUEDA_AUTOMATICA`): hasta 4 secciones donde aparecen las
+   palabras **distintivas** de la pregunta, con un fragmento de 140 caracteres.
+   - Una palabra es distintiva si está en el 10 % de las secciones o menos.
+   - Si la pregunta no tiene ninguna, el bloque no va. En la práctica va en casi todas, porque los verbos conjugados
+     ("importo", "creo") cuentan como distintivos: en el set va en 65 de 65, con 780 caracteres de media (unos 250
+     tokens, USD 0,000025). En 10 de las 50 preguntas A–F no trae ninguna página esperada (A01 trae "No se creó el
+     comentario" por "creo"). Las páginas de A+B siguen en 100 %.
+   - Las palabras que no están en ninguna página no cuentan ("planillas" por "plantillas").
+   - El bloque avisa que "puede traer coincidencias que no vienen al caso".
+2. **La herramienta `buscar_en_wiki({texto})`**, entre `leer_pagina` y `ofrecer_ir_a`.
+   - Devuelve hasta 6 secciones con su página y un fragmento de 220 caracteres.
+   - Como mucho **2 búsquedas por respuesta**; la tercera, y una búsqueda vacía, dan `is_error`.
+   - El evento SSE `herramienta {nombre: 'buscar_en_wiki'}` va sin el texto buscado, que puede traer lo que escribió la
+     persona. El panel muestra *Buscando en la documentación…*.
+
+**Prompt (§8.1):**
+- explica que el índice no nombra todo y que hay coincidencias por turno y `buscar_en_wiki`;
+- "Si el tema no figura en el índice, buscalo antes de responder";
+- "Eso no está en la documentación." solo después de buscarlo: "Nunca la digas sin haberlo buscado";
+- en Documentación, el mensaje del sistema también dice qué página tiene abierta la persona.
+
+**La regla de la oferta queda como estaba.** Se probaron dos redacciones que prohibían escribir "¿Querés que te
+lleve…?", y las dos bajaron las ofertas con tarjeta: en A01 y A12, 4 de 8 y 1 de 8. Con 16 muestras, la regla
+original da 10 de 16, contra 9 de 16 del código anterior. La oferta escrita sin tarjeta la cubre la red del backend.
+
+**`/ayuda/<slug>`:** la página que la persona tiene abierta en Documentación va en el contexto como "Página que la
+persona tiene abierta en Documentación", con su texto la primera vez, igual que la página de una pantalla.
+
+**Red para la oferta escrita** (`quitarOfertaSinTarjeta`, `ofreceEnTexto`): si el turno terminó sin tarjeta, se sacan
+del texto final las oraciones que ofrecen llevar a otra pantalla, con un `warn`.
+- Cuentan como oferta "que te lleve", "te llevo" y "llevarte": "¿Querés que te lleve…?", "Si querés, te llevo a la
+  pantalla.", "Puedo llevarte a…".
+- No se tocan las negadas ("No te puedo llevar a Roles") ni las citadas: un `¿` pegado a una comilla o a una negrita,
+  como cuando explica la tarjeta **¿Querés que te lleve a «…»?**.
+- Va por oración: el resto de la línea queda con sus espacios, y una línea que queda vacía, o con solo la viñeta, se
+  va entera.
+- Con tarjeta, el texto queda como vino. El historial guarda lo que escribió el modelo.
+
+**La respuesta repetida después de la tarjeta.** Ya pasaba con el código de prod: en A01 y A12, 6 de 16 respuestas
+salieron duplicadas enteras. En prod todavía no le pasó a nadie, porque hubo solo dos tarjetas. La primera corrida
+completa con las reglas nuevas dio 4 de 65, todas con tarjeta:
+- el modelo escribía la respuesta, llamaba a `ofrecer_ir_a` y, en la iteración siguiente, la reescribía (a veces sin
+  la oferta escrita);
+- también duplicaba la latencia: A01 pasó de 8,7 a 15,8 s.
+
+Se arregla en dos capas:
+- **Corte después de la tarjeta.** Si en una iteración el modelo solo pidió tarjetas, se mostraron todas y el texto del
+  turno ya tiene su línea `Fuente:`, el turno termina sin otra llamada. El historial cierra con un mensaje "Listo." del
+  asistente, como en el tope por turno. Ahorra una llamada, unos 3 s, en cada respuesta con tarjeta completa. Si la
+  tarjeta no se pudo mostrar (sin permiso, por ejemplo), sigue como antes, y el modelo puede corregir.
+- **`sinRespuestasRepetidas`:** si el texto de una iteración empieza igual que el de una posterior (los primeros 80
+  caracteres, sin diferencias de espacios), queda solo el posterior, con un `warn`.
+  - Corta por la posición de cada iteración en el texto del turno, nunca por búsqueda de texto.
+  - Solo actúa con el turno en `ok`: si la reescritura quedó cortada, la versión completa es la anterior.
+  - El historial guarda lo que escribió el modelo.
+- El `tool_result` de la tarjeta queda como estaba. Se probó agregarle "si ya escribiste la respuesta, no la repitas",
+  y el modelo le contestaba: "Ya escribí la respuesta completa con la fuente, así que no agrego nada más." (1 de 24).
+
+**`MAX_ITERACIONES` pasa de 4 a 5:** buscar → leer → leer → responder entra con margen. El tope por turno (USD 0,05)
+sigue cortando lo que se descontrola.
+
+**El `system` cacheado cambia** (instrucciones y herramientas): la primera pregunta después del deploy reescribe la
+caché, unos USD 0,002, una vez.
+
+### 24.3 Set de evaluación
+
+- **Categoría G**, 15 preguntas: G01 a G14, temas dentro de una página, con `noDebe` "no está en la documentación";
+  G15, la pregunta de la respuesta 8.
+- **Chequeo global nuevo:** una oferta escrita sin tarjeta en el texto que se muestra es FALLA. Usa `ofreceEnTexto`,
+  la misma función que la red del turno.
+- **C01** ("¿Se puede mandar WhatsApp a los deudores desde el sistema?") acepta también una respuesta que nombre AMSA
+  Sender. La wiki sí dice, en el cuerpo de dos páginas, que los WhatsApp salen de AMSA Sender y se ven en la Timeline:
+  el "no está" que exigía era el mismo error de este §.
+- **Umbrales nuevos:** páginas correctas en ≥ 85 % de G, y ninguna oferta escrita sin tarjeta.
+- **Métricas informativas:** cuántas preguntas usaron `buscar_en_wiki`, cuántas veces el modelo reescribió la
+  respuesta y cuántas escribió la oferta sin tarjeta. Las dos últimas se miran en `apiAsistente`, lo que escribió el
+  modelo, porque lo que se muestra ya pasó por las redes: el chequeo sobre el texto mostrado solo falla si falla la red.
+
+**Resultados.** Contra Bedrock, el 19/10, en 309 preguntas en total, con un gasto de USD 1,02.
+
+| Medición | Código de prod (línea de base) | Final |
+|---|---|---|
+| Categoría G | 24/30 | **15/15** |
+| Páginas correctas en A+B | 38/39 (17/10) | **39/39** |
+| C, lo que no está documentado | 3/3 | 3/3 |
+| Costo medio por pregunta | USD 0,0024 | USD 0,0028 |
+| Latencia p50 | 5,4 s | 6,5 s |
+| Respuestas reescritas por el modelo (A01 y A12) | 6 de 16 | 0 de 65 en la corrida completa |
+| Ofertas escritas sin tarjeta, en lo que escribió el modelo | — | 0 de 65 |
+| Preguntas que usaron `buscar_en_wiki` | — | 3 de 65 |
+
+La corrida final dio 63 de 65:
+- **A12 no ofreció ir a `/carga`.** Es la variación de siempre: A12 ofrece la mitad de las veces con los dos códigos
+  (§24.2).
+- **E01 dijo "solo **puede** ayudarte" en vez de "solo **puedo**".** La regex pasa a aceptar las dos.
+
+El p95 de esa corrida fue 18,6 s por picos de Bedrock. Las cinco más lentas, repetidas dos veces, tardaron entre 1,9 y
+10,1 s: B01 pasó de 18,7 a 6 s, con el mismo prompt y el mismo costo. La corrida anterior completa, con el mismo
+diseño salvo los arreglos de la auditoría, dio un p95 de 11 s y cumplió todos los umbrales.
+
+**Casi todo lo arregla la búsqueda automática del contexto y la página abierta en Documentación, no la herramienta.**
+`buscar_en_wiki` se usó en 3 a 4 preguntas de 65, siempre de C (lo no documentado) o de G: el modelo busca antes de
+decir que algo no está.
+
+### 24.4 Auditoría (19/10/2026)
+
+**PASA CON OBSERVACIONES**, sin bloqueantes. El auditor midió con las corridas de `resultados/`, sin llamar a Bedrock.
+Los arreglos, cada uno con su test:
+
+| # | Severidad | Hallazgo | Arreglo |
+|---|---|---|---|
+| 1 | Alta | El texto plano borraba los `_`: `CLAVE_NO_CARGADA` no se encontraba, y el fragmento mostraba `{{importecupon}}` en vez de `{{importe_cupon}}` | El `_` queda (salvo en cursivas) + bonus por identificador exacto. Los 34 identificadores de la wiki salen primeros con la herramienta (antes 2 de 31) y entran todos en el bloque automático (antes 7 de 31) |
+| 2 | Media | La red de la oferta borraba la pregunta cuando el modelo explicaba la tarjeta ("una tarjeta: **** con dos botones") | No toca las ofertas citadas |
+| 3 | Media | La red solo atrapaba "¿Querés que te lleve…?" y "¿Te llevo…?"; el chequeo de la evaluación miraba el texto ya filtrado | Por oración, con "te llevo" y "llevarte"; la evaluación mide también lo que escribió el modelo |
+| 4 | Media | La raíz no unificaba nombre/nombres, mes/meses, variable/variables | Saca la "s" y después la "e" |
+| 5 | Media | El bloque automático va casi siempre, y el comentario y el spec decían que no | Comentario y §24.2 corregidos; las páginas de A+B no cambian |
+| 6 | Baja | El modelo le contestaba al `tool_result` nuevo de la tarjeta | Vuelve al de antes, y el corte después de la tarjeta evita la llamada |
+| 7 | Baja | La red dejaba "ya está.Ahí vas" y viñetas vacías | Por oración, y las líneas vacías se van |
+| 8 | Baja | `sinRespuestasRepetidas` borraba la primera aparición del texto, y con la reescritura cortada perdía la versión completa | Por posición, y solo con el turno en `ok` |
+| 9 | Baja | El test sobre la wiki real copiaba las opciones | Importa `BUSQUEDA_AUTOMATICA` y `BUSQUEDA_HERRAMIENTA` |
+| 10 | Baja | El spec decía "4 iteraciones" | Corregido en §2 |
+
+Queda a sabiendas: el test sobre la wiki real hace que un cambio de la wiki pueda romper el jest del backend. Es lo que
+se busca, igual que el de `wiki-indice.service.spec`: si una página deja de encontrarse, avisa antes del deploy.
+
+### 24.5 Deuda
+
+- La búsqueda no conjuga verbos: "importo" no encuentra "importar". En las preguntas genéricas, la búsqueda automática
+  puede traer coincidencias por un verbo ("se importó"). Lo resuelve el índice, y el bloque avisa que puede haber
+  ruido.
+- Sinónimos: si la persona usa una palabra que la wiki no usa, ni la búsqueda automática ni la herramienta lo
+  encuentran. El modelo puede buscar con otras palabras (hasta 2 veces).
 
 ---
 

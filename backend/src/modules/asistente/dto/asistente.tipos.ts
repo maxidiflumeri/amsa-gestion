@@ -117,7 +117,7 @@ export interface ConsumoAsistente {
 export type EventoSse =
     | { evento: 'inicio'; data: { conversacionId: number; mensajeUsuarioId: number; mensajeId: number; limiteDiario: { usadas: number; limite: number } } }
     | { evento: 'texto'; data: { delta: string } }
-    | { evento: 'herramienta'; data: { nombre: 'leer_pagina'; slug: string; titulo: string } }
+    | { evento: 'herramienta'; data: { nombre: 'leer_pagina'; slug: string; titulo: string } | { nombre: 'buscar_en_wiki' } }
     | { evento: 'accion'; data: { id: string; tipo: 'ir_a'; ruta: string; etiqueta: string; motivo: string } }
     | {
           evento: 'fin';

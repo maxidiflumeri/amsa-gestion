@@ -1,6 +1,7 @@
 import * as crypto from 'crypto';
 import * as fs from 'fs';
 import * as path from 'path';
+import { BuscadorWiki, Coincidencia, OpcionesBusqueda } from './buscador';
 import { PaginaWiki, parsearPagina } from './parsear-pagina';
 
 /** Lo que el turno necesita de la wiki (el servicio de Nest y el script de evaluación lo implementan igual). */
@@ -10,6 +11,8 @@ export interface PuertoWiki {
     readonly version: string;
     pagina(slug: string): PaginaWiki | undefined;
     paginaPrincipalParaRuta(ruta: string): PaginaWiki | undefined;
+    /** Búsqueda por palabras en el texto completo (no solo en el índice). */
+    buscar(texto: string, opciones?: OpcionesBusqueda): Coincidencia[];
 }
 
 /** Índice de la wiki en memoria: se arma una vez (la wiki cambia solo con un deploy). */
@@ -22,6 +25,7 @@ export class WikiIndice implements PuertoWiki {
     /** Slugs de páginas sin comentario de metadatos (el servicio avisa). */
     readonly sinMeta: string[];
     private readonly porSlug = new Map<string, PaginaWiki>();
+    private readonly buscador: BuscadorWiki;
 
     constructor(paginas: PaginaWiki[]) {
         this.paginas = [...paginas].sort((a, b) => a.ordenSeccion - b.ordenSeccion || a.orden - b.orden);
@@ -30,6 +34,7 @@ export class WikiIndice implements PuertoWiki {
         this.sinMeta = this.paginas.filter((p) => !p.tieneMeta).map((p) => p.slug);
         this.indice = WikiIndice.armarTexto(this.paginas);
         this.version = crypto.createHash('sha1').update(this.indice).digest('hex').slice(0, 8);
+        this.buscador = new BuscadorWiki(this.paginas);
     }
 
     /** Lee `<dir>/<NN>-<seccion>/<NN>-<pagina>.md`. Lanza si el directorio no existe. */
@@ -69,6 +74,10 @@ export class WikiIndice implements PuertoWiki {
 
     pagina(slug: string): PaginaWiki | undefined {
         return this.porSlug.get(slug);
+    }
+
+    buscar(texto: string, opciones?: OpcionesBusqueda): Coincidencia[] {
+        return this.buscador.buscar(texto, opciones);
     }
 
     /**

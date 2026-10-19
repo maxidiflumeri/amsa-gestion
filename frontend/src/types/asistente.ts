@@ -41,7 +41,7 @@ export interface ConsumoAsistente {
 // Eventos del SSE de POST /asistente/preguntar (§6.3).
 export interface EventoInicio { conversacionId: number; mensajeUsuarioId: number; mensajeId: number; limiteDiario: { usadas: number; limite: number } }
 export interface EventoTexto { delta: string }
-export interface EventoHerramienta { nombre: 'leer_pagina'; slug: string; titulo: string }
+export type EventoHerramienta = { nombre: 'leer_pagina'; slug: string; titulo: string } | { nombre: 'buscar_en_wiki' };
 export interface EventoAccion { id: string; tipo: 'ir_a'; ruta: string; etiqueta: string; motivo: string }
 export interface EventoFin { mensajeId: number; estado: 'ok' | 'cortado' | 'rechazado'; texto: string; fuentes: FuenteAyuda[]; acciones: AccionIrA[]; ms: number }
 export interface EventoError { codigo: 'TOPE_MENSUAL' | 'TOPE_FUNCION' | 'MODELO_NO_DISPONIBLE' | 'INTERNO'; mensaje: string; mensajeId?: number }

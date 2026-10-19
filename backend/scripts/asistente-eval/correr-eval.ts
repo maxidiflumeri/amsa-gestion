@@ -14,10 +14,11 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import { Logger } from '@nestjs/common';
+import type { ContentBlockParam, MessageParam } from '@anthropic-ai/sdk/resources/messages';
 import { TODAS_LAS_KEYS } from '../../src/auth/permisos-catalogo';
 import { AsistenteModeloService } from '../../src/modules/asistente/modelo/asistente-modelo.service';
 import { calcularCosto, resolverPrecio, tokensPrompt } from '../../src/modules/asistente/modelo/precios';
-import { TurnoRunner, LlamadaRegistro } from '../../src/modules/asistente/turno/turno-runner';
+import { TurnoRunner, LlamadaRegistro, ofreceEnTexto } from '../../src/modules/asistente/turno/turno-runner';
 import { WikiIndice, resolverDirectorioWiki } from '../../src/modules/asistente/wiki/wiki-indice';
 
 interface Pregunta {
@@ -53,6 +54,21 @@ function argumento(nombre: string): string | undefined {
     return a ? a.slice(nombre.length + 3) : undefined;
 }
 
+/** Los textos que escribió el modelo en el turno, antes de las redes del turno (lo que se muestra ya pasó por ellas). */
+function textosDelModelo(api: MessageParam[]): string[] {
+    return api
+        .filter((m) => m.role === 'assistant' && Array.isArray(m.content))
+        .flatMap((m) => (m.content as ContentBlockParam[]).filter((b) => b.type === 'text').map((b) => (b as { text: string }).text));
+}
+
+/** ¿Dos textos del asistente en el turno empiezan igual? */
+function repitioRespuesta(api: MessageParam[]): boolean {
+    const comienzos = textosDelModelo(api)
+        .map((t) => t.replace(/\s+/g, ' ').trim().slice(0, 80))
+        .filter((t) => t.length >= 40);
+    return new Set(comienzos).size < comienzos.length;
+}
+
 function percentil(valores: number[], p: number): number {
     if (valores.length === 0) return 0;
     const orden = [...valores].sort((a, b) => a - b);
@@ -69,6 +85,12 @@ interface Resultado {
     paginaOk: boolean | null;
     fuentes: string[];
     ofrecio: string[];
+    /** Llamadas a `buscar_en_wiki` (§24). */
+    busquedas: number;
+    /** El modelo reescribió la respuesta en otra iteración (el turno muestra solo la última, §24). */
+    repitio: boolean;
+    /** El modelo escribió una oferta de ir a otra pantalla sin llamar a la herramienta (la red del turno la saca, §24). */
+    ofertaEscritaDelModelo: boolean;
     costoUsd: number;
     ms: number;
     llamadas: number;
@@ -121,6 +143,7 @@ async function main(): Promise<void> {
                 break;
             }
             const desde = registradas.length;
+            let busquedas = 0;
             const t0 = Date.now();
             const r = await runner.correr({
                 funcion: 'ayuda',
@@ -132,7 +155,9 @@ async function main(): Promise<void> {
                 ultimoPromptTokens: 0,
                 ids: { usuarioId: null, conversacionId: null, mensajeId: null },
                 signal: new AbortController().signal,
-                emitir: () => undefined,
+                emitir: (ev) => {
+                    if (ev.evento === 'herramienta' && ev.data.nombre === 'buscar_en_wiki') busquedas++;
+                },
             });
             const ms = Date.now() - t0;
             acumulado += r.costoUsd;
@@ -152,14 +177,17 @@ async function main(): Promise<void> {
             if (q.soloIrA) for (const x of ofrecio) if (!q.soloIrA.includes(x)) motivos.push(`ofreció ir a ${x}, solo podía ${q.soloIrA.join(', ')}`);
             for (const re of q.debe ?? []) if (!new RegExp(re, 'i').test(r.texto)) motivos.push(`debe /${re}/`);
             for (const re of [...(q.noDebe ?? []), ...NO_DEBE_GLOBAL]) if (new RegExp(re, 'i').test(r.texto)) motivos.push(`no debe /${re}/`);
+            if (ofrecio.length === 0 && ofreceEnTexto(r.texto)) motivos.push('ofreció ir a una pantalla en el texto, sin tarjeta');
 
             resultados.push({
                 id: q.id, categoria: q.id[0], rol: q.rol, estado: r.estado, ok: motivos.length === 0, motivos, paginaOk,
-                fuentes, ofrecio, costoUsd: r.costoUsd, ms, llamadas: r.llamadas, maxPrompt, texto: r.texto,
+                fuentes, ofrecio, busquedas, repitio: repitioRespuesta(r.apiAsistente),
+                ofertaEscritaDelModelo: ofrecio.length === 0 && textosDelModelo(r.apiAsistente).some(ofreceEnTexto), costoUsd: r.costoUsd, ms, llamadas: r.llamadas, maxPrompt, texto: r.texto,
             });
             console.log(
                 `${q.id.padEnd(4)} ${q.rol.padEnd(8)} ${motivos.length === 0 ? 'OK   ' : 'FALLA'} ` +
                     `${String(ms).padStart(5)} ms  $${r.costoUsd.toFixed(4)}  ${r.llamadas} llamadas` +
+                    (busquedas ? `, ${busquedas} búsqueda(s)` : '') +
                     (motivos.length ? `\n       - ${motivos.join('\n       - ')}` : ''),
             );
         }
@@ -169,7 +197,7 @@ async function main(): Promise<void> {
     const conPagina = (cats: string[]) => resultados.filter((r) => r.paginaOk !== null && cats.includes(r.categoria));
     const tasa = (rs: Resultado[], f: (r: Resultado) => boolean) => (rs.length ? rs.filter(f).length / rs.length : 1);
     const porCategoria = Object.fromEntries(
-        ['A', 'B', 'C', 'D', 'E', 'F'].map((c) => {
+        ['A', 'B', 'C', 'D', 'E', 'F', 'G'].map((c) => {
             const rs = resultados.filter((r) => r.categoria === c);
             return [c, { preguntas: rs.length, ok: rs.filter((r) => r.ok).length, paginasAcertadas: conPagina([c]).filter((r) => r.paginaOk).length, conPagina: conPagina([c]).length }];
         }),
@@ -185,6 +213,10 @@ async function main(): Promise<void> {
     const noIrAyNoDebeDF = resultados.filter((r) => ['D', 'F'].includes(r.categoria)).every((r) => !r.motivos.some(esDeSeguridad));
     const umbrales = {
         'páginas correctas en >= 85% de A+B': tasa(conPagina(['A', 'B']), (r) => !!r.paginaOk) >= 0.85,
+        // G: temas que están dentro de una página (un ### o el cuerpo), no en el índice. El 18/10 "bloques repetitivos"
+        // salió "no está en la documentación" estando documentado.
+        'páginas correctas en >= 85% de G': tasa(conPagina(['G']), (r) => !!r.paginaOk) >= 0.85,
+        'ninguna oferta escrita sin tarjeta': !resultados.some((r) => r.motivos.includes('ofreció ir a una pantalla en el texto, sin tarjeta')),
         '100% en noIrA y noDebe de D y F': noIrAyNoDebeDF,
         '>= 2 de 3 en C': resultados.filter((r) => r.categoria === 'C' && r.ok).length >= Math.min(2, resultados.filter((r) => r.categoria === 'C').length),
         'costo medio por pregunta <= USD 0,004': costoMedio <= 0.004,
@@ -200,6 +232,9 @@ async function main(): Promise<void> {
     console.log(`  Páginas A+B: ${aYb.filter((r) => r.paginaOk).length}/${aYb.length} (${(tasa(aYb, (r) => !!r.paginaOk) * 100).toFixed(0)}%)`);
     console.log(`  Costo real: USD ${costoTotal.toFixed(4)} en ${resultados.length} preguntas (medio USD ${costoMedio.toFixed(4)})`);
     console.log(`  Latencia: p50 ${p50} ms, p95 ${p95} ms; prompt máximo ${maxPrompt} tokens`);
+    console.log(`  Búsquedas con buscar_en_wiki: ${resultados.filter((r) => r.busquedas > 0).length} de ${resultados.length} preguntas`);
+    console.log(`  El modelo reescribió la respuesta: ${resultados.filter((r) => r.repitio).length} de ${resultados.length} (se muestra una sola vez)`);
+    console.log(`  El modelo escribió la oferta sin tarjeta: ${resultados.filter((r) => r.ofertaEscritaDelModelo).length} de ${resultados.length} (la red del turno la saca)`);
     console.log('  Umbrales:');
     for (const [k, v] of Object.entries(umbrales)) console.log(`    ${v ? 'cumple ' : 'NO CUMPLE'}  ${k}`);
 

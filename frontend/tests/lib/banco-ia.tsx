@@ -51,6 +51,7 @@ export const ev = {
     inicio: (over: Record<string, unknown> = {}): EventoSse => ['inicio', { conversacionId: 7, mensajeUsuarioId: 101, mensajeId: 102, limiteDiario: { usadas: 4, limite: 100 }, ...over }],
     texto: (delta: string): EventoSse => ['texto', { delta }],
     herramienta: (slug: string, titulo: string): EventoSse => ['herramienta', { nombre: 'leer_pagina', slug, titulo }],
+    busqueda: (): EventoSse => ['herramienta', { nombre: 'buscar_en_wiki' }],
     accion: (over: Partial<AccionIrA> = {}): EventoSse => ['accion', { id: 'toolu_1', tipo: 'ir_a', ruta: '/reportes/nuevo', etiqueta: 'Nueva plantilla de reportes', motivo: 'crear una plantilla de reportes', ...over }],
     fin: (texto: string, over: Record<string, unknown> = {}): EventoSse => ['fin', { mensajeId: 102, estado: 'ok', texto, fuentes: [], acciones: [], ms: 900, ...over }],
     error: (over: Record<string, unknown> = {}): EventoSse => ['error', { codigo: 'MODELO_NO_DISPONIBLE', mensaje: 'El asistente no está disponible en este momento. Probá en un rato.', ...over }],

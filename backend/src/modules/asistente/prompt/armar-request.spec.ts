@@ -35,10 +35,11 @@ describe('armar-request', () => {
     describe('armarTools', () => {
         it('orden fijo y enums tal como llegan; strict solo si se pide', () => {
             const sin = armarTools(['a/b', 'c/d'], ['/', '/gestion'], false);
-            expect(sin.map((t) => t.name)).toEqual(['leer_pagina', 'ofrecer_ir_a']);
+            expect(sin.map((t) => t.name)).toEqual(['leer_pagina', 'buscar_en_wiki', 'ofrecer_ir_a']);
             expect(sin.some((t) => 'strict' in t)).toBe(false);
             expect((sin[0].input_schema as any).properties.slug.enum).toEqual(['a/b', 'c/d']);
-            expect((sin[1].input_schema as any).properties.ruta.enum).toEqual(['/', '/gestion']);
+            expect(sin[1].input_schema).toMatchObject({ required: ['texto'], additionalProperties: false });
+            expect((sin[2].input_schema as any).properties.ruta.enum).toEqual(['/', '/gestion']);
 
             const con = armarTools(['a/b'], ['/'], true);
             expect(con.every((t) => (t as { strict?: boolean }).strict === true)).toBe(true);
@@ -141,6 +142,37 @@ describe('armar-request', () => {
             const c = armarContexto({ ...base, nombrePantalla: null, pagina: null, paginaYaPresente: false });
             expect(c).toContain('pantalla sin nombre en el mapa');
             expect(c).toContain('Esta pantalla no tiene página de ayuda principal.');
+        });
+
+        it('las coincidencias de la búsqueda automática van antes de la página, con su sección y fragmento', () => {
+            const c = armarContexto({
+                ...base,
+                pagina: { slug: 'gestion/buscar-un-caso', titulo: 'Buscar', cuerpo: 'CUERPO' },
+                paginaYaPresente: false,
+                coincidencias: [
+                    { slug: 'importacion/crear-plantilla', titulo: 'Crear una plantilla', camino: ['Paso 5', 'Bloques repetitivos'], fragmento: '…se declaran como bloques…', puntaje: 9, cobertura: 1 },
+                ],
+            });
+            expect(c).toContain('Secciones de la wiki donde aparecen las palabras de la pregunta');
+            expect(c).toContain('- [importacion/crear-plantilla] Crear una plantilla › Paso 5 › Bloques repetitivos: «…se declaran como bloques…»');
+            expect(c.indexOf('Bloques repetitivos')).toBeLessThan(c.indexOf('<pagina slug'));
+        });
+
+        it('sin coincidencias no hay bloque de búsqueda', () => {
+            const c = armarContexto({ ...base, pagina: null, paginaYaPresente: false, coincidencias: [] });
+            expect(c).not.toContain('Secciones de la wiki donde aparecen');
+        });
+
+        it('en Documentación dice qué página tiene abierta la persona, la primera vez con su texto', () => {
+            const pagina = { slug: 'importacion/crear-plantilla', titulo: 'Crear una plantilla', cuerpo: 'CUERPO' };
+            const datos = { ...base, ruta: '/ayuda', nombrePantalla: 'Documentación', pagina, paginaAbiertaEnDocumentacion: true };
+            const primera = armarContexto({ ...datos, paginaYaPresente: false });
+            expect(primera).toContain('Página que la persona tiene abierta en Documentación: [importacion/crear-plantilla] Crear una plantilla');
+            expect(primera).toContain('<pagina slug="importacion/crear-plantilla">\nCUERPO\n</pagina>');
+            expect(primera).not.toContain('no tiene página de ayuda principal');
+            const despues = armarContexto({ ...datos, paginaYaPresente: true });
+            expect(despues).toContain('tiene abierta en Documentación la página [importacion/crear-plantilla], que ya está más arriba');
+            expect(despues).not.toContain('CUERPO');
         });
 
         it('la fecha va en hora de Argentina (a las 02:59Z del 1.º todavía es 31)', () => {
