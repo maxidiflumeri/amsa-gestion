@@ -47,87 +47,93 @@ const AuditoriaDashboard: React.FC = () => {
 
     return (
         <Stack spacing={3}>
-            <Grid container spacing={2}>
-                <Grid item xs={12} sm={6} md={3}><Kpi label="Hoy" value={data.totales.hoy.toLocaleString()} /></Grid>
-                <Grid item xs={12} sm={6} md={3}><Kpi label="Últimos 7 días" value={data.totales.semana.toLocaleString()} /></Grid>
-                <Grid item xs={12} sm={6} md={3}><Kpi label="Últimos 30 días" value={data.totales.mes.toLocaleString()} /></Grid>
-                <Grid item xs={12} sm={6} md={3}><Kpi label="Fallidos 24h" value={data.fallidos.ultimas24h.toLocaleString()} emphasis={data.fallidos.ultimas24h > 0 ? 'error' : 'default'} /></Grid>
-            </Grid>
+            {/* Box: el Stack pisa con margin: 0 el margen negativo del Grid y la fila se corre a la derecha. */}
+            <Box>
+                <Grid container spacing={2}>
+                    <Grid item xs={12} sm={6} md={3}><Kpi label="Hoy" value={data.totales.hoy.toLocaleString()} /></Grid>
+                    <Grid item xs={12} sm={6} md={3}><Kpi label="Últimos 7 días" value={data.totales.semana.toLocaleString()} /></Grid>
+                    <Grid item xs={12} sm={6} md={3}><Kpi label="Últimos 30 días" value={data.totales.mes.toLocaleString()} /></Grid>
+                    <Grid item xs={12} sm={6} md={3}><Kpi label="Fallidos 24h" value={data.fallidos.ultimas24h.toLocaleString()} emphasis={data.fallidos.ultimas24h > 0 ? 'error' : 'default'} /></Grid>
+                </Grid>
+            </Box>
 
-            <Grid container spacing={2}>
-                <Grid item xs={12} md={8}>
-                    <Card>
-                        <CardContent>
-                            <Typography variant="subtitle1" gutterBottom>Actividad — últimos 30 días</Typography>
-                            <Box height={260}>
-                                <ResponsiveContainer width="100%" height="100%">
-                                    <LineChart data={data.seriePorDia.map((s) => ({ ...s, fecha: new Date(s.fecha).toLocaleDateString() }))}>
-                                        <CartesianGrid strokeDasharray="3 3" />
-                                        <XAxis dataKey="fecha" />
-                                        <YAxis />
-                                        <RTooltip />
-                                        <Line type="monotone" dataKey="count" stroke="#1976d2" dot={false} />
-                                    </LineChart>
-                                </ResponsiveContainer>
-                            </Box>
-                        </CardContent>
-                    </Card>
+            {/* Box: el Stack pisa con margin: 0 el margen negativo del Grid y la fila se corre a la derecha. */}
+            <Box>
+                <Grid container spacing={2}>
+                    <Grid item xs={12} md={8}>
+                        <Card>
+                            <CardContent>
+                                <Typography variant="subtitle1" gutterBottom>Actividad — últimos 30 días</Typography>
+                                <Box height={260}>
+                                    <ResponsiveContainer width="100%" height="100%">
+                                        <LineChart data={data.seriePorDia.map((s) => ({ ...s, fecha: new Date(s.fecha).toLocaleDateString() }))}>
+                                            <CartesianGrid strokeDasharray="3 3" />
+                                            <XAxis dataKey="fecha" />
+                                            <YAxis />
+                                            <RTooltip />
+                                            <Line type="monotone" dataKey="count" stroke="#1976d2" dot={false} />
+                                        </LineChart>
+                                    </ResponsiveContainer>
+                                </Box>
+                            </CardContent>
+                        </Card>
+                    </Grid>
+                    <Grid item xs={12} md={4}>
+                        <Card>
+                            <CardContent>
+                                <Typography variant="subtitle1" gutterBottom>Por módulo</Typography>
+                                <Box height={260}>
+                                    <ResponsiveContainer width="100%" height="100%">
+                                        <PieChart>
+                                            <Pie data={data.porModulo} dataKey="count" nameKey="modulo" outerRadius={90} label>
+                                                {data.porModulo.map((_, i) => <Cell key={i} fill={COLORS[i % COLORS.length]} />)}
+                                            </Pie>
+                                            <Legend />
+                                            <RTooltip />
+                                        </PieChart>
+                                    </ResponsiveContainer>
+                                </Box>
+                            </CardContent>
+                        </Card>
+                    </Grid>
+                    <Grid item xs={12} md={6}>
+                        <Card>
+                            <CardContent>
+                                <Typography variant="subtitle1" gutterBottom>Top tipos de acción</Typography>
+                                <Box height={300}>
+                                    <ResponsiveContainer width="100%" height="100%">
+                                        <BarChart data={data.porTipo} layout="vertical">
+                                            <CartesianGrid strokeDasharray="3 3" />
+                                            <XAxis type="number" />
+                                            <YAxis type="category" dataKey="tipo" width={140} />
+                                            <RTooltip />
+                                            <Bar dataKey="count" fill="#388e3c" />
+                                        </BarChart>
+                                    </ResponsiveContainer>
+                                </Box>
+                            </CardContent>
+                        </Card>
+                    </Grid>
+                    <Grid item xs={12} md={6}>
+                        <Card>
+                            <CardContent>
+                                <Typography variant="subtitle1" gutterBottom>Top usuarios</Typography>
+                                <Box height={300}>
+                                    <ResponsiveContainer width="100%" height="100%">
+                                        <BarChart data={data.porUsuario.map((u) => ({ nombre: u.nombre ?? 'Sistema', count: u.count }))} layout="vertical">
+                                            <CartesianGrid strokeDasharray="3 3" />
+                                            <XAxis type="number" />
+                                            <YAxis type="category" dataKey="nombre" width={140} />
+                                            <RTooltip />
+                                            <Bar dataKey="count" fill="#7b1fa2" />
+                                        </BarChart>
+                                    </ResponsiveContainer>
+                                </Box>
+                            </CardContent>
+                        </Card>
+                    </Grid>
                 </Grid>
-                <Grid item xs={12} md={4}>
-                    <Card>
-                        <CardContent>
-                            <Typography variant="subtitle1" gutterBottom>Por módulo</Typography>
-                            <Box height={260}>
-                                <ResponsiveContainer width="100%" height="100%">
-                                    <PieChart>
-                                        <Pie data={data.porModulo} dataKey="count" nameKey="modulo" outerRadius={90} label>
-                                            {data.porModulo.map((_, i) => <Cell key={i} fill={COLORS[i % COLORS.length]} />)}
-                                        </Pie>
-                                        <Legend />
-                                        <RTooltip />
-                                    </PieChart>
-                                </ResponsiveContainer>
-                            </Box>
-                        </CardContent>
-                    </Card>
-                </Grid>
-                <Grid item xs={12} md={6}>
-                    <Card>
-                        <CardContent>
-                            <Typography variant="subtitle1" gutterBottom>Top tipos de acción</Typography>
-                            <Box height={300}>
-                                <ResponsiveContainer width="100%" height="100%">
-                                    <BarChart data={data.porTipo} layout="vertical">
-                                        <CartesianGrid strokeDasharray="3 3" />
-                                        <XAxis type="number" />
-                                        <YAxis type="category" dataKey="tipo" width={140} />
-                                        <RTooltip />
-                                        <Bar dataKey="count" fill="#388e3c" />
-                                    </BarChart>
-                                </ResponsiveContainer>
-                            </Box>
-                        </CardContent>
-                    </Card>
-                </Grid>
-                <Grid item xs={12} md={6}>
-                    <Card>
-                        <CardContent>
-                            <Typography variant="subtitle1" gutterBottom>Top usuarios</Typography>
-                            <Box height={300}>
-                                <ResponsiveContainer width="100%" height="100%">
-                                    <BarChart data={data.porUsuario.map((u) => ({ nombre: u.nombre ?? 'Sistema', count: u.count }))} layout="vertical">
-                                        <CartesianGrid strokeDasharray="3 3" />
-                                        <XAxis type="number" />
-                                        <YAxis type="category" dataKey="nombre" width={140} />
-                                        <RTooltip />
-                                        <Bar dataKey="count" fill="#7b1fa2" />
-                                    </BarChart>
-                                </ResponsiveContainer>
-                            </Box>
-                        </CardContent>
-                    </Card>
-                </Grid>
-            </Grid>
+            </Box>
         </Stack>
     );
 };

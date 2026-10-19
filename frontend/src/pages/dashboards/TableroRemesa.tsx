@@ -112,111 +112,114 @@ const TableroRemesa: React.FC = () => {
 
                     <KpiGrid kpis={data.kpis} />
 
-                    <Grid container spacing={2}>
-                        <Grid item xs={12} md={6}>
-                            <SectionCard title="Por estado de situación">
-                                <DistribucionDonut
-                                    data={data.distribuciones.porSituacion}
-                                    onSliceClick={(it) => openDistribucionDrill('situacion', it)}
-                                />
-                            </SectionCard>
-                        </Grid>
-                        <Grid item xs={12} md={6}>
-                            <SectionCard title="Por estado de gestión">
-                                <DistribucionDonut
-                                    data={data.distribuciones.porGestion}
-                                    onSliceClick={(it) => openDistribucionDrill('gestion', it)}
-                                />
-                            </SectionCard>
-                        </Grid>
-
-                        <Grid item xs={12} md={6}>
-                            <SectionCard title="Por motivo de no pago">
-                                <DistribucionDonut
-                                    data={data.distribuciones.porMotivo}
-                                    onSliceClick={(it) => openDistribucionDrill('motivo', it)}
-                                />
-                            </SectionCard>
-                        </Grid>
-                        <Grid item xs={12} md={6}>
-                            <SectionCard
-                                title="Funnel de gestión"
-                                subtitle="Estado actual de la cartera — no depende del período seleccionado"
-                            >
-                                <FunnelGestion data={data.funnel} />
-                            </SectionCard>
-                        </Grid>
-
-                        <Grid item xs={12} md={6}>
-                            <SectionCard title="Distribución por rango de mora">
-                                {/*
-                                  Todo el bloque sale de `deudor.fechaVencimiento`, que muchas
-                                  carteras no traen: sin ese dato la barra quedaba entera en "Sin
-                                  fecha" y se leía como si nadie estuviera en mora.
-                                */}
-                                {sinFechaVencimiento ? (
-                                    <EmptyState
-                                        title="Esta cartera no trae fecha de vencimiento"
-                                        description="Sin ese dato no se puede calcular la antigüedad de la deuda. Se carga desde la importación."
+                    {/* Box: el Stack pisa con margin: 0 el margen negativo del Grid y la fila se corre a la derecha. */}
+                    <Box>
+                        <Grid container spacing={2}>
+                            <Grid item xs={12} md={6}>
+                                <SectionCard title="Por estado de situación">
+                                    <DistribucionDonut
+                                        data={data.distribuciones.porSituacion}
+                                        onSliceClick={(it) => openDistribucionDrill('situacion', it)}
                                     />
-                                ) : (
+                                </SectionCard>
+                            </Grid>
+                            <Grid item xs={12} md={6}>
+                                <SectionCard title="Por estado de gestión">
+                                    <DistribucionDonut
+                                        data={data.distribuciones.porGestion}
+                                        onSliceClick={(it) => openDistribucionDrill('gestion', it)}
+                                    />
+                                </SectionCard>
+                            </Grid>
+
+                            <Grid item xs={12} md={6}>
+                                <SectionCard title="Por motivo de no pago">
+                                    <DistribucionDonut
+                                        data={data.distribuciones.porMotivo}
+                                        onSliceClick={(it) => openDistribucionDrill('motivo', it)}
+                                    />
+                                </SectionCard>
+                            </Grid>
+                            <Grid item xs={12} md={6}>
+                                <SectionCard
+                                    title="Funnel de gestión"
+                                    subtitle="Estado actual de la cartera — no depende del período seleccionado"
+                                >
+                                    <FunnelGestion data={data.funnel} />
+                                </SectionCard>
+                            </Grid>
+
+                            <Grid item xs={12} md={6}>
+                                <SectionCard title="Distribución por rango de mora">
+                                    {/*
+                                      Todo el bloque sale de `deudor.fechaVencimiento`, que muchas
+                                      carteras no traen: sin ese dato la barra quedaba entera en "Sin
+                                      fecha" y se leía como si nadie estuviera en mora.
+                                    */}
+                                    {sinFechaVencimiento ? (
+                                        <EmptyState
+                                            title="Esta cartera no trae fecha de vencimiento"
+                                            description="Sin ese dato no se puede calcular la antigüedad de la deuda. Se carga desde la importación."
+                                        />
+                                    ) : (
+                                        <BucketBarChart
+                                            data={data.distribuciones.porMora}
+                                            onBarClick={(it) => openBucketDrill('mora', it)}
+                                        />
+                                    )}
+                                </SectionCard>
+                            </Grid>
+                            <Grid item xs={12} md={6}>
+                                <SectionCard title="Distribución por rango de deuda">
                                     <BucketBarChart
-                                        data={data.distribuciones.porMora}
-                                        onBarClick={(it) => openBucketDrill('mora', it)}
+                                        data={data.distribuciones.porDeuda}
+                                        mostrarSuma
+                                        onBarClick={(it) => openBucketDrill('deuda', it)}
                                     />
-                                )}
-                            </SectionCard>
-                        </Grid>
-                        <Grid item xs={12} md={6}>
-                            <SectionCard title="Distribución por rango de deuda">
-                                <BucketBarChart
-                                    data={data.distribuciones.porDeuda}
-                                    mostrarSuma
-                                    onBarClick={(it) => openBucketDrill('deuda', it)}
-                                />
-                            </SectionCard>
-                        </Grid>
+                                </SectionCard>
+                            </Grid>
 
-                        <Grid item xs={12}>
-                            <SectionCard
-                                title={`Pagos por ${data.series.granularidad}`}
-                                subtitle="Importes y cantidad en el período"
-                            >
-                                <SeriePagos data={data.series.pagosPorPeriodo} />
-                            </SectionCard>
-                        </Grid>
+                            <Grid item xs={12}>
+                                <SectionCard
+                                    title={`Pagos por ${data.series.granularidad}`}
+                                    subtitle="Importes y cantidad en el período"
+                                >
+                                    <SeriePagos data={data.series.pagosPorPeriodo} />
+                                </SectionCard>
+                            </Grid>
 
-                        <Grid item xs={12} md={6}>
-                            <SectionCard title={`Gestiones por ${data.series.granularidad}`}>
-                                <SerieGestiones data={data.series.gestionesPorPeriodo} />
-                            </SectionCard>
-                        </Grid>
-                        <Grid item xs={12} md={6}>
-                            <SectionCard title="Top motivos de no pago">
-                                {data.top.motivos.length === 0 ? (
-                                    <Typography variant="body2" color="text.secondary">Sin datos.</Typography>
-                                ) : (
-                                    <Stack spacing={1}>
-                                        {data.top.motivos.map((m) => (
-                                            <Stack key={m.id} direction="row" justifyContent="space-between" alignItems="center">
-                                                <Typography variant="body2">{m.label}</Typography>
-                                                <Stack direction="row" spacing={1} alignItems="center">
-                                                    <Typography variant="body2" fontWeight={600}>{fmtNumber(m.cantidad)}</Typography>
-                                                    <Chip label={`${m.porcentaje.toFixed(1)}%`} size="small" />
+                            <Grid item xs={12} md={6}>
+                                <SectionCard title={`Gestiones por ${data.series.granularidad}`}>
+                                    <SerieGestiones data={data.series.gestionesPorPeriodo} />
+                                </SectionCard>
+                            </Grid>
+                            <Grid item xs={12} md={6}>
+                                <SectionCard title="Top motivos de no pago">
+                                    {data.top.motivos.length === 0 ? (
+                                        <Typography variant="body2" color="text.secondary">Sin datos.</Typography>
+                                    ) : (
+                                        <Stack spacing={1}>
+                                            {data.top.motivos.map((m) => (
+                                                <Stack key={m.id} direction="row" justifyContent="space-between" alignItems="center">
+                                                    <Typography variant="body2">{m.label}</Typography>
+                                                    <Stack direction="row" spacing={1} alignItems="center">
+                                                        <Typography variant="body2" fontWeight={600}>{fmtNumber(m.cantidad)}</Typography>
+                                                        <Chip label={`${m.porcentaje.toFixed(1)}%`} size="small" />
+                                                    </Stack>
                                                 </Stack>
-                                            </Stack>
-                                        ))}
-                                    </Stack>
-                                )}
-                            </SectionCard>
-                        </Grid>
+                                            ))}
+                                        </Stack>
+                                    )}
+                                </SectionCard>
+                            </Grid>
 
-                        <Grid item xs={12}>
-                            <SectionCard title="Top 10 deudores por monto">
-                                <TopDeudoresTable deudores={data.top.deudores} />
-                            </SectionCard>
+                            <Grid item xs={12}>
+                                <SectionCard title="Top 10 deudores por monto">
+                                    <TopDeudoresTable deudores={data.top.deudores} />
+                                </SectionCard>
+                            </Grid>
                         </Grid>
-                    </Grid>
+                    </Box>
                 </Stack>
             )}
 
