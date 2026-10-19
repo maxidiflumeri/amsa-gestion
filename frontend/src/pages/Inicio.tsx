@@ -1,6 +1,6 @@
 // src/pages/Inicio.tsx — "Tu día" (docs/inicio-spec.md). Cada bloque decide solo por permisos, no por el nombre del rol.
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Alert, Box, Button, Grid, Stack } from '@mui/material';
+import { Alert, Box, Button, Stack } from '@mui/material';
 import { PageContainer } from '../components/ui';
 import { useAuth } from '../context/AuthContext';
 import { useImportacionesEnCurso } from '../hooks/useImportacionesEnCurso';
@@ -84,8 +84,9 @@ const Inicio: React.FC = () => {
         }
     };
 
-    const columna = (ids: BloqueId[]) => (
-        <Stack spacing={3} sx={{ minWidth: 0 }}>
+    /** `cual` marca la columna en la grilla de dos (la usan los tests: el layout de CSS grid no deja clases). */
+    const columna = (ids: BloqueId[], cual?: 'principal' | 'lateral') => (
+        <Stack spacing={3} sx={{ minWidth: 0 }} data-columna={cual}>
             {ids.map((id) => (
                 <React.Fragment key={id}>{bloque(id)}</React.Fragment>
             ))}
@@ -115,26 +116,30 @@ const Inicio: React.FC = () => {
 
                 {/* Fase 2 — "La operación" (inicio.ver_equipo). Ver docs/inicio-spec.md §1. */}
 
+                {/*
+                  CSS grid con gap, no <Grid container>: el Grid de MUI se acomoda con un margen negativo que el Stack
+                  de arriba pisa con `margin: 0`, y la fila quedaba corrida 24 px a la derecha de las tarjetas de "Tu día".
+                */}
                 {modo === 'dos' && (
-                    <Grid container spacing={3}>
-                        <Grid item xs={12} lg={8} sx={{ minWidth: 0 }}>
-                            {columna(principal)}
-                        </Grid>
-                        <Grid item xs={12} lg={4} sx={{ minWidth: 0 }}>
-                            {columna(lateral)}
-                        </Grid>
-                    </Grid>
+                    <Box sx={{ display: 'grid', gap: 3, gridTemplateColumns: { xs: 'minmax(0, 1fr)', lg: 'minmax(0, 2fr) minmax(0, 1fr)' } }}>
+                        {columna(principal, 'principal')}
+                        {columna(lateral, 'lateral')}
+                    </Box>
                 )}
                 {modo === 'solo-principal' && columna(principal)}
                 {modo === 'solo-lateral' && (
-                    <Grid container spacing={3}>
+                    <Box sx={{ display: 'grid', gap: 3, gridTemplateColumns: { xs: 'minmax(0, 1fr)', md: 'repeat(2, minmax(0, 1fr))' } }}>
                         {lateral.map((id, i) => (
                             // Con una cantidad impar, el último ocupa el ancho entero: no queda media pantalla vacía.
-                            <Grid item xs={12} md={i === lateral.length - 1 && lateral.length % 2 === 1 ? 12 : 6} key={id} sx={{ minWidth: 0 }}>
+                            <Box
+                                key={id}
+                                data-ancho={i === lateral.length - 1 && lateral.length % 2 === 1 ? 'entero' : 'mitad'}
+                                sx={{ minWidth: 0, gridColumn: i === lateral.length - 1 && lateral.length % 2 === 1 ? '1 / -1' : undefined }}
+                            >
                                 {bloque(id)}
-                            </Grid>
+                            </Box>
                         ))}
-                    </Grid>
+                    </Box>
                 )}
             </Stack>
         </PageContainer>

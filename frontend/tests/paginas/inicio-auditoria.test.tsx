@@ -69,10 +69,10 @@ describe('solo la columna lateral con una cantidad impar de bloques', () => {
     it('el último ocupa el ancho entero', async () => {
         b = await armarInicio({ permisos: ['reportes.ver', 'auditoria.ver', 'comentarios.crear'], miDia: miDiaAdmin() });
         await dibujado();
-        const items = Array.from(document.querySelectorAll('.MuiGrid-item')).filter((e) => e.className.includes('MuiGrid-grid-md-'));
+        const items = Array.from(document.querySelectorAll('[data-ancho]'));
         expect(items.length).toBe(3);
-        expect(items[2].className).toContain('MuiGrid-grid-md-12');
-        expect(items[0].className).toContain('MuiGrid-grid-md-6');
+        expect(items[2].getAttribute('data-ancho')).toBe('entero');
+        expect(items[0].getAttribute('data-ancho')).toBe('mitad');
     });
 });
 

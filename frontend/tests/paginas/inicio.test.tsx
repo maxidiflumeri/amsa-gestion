@@ -21,8 +21,9 @@ afterEach(async () => {
 });
 
 const ADMIN_SIN_B8 = () => miDiaAdmin({ importacionesHoy: [] });
-/** El texto de una columna de la grilla (lg=8 o lg=4). */
-const columna = (lg: 8 | 4) => limpio(document.querySelector(`.MuiGrid-grid-lg-${lg}`)?.textContent ?? '(no está)');
+/** El texto de una columna de la grilla de dos (8 = la principal, 4 = la lateral). */
+const SEL_COLUMNA = { 8: '[data-columna="principal"]', 4: '[data-columna="lateral"]' } as const;
+const columna = (lg: 8 | 4) => limpio(document.querySelector(SEL_COLUMNA[lg])?.textContent ?? '(no está)');
 const pestana = (inicio: RegExp) => Array.from(document.querySelectorAll('[role="tab"]')).find((t) => inicio.test(limpio(t.textContent ?? ''))) ?? null;
 const accesos = () => Array.from(document.querySelectorAll('[aria-label="Accesos rápidos"] a')).map((a) => limpio(a.textContent ?? ''));
 const teclear = async (init: KeyboardEventInit) => {
@@ -52,7 +53,7 @@ describe('IN-1 — el OPERADOR (13 permisos) ve una página completa', () => {
     it('sin huecos: Retomá en la columna principal (8/12); el gráfico y Tus reportes en la lateral (4/12), en ese orden', async () => {
         b = await armarInicio({ permisos: PERMISOS_OPERADOR, miDia: miDiaOperador() });
         await dibujado();
-        expect(document.querySelectorAll('.MuiGrid-grid-lg-8, .MuiGrid-grid-lg-4')).toHaveLength(2);
+        expect(document.querySelectorAll('[data-columna]')).toHaveLength(2);
         const principal = columna(8);
         const lateral = columna(4);
         expect(principal).toContain('Retomá donde quedaste');
@@ -89,7 +90,7 @@ describe('IN-2 — el ADMIN ve agenda, promesas y actividad', () => {
         expect(titulos()).toContain('Importaciones');
         expect(t).not.toContain('Gestiones de la semana');
         expect(pestana(/^Hoy · 4$/)).not.toBeNull();
-        const agenda = document.querySelector('.MuiGrid-grid-lg-8 ul')!;
+        const agenda = document.querySelector('[data-columna="principal"] ul')!;
         expect(agenda.querySelectorAll('li')).toHaveLength(4);
         expect(limpio(agenda.textContent ?? '')).toContain('Cumplida');
         expect(limpio(agenda.textContent ?? '')).toContain('Vence hoy');
@@ -150,9 +151,9 @@ describe('IN-2 — el ADMIN ve agenda, promesas y actividad', () => {
         b = await armarInicio({ permisos: PERMISOS_ADMIN, miDia: miDiaAdmin() });
         await dibujado();
         await clic(pestana(/^Sin cumplir/), 'la pestaña Sin cumplir');
-        expect(document.querySelector('.MuiGrid-grid-lg-8 ul')?.textContent).toContain('Eva Luna');
+        expect(document.querySelector('[data-columna="principal"] ul')?.textContent).toContain('Eva Luna');
         await clic(boton('Ver'), 'el botón Ver');
-        expect(limpio(document.querySelector('.MuiGrid-grid-lg-8 ul')?.textContent ?? '')).toContain('Juan Gómez');
+        expect(limpio(document.querySelector('[data-columna="principal"] ul')?.textContent ?? '')).toContain('Juan Gómez');
         expect(pestana(/^Hoy/)?.getAttribute('aria-selected')).toBe('true');
     });
 });
@@ -161,7 +162,7 @@ describe('IN-3 — las filas llevan al caso', () => {
     it('Retomá: cada fila es un enlace a /gestion?deudor=<id>', async () => {
         b = await armarInicio({ permisos: PERMISOS_OPERADOR, miDia: miDiaOperador() });
         await dibujado();
-        const filas = Array.from(document.querySelectorAll('.MuiGrid-grid-lg-8 a[href^="/gestion?deudor="]'));
+        const filas = Array.from(document.querySelectorAll('[data-columna="principal"] a[href^="/gestion?deudor="]'));
         expect(filas.map((a) => a.getAttribute('href'))).toEqual(retomar().map((r) => `/gestion?deudor=${r.deudorId}`));
         expect(limpio(filas[0].textContent ?? '')).toContain('Ana Pérez 0');
         expect(limpio(filas[0].textContent ?? '')).toContain('Quedó en llamar 0');
@@ -173,7 +174,7 @@ describe('IN-3 — las filas llevan al caso', () => {
     it('la agenda: cada fila también', async () => {
         b = await armarInicio({ permisos: PERMISOS_ADMIN, miDia: miDiaAdmin() });
         await dibujado();
-        const hrefs = Array.from(document.querySelectorAll('.MuiGrid-grid-lg-8 ul')[0].querySelectorAll('a')).map((a) => a.getAttribute('href'));
+        const hrefs = Array.from(document.querySelectorAll('[data-columna="principal"] ul')[0].querySelectorAll('a')).map((a) => a.getAttribute('href'));
         expect(hrefs).toEqual(['/gestion?deudor=500', '/gestion?deudor=501', '/gestion?deudor=502', '/gestion?deudor=503']);
     });
 });
@@ -279,7 +280,7 @@ describe('IN-6 — un bloque que falla no tumba a los otros', () => {
     it('errores: ["agenda"] muestra «No se pudo cargar» con Reintentar en la agenda; Retomá se ve normal', async () => {
         b = await armarInicio({ permisos: PERMISOS_ADMIN, miDia: ADMIN_SIN_B8_CON_ERROR() });
         await dibujado();
-        const agenda = document.querySelector('.MuiGrid-grid-lg-8 .MuiCard-root')!;
+        const agenda = document.querySelector('[data-columna="principal"] .MuiCard-root')!;
         expect(limpio(agenda.textContent ?? '')).toContain('No se pudo cargar este bloque.');
         expect(boton('Reintentar', agenda)).not.toBeNull();
         expect(columna(8)).toContain('Ana Pérez 0');
@@ -450,9 +451,9 @@ describe('IN-9 — la agenda', () => {
         m.agenda!.totales = { hoy: 3, proximos: 1, sinCumplir: 3 };
         b = await armarInicio({ permisos: PERMISOS_ADMIN, miDia: m });
         await dibujado();
-        const chipsDe = () => Array.from(document.querySelector('.MuiGrid-grid-lg-8 ul')!.querySelectorAll('.MuiChip-label')).map((c) => limpio(c.textContent ?? ''));
+        const chipsDe = () => Array.from(document.querySelector('[data-columna="principal"] ul')!.querySelectorAll('.MuiChip-label')).map((c) => limpio(c.textContent ?? ''));
         expect(chipsDe().filter((c) => c !== 'AYSA')).toEqual(['Vence hoy', 'Cumplida', 'Pagada']);
-        expect(document.querySelector('.MuiGrid-grid-lg-8 ul')?.textContent).toContain('Sin monto');
+        expect(document.querySelector('[data-columna="principal"] ul')?.textContent).toContain('Sin monto');
         await clic(pestana(/^Próximos/));
         expect(chipsDe().filter((c) => c !== 'AYSA')[0]).toMatch(/^(Lunes|Martes|Miércoles|Jueves|Viernes|Sábado|Domingo) \d{1,2}$/);
         await clic(pestana(/^Sin cumplir/));
@@ -508,7 +509,7 @@ describe('IN-10 — importaciones (B8): solo las propias', () => {
         ];
         b = await armarInicio({ permisos: PERMISOS_ADMIN, miDia: m });
         await dibujado();
-        const etiquetas = Array.from(document.querySelectorAll('.MuiGrid-grid-lg-4 .MuiChip-label')).map((c) => limpio(c.textContent ?? ''));
+        const etiquetas = Array.from(document.querySelectorAll('[data-columna="lateral"] .MuiChip-label')).map((c) => limpio(c.textContent ?? ''));
         expect(etiquetas).toEqual(['Finalizada', 'Con advertencias', 'Sin filas', 'Fallida', 'Cancelada', 'RARO', 'Terminada']);
         expect(b.texto()).not.toMatch(BASURA);
     });
@@ -562,11 +563,11 @@ describe('IN-12 — roles raros', () => {
     it('solo reportes.ver: sin columna principal, el lateral pasa a la grilla de 2 columnas a todo el ancho', async () => {
         b = await armarInicio({ permisos: ['reportes.ver'], miDia: miDiaOperador({ gestiones: null, retomar: null }) });
         await esperar(() => /Tus reportes/.test(b!.texto()), { que: 'Tus reportes' });
-        expect(document.querySelector('.MuiGrid-grid-lg-8')).toBeNull();
-        expect(document.querySelector('.MuiGrid-grid-lg-4')).toBeNull();
+        expect(document.querySelector('[data-columna="principal"]')).toBeNull();
+        expect(document.querySelector('[data-columna="lateral"]')).toBeNull();
         // Un solo bloque (cantidad impar): ocupa el ancho entero, no media pantalla (auditoría).
-        expect(document.querySelectorAll('.MuiGrid-grid-md-6')).toHaveLength(0);
-        expect(document.querySelectorAll('.MuiGrid-grid-md-12')).toHaveLength(1);
+        expect(document.querySelectorAll('[data-ancho="mitad"]')).toHaveLength(0);
+        expect(document.querySelectorAll('[data-ancho="entero"]')).toHaveLength(1);
         expect(b.texto()).not.toContain('Tu día');
     });
 
@@ -574,13 +575,20 @@ describe('IN-12 — roles raros', () => {
         const m = miDiaAdmin({ gestiones: null, retomar: null, reportes: null, importacionesHoy: null });
         b = await armarInicio({ permisos: ['promesas.ver'], miDia: m });
         await esperar(() => /Tu agenda/.test(b!.texto()), { que: 'la agenda' });
-        expect(document.querySelector('.MuiGrid-grid-lg-8')).toBeNull();
+        expect(document.querySelector('[data-columna="principal"]')).toBeNull();
         expect(b.texto()).not.toContain('Tu día');
         expect(b.texto()).not.toContain('Retomá');
     });
 });
 
 describe('IN-13 — pantalla chica y tema', () => {
+    it('la fila de abajo no usa un Grid de MUI: su margen negativo, pisado por el Stack, la corría 24 px a la derecha de "Tu día"', async () => {
+        b = await armarInicio({ permisos: PERMISOS_ADMIN, miDia: miDiaAdmin() });
+        await dibujado();
+        expect(document.querySelectorAll('[data-columna]')).toHaveLength(2);
+        expect(document.querySelector('.MuiGrid-container')).toBeNull();
+    });
+
     it('a 360 px, sin desborde horizontal (jsdom no calcula el layout: ver el informe)', async () => {
         fijarAncho(360);
         b = await armarInicio({ permisos: PERMISOS_ADMIN, miDia: miDiaAdmin(), ancho: 360 });
@@ -589,7 +597,7 @@ describe('IN-13 — pantalla chica y tema', () => {
         expect(c.scrollWidth).toBeLessThanOrEqual(c.clientWidth);
         expect(document.documentElement.scrollWidth).toBeLessThanOrEqual(document.documentElement.clientWidth);
         // Lo que sí se puede afirmar sin layout: los textos largos se cortan en vez de empujar la fila.
-        expect(document.querySelectorAll('.MuiGrid-grid-lg-8, .MuiGrid-grid-lg-4')).toHaveLength(2);
+        expect(document.querySelectorAll('[data-columna]')).toHaveLength(2);
     });
 
     it('en modo oscuro monta sin errores y dibuja lo mismo', async () => {
