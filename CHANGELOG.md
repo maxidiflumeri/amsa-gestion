@@ -16,7 +16,17 @@ con el formato que necesita. El asistente arma la plantilla, la prueba contra la
   en §26 y §27, que mandan sobre el resto.
 - **Maqueta aprobada:** escena v2 de https://claude.ai/artifact/YSqMEKNMaji5akfLfB5QTo
 
-**Estado: sin desplegar.**
+**Estado: desplegada el 19/10/2026** (20:47 UTC, imagen `6663ea2`, junto con `918547b`). Verificado en prod:
+- arranque sin ERROR: `Asistente listo: modelo=us.anthropic.claude-haiku-5-5 reportes=us.anthropic.claude-sonnet-5-5`,
+  y la wiki con 42 páginas;
+- las 7 tablas `asistente_*`;
+- la plantilla #1 pasa las validaciones del código desplegado;
+- la función `reportes` está creada y apagada.
+
+Paso previo ya hecho: el `apply -target` de IAM, con la política en vivo con Sonnet.
+
+Falta del usuario: prender **Constructor de reportes** en Consumo (USD 30 / 0,30 / 40) y darle **Asistente: armar
+reportes** a ADMIN.
 - El schema es aditivo, sin `--accept-data-loss`.
 - Antes del push hace falta el `terraform apply -target` del permiso de Sonnet (ver Deploy).
 
@@ -242,7 +252,10 @@ Arreglo aparte y previo a la Fase B del asistente de reportes ([docs/asistente-r
 §0.8, §0.13, §11.5 y §19). Seis fallas en las que el reporte **salía mal sin ningún error**. El detalle de las reglas
 está en [docs/reportes-dynamic-spec.md §16](docs/reportes-dynamic-spec.md).
 
-**Estado: sin desplegar. Sin cambios de schema.**
+**Estado: desplegada el 19/10/2026** (20:47 UTC, en la imagen `6663ea2`). Sin cambios de schema.
+- Arranque sin ERROR.
+- La plantilla #1 pasa las validaciones del código desplegado.
+- Backfill aplicado con el OK del usuario: 1 plantilla (`creadoPorId` en 1); el dry-run de control da 0.
 
 ### Lo que pasaba
 - **Operador desconocido = la cartera entera.** El planner devolvía `null` para `rangoClaves` (y para cualquier operador
@@ -455,7 +468,9 @@ Arreglado, cada uno con su test:
 Arreglo de los dos 👎 que dejó el usuario probando la Fase A en prod. El detalle está en
 [docs/asistente-spec.md §24](docs/asistente-spec.md), que manda sobre el resto del spec en lo que cambia.
 
-**Estado: sin desplegar.**
+**Estado: desplegada el 19/10/2026** (14:04 UTC, imagen `4d25382`).
+- Arranque sin ERROR.
+- "¿Qué son los bloques repetitivos?" desde Inicio cita "Crear una plantilla de importación".
 
 ### Lo que pasó
 - **"¿Qué son los bloques repetitivos?"** (18/10, respuesta 18, con el comentario *"Recorrés mejor la documentación
