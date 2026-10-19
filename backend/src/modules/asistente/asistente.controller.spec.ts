@@ -46,7 +46,7 @@ describe('AsistenteController.preguntar (SSE)', () => {
         const { ctrl } = armar({
             correr: async (emitir) => {
                 emitir({ evento: 'texto', data: { delta: 'Ho' } });
-                emitir({ evento: 'fin', data: { mensajeId: 3, estado: 'ok', texto: 'Ho', fuentes: [], acciones: [], ms: 5 } });
+                emitir({ evento: 'fin', data: { mensajeId: 3, estado: 'ok', texto: 'Ho', fuentes: [], acciones: [], pasos: [], propuestas: [], ms: 5 } });
             },
         });
         const res = new ResFalsa();

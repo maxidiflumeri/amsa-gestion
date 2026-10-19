@@ -20,6 +20,9 @@ function armar(
         wiki?: boolean;
         admins?: number[];
         aviso?: number;
+        /** Lo configurado para la función (null = el de código o el global). */
+        fnTopeTurno?: number | null;
+        fnLimiteDiario?: number | null;
     } = {},
 ) {
     const cfg = {
@@ -32,9 +35,15 @@ function armar(
     };
     const config: any = {
         leer: jest.fn().mockResolvedValue(cfg),
-        funcion: jest.fn().mockResolvedValue({
-            clave: 'ayuda', nombre: 'Ayuda', habilitada: opts.funcionHabilitada ?? true, topeMensualUsd: opts.topeFuncion ?? null,
-        }),
+        funcion: jest.fn().mockImplementation(async (clave: string) => ({
+            clave,
+            nombre: clave,
+            habilitada: opts.funcionHabilitada ?? true,
+            topeMensualUsd: opts.topeFuncion ?? null,
+            modelo: 'x',
+            topeTurnoUsd: opts.fnTopeTurno ?? null,
+            limiteDiarioUsuario: opts.fnLimiteDiario ?? null,
+        })),
         precioVigente: jest.fn().mockResolvedValue(opts.precio === undefined ? PRECIO : opts.precio),
         administradoresActivos: jest.fn().mockResolvedValue(opts.admins ?? [1, 2]),
     };
@@ -48,7 +57,7 @@ function armar(
     };
     const wiki: any = { disponible: opts.wiki ?? true };
     const notificaciones: any = { crear: jest.fn().mockResolvedValue(undefined) };
-    const svc = new TopesService(prisma, config, medicion, wiki, { modelo: 'us.anthropic.claude-haiku-5-5' } as any, notificaciones);
+    const svc = new TopesService(prisma, config, medicion, wiki, { modelo: 'us.anthropic.claude-haiku-5-5', modeloPara: (f: string) => (f === 'reportes' ? 'us.anthropic.claude-sonnet-5-5' : 'us.anthropic.claude-haiku-5-5') } as any, notificaciones);
     return { svc, prisma, config, medicion, updateMany, notificaciones };
 }
 
@@ -247,5 +256,61 @@ describe('TopesService', () => {
         const pausado = await armar({ habilitado: false }).svc.estado(7);
         expect(pausado.habilitado).toBe(false);
         expect(pausado.pausa?.codigo).toBe('PAUSADO');
+    });
+
+    describe('función de reportes (Fase B)', () => {
+        it('el tope por turno de la función (USD 0,30) rige en vez del global (USD 0,05), que cortaría en la primera llamada', async () => {
+            const { svc } = armar({ fnTopeTurno: 0.3, topeTurno: 0.05 });
+            await expect(svc.verificarIteracion('reportes', 0.2)).resolves.toBeUndefined();
+            await expect(svc.verificarIteracion('reportes', 0.3)).rejects.toMatchObject({ codigo: 'TOPE_TURNO' });
+        });
+
+        it('la ayuda sigue con el tope global', async () => {
+            const { svc } = armar({ fnTopeTurno: null, topeTurno: 0.05 });
+            await expect(svc.verificarIteracion('ayuda', 0.049)).resolves.toBeUndefined();
+            await expect(svc.verificarIteracion('ayuda', 0.05)).rejects.toMatchObject({ codigo: 'TOPE_TURNO' });
+        });
+
+        it('SIN_PRECIO mira el precio del modelo de LA FUNCIÓN', async () => {
+            const { svc, config } = armar({ precio: null });
+            const pausa = await svc.pausa('reportes');
+            expect(pausa?.codigo).toBe('SIN_PRECIO');
+            expect(config.precioVigente).toHaveBeenCalledWith('us.anthropic.claude-sonnet-5-5');
+            await svc.pausa('ayuda');
+            expect(config.precioVigente).toHaveBeenCalledWith('us.anthropic.claude-haiku-5-5');
+        });
+
+        it('límite diario propio de la función: 41.º pedido da 429 con la función y el texto de reportes', async () => {
+            const { svc } = armar({ fnLimiteDiario: 40, hechasHoy: 40 });
+            const r = await codigoDe(svc.verificarInicio(7, 'reportes'));
+            expect(r.status).toBe(429);
+            expect(r.body).toMatchObject({ codigo: 'LIMITE_FUNCION', funcion: 'reportes', limite: 40, usadas: 40 });
+            expect(r.body.mensaje).toBe('Llegaste al límite de 40 pedidos de reportes de hoy. Mañana se renueva.');
+        });
+
+        it('cuenta solo los turnos de esa función y rige igual el global', async () => {
+            const a = armar({ fnLimiteDiario: 40, hechasHoy: 39 });
+            await expect(a.svc.verificarInicio(7, 'reportes')).resolves.toEqual({ usadas: 40, limite: 40 });
+            const consulta = a.prisma.asistente_mensaje.count.mock.calls.map((c: any[]) => c[0].where.conversacion);
+            expect(consulta).toContain(undefined);
+            expect(consulta).toContainEqual({ funcion: 'reportes' });
+            const b = armar({ fnLimiteDiario: 40, hechasHoy: 100, limite: 100 });
+            const r = await codigoDe(b.svc.verificarInicio(7, 'ayuda'));
+            expect(r.status).toBe(429);
+        });
+
+        it('el límite general en modo reportes sigue siendo LIMITE_DIARIO (sin función)', async () => {
+            // Función con límite propio de 40, pero ya hizo 100 entre todas: la propia no se alcanzó, la general sí.
+            const a = armar({ fnLimiteDiario: 40, limite: 100 });
+            a.prisma.asistente_mensaje.count.mockImplementation(async ({ where }: any) => (where.conversacion ? 10 : 100));
+            const r = await codigoDe(a.svc.verificarInicio(7, 'reportes'));
+            expect(r.body).toMatchObject({ codigo: 'LIMITE_DIARIO', usadas: 100, limite: 100 });
+            expect(r.body.funcion).toBeUndefined();
+        });
+
+        it('estado de la función muestra su propio límite', async () => {
+            const e = await armar({ fnLimiteDiario: 40, hechasHoy: 3 }).svc.estado(7, 'reportes');
+            expect(e.limiteDiario).toEqual({ usadas: 3, limite: 40 });
+        });
     });
 });

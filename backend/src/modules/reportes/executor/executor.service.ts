@@ -6,6 +6,7 @@ import { PathResolver } from './path-resolver';
 import { Formatter } from './formatter';
 import { CardinalityResolver } from './cardinality';
 import { GroupingService, FilaConSubtotales } from './grouping.service';
+import { resolverTotales } from './totales';
 import { DefinicionPlantillaDto } from '../dto/plantilla.dto';
 import { evaluarCondicion } from './evaluar-condicion';
 import { contarRama, terminaEnCount } from './contar-rama';
@@ -106,7 +107,7 @@ export class ExecutorService {
       resultado = this.groupingService.aplicarAgrupacionYTotales(
         filasFormateadas,
         definicion.agrupaciones || [],
-        definicion.totales || [],
+        resolverTotales(definicion.columnas, definicion.totales),
         definicion.columnas.map(c => c.label),
         pathToLabel,
       );

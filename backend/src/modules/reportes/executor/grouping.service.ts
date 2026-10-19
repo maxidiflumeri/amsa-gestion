@@ -1,5 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { AgrupacionDto, TotalDto } from '../dto/plantilla.dto';
+import { Formatter, VALORES_CRUDOS } from './formatter';
+import { TotalResuelto } from './totales';
 
 export interface FilaConSubtotales {
   tipo: 'dato' | 'subtotal' | 'total' | 'cabecera';
@@ -17,6 +19,7 @@ export interface FilaConSubtotales {
 @Injectable()
 export class GroupingService {
   private readonly logger = new Logger(GroupingService.name);
+  private readonly formatter = new Formatter();
 
   aplicarAgrupacionYTotales(
     filas: Record<string, any>[],
@@ -164,11 +167,11 @@ export class GroupingService {
     }
 
     for (const total of totales) {
-      const flatKey = keyOf(total.path);
+      const flatKey = (total as TotalResuelto).claveColumna ?? keyOf(total.path);
       const labelFinal = total.label || flatKey;
 
       const valores = filasPlanas
-        .map(f => this.parseNumeric(f[flatKey]))
+        .map(f => this.parseNumeric(f?.[VALORES_CRUDOS]?.[flatKey] ?? f[flatKey]))
         .filter((v): v is number => v !== null);
 
       let resultado: number | null = null;
@@ -191,7 +194,13 @@ export class GroupingService {
           break;
       }
 
-      row[labelFinal] = resultado;
+      // E3: el total se ve como la columna (sin esto, 1236567.891 en una columna de 0 decimales).
+      // `count` es una cantidad de filas, no un importe: no se formatea.
+      const formato = (total as TotalResuelto).formatoColumna;
+      row[labelFinal] =
+        formato && resultado !== null && total.funcion !== 'count'
+          ? this.formatter.formatValue(resultado, 'numero', undefined, formato)
+          : resultado;
     }
 
     for (const col of columnas) {
@@ -209,7 +218,10 @@ export class GroupingService {
     if (typeof v !== 'string') return null;
     let s = v.replace(/[^\d,.\-]/g, '');
     if (s.includes(',') && s.includes('.')) {
-      s = s.replace(/\./g, '').replace(',', '.');
+      // Con los dos, el decimal es el que viene último: "1.234,50" (es-AR) y "1,234.50" (E3 con punto decimal).
+      s = s.lastIndexOf(',') > s.lastIndexOf('.')
+        ? s.replace(/\./g, '').replace(',', '.')
+        : s.replace(/,/g, '');
     } else if (s.includes(',')) {
       s = s.replace(',', '.');
     }

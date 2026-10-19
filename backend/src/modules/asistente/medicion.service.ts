@@ -51,7 +51,7 @@ export class MedicionService implements PuertoMedicion {
     ) {}
 
     async registrarLlamada(l: LlamadaRegistro): Promise<number> {
-        const precio = await this.config.precioVigente();
+        const precio = await this.config.precioVigente(l.modelo);
         if (!precio) {
             this.logger.error(`No hay precio para el modelo ${l.modelo}: la llamada se registra con costo 0 (mensaje=${l.mensajeId})`);
         }
@@ -240,6 +240,22 @@ export class MedicionService implements PuertoMedicion {
             });
         }
 
+        // Plantillas del asistente (Fase B): mostradas → abiertas → guardadas, y cuánto costó cada guardada.
+        const propuestasDelMes = await this.prisma.asistente_propuesta.groupBy({
+            by: ['estado', 'guardadaSinCambios'],
+            where: { createdAt: rangoMsg, estado: { not: 'probada' } },
+            _count: { _all: true },
+        });
+        const cuenta = (f: (e: string, sc: boolean | null) => boolean) =>
+            propuestasDelMes.filter((p) => f(p.estado, p.guardadaSinCambios)).reduce((a, p) => a + p._count._all, 0);
+        const guardadas = cuenta((e) => e === 'guardada');
+        const plantillas = {
+            mostradas: cuenta(() => true),
+            abiertas: cuenta((e) => e === 'abierta' || e === 'guardada'),
+            guardadas,
+            guardadasSinCambios: cuenta((e, sc) => e === 'guardada' && sc === true),
+        };
+
         const diasDelMes = new Date(Number(mes.slice(0, 4)), Number(mes.slice(5, 7)), 0).getDate();
         let transcurridos = diasDelMes;
         if (mes === actual) transcurridos = Number(ymdLocal().slice(8, 10));
@@ -268,6 +284,15 @@ export class MedicionService implements PuertoMedicion {
                 gastoUsd: r6(porFuncion.get(f.clave)?.gasto ?? 0),
                 preguntas: porFuncion.get(f.clave)?.preguntas ?? 0,
                 topeUsd: f.topeMensualUsd,
+                modelo: f.modelo,
+                ...(f.clave === 'reportes'
+                    ? {
+                          plantillas: {
+                              ...plantillas,
+                              costoPorGuardada: guardadas > 0 ? r6((porFuncion.get(f.clave)?.gasto ?? 0) / guardadas) : null,
+                          },
+                      }
+                    : {}),
             })),
             porUsuario: topUsuarios.map(([usuarioId, v]) => ({
                 usuarioId,

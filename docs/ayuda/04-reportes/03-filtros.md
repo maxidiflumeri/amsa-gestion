@@ -68,13 +68,36 @@ casos) caían en el **día anterior**: un filtro "vence el 15/03" traía los del
 vencimientos le sumaba o restaba un día para compensarlo, hay que sacarlo.
 
 **La fecha tiene que estar bien escrita.** Se acepta un día del calendario (`2026-07-31`, el que manda
-el selector de la pantalla). Si la fecha no es válida —un texto, un día que no existe como el 31 de
-febrero— el reporte **no se ejecuta** y avisa en qué filtro; antes tomaba cualquier cosa como fecha y
-salía con un período cualquiera, sin avisar. Más abajo están los mensajes.
+el selector de la pantalla) o una fecha relativa a hoy (ver más abajo). Si la fecha no es válida —un texto, un
+día que no existe como el 31 de febrero— el reporte **no se ejecuta** y avisa en qué filtro; antes tomaba
+cualquier cosa como fecha y salía con un período cualquiera, sin avisar. Más abajo están los mensajes.
 
 **Con una sola punta, el rango queda abierto.** **Entre** con solo el "desde" son las fechas de ahí en
 adelante, y con solo el "hasta", hasta esa fecha. **Fuera de** con una sola punta deja afuera de ahí en
 adelante (o hasta ahí).
+
+### Fechas relativas a hoy
+
+Un filtro de fecha puede guardar un día fijo o un día **que se mueve con el calendario**. Arriba de cada campo
+de fecha hay dos botones: **Fecha fija** y **Relativa a hoy**. Con el segundo elegís cuántos **días** y si es
+**antes de hoy** o **después de hoy**:
+
+| Lo que elegís | Se guarda como | El chip dice |
+|---|---|---|
+| 0 días | `hoy` | hoy |
+| 90 días antes de hoy | `hoy-90` | hace 90 días |
+| 7 días después de hoy | `hoy+7` | dentro de 7 días |
+
+Debajo del campo se ve a qué día corresponde hoy (*"hace 90 días: 21/07/2026"*). Cada vez que se ejecuta el
+reporte, el sistema lo recalcula **con la fecha del día, en hora de Argentina**. Es lo que hace que "los casos con
+más de 90 días de mora" (Vencimiento **Hasta** *hace 90 días*) siga siendo cierto dentro de un mes, sin
+tocar la plantilla. Con una fecha fija, el filtro quedaba clavado en el día en que se armó.
+
+- Vale con **Igual a**, **Desde**, **Hasta**, **Entre** y **Fuera de**; en estas dos últimas, cada punta es fija
+  o relativa por su cuenta.
+- Los días van de 0 a 3650.
+- En un filtro **variable** (el que se pide al ejecutar), el valor por defecto también puede ser relativo, y al
+  ejecutar se ve ya resuelto.
 
 ### Sí / No
 
@@ -193,8 +216,8 @@ cambiá ese filtro por uno de los que ofrece la pantalla y guardá.
 
 > **Fecha inválida en el filtro «Vence desde». Usá el formato AAAA-MM-DD**
 
-El valor de ese filtro no es una fecha. Usá el selector de fecha de la pantalla. Escribir cosas como
-`hoy-90` todavía no se puede: elegí la fecha puntual.
+El valor de ese filtro no es una fecha. Usá el selector de fecha de la pantalla, o **Relativa a hoy** si querés
+una fecha que se mueva sola. Un texto como `31/07/2026` o `ayer` no vale.
 
 ### Dice «El campo … no existe»
 
@@ -225,9 +248,10 @@ pantalla, un solo extremo vacío **no** es un error: es un rango abierto.
 
 Si una plantilla pide **los casos sin teléfono** (Cantidad = 0 de los contactos de tipo teléfono), el
 reporte traía los casos sin **ningún** contacto, así que se perdían los que tenían un mail pero no un
-teléfono. Ya está corregido: ahora cuenta solo los teléfonos. Ojo: **desde la pantalla no se puede armar**
-(el camino de la rama no se escribe a mano); solo aplica a plantillas cargadas por otra vía. En la
-pantalla, **Cantidad** cuenta todos los contactos juntos.
+teléfono. Ya está corregido: ahora cuenta solo los teléfonos. Ese filtro **no se puede armar desde la pantalla**
+(el camino de la rama no se escribe a mano): lo arma el
+[asistente](/ayuda/reportes/armar-con-el-asistente) cuando le pedís "los casos sin teléfono". En la pantalla,
+**Cantidad** cuenta todos los contactos juntos.
 
 ### Filtré por un dato adicional y no trae lo que espero
 

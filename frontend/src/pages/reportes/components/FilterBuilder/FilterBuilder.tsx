@@ -5,7 +5,7 @@ import { DndContext, closestCenter, MouseSensor, TouchSensor, KeyboardSensor, us
 import { SortableContext, verticalListSortingStrategy, arrayMove } from '@dnd-kit/sortable'
 import { Filtro, NodoCatalogo } from '../../../../types/reportes'
 import FilterChip from './FilterChip'
-import FilterEditor from './FilterEditor'
+import FilterEditor, { findInCatalogo } from './FilterEditor'
 
 type FilterBuilderProps = {
   filtros: Filtro[]
@@ -125,6 +125,8 @@ const FilterBuilder = ({ filtros, catalogo, empresaId, onChange }: FilterBuilder
                 <FilterChip
                   key={filtro.id}
                   filtro={filtro}
+                  // Un filtro que armó el asistente puede no traer el tipo del campo: se busca en el catálogo para rotular bien el operador.
+                  tipoEscalar={filtro.tipoEscalar ?? findInCatalogo(catalogo, filtro.path)?.tipoEscalar}
                   onClick={() => handleChipClick(filtro)}
                   onDelete={() => handleRemove(filtro.id)}
                 />

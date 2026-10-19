@@ -31,6 +31,21 @@ const ARCHIVOS = [
     'pages/asistente/AsistenteConsumo.tsx',
     'pages/asistente/ConfiguracionAsistente.tsx',
     'pages/ayuda/Markdown.tsx',
+    // Asistente de IA, Fase B (docs/asistente-reportes-spec.md §16): el panel de reportes, el editor y la pantalla de consumo
+    'components/asistente/AdjuntoChip.tsx',
+    'components/asistente/PasosTurno.tsx',
+    'components/asistente/TarjetaPropuesta.tsx',
+    'types/asistente.ts',
+    'pages/reportes/ReportesBuilder.tsx',
+    'pages/reportes/ReportesHome.tsx',
+    'pages/reportes/utils/fechaRelativa.ts',
+    'pages/reportes/utils/catalogoPath.ts',
+    'pages/reportes/components/BuilderHeader/BuilderHeader.tsx',
+    'pages/reportes/components/PropertiesPanel/PropertiesPanel.tsx',
+    'pages/reportes/components/FilterBuilder/CampoFecha.tsx',
+    'pages/reportes/components/FilterBuilder/FilterValueInput.tsx',
+    'pages/reportes/components/FilterBuilder/FilterChip.tsx',
+    'pages/reportes/components/ExecutionForm/VariableInput.tsx',
 ];
 const COLOR_A_MANO = /#[0-9a-fA-F]{3,8}\b|\brgba?\(|\bhsla?\(/;
 

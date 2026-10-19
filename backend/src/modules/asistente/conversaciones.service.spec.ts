@@ -20,7 +20,9 @@ function armar() {
             updateMany: jest.fn().mockResolvedValue({ count: 0 }),
         },
     };
-    return { svc: new ConversacionesService(prisma), prisma, tx };
+    const adjuntos = { vincular: jest.fn().mockResolvedValue([]), chipsDeConversacion: jest.fn().mockResolvedValue(new Map()) };
+    const propuestas = { tarjetasDeConversacion: jest.fn().mockResolvedValue(new Map()) };
+    return { svc: new ConversacionesService(prisma, adjuntos as never, propuestas as never), prisma, tx, adjuntos, propuestas };
 }
 
 const p = { usuarioId: 7, pregunta: '¿Cómo cargo una promesa?', ruta: '/gestion', versionWiki: 'abc12345', funcion: 'ayuda' };
@@ -60,7 +62,7 @@ describe('ConversacionesService', () => {
 
         it('el historial salta un turno guardado sin mensaje del asistente (si no, Bedrock da 400 en cada pregunta)', async () => {
             const { svc, tx } = armar();
-            tx.asistente_conversacion.findFirst.mockResolvedValue({ id: 9, turnos: 2, versionWiki: 'v' });
+            tx.asistente_conversacion.findFirst.mockResolvedValue({ id: 9, turnos: 2, versionWiki: 'v', funcion: 'ayuda' });
             tx.asistente_mensaje.findMany.mockResolvedValue([
                 { rol: 'usuario', estado: 'ok', apiMensajes: [{ role: 'user', content: 'a' }, { role: 'system', content: 'ctx' }] },
                 { rol: 'asistente', estado: 'ok', apiMensajes: [] },
@@ -82,15 +84,62 @@ describe('ConversacionesService', () => {
 
         it('40 turnos: 409 CONVERSACION_LLENA', async () => {
             const { svc, tx } = armar();
-            tx.asistente_conversacion.findFirst.mockResolvedValue({ id: 9, turnos: MAX_TURNOS_CONVERSACION, versionWiki: 'v' });
+            tx.asistente_conversacion.findFirst.mockResolvedValue({ id: 9, turnos: MAX_TURNOS_CONVERSACION, versionWiki: 'v', funcion: 'ayuda' });
             const e = await svc.crearTurno({ ...p, conversacionId: 9 }).catch((x) => x);
             expect(e).toBeInstanceOf(ConflictException);
             expect(e.getResponse()).toMatchObject({ codigo: 'CONVERSACION_LLENA' });
         });
 
+        it('reportes: una conversación de ayuda da 409 FUNCION_DISTINTA (y al revés)', async () => {
+            const { svc, tx } = armar();
+            tx.asistente_conversacion.findFirst.mockResolvedValue({ id: 9, turnos: 1, versionWiki: 'v', funcion: 'ayuda' });
+            const e = await svc.crearTurno({ ...p, conversacionId: 9, funcion: 'reportes' }).catch((x) => x);
+            expect(e).toBeInstanceOf(ConflictException);
+            expect(e.getResponse()).toMatchObject({ codigo: 'FUNCION_DISTINTA' });
+            expect(tx.asistente_mensaje.create).not.toHaveBeenCalled();
+        });
+
+        it('reportes: 12 turnos dan CONVERSACION_LLENA con el texto de reportes', async () => {
+            const { svc, tx } = armar();
+            tx.asistente_conversacion.findFirst.mockResolvedValue({ id: 9, turnos: 12, versionWiki: 'v', funcion: 'reportes' });
+            const e = await svc.crearTurno({ ...p, conversacionId: 9, funcion: 'reportes' }).catch((x) => x);
+            expect(e.getResponse()).toMatchObject({ codigo: 'CONVERSACION_LLENA', mensaje: expect.stringContaining('la última propuesta sigue disponible') });
+        });
+
+        it('reportes: un prompt de más de 100.000 tokens también la llena (el historial con thinking no se recorta)', async () => {
+            const { svc, tx } = armar();
+            tx.asistente_conversacion.findFirst.mockResolvedValue({ id: 9, turnos: 3, versionWiki: 'v', funcion: 'reportes' });
+            tx.asistente_mensaje.findMany.mockResolvedValue([]);
+            tx.asistente_llamada.findFirst.mockResolvedValue({ tokensEntrada: 10, cacheLectura: 100_000, cacheEscritura5m: 0, cacheEscritura1h: 0 });
+            const e = await svc.crearTurno({ ...p, conversacionId: 9, funcion: 'reportes' }).catch((x) => x);
+            expect(e.getResponse()).toMatchObject({ codigo: 'CONVERSACION_LLENA' });
+        });
+
+        it('reportes: el historial conserva los bloques thinking tal cual y los adjuntos se vinculan en la misma transacción', async () => {
+            const { svc, tx, adjuntos } = armar();
+            tx.asistente_conversacion.findFirst.mockResolvedValue({ id: 9, turnos: 1, versionWiki: 'v', funcion: 'reportes' });
+            const asistente = [
+                { role: 'assistant', content: [{ type: 'thinking', thinking: '', signature: 'firma' }, { type: 'text', text: 'hola' }] },
+            ];
+            tx.asistente_mensaje.findMany.mockResolvedValue([
+                { rol: 'usuario', estado: 'ok', apiMensajes: [{ role: 'user', content: 'a' }, { role: 'system', content: 'ctx' }] },
+                { rol: 'asistente', estado: 'ok', apiMensajes: asistente },
+            ]);
+            const r = await svc.crearTurno({ ...p, conversacionId: 9, funcion: 'reportes', adjuntoIds: [4, 5] });
+            expect(r.historial[0].mensajes.at(-1)).toEqual(asistente[0]);
+            expect(r.esPrimerTurno).toBe(false);
+            expect(adjuntos.vincular).toHaveBeenCalledWith(tx, expect.objectContaining({ usuarioId: 7, conversacionId: 9, ids: [4, 5] }));
+        });
+
+        it('una conversación nueva es el primer turno', async () => {
+            const { svc } = armar();
+            const r = await svc.crearTurno({ ...p, funcion: 'reportes' });
+            expect(r.esPrimerTurno).toBe(true);
+        });
+
         it('el historial son solo los turnos ok/cortado, en orden; rechazados y con error quedan afuera', async () => {
             const { svc, tx } = armar();
-            tx.asistente_conversacion.findFirst.mockResolvedValue({ id: 9, turnos: 3, versionWiki: 'vieja' });
+            tx.asistente_conversacion.findFirst.mockResolvedValue({ id: 9, turnos: 3, versionWiki: 'vieja', funcion: 'ayuda' });
             const u = (id: number) => ({ rol: 'usuario', estado: 'ok', apiMensajes: [{ role: 'user', content: `q${id}` }, { role: 'system', content: 'c' }] });
             const a = (estado: string, t: string) => ({ rol: 'asistente', estado, apiMensajes: [{ role: 'assistant', content: [{ type: 'text', text: t }] }] });
             tx.asistente_mensaje.findMany.mockResolvedValue([u(1), a('ok', 'r1'), u(2), a('rechazado', 'x'), u(3), a('error', 'y'), u(4), a('cortado', 'r4')]);

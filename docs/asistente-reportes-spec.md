@@ -64,6 +64,14 @@ archivos de ejemplo del set de evaluación. Lo que cambia respecto de lo que se 
 9. **La empresa de la plantilla no filtra datos** [V `executor.service.ts` no la lee; la wiki lo dice en
    `04-reportes/01-como-funciona`]. "De Toyota" es un filtro `empresa.nombre`, y hay **7 empresas que empiezan con
    TOYOTA** [V `seed-empresas.ts`]: el prototipo preguntó cuáles, como se pide [V].
+   > **Cambio del 19/10/2026 (set v2 completo, 81 % de tarjetas contra 90 %).** Con el nombre exacto en el pedido («para
+   > TOYOTA», «el cedente FIAT») el modelo igual preguntaba «¿cuál de las empresas Toyota?» en la mitad de las corridas
+   > (R07, R08, R12, R13, R20 a R22). La maqueta armaba directo, y cada pregunta de más le costaba un turno a la persona.
+   > Regla nueva: si el nombre coincide EXACTO con una empresa (sin mayúsculas ni acentos) se usa esa sin preguntar y el
+   > `mensaje` de la tarjeta nombra las otras que empiezan igual; solo se pregunta si no hay ninguna exacta y hay varias
+   > parecidas. No depende solo del prompt: `valores_de_campo` de `empresa.nombre` con `buscar` devuelve «Coincide exacto:
+   > …» y el validador avisa si el filtro es por una empresa con otras del mismo prefijo (`reportes/empresas.ts`). R01 y
+   > R01b esperan tarjeta en el primer turno; «Solo TOYOTA» es un ajuste.
 10. **La maqueta promete cosas que el motor no hace:** "Días de mora", "con 2 decimales" y un filtro de mora que se
     mueva solo. Sin las extensiones E1 a E3 (§11), esas columnas salen aproximadas y el filtro con fecha fija: la
     plantilla queda bien el día que se arma y mal un mes después, sin que nadie lo note.
@@ -430,7 +438,7 @@ Todo bajo `/api`, con el `JwtAuthGuard` global. **El frontend copia los tipos de
 | `POST /asistente/adjuntos` | `asistente.reportes` (+ en el servicio: `reportes.crear`) | multipart, campo `archivo`, 1 archivo, ≤ 5 MB (`FileInterceptor` con `limits.fileSize`) | `201 AdjuntoSubido` | `400 {codigo}`: `TIPO_NO_SOPORTADO` (incluye .xlsm, PDF e imagen por ahora), `NO_COINCIDE_EXTENSION`, `VACIO`, `ILEGIBLE`, `ENCRIPTADO`, `SIN_COLUMNAS` · `413 DEMASIADO_GRANDE` · `429 LIMITE_ADJUNTOS` (30 por persona por día) · `403 SIN_PERMISO_FUNCION` |
 | `PATCH /asistente/adjuntos/:id` | ídem, propio y sin mandar | `{ primeraFilaEsEncabezado: boolean }` | `AdjuntoSubido` | `404` · `409 YA_ENVIADO` |
 | `DELETE /asistente/adjuntos/:id` | ídem, propio y sin mandar | — | `204` | `404` · `409 YA_ENVIADO` |
-| `POST /asistente/preguntar` | `asistente.usar` (+ en el servicio, con `funcion: 'reportes'`: `asistente.reportes`, `reportes.ver`, `reportes.crear`) | `PreguntarDto` + `funcion?` + `adjuntos?: number[]` (≤ 3) | `text/event-stream` (§6.2) | Los de la Fase A, más: `403 SIN_PERMISO_FUNCION` · `400 ADJUNTO_INVALIDO` (ajeno, inexistente, de otra conversación o de más de 24 h sin mandar) · `409 FUNCION_DISTINTA` · `429 LIMITE_DIARIO` con `funcion` · `409 CONVERSACION_LLENA` (en reportes: 12 turnos o 100k de prompt) |
+| `POST /asistente/preguntar` | `asistente.usar` (+ en el servicio, con `funcion: 'reportes'`: `asistente.reportes`, `reportes.ver`, `reportes.crear`) | `PreguntarDto` + `funcion?` + `adjuntos?: number[]` (≤ 3) | `text/event-stream` (§6.2) | Los de la Fase A, más: `403 SIN_PERMISO_FUNCION` · `400 ADJUNTO_INVALIDO` (ajeno, inexistente, de otra conversación o de más de 24 h sin mandar) · `409 FUNCION_DISTINTA` · `429 LIMITE_FUNCION` (límite propio de la función; el general sigue siendo `LIMITE_DIARIO`) · `409 CONVERSACION_LLENA` (en reportes: 12 turnos o 100k de prompt) |
 | `GET /asistente/estado?funcion=reportes` | `asistente.usar` | `funcion` opcional (default `ayuda`) | `EstadoAsistente` de esa función | `400` función inexistente |
 | `GET /asistente/propuestas/:id/plantilla` | `asistente.reportes`, propia | — | `PlantillaDesdeAsistente`; marca `abierta` si estaba `mostrada` | `404` (ajena, inexistente, o probada y nunca mostrada) |
 | `GET /asistente/propuestas/:id/vista-previa` | `asistente.reportes` + `reportes.ver`, propia | `filas` 1..10 (default 5) | `VistaPreviaPropuesta` (enmascarada, §8.4). **No se guarda** | `404` · timeout → `200` con `error: 'TIMEOUT'` |
@@ -477,7 +485,7 @@ Como en la Fase A: `{ codigo, mensaje, message }`. Textos nuevos:
 - `FUNCION_DISTINTA`: "Esta conversación es de ayuda. Empezá una nueva en «Armar un reporte»."
 - `CONVERSACION_LLENA` (reportes): "Esta conversación ya es muy larga. Empezá una nueva: la última propuesta sigue
   disponible en su tarjeta."
-- `LIMITE_DIARIO` (reportes): "Llegaste al límite de {n} pedidos de reportes de hoy. Mañana se renueva."
+- `LIMITE_FUNCION` (reportes; el general sigue siendo `LIMITE_DIARIO`, sin `funcion`): "Llegaste al límite de {n} pedidos de reportes de hoy. Mañana se renueva."
 
 ### 6.4 Tipos (frontend `src/types/asistente.ts`; backend `dto/asistente.tipos.ts`)
 
@@ -592,7 +600,7 @@ client.messages.stream({
 
 1. **`SYSTEM_REPORTES` = `INSTRUCCIONES_REPORTES` (§15.1) + `"\n\n# Catálogo de campos\n\n"` + `catalogoCompacto()`.**
    - Byte a byte igual entre requests de un mismo deploy: sin fecha, sin nombres, sin empresas, orden determinista.
-   - Log al arrancar: `Asistente reportes: system=N caracteres, catálogo=M campos, sha1=xxxxxxxx`.
+   - Log en el PRIMER turno de reportes del proceso (el runner se arma ahí, porque necesita el catálogo): `Asistente reportes: system=N caracteres, catálogo=M campos, sha1=xxxxxxxx`.
    - El catálogo sale de `CatalogoService.getCatalogo('deudor', 3)`, que es determinista [V `catalogo.service.ts`], al
      primer turno y cacheado en memoria con su sha1.
 2. **Historial** = `apiMensajes` de los turnos `ok`/`cortado` de la conversación, **con los bloques `thinking` tal cual
@@ -1181,7 +1189,10 @@ Cada una cambia el DSL o el resultado de plantillas existentes, y merece su prop
 **Lo que se hace en la Fase B (la maqueta):** la tarjeta tiene **Abrir en el editor** y **Ajustar algo antes**.
 
 1. **Abrir en el editor** (solo si `estado` no es `guardada`; si lo es, **Ver la plantilla** → `/reportes/:id/editar`).
-   - `navigate('/reportes/nuevo?propuesta=:id')`. El panel queda abierto: vive en `AppShell`.
+   - `navigate('/reportes/nuevo?propuesta=:id')`. El panel vive en `AppShell`. **Implementado (19/10):** con menos de
+     1536 px el panel es un modal que tapa el editor, así que al tocar **Abrir en el editor** se cierra solo; con 1536 px
+     o más queda abierto al costado. La tarjeta pasa a «abierta» recién cuando el editor cargó la plantilla: si la
+     persona rechaza el reemplazo de lo que tenía armado, no se abrió.
    - El editor pide `GET /asistente/propuestas/:id/plantilla`, carga la plantilla con `hasChanges: true` (el aviso de
      salir sin guardar funciona) y muestra un aviso arriba:
      > "Esta plantilla la armó el asistente y **todavía no existe**. Revisala y tocá **Guardar**."
@@ -1367,7 +1378,7 @@ Cada fila del reporte es un caso (un deudor). Una plantilla tiene:
 
 - Operadores. Texto: `eq`, `neq`, `contains`, `startsWith`, `endsWith`, `in`, `notIn`, `isNull`, `isNotNull`. Número: `eq`, `neq`, `gt`, `gte`, `lt`, `lte`, `between`, `isNull`, `isNotNull`. Fecha: `eq`, `gte`, `lte`, `between`, `isNull`, `isNotNull`, con fechas `YYYY-MM-DD`. Sí/No: `eq`.
 - [E1] Fechas que se mueven solas: `"hoy"`, `"hoy-90"`, `"hoy+7"` (días). «Más de 90 días de mora» es `fechaVencimiento` `lte` `"hoy-90"`. Una fecha fija solo si la persona dio una fecha o un mes concreto.
-- La empresa se filtra con `empresa.nombre` (`eq`, o `in` si son varias), con los nombres exactos de la lista de empresas. Si un nombre coincide con varias («Toyota»), preguntá cuáles. La empresa de la plantilla (`empresa`) solo la asocia para usar sus datos adicionales: no filtra.
+- La empresa se filtra con `empresa.nombre` (`eq`, o `in` si son varias), con los nombres exactos de la lista de empresas. Si el nombre que da la persona coincide EXACTO con una empresa, usá esa sin preguntar y nombrá en `mensaje` las otras que empiezan igual; preguntá solo si no hay ninguna exacta y hay varias parecidas. La empresa de la plantilla (`empresa`) solo la asocia para usar sus datos adicionales: no filtra.
 - Situación, gestión y motivo: filtrá por la `clave` (`SIT-050`), que no se repite; la descripción puede parecerse entre códigos distintos.
 - Un filtro `variable` se pide al ejecutar: usalo para lo que cambia de una corrida a otra (el período, la remesa). Llevá `labelVariable` y, si acota el volumen, `obligatorio: true`. En la prueba los filtros variables no se aplican.
 - Un filtro sobre una rama de muchos (`pagos.fecha`) elige los casos y además recorta lo que muestran las columnas de esa rama.
@@ -1387,10 +1398,10 @@ Unir dos campos en una columna (nombre y apellido juntos), cuentas entre campos 
 Sacado del prototipo a propósito: agrupaciones y totales. El modelo no los usó en ninguna corrida, y quien los necesite
 los agrega en el editor. Menos reglas, menos tokens.
 
-**El prompt de la ayuda (Fase A) no se toca** (lección de §24: cambiar una regla bajó otro comportamiento). Lo único que
-cambia en la ayuda es una línea del contexto **del turno**, solo para quien tiene los permisos de reportes:
-- "La persona puede usar el modo «Armar un reporte» del asistente (arriba del panel) para que le armen una plantilla."
-- Regresión: A01, A22-A25 y B01 del set de la Fase A, 16 veces cada una (§20.3).
+**El prompt de la ayuda (Fase A) no se toca** (lección de §24: cambiar una regla bajó otro comportamiento). **La línea de
+contexto "La persona puede usar el modo «Armar un reporte»…" que este diseño preveía NO se agregó**: el selector de modo del
+panel y el botón de Reportes ya le muestran la función a quien tiene los permisos, y cualquier cambio en la ayuda obligaba a
+repetir su regresión (A01, A22-A25 y B01, 16 veces cada una, §20.3) para un beneficio que la pantalla ya da.
 
 ### 15.2 Herramientas (orden fijo)
 
@@ -1664,7 +1675,7 @@ Todas con default en código. **El deploy no necesita parámetros SSM nuevos.**
 | `ASISTENTE_MODELO_REPORTES` | `us.anthropic.claude-sonnet-5-5` | Modelo de la función de reportes. Tiene que tener precio en `PRECIOS_DEFAULT` o en la configuración (si no, pausa `SIN_PRECIO` de esa función) |
 | `ASISTENTE_REPORTES_TIMEOUT_MS` | `120000` | Timeout por llamada de la función |
 | `ASISTENTE_ADJUNTO_MAX_BYTES` | `5242880` | Tamaño máximo de un adjunto |
-| `ASISTENTE_PERFIL_EN_LINEA` | vacío | Solo tests: perfila en el mismo hilo |
+| `ASISTENTE_PERFIL_EN_LINEA` | vacío | Solo tests: perfila en el mismo hilo. **No se puede activar con `NODE_ENV=production`** (el parser de SheetJS quedaría en el hilo principal) |
 
 ---
 
@@ -1793,7 +1804,7 @@ Un caso de varios turnos (`turnos: [...]`) corre la conversación entera. Cada t
 
 | id | Turnos | Esperado |
 |---|---|---|
-| R01 | F01 + "Necesito un reporte igual a este, de Toyota, con los casos que tienen más de 90 días de mora." | **Pregunta** cuál Toyota (las 7 en el texto) |
+| R01 | F01 + "Necesito un reporte igual a este, de Toyota, con los casos que tienen más de 90 días de mora." | **Tarjeta** con `empresa.nombre eq TOYOTA` y el mensaje nombrando las otras Toyota (cambio del 19/10: antes preguntaba cuál) |
 | R01b | R01 + "Solo TOYOTA" | Tarjeta. 9 columnas en orden. DNI→`documento`; Cliente→`nombre` o `apellido` (aproximada); Saldo→`saldo` numero 2 decimales coma; Vencimiento→`fechaVencimiento` fecha DD/MM/YYYY; Días de mora→`dias` sobre `fechaVencimiento`; Teléfono→`contactos[tipo=telefono][0].valor` telefono; Email→`contactos[tipo=email][0].valor`; Situación→`estadoSituacion.descripcion`. Filtros: `empresa.nombre eq TOYOTA` y `fechaVencimiento lte hoy-90`. xlsx |
 | R02 | R01b + "Agregá el teléfono alternativo" | Solo una columna más, `[1]`, `agregada`; el resto igual |
 | R03 | R01b + "Que salga en CSV separado por ;" | csv, `separador ;`, columnas iguales |
@@ -1860,7 +1871,7 @@ Informativas:
 3. **Adjuntar** `ejemplo_cartera_toyota.xlsx`: el chip dice "XLSX · ejemplo_cartera_toyota.xlsx · 9 columnas", con
    "DNI, Cliente, Nro Cliente…".
 4. Escribir el pedido de la maqueta.
-   - Aparece "Leí el ejemplo…" y después la pregunta de cuál Toyota.
+   - Aparece "Leí el ejemplo…" y después la tarjeta con TOYOTA y el mensaje nombrando las otras empresas Toyota (antes preguntaba cuál).
    - Responder "Solo TOYOTA".
 5. **Ver la tarjeta:**
    - pasos con ✓;
@@ -1913,7 +1924,7 @@ Informativas:
 4. **Controles:**
    - arranque sin ERROR;
    - log `Asistente listo: modelo=… reportes=us.anthropic.claude-sonnet-5-5`;
-   - log `Asistente reportes: system=… sha1=…`;
+   - log `Asistente reportes: system=… sha1=…` (sale en el primer turno de reportes, no al arrancar);
    - `SHOW TABLES LIKE 'asistente_%'` da 7;
    - primera plantilla real: filas en `asistente_llamada` con `funcion='reportes'` y `modelo` Sonnet, `cacheLectura` de
      unos 11.000 desde la segunda llamada, y una `asistente_propuesta` `mostrada`;
@@ -2306,3 +2317,89 @@ Aditivo, sin backfill.
 - No tocar prod más allá de la lectura del paso 0, y esa con el OK del usuario.
 
 **Criterios de aceptación:** §23, puntos 1 a 17.
+
+---
+
+## 26. Ronda de auditoría de la Fase B (backend, 19/10/2026)
+
+Las auditorías dieron NO PASA (privacidad) en backend. Lo que cambió, por punto:
+
+1. **Encabezado vs. dato.** Una celda solo puede ser encabezado si PARECE encabezado: texto no numérico, sin `@`, sin 5 o más
+   dígitos (ni más de 4 en total), sin forma de DNI, teléfono, CUIT o mail, de hasta 60 caracteres. Una fila con alguna celda
+   que no cumpla no es encabezado (`perfil-ejemplo.ts: pareceEncabezado`). Segunda red: un "encabezado" o nombre de hoja con forma
+   de dato nunca sale literal ni al guardarse ni en `perfil-a-texto`: sale su forma (`encabezadoSeguro`).
+2. **Vista previa:** se enmascara por elemento con el `separadorConcat` real de la columna y, al final, cualquier mail,
+   teléfono o número largo en cualquier lugar de la celda.
+3. **Validador:** corre las mismas reglas que el alta (DTO con class-validator, `validarDefinicion`, `validarOpcionesFormato`)
+   y los enums/tipos de columnas y opciones (`incluirHeader`, `bom`, `relleno`, `alineacion`, `tipo`, `cardinalidad`).
+4. **E4:** un número a la derecha que pierde dígitos significativos es ERROR de la prueba (`rechazada`): no se guarda ni se muestra.
+5. **Mora:** «más de 90 días» es `lte hoy-91`; «90 o más», `lte hoy-90`.
+6. **La tarjeta muestra la cardinalidad** ("todos (comentarios), separados por «, »" contra "el último cargado").
+7. La normalización completa `tipoEscalar` (y `enumValues`) de cada filtro; las sugerencias y el mensaje se sanean (escapes
+   `\uXXXX`, controles, sugerencias rotas); el hash de "guardada sin cambios" ignora los defaults del editor.
+8. **Topes:** el perfil guardado ≤ 40 KB y el bloque `<ejemplo>` ≤ 15.000 caracteres; antes de la primera llamada se estima el
+   request y, si pasa de 120.000 tokens, el turno corta con `PROMPT_DEMASIADO_GRANDE`.
+9. **Adjuntos:** perfilado con cola (2 a la vez, 30 s de espera, `OCUPADO`), tope de descomprimido de 40 MB, límite diario
+   atómico (una subida a la vez por persona).
+10. **Dedupe** después de validar tipo y extensión, con clave contenido + nombre y con id nuevo; un `.xls` llamado `.xlsx` da
+    `NO_COINCIDE_EXTENSION`.
+11. **Ejemplo principal:** el primero de la conversación; si el mapeo usa más columnas de otro, ese.
+12. Mensajes: `FUNCION_DISTINTA` dice de cuál es la conversación; el 403 nombra «Ver reportes»; los errores de multer salen
+    con `codigo` y en castellano.
+
+---
+
+## 27. Integración y cierre (19/10/2026)
+
+**Manda sobre el resto del documento.**
+
+### 27.1 Lo que cambió al integrar
+- **La empresa exacta (cambia la regla de §0.9 y de R01).** Si el nombre coincide exacto con una empresa, se usa y el
+  mensaje nombra las que empiezan igual; solo se pregunta si no hay ninguna exacta. Hay red en `valores_de_campo` y aviso
+  del validador.
+  - **Por qué:** con "para TOYOTA" el modelo preguntaba igual en la mitad de los casos, y la maqueta armaba directo.
+- **Totales atados a una columna** (`columnaId`) y calculados sobre los números crudos, con el formato de la columna. Con
+  dos columnas sobre el mismo campo, el promedio salía 19.082.026 en vez de 60.
+- **El relleno `0` exige alineación `derecha`**, y los largos del ancho fijo tienen que coincidir con las columnas. Lo
+  revisan el editor, el alta y el exportador.
+- **Los números que escribió la persona no se repiten** en el texto, el mensaje ni las sugerencias
+  (`reportes/no-repetir.ts`). En R16, "el reporte del DNI 30111222" lo repetía en 1 de 2 corridas.
+- **El código de formato de Excel viaja sin texto literal** (`formatoExcelSinLiterales`).
+- **`relleno` y `alineacion` con valores que el exportador no entiende** dan 400 al guardar.
+- **Expectativas del set:** R07 exige `FIAT` exacto, y "todos los valores" pasa a ser un conjunto exacto (R19).
+
+### 27.2 Resultado final del set (con el prompt definitivo)
+- **62 turnos; 60 sin diferencias.**
+  - tarjeta: 100 %;
+  - columnas: 100 %;
+  - empresa: 100 %;
+  - resto de los filtros: 96,2 %;
+  - formato: 100 %;
+  - mapeo: 98,6 %;
+  - `noDebe`: 100 %.
+- **Costo:** USD 0,037 por turno de media y USD 0,15 como máximo.
+- **Latencia:** p50 17,7 s y p95 41,9 s.
+- **Caché:** 91 %.
+- **Regresión de la Fase A:** 39/39 páginas; 96/96 en las seis preguntas de reportes, 16 veces cada una.
+
+### 27.3 Riesgo aceptado: el encabezado de un archivo de una sola fila
+- **Qué pasa:** la regla de §8.2 ("ante la duda, sin encabezado") se aplica con `pareceEncabezado`. Una celda es
+  encabezado solo si es texto, sin @, sin 5 o más dígitos, con 4 dígitos como máximo en total, sin forma de DNI,
+  teléfono, CUIT, mail ni fecha, y de 60 caracteres como máximo.
+- **Lo que queda:** una fila de solo texto, por ejemplo nombre, dirección y localidad, en un archivo de **una sola
+  fila** (o en la primera fila sobre una columna numérica) se toma como encabezado, y esos textos llegan al modelo.
+  Pasa igual en la segunda hoja de un Excel.
+- **Por qué no se cierra:** no se puede distinguir de un layout que trae solo los encabezados, que es el caso común.
+- **Lo que nunca llega:** un identificador fuerte (DNI, CUIT, teléfono, mail, importe), que siempre sale enmascarado.
+- **La red:** el chip muestra los primeros encabezados antes de mandar y tiene "La primera fila no es el encabezado".
+- **Auditoría:** el auditor lo calificó como media y "no grave". Queda aceptado y escrito en la wiki.
+
+### 27.4 Deuda
+- **El set de evaluación:**
+  - R13 mira el label con una regex, así que un label inventado lo esquiva;
+  - el test del runner con cada fixture real no existe. Por fixture, el de privacidad cubre el perfil y `perfilATexto`.
+- **Los tableros** siguen con la ventana del día local (ver `918547b`).
+- **Lo que viene después:**
+  - PDF e imagen como ejemplo (D-9);
+  - SheetJS 0.20.3 (D-11);
+  - guardar desde la tarjeta (D-1), cuando las métricas de Consumo lo justifiquen.

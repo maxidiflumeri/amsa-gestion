@@ -8,15 +8,23 @@ import {
     ConversacionResumen,
     EstadoMensaje,
     FuenteAyuda,
+    FuncionClave,
     MensajeAsistente,
+    Paso,
 } from './dto/asistente.tipos';
+import { AdjuntosService } from './adjuntos/adjuntos.service';
 import { TurnoHistorial } from './prompt/armar-request';
+import { MAX_PROMPT_REPORTES, MAX_TURNOS_REPORTES, mensajeFuncionDistinta } from './reportes/funcion-reportes';
+import { PropuestasService } from './reportes/propuestas.service';
 import { ResultadoTurno } from './turno/turno-runner';
 
 /** Turnos máximos de una conversación: después hay que empezar otra. */
 export const MAX_TURNOS_CONVERSACION = 40;
 /** Un mensaje `en_curso` más viejo que esto es de un proceso que murió. */
 export const EN_CURSO_VENCIDO_MS = 5 * 60 * 1000;
+
+export const MENSAJE_CONVERSACION_LLENA_REPORTES =
+    'Esta conversación ya es muy larga. Empezá una nueva: la última propuesta sigue disponible en su tarjeta.';
 
 export interface TurnoCreado {
     conversacionId: number;
@@ -25,13 +33,25 @@ export interface TurnoCreado {
     versionWiki: string;
     historial: TurnoHistorial[];
     ultimoPromptTokens: number;
+    /** Si la conversación ya tenía turnos cerrados (para mandar las empresas solo en el primero). */
+    esPrimerTurno: boolean;
 }
 
 @Injectable()
 export class ConversacionesService implements OnModuleInit {
     private readonly logger = new Logger(ConversacionesService.name);
 
-    constructor(private readonly prisma: PrismaService) {}
+    constructor(
+        private readonly prisma: PrismaService,
+        private readonly adjuntos: AdjuntosService,
+        private readonly propuestas: PropuestasService,
+    ) {}
+
+    /** La función de una conversación propia, o null si no existe. */
+    async funcionDe(usuarioId: number, conversacionId: number): Promise<FuncionClave | null> {
+        const c = await this.prisma.asistente_conversacion.findFirst({ where: { id: conversacionId, usuarioId }, select: { funcion: true } });
+        return c ? (c.funcion as FuncionClave) : null;
+    }
 
     /** Los `en_curso` viejos son de un reinicio a mitad de un turno: pasan a `error` (el costo ya quedó en las llamadas). */
     async onModuleInit(): Promise<void> {
@@ -62,6 +82,8 @@ export class ConversacionesService implements OnModuleInit {
         ruta: string;
         versionWiki: string;
         funcion: string;
+        /** Fase B: los archivos de ejemplo que se mandan con este mensaje. */
+        adjuntoIds?: number[];
     }): Promise<TurnoCreado> {
         return this.prisma.$transaction(async (tx) => {
             let conversacionId = p.conversacionId;
@@ -75,10 +97,18 @@ export class ConversacionesService implements OnModuleInit {
                     this.logger.warn(`Conversación ${conversacionId} inexistente o ajena (usuario=${p.usuarioId})`);
                     throw new NotFoundException('No encontramos esa conversación.');
                 }
-                if (c.turnos >= MAX_TURNOS_CONVERSACION) {
+                if (c.funcion !== p.funcion) {
+                    this.logger.warn(`Función distinta (conversación ${c.id} es de ${c.funcion}, se pidió ${p.funcion})`);
+                    {
+                        const mensaje = mensajeFuncionDistinta(c.funcion);
+                        throw new ConflictException({ codigo: 'FUNCION_DISTINTA', mensaje, message: mensaje });
+                    }
+                }
+                const limiteTurnos = p.funcion === 'reportes' ? MAX_TURNOS_REPORTES : MAX_TURNOS_CONVERSACION;
+                if (c.turnos >= limiteTurnos) {
                     throw new ConflictException({
                         codigo: 'CONVERSACION_LLENA',
-                        mensaje: 'Esta conversación ya es muy larga. Empezá una nueva.',
+                        mensaje: p.funcion === 'reportes' ? MENSAJE_CONVERSACION_LLENA_REPORTES : 'Esta conversación ya es muy larga. Empezá una nueva.',
                     });
                 }
                 versionWiki = c.versionWiki;
@@ -91,6 +121,10 @@ export class ConversacionesService implements OnModuleInit {
                 if (ultima) {
                     ultimoPromptTokens =
                         ultima.tokensEntrada + ultima.cacheLectura + ultima.cacheEscritura5m + ultima.cacheEscritura1h;
+                }
+                // Reportes no recorta el historial (invalidaría las firmas del thinking): se corta la conversación por tamaño.
+                if (p.funcion === 'reportes' && ultimoPromptTokens > MAX_PROMPT_REPORTES) {
+                    throw new ConflictException({ codigo: 'CONVERSACION_LLENA', mensaje: MENSAJE_CONVERSACION_LLENA_REPORTES, message: MENSAJE_CONVERSACION_LLENA_REPORTES });
                 }
             } else {
                 const c = await tx.asistente_conversacion.create({
@@ -125,6 +159,9 @@ export class ConversacionesService implements OnModuleInit {
                     estado: 'en_curso',
                 },
             });
+            if (p.adjuntoIds && p.adjuntoIds.length > 0) {
+                await this.adjuntos.vincular(tx, { usuarioId: p.usuarioId, conversacionId, mensajeId: usuario.id, ids: p.adjuntoIds });
+            }
             return {
                 conversacionId,
                 mensajeUsuarioId: usuario.id,
@@ -132,6 +169,7 @@ export class ConversacionesService implements OnModuleInit {
                 versionWiki,
                 historial,
                 ultimoPromptTokens,
+                esPrimerTurno: historial.length === 0,
             };
         });
     }
@@ -161,7 +199,7 @@ export class ConversacionesService implements OnModuleInit {
         conversacionId: number;
         mensajeUsuarioId: number;
         mensajeId: number;
-        resultado: ResultadoTurno;
+        resultado: ResultadoTurno & { pasos?: Paso[] };
     }): Promise<void> {
         const r = p.resultado;
         const estado: EstadoMensaje = r.estado;
@@ -178,6 +216,7 @@ export class ConversacionesService implements OnModuleInit {
                     texto: r.texto,
                     fuentes: r.fuentes as unknown as Prisma.InputJsonValue,
                     acciones: r.acciones as unknown as Prisma.InputJsonValue,
+                    ...(r.pasos && r.pasos.length > 0 ? { pasos: r.pasos as unknown as Prisma.InputJsonValue } : {}),
                     apiMensajes: (entraAlHistorial ? r.apiAsistente : []) as unknown as Prisma.InputJsonValue,
                     estado,
                     ms: r.ms,
@@ -198,9 +237,9 @@ export class ConversacionesService implements OnModuleInit {
         await this.prisma.asistente_mensaje.update({ where: { id: mensajeId }, data: { estado: 'error', texto } });
     }
 
-    async listar(usuarioId: number, limite = 20): Promise<ConversacionResumen[]> {
+    async listar(usuarioId: number, limite = 20, funcion?: FuncionClave): Promise<ConversacionResumen[]> {
         const filas = await this.prisma.asistente_conversacion.findMany({
-            where: { usuarioId },
+            where: { usuarioId, ...(funcion ? { funcion } : {}) },
             orderBy: { updatedAt: 'desc' },
             take: Math.min(Math.max(limite, 1), 50),
         });
@@ -213,6 +252,9 @@ export class ConversacionesService implements OnModuleInit {
             include: { mensajes: { orderBy: { id: 'asc' } } },
         });
         if (!c) throw new NotFoundException('No encontramos esa conversación.');
+        const esReportes = c.funcion === 'reportes';
+        const tarjetas = esReportes ? await this.propuestas.tarjetasDeConversacion(c.id) : new Map();
+        const chips = esReportes ? await this.adjuntos.chipsDeConversacion(c.id) : new Map();
         return {
             ...this.resumen(c),
             mensajes: c.mensajes.map((m) => ({
@@ -225,12 +267,15 @@ export class ConversacionesService implements OnModuleInit {
                 estado: m.estado as EstadoMensaje,
                 calificacion: m.calificacion === 1 ? 1 : m.calificacion === -1 ? -1 : null,
                 createdAt: m.createdAt.toISOString(),
+                pasos: Array.isArray(m.pasos) ? (m.pasos as unknown as Paso[]) : [],
+                propuestas: tarjetas.get(m.id) ?? [],
+                adjuntos: chips.get(m.id) ?? [],
             })) satisfies MensajeAsistente[],
         };
     }
 
-    private resumen(c: { id: number; titulo: string; turnos: number; updatedAt: Date }): ConversacionResumen {
-        return { id: c.id, titulo: c.titulo, turnos: c.turnos, updatedAt: c.updatedAt.toISOString() };
+    private resumen(c: { id: number; titulo: string; turnos: number; updatedAt: Date; funcion: string }): ConversacionResumen {
+        return { id: c.id, titulo: c.titulo, turnos: c.turnos, updatedAt: c.updatedAt.toISOString(), funcion: c.funcion === 'reportes' ? 'reportes' : 'ayuda' };
     }
 
     async calificar(usuarioId: number, mensajeId: number, valor: 1 | -1 | 0, comentario?: string): Promise<void> {

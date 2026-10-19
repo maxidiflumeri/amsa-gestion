@@ -310,4 +310,88 @@ describe('Por función', () => {
         await esperar(() => b!.srv.cuantos('PATCH', PATCH_FUNCION) === 3, { que: 'sin tope' });
         expect(b.cuerpos('PATCH', PATCH_FUNCION)[2]).toEqual({ topeMensualUsd: null });
     });
+
+    const FUNCIONES = [
+        { clave: 'ayuda', nombre: 'Ayuda y navegación', habilitada: true, topeMensualUsd: null, modelo: 'us.anthropic.claude-haiku-5-5', topeTurnoUsd: null, limiteDiarioUsuario: null },
+        { clave: 'reportes', nombre: 'Constructor de reportes', habilitada: true, topeMensualUsd: 30, modelo: 'us.anthropic.claude-sonnet-5-5', topeTurnoUsd: 0.3, limiteDiarioUsuario: 40 },
+    ];
+    const conReportes = () => ({
+        config: configIA({ funciones: FUNCIONES }),
+        consumo: consumoIA({
+            porFuncion: [
+                { funcion: 'ayuda', nombre: 'Ayuda y navegación', gastoUsd: 12, preguntas: 1200, topeUsd: null },
+                { funcion: 'reportes', nombre: 'Constructor de reportes', gastoUsd: 6.4, preguntas: 48, topeUsd: 30, plantillas: { mostradas: 40, abiertas: 30, guardadas: 20, guardadasSinCambios: 15, costoPorGuardada: 0.32 } },
+            ],
+        }),
+    });
+
+    it('cada función muestra su modelo y su tope por pregunta y su límite diario por persona, editables por separado', async () => {
+        b = await armarIA({ permisos: PERMISOS_ADMIN_IA, ruta: '/asistente/consumo', ...conReportes() });
+        await cargada();
+        const fila = await esperar(() => Array.from(document.querySelectorAll('tr')).find((r) => /Constructor de reportes/.test(r.textContent ?? '') && r.querySelector('input')), { que: 'la fila de reportes' });
+        expect(limpio(fila.textContent ?? '')).toContain('us.anthropic.claude-sonnet-5-5');
+        const turno = () => document.querySelector<HTMLInputElement>('input[aria-label="Tope por pregunta de «Constructor de reportes» en USD"]')!;
+        const dia = () => document.querySelector<HTMLInputElement>('input[aria-label="Límite diario por persona de «Constructor de reportes»"]')!;
+        const guardarTurno = () => document.querySelector<HTMLButtonElement>('button[aria-label="Guardar el tope por pregunta de «Constructor de reportes»"]')!;
+        const guardarDia = () => document.querySelector<HTMLButtonElement>('button[aria-label="Guardar el límite diario de «Constructor de reportes»"]')!;
+        expect(turno().value).toBe('0.3');
+        expect(dia().value).toBe('40');
+        expect(guardarTurno().disabled).toBe(true);
+        expect(guardarDia().disabled).toBe(true);
+
+        await escribirCampo(turno(), '0,25');
+        await clic(guardarTurno(), 'guardar el tope por pregunta');
+        await esperar(() => b!.srv.cuantos('PATCH', PATCH_FUNCION) === 1, { que: 'el PATCH del tope por pregunta' });
+        expect(b.srv.de('PATCH', PATCH_FUNCION)[0].ruta).toBe('/asistente/funciones/reportes');
+        expect(b.cuerpos('PATCH', PATCH_FUNCION)[0]).toEqual({ topeTurnoUsd: 0.25 });
+
+        await esperar(() => dia().value === '40' && guardarDia().disabled, { que: 'el campo del límite quieto' });
+        await escribirCampo(dia(), '60');
+        await clic(guardarDia(), 'guardar el límite diario');
+        await esperar(() => b!.srv.cuantos('PATCH', PATCH_FUNCION) === 2, { que: 'el PATCH del límite' });
+        expect(b.cuerpos('PATCH', PATCH_FUNCION)[1]).toEqual({ limiteDiarioUsuario: 60 });
+    });
+
+    it('un límite diario que no es entero, o negativo, no se puede guardar; vaciarlo es «sin límite propio»', async () => {
+        b = await armarIA({ permisos: PERMISOS_ADMIN_IA, ruta: '/asistente/consumo', ...conReportes() });
+        await cargada();
+        const dia = await esperar(() => document.querySelector<HTMLInputElement>('input[aria-label="Límite diario por persona de «Constructor de reportes»"]'), { que: 'el campo' });
+        const guardar = () => document.querySelector<HTMLButtonElement>('button[aria-label="Guardar el límite diario de «Constructor de reportes»"]')!;
+        await escribirCampo(dia, '2,5');
+        expect(guardar().disabled).toBe(true);
+        await escribirCampo(dia, '-3');
+        expect(guardar().disabled).toBe(true);
+        await escribirCampo(dia, '');
+        expect(guardar().disabled).toBe(false);
+        await clic(guardar(), 'guardar sin límite');
+        await esperar(() => b!.srv.cuantos('PATCH', PATCH_FUNCION) === 1, { que: 'el PATCH' });
+        expect(b.cuerpos('PATCH', PATCH_FUNCION)[0]).toEqual({ limiteDiarioUsuario: null });
+    });
+
+    it('muestra las métricas de las plantillas: mostradas, abiertas, guardadas, % sin cambios y costo por guardada', async () => {
+        b = await armarIA({ permisos: PERMISOS_ADMIN_IA, ruta: '/asistente/consumo', ...conReportes() });
+        await cargada();
+        const tabla = await esperar(() => document.querySelector('table[aria-label="Plantillas armadas con el asistente"]'), { que: 'la tabla de plantillas' });
+        const fila = limpio(tabla.querySelector('tbody tr')!.textContent ?? '');
+        expect(fila).toContain('Constructor de reportes');
+        expect(fila).toContain('40');             // mostradas
+        expect(fila).toContain('30 (75 %)');      // abiertas
+        expect(fila).toContain('20 (50 %)');      // guardadas
+        expect(fila).toContain('75 %');           // 15 de 20 guardadas sin cambios
+        expect(fila).toContain('US$ 0,3200');
+    });
+
+    it('sin plantillas guardadas, el % y el costo por guardada son un guion; sin métricas de plantillas no hay tabla', async () => {
+        const base = conReportes();
+        base.consumo.porFuncion[1].plantillas = { mostradas: 3, abiertas: 1, guardadas: 0, guardadasSinCambios: 0, costoPorGuardada: null };
+        b = await armarIA({ permisos: PERMISOS_ADMIN_IA, ruta: '/asistente/consumo', ...base });
+        await cargada();
+        const tabla = await esperar(() => document.querySelector('table[aria-label="Plantillas armadas con el asistente"]'), { que: 'la tabla' });
+        const celdas = Array.from(tabla.querySelectorAll('tbody tr td')).map((c) => limpio(c.textContent ?? ''));
+        expect(celdas.slice(-2)).toEqual(['—', '—']);
+        await bajarIA(b);
+        b = await armarIA({ permisos: PERMISOS_ADMIN_IA, ruta: '/asistente/consumo' });
+        await cargada();
+        expect(document.querySelector('table[aria-label="Plantillas armadas con el asistente"]')).toBeNull();
+    });
 });

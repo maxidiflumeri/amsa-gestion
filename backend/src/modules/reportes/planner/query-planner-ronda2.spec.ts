@@ -189,7 +189,7 @@ describe('Huecos por API', () => {
   });
 
   it('una fecha mal escrita en un filtro que se resuelve en memoria da 400 (antes comparaba false)', () => {
-    expect(mensaje(() => plan([{ id: 'f', path: 'pagos[origen=MANUAL].fecha', operador: 'gte', valor: 'hoy-90', labelVariable: 'Pagó desde' }]))).toBe(
+    expect(mensaje(() => plan([{ id: 'f', path: 'pagos[origen=MANUAL].fecha', operador: 'gte', valor: 'ayer', labelVariable: 'Pagó desde' }]))).toBe(
       'Fecha inválida en el filtro «Pagó desde». Usá el formato AAAA-MM-DD',
     );
   });

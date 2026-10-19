@@ -1,4 +1,4 @@
-import { FechaInvalidaError, parsearFechaFiltro, validarFechasFiltro } from './fecha-filtro';
+import { FechaInvalidaError, parsearFechaFiltro, resolverFechasRelativas, validarFechasFiltro } from './fecha-filtro';
 
 describe('parsearFechaFiltro', () => {
   it('acepta YYYY-MM-DD y lo devuelve tal cual (el planner lo abre al día completo)', () => {
@@ -43,5 +43,39 @@ describe('validarFechasFiltro', () => {
     expect(() => validarFechasFiltro(['2026-01-01', 'hoy-90'])).toThrow(FechaInvalidaError);
     expect(() => validarFechasFiltro(['', null])).not.toThrow();
     expect(() => validarFechasFiltro(undefined)).not.toThrow();
+  });
+});
+
+describe('E1 — fechas relativas', () => {
+  it('sin la opción, "hoy-90" sigue siendo inválida (el planner las resuelve antes de llegar acá)', () => {
+    expect(() => parsearFechaFiltro('hoy-90')).toThrow(FechaInvalidaError);
+  });
+
+  it.each(['hoy', 'hoy-1', 'hoy+7', 'hoy-3650', 'hoy+3650'])('con permitirRelativa acepta "%s"', (v) => {
+    expect(parsearFechaFiltro(v, { permitirRelativa: true })).toBe(v);
+  });
+
+  it.each(['hoy-0', 'hoy-3651', 'hoy-', 'ayer', 'hoy-90x', 'hoy -3'])('con permitirRelativa rechaza "%s"', (v) => {
+    expect(() => parsearFechaFiltro(v, { permitirRelativa: true })).toThrow(FechaInvalidaError);
+  });
+
+  it('validarFechasFiltro revisa cada punta de una lista', () => {
+    const op = { permitirRelativa: true };
+    expect(() => validarFechasFiltro(['hoy-7', 'hoy'], op)).not.toThrow();
+    expect(() => validarFechasFiltro(['hoy-7', ''], op)).not.toThrow();
+    expect(() => validarFechasFiltro(['hoy-0', 'hoy'], op)).toThrow(FechaInvalidaError);
+  });
+
+  describe('resolverFechasRelativas', () => {
+    it('resuelve un valor suelto y cada punta de una lista', () => {
+      expect(resolverFechasRelativas('hoy-90', '2026-10-17')).toEqual({ valor: '2026-07-19', resolvio: true });
+      expect(resolverFechasRelativas(['hoy-7', 'hoy'], '2026-10-17')).toEqual({ valor: ['2026-10-10', '2026-10-17'], resolvio: true });
+    });
+
+    it('deja pasar lo que no es relativo, incluidas las puntas vacías', () => {
+      expect(resolverFechasRelativas('2026-01-01', '2026-10-17')).toEqual({ valor: '2026-01-01', resolvio: false });
+      expect(resolverFechasRelativas(['hoy', ''], '2026-10-17')).toEqual({ valor: ['2026-10-17', ''], resolvio: true });
+      expect(resolverFechasRelativas([null, '2026-01-01'], '2026-10-17')).toEqual({ valor: [null, '2026-01-01'], resolvio: false });
+    });
   });
 });

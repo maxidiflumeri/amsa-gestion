@@ -46,7 +46,7 @@ describe('validarDefinicion: ordenamiento por columna fija', () => {
 });
 
 describe('valor por defecto de fecha inválido, guardado antes', () => {
-  const filtro = { id: 'v', path: 'fechaVencimiento', operador: 'gte', variable: true, labelVariable: 'Vence desde', valorPorDefecto: 'hoy-90' };
+  const filtro = { id: 'v', path: 'fechaVencimiento', operador: 'gte', variable: true, labelVariable: 'Vence desde', valorPorDefecto: 'ayer' };
   const definicion = { ...base, filtros: [filtro] } as any;
 
   it('al guardar se rechaza', () => {
@@ -79,4 +79,18 @@ describe('ronda 3 de la auditoría', () => {
       ),
     ).not.toThrow();
   });
+});
+
+describe('re-auditoría del 19/10: relleno y alineación con valores que el exportador no entiende', () => {
+    const { validarOpcionesFormato } = require('./definicion-validator');
+    const cols = [{ label: 'DNI' }, { label: 'Saldo' }];
+    it('relleno distinto de espacio o cero da 400', () => {
+        expect(() => validarOpcionesFormato(cols, { txt: { anchoFijo: [8, 10], relleno: ['x', ' '] } }, 'txt')).toThrow('El relleno de «DNI» tiene que ser un espacio o un cero');
+    });
+    it('alineación distinta de izquierda o derecha da 400', () => {
+        expect(() => validarOpcionesFormato(cols, { txt: { anchoFijo: [8, 10], alineacion: ['izquierda', 'centro'] } }, 'txt')).toThrow('La alineación de «Saldo» tiene que ser izquierda o derecha');
+    });
+    it('los válidos pasan', () => {
+        expect(() => validarOpcionesFormato(cols, { txt: { anchoFijo: [8, 10], alineacion: ['izquierda', 'derecha'], relleno: [' ', '0'] } }, 'txt')).not.toThrow();
+    });
 });

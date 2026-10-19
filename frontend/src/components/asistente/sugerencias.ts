@@ -46,3 +46,10 @@ export function sugerenciasPara(pathname: string, tienePermiso: (key: string) =>
     const textos = lista.map((s) => s.texto);
     return (textos.length > 0 ? textos : GENERICA.map((s) => s.texto)).slice(0, 3);
 }
+
+/** Qué ofrece el panel en el modo «Armar un reporte» (docs/asistente-reportes-spec.md §16.1). La segunda no se manda: abre el selector de archivos. */
+export interface SugerenciaReportes { texto: string; adjuntar?: boolean }
+export const SUGERENCIAS_REPORTES: SugerenciaReportes[] = [
+    { texto: 'Armame un listado de los casos de una empresa con su teléfono' },
+    { texto: 'Adjuntá el Excel que te pidió el cedente y te lo armo igual', adjuntar: true },
+];

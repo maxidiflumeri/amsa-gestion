@@ -1,6 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { AnthropicBedrock, AnthropicBedrockMantle } from '@anthropic-ai/bedrock-sdk';
 import { ClienteAnthropic, ClienteBedrock, ClienteModelo } from './cliente-modelo';
+import { leerModeloReportes, leerTimeoutReportes } from '../reportes/funcion-reportes';
 
 export type EndpointBedrock = 'runtime' | 'mantle';
 
@@ -16,19 +17,31 @@ export class AsistenteModeloService {
     private readonly logger = new Logger(AsistenteModeloService.name);
 
     readonly modelo: string;
+    /** El modelo de la función de reportes (Fase B). */
+    readonly modeloReportes: string;
+    readonly timeoutReportesMs: number;
     readonly endpoint: EndpointBedrock;
     readonly region: string;
     private _cliente: ClienteModelo | null = null;
 
     constructor() {
         this.modelo = (process.env.ASISTENTE_MODELO ?? '').trim() || MODELO_DEFAULT;
+        this.modeloReportes = leerModeloReportes();
+        this.timeoutReportesMs = leerTimeoutReportes();
         this.region = (process.env.ASISTENTE_AWS_REGION ?? '').trim() || REGION_DEFAULT;
         const raw = (process.env.ASISTENTE_BEDROCK_ENDPOINT ?? '').trim().toLowerCase();
         if (raw && raw !== 'runtime' && raw !== 'mantle') {
             this.logger.warn(`ASISTENTE_BEDROCK_ENDPOINT="${raw}" no es runtime ni mantle; se usa runtime`);
         }
         this.endpoint = raw === 'mantle' ? 'mantle' : 'runtime';
-        this.logger.log(`Asistente listo: modelo=${this.modelo} endpoint=${this.endpoint} región=${this.region}`);
+        this.logger.log(
+            `Asistente listo: modelo=${this.modelo} reportes=${this.modeloReportes} endpoint=${this.endpoint} región=${this.region}`,
+        );
+    }
+
+    /** El modelo de cada función: el cliente es uno solo, el modelo va en cada request. */
+    modeloPara(funcion: string): string {
+        return funcion === 'reportes' ? this.modeloReportes : this.modelo;
     }
 
     /** `strict: true` en las herramientas solo existe en bedrock-runtime. */

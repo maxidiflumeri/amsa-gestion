@@ -6,7 +6,7 @@ import type { UsuarioJwt } from './asistente.service';
 import { ConversacionesService } from './conversaciones.service';
 import { AccionDto } from './dto/accion.dto';
 import { CalificarDto } from './dto/calificar.dto';
-import { ConversacionesQueryDto } from './dto/conversaciones-query.dto';
+import { ConversacionesQueryDto, EstadoQueryDto } from './dto/conversaciones-query.dto';
 import { ConversacionDetalle, ConversacionResumen, EstadoAsistente, EventoSse } from './dto/asistente.tipos';
 import { PreguntarDto } from './dto/preguntar.dto';
 import { TopesService } from './topes.service';
@@ -70,14 +70,14 @@ export class AsistenteController {
 
     @Get('estado')
     @Permisos('asistente.usar')
-    estado(@UsuarioActual() u: UsuarioJwt): Promise<EstadoAsistente> {
-        return this.topes.estado(usuarioValido(u).sub);
+    estado(@UsuarioActual() u: UsuarioJwt, @Query() q: EstadoQueryDto): Promise<EstadoAsistente> {
+        return this.topes.estado(usuarioValido(u).sub, q.funcion ?? 'ayuda');
     }
 
     @Get('conversaciones')
     @Permisos('asistente.usar')
     listar(@UsuarioActual() u: UsuarioJwt, @Query() q: ConversacionesQueryDto): Promise<ConversacionResumen[]> {
-        return this.conversaciones.listar(usuarioValido(u).sub, q.limite ?? 20);
+        return this.conversaciones.listar(usuarioValido(u).sub, q.limite ?? 20, q.funcion);
     }
 
     @Get('conversaciones/:id')

@@ -85,8 +85,8 @@ mail y domicilio. No es prolijo, pero es lo que el gestor necesita a mano.
 pagos aparece 12 veces, y eso es justo lo que se quiere.
 
 El total va en la **solapa de Totales**, que es donde viven las cuentas — sumar, promediar, contar,
-mínimo y máximo. **No existen como columna**: no se puede armar una columna "suma de los pagos" al lado
-del nombre del caso.
+mínimo y máximo. **Desde la pantalla no existen como columna**: no se puede armar una columna "suma de los pagos" al lado
+del nombre del caso. Con el [asistente](/ayuda/reportes/armar-con-el-asistente) sí.
 
 > **El filtro de fecha hace dos cosas a la vez**, y las dos son las que querés: elige qué **casos**
 > entran (los que pagaron en el período) y además **recorta los pagos** que se muestran de cada uno. Sin
@@ -151,7 +151,7 @@ para pedirle datos al cedente.
 
 **Cantidad cuenta todos los contactos juntos** (teléfonos, mails y domicilios). Los casos sin
 **teléfono** pero con un mail **no se pueden pedir desde la pantalla**: el camino de la rama no se
-escribe a mano.
+escribe a mano. El [asistente](/ayuda/reportes/armar-con-el-asistente) sí los arma.
 
 > No pongas columnas de contacto en este reporte: por definición van a salir todas vacías.
 
@@ -166,8 +166,8 @@ Una tabla para no perder tiempo intentando lo imposible:
 | Una columna con todos los teléfonos | Sí, pero mezclados con mails y domicilios |
 | Una columna solo con teléfonos | **No** desde la pantalla |
 | Una fila por pago / factura / promesa | Sí: esa rama en **expandir** |
-| Una columna "cuántos pagos tiene" | **No.** Contar existe en filtros y en totales, no como columna |
-| Una columna "suma de lo pagado" al lado del nombre | **No.** La suma va en la solapa de Totales, al pie |
+| Una columna "cuántos pagos tiene" | **No** desde la pantalla (existe en filtros y en totales); el asistente sí la arma |
+| Una columna "suma de lo pagado" al lado del nombre | **No** desde la pantalla (la suma va en Totales, al pie); el asistente sí la arma |
 | Filtrar los casos sin contactos | Sí: Contactos → Cantidad = 0 |
 | Filtrar por un dato adicional del cedente | Sí, si ese cedente lo manda y la plantilla lo mapea |
 

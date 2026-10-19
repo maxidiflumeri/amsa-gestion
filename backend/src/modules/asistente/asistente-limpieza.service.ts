@@ -17,6 +17,8 @@ export function limpiezaAsistenteDesactivada(raw: string | undefined = process.e
 
 export interface ResultadoLimpiezaAsistente {
     conversaciones: number;
+    /** Archivos de ejemplo que nunca se mandaron (más de 24 h). */
+    adjuntos: number;
     llamadas: number;
     tandas: number;
     topeAlcanzado: boolean;
@@ -60,7 +62,7 @@ export class AsistenteLimpiezaService implements OnModuleInit {
     }
 
     async limpiar(ahora: Date = new Date()): Promise<ResultadoLimpiezaAsistente> {
-        const vacio = { conversaciones: 0, llamadas: 0, tandas: 0, topeAlcanzado: false };
+        const vacio = { conversaciones: 0, adjuntos: 0, llamadas: 0, tandas: 0, topeAlcanzado: false };
         if (limpiezaAsistenteDesactivada()) {
             this.logger.log('Limpieza del asistente desactivada (ASISTENTE_LIMPIEZA_DESACTIVADA): no se hace nada');
             return vacio;
@@ -106,10 +108,15 @@ export class AsistenteLimpiezaService implements OnModuleInit {
             this.logger.warn(`Limpieza del asistente: se alcanzó el tope de ${MAX_TANDAS_LIMPIEZA_ASISTENTE} tandas; el resto queda para mañana`);
         }
 
+        // Los adjuntos vinculados caen con su conversación (cascada); los que nunca se mandaron se borran a las 24 h.
+        const adj = await this.prisma.asistente_adjunto.deleteMany({
+            where: { conversacionId: null, createdAt: { lt: new Date(ahora.getTime() - DIA_MS) } },
+        });
+
         const llam = await this.prisma.asistente_llamada.deleteMany({ where: { createdAt: { lt: limiteLlam } } });
         this.logger.log(
-            `Limpieza del asistente: ${conversaciones} conversaciones y ${llam.count} llamadas borradas en ${Date.now() - t0}ms`,
+            `Limpieza del asistente: ${conversaciones} conversaciones, ${adj.count} adjuntos sin mandar y ${llam.count} llamadas borradas en ${Date.now() - t0}ms`,
         );
-        return { conversaciones, llamadas: llam.count, tandas, topeAlcanzado };
+        return { conversaciones, adjuntos: adj.count, llamadas: llam.count, tandas, topeAlcanzado };
     }
 }

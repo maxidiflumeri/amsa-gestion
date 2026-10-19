@@ -77,3 +77,53 @@ export function fechaCalendarioUtc(ymd: string): Date {
 export function diaCalendario(d: Date): string {
     return d.toISOString().slice(0, 10);
 }
+
+// ─── Fechas relativas ("hoy", "hoy-90", "hoy+7") ────────────────────────────────
+//
+// Un filtro de un reporte puede pedir "hoy menos N días" en vez de una fecha fija, así la plantilla
+// no queda vieja el mes siguiente. Se resuelve a `YYYY-MM-DD` en el momento de ejecutar, contra el día
+// de hoy en hora de Argentina (el que el llamador pasa en `hoyYmd`, normalmente `ymdLocal()`).
+
+/** N de 1 a 3650 días: diez años alcanzan para cualquier cartera. */
+export const MAX_DIAS_RELATIVOS = 3650;
+
+const FECHA_RELATIVA = /^hoy(?:([+-])(\d{1,4}))?$/;
+
+/** ¿Es `hoy`, `hoy-N` o `hoy+N` con N entre 1 y 3650? (`hoy-0` y `hoy-3651` no lo son.) */
+export function esFechaRelativa(valor: unknown): valor is string {
+    if (typeof valor !== 'string') return false;
+    const m = FECHA_RELATIVA.exec(valor.trim());
+    if (!m) return false;
+    if (m[2] === undefined) return true;
+    const n = Number(m[2]);
+    return n >= 1 && n <= MAX_DIAS_RELATIVOS;
+}
+
+/**
+ * Resuelve una fecha relativa a `YYYY-MM-DD` a partir de `hoyYmd`. Un valor que no es relativo se
+ * devuelve tal cual, así el llamador puede pasarle cualquier valor de fecha.
+ */
+export function resolverFechaRelativa<T>(valor: T, hoyYmd: string): T | string {
+    if (!esFechaRelativa(valor)) return valor;
+    const m = FECHA_RELATIVA.exec(valor.trim())!;
+    if (m[2] === undefined) return sumarDiasYmd(hoyYmd, 0);
+    const n = Number(m[2]);
+    return sumarDiasYmd(hoyYmd, m[1] === '-' ? -n : n);
+}
+
+/** Días calendario de `desdeYmd` a `hastaYmd` (positivo si `hasta` es posterior). Sin horas de por medio. */
+export function diasEntre(desdeYmd: string, hastaYmd: string): number {
+    const a = SOLO_FECHA.exec(String(desdeYmd ?? '').trim());
+    const b = SOLO_FECHA.exec(String(hastaYmd ?? '').trim());
+    if (!a || !b) throw new RangeError(`Fecha calendario inválida: ${!a ? desdeYmd : hastaYmd}`);
+    const utc = (m: RegExpExecArray) => {
+        const t = new Date(Date.UTC(Number(m[1]), Number(m[2]) - 1, Number(m[3])));
+        // Un 2026-13-40 o un 2026-02-31 pasa el formato pero JS lo corre solo a otro día.
+        if (t.getUTCMonth() !== Number(m[2]) - 1 || t.getUTCDate() !== Number(m[3])) {
+            throw new RangeError(`Fecha calendario inválida: ${m[0]}`);
+        }
+        return t.getTime();
+    };
+    const ms = utc(b) - utc(a);
+    return Math.round(ms / (24 * 60 * 60 * 1000));
+}

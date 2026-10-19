@@ -66,17 +66,33 @@ export default function GroupingBuilder({
 
   const handleAddTotal = () => {
     const columnasNumericas = columnas.filter(c =>
-      c.tipo === 'numero' || c.tipo === 'moneda' || c.path.includes('[sum]') || c.path.includes('[avg]')
+      c.tipo === 'numero' || c.tipo === 'moneda' || c.tipo === 'dias' || c.path.includes('[sum]') || c.path.includes('[avg]')
     )
 
     if (columnasNumericas.length === 0) return
 
     const newTotal: Total = {
       path: columnasNumericas[0].path,
+      columnaId: columnasNumericas[0].id,
       funcion: 'sum',
       label: `Total ${columnasNumericas[0].label}`,
     }
     onChange(agrupaciones, [...totales, newTotal])
+  }
+
+  // Un total guardado sin columnaId se muestra asociado a la única columna con ese campo; si hay dos, queda sin elegir.
+  const columnaDelTotal = (t: Total): string => {
+    if (t.columnaId && columnas.some(c => c.id === t.columnaId)) return t.columnaId
+    const candidatas = columnas.filter(c => c.path === t.path)
+    return candidatas.length === 1 ? candidatas[0].id : ''
+  }
+
+  const handleElegirColumnaTotal = (index: number, columnaId: string) => {
+    const col = columnas.find(c => c.id === columnaId)
+    if (!col) return
+    const newTotales = [...totales]
+    newTotales[index] = { ...newTotales[index], columnaId: col.id, path: col.path }
+    onChange(agrupaciones, newTotales)
   }
 
   const handleRemoveTotal = (index: number) => {
@@ -245,12 +261,12 @@ export default function GroupingBuilder({
                 <FormControl fullWidth size="small" sx={{ mb: 1 }}>
                   <InputLabel>Columna</InputLabel>
                   <Select
-                    value={total.path}
+                    value={columnaDelTotal(total)}
                     label="Columna"
-                    onChange={e => handleUpdateTotal(index, 'path', e.target.value)}
+                    onChange={e => handleElegirColumnaTotal(index, e.target.value as string)}
                   >
                     {columnas.map(col => (
-                      <MenuItem key={col.id} value={col.path}>
+                      <MenuItem key={col.id} value={col.id}>
                         {col.label}
                       </MenuItem>
                     ))}

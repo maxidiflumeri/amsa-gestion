@@ -9,6 +9,7 @@ import {
   GroupingService,
   FilaConSubtotales,
 } from '../executor/grouping.service';
+import { resolverTotales } from '../executor/totales';
 import { DefinicionPlantillaDto } from '../dto/plantilla.dto';
 import { evaluarCondicion } from '../executor/evaluar-condicion';
 import { contarRama, terminaEnCount } from '../executor/contar-rama';
@@ -181,7 +182,7 @@ export class AsyncExecutorService {
       resultado = this.groupingService.aplicarAgrupacionYTotales(
         filasFlat,
         definicion.agrupaciones || [],
-        definicion.totales || [],
+        resolverTotales(definicion.columnas, definicion.totales),
         definicion.columnas.map((c) => c.label),
         pathToLabel,
       );

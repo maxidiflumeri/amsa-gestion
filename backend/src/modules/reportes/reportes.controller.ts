@@ -13,8 +13,10 @@ import {
   Req,
   BadRequestException,
 } from '@nestjs/common';
+import { ModuleRef } from '@nestjs/core';
 import type { Request, Response } from 'express';
 import * as path from 'path';
+import { PropuestasService } from '../asistente/reportes/propuestas.service';
 import { ReportesService } from './reportes.service';
 import { CatalogoService } from './catalogo/catalogo.service';
 import {
@@ -61,6 +63,7 @@ export class ReportesController {
     private reportesService: ReportesService,
     private catalogoService: CatalogoService,
     private ejecucionesService: EjecucionesService,
+    private moduleRef: ModuleRef,
   ) {}
 
   @Get('formatos-tel')
@@ -140,7 +143,29 @@ export class ReportesController {
   })
   async create(@Body() dto: CreatePlantillaDto, @Req() req: Request) {
     this.logger.log(`POST /reportes/plantillas`);
-    return this.reportesService.create(dto, resolverUsuarioId(req));
+    const usuarioId = resolverUsuarioId(req);
+    const plantilla = await this.reportesService.create(dto, usuarioId);
+    await this.vincularPropuestaDelAsistente(dto.asistentePropuestaId, usuarioId, plantilla);
+    return plantilla;
+  }
+
+  /**
+   * Si la plantilla salió de una propuesta del asistente, la marca guardada. Nunca hace fallar el alta: con un id ajeno o
+   * inexistente, o si el vínculo falla, la plantilla queda creada igual. El servicio vive en el módulo del asistente, que
+   * importa a este: se lo busca en tiempo de ejecución para no armar una dependencia circular entre módulos.
+   */
+  private async vincularPropuestaDelAsistente(
+    propuestaId: number | undefined,
+    usuarioId: number,
+    plantilla: { id: number; definicion: unknown },
+  ): Promise<void> {
+    if (propuestaId === undefined || propuestaId === null) return;
+    try {
+      const propuestas = this.moduleRef.get(PropuestasService, { strict: false });
+      await propuestas.vincularGuardada(usuarioId, propuestaId, plantilla);
+    } catch (error) {
+      this.logger.warn(`No se pudo vincular la plantilla ${plantilla.id} con la propuesta del asistente: ${(error as Error).message}`);
+    }
   }
 
   @Patch('plantillas/:id')

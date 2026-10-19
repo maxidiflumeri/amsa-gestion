@@ -64,12 +64,23 @@ Seleccionando una columna, el panel de la derecha ofrece:
 
 **Etiqueta** — cómo aparece en el encabezado del archivo. Poné el nombre que espera quien lo recibe.
 
-**Tipo de dato** — Texto, Número, Fecha, Booleano, **Moneda** o **Teléfono**.
+**Tipo de dato** — Texto, Número, Fecha, Booleano, **Moneda**, **Teléfono** o **Días desde la fecha**.
+
+**Días desde la fecha** muestra cuántos días pasaron entre una fecha y hoy, en hora de Argentina: es lo que
+sirve para una columna de **días de mora** (sobre el vencimiento). Se habilita solo en columnas de fecha. Si la
+fecha es futura, el número sale negativo; si no tiene fecha, la celda queda vacía. Cuenta como un número en los **Totales**: se puede sumar, promediar,
+mirar el mínimo o el máximo.
 
 **Formato** — depende del tipo. Para fechas, `DD/MM/AAAA`. Para moneda, con separador de miles.
 
 > **Para que un teléfono salga formateado hay que cambiarle el tipo a Teléfono.** Recién ahí aparece el
 > selector de formato de teléfono. Con el tipo en Texto sale crudo.
+
+**Decimales y separadores** — en las columnas de tipo **Número** (no en Moneda) aparecen tres campos:
+**Decimales** (de 0 a 4), **Separador decimal** (coma o punto) y **Separador de miles** (punto, coma o ninguno).
+Si completás alguno, el número sale con esos decimales y esos separadores: con 2 decimales, `1.234,50` y no
+`1.234,5`. Si elegís uno solo, el otro se acomoda para no chocar (con decimal `.` los miles pasan a coma, y al revés); con los dos en *Predeterminado*, coma decimal y punto de miles. Si no completás ninguno, el
+número sale como hasta ahora. Más en [Formatos de salida](/ayuda/reportes/formatos).
 
 **Cardinalidad** — qué hacer si hay varios valores. Es la decisión importante:
 
@@ -93,7 +104,7 @@ espacio, pero se puede cambiar.
 **"Primero" no es "el prioritario".** Los contactos tienen un campo de prioridad que la ficha usa para
 ordenarlos, pero el reporte **no lo tiene en cuenta**: devuelve el que la base entregue primero.
 
-"Último", en cambio, sí ordena por fecha cuando el registro tiene una.
+"Último" toma el último que se cargó.
 
 Si necesitás el teléfono prioritario, hoy no hay forma de pedirlo desde el reporte.
 
@@ -108,7 +119,7 @@ Deciden qué casos entran. Tienen su propia página: [Filtros](/ayuda/reportes/f
 ## Paso 4 — Agrupaciones y Totales
 
 **Totales** agrega una fila al pie con la suma, el promedio, la cuenta, el mínimo o el máximo de una
-columna. Es el único lugar donde se hacen cuentas.
+columna. Es el lugar donde se hacen cuentas desde la pantalla.
 
 **Agrupación** parte el reporte en bloques —por ejemplo, por empresa— con la opción de mostrar
 **subtotales** por grupo.
@@ -116,7 +127,10 @@ columna. Es el único lugar donde se hacen cuentas.
 Dos cosas que ahorran una vuelta:
 
 - **Los campos de agrupación y total se eligen entre las columnas del lienzo**, no del catálogo. Para
-  agrupar por empresa tenés que tener antes esa columna puesta.
+  agrupar por empresa tenés que tener antes esa columna puesta. Un **Total** queda atado a **una columna** en
+  particular (no a un campo): si tenés dos columnas sobre el mismo campo —por ejemplo *Vencimiento* y *Días de
+  mora*—, cada total se calcula sobre la que elegiste. Un total viejo que no tiene columna se asocia a la única
+  columna con ese campo; si hay dos, el reporte no se ejecuta y avisa que el total es ambiguo: elegí la columna.
 - **Los subtotales salen en blanco si no definiste ningún Total.** Se calculan usando los totales, así
   que sin ellos no hay qué mostrar.
 
@@ -128,6 +142,20 @@ Dos cosas que ahorran una vuelta:
 En CSV y TXT se elige el separador y si lleva encabezado.
 
 Está desarrollado en [Formatos de salida](/ayuda/reportes/formatos).
+
+### Opciones que no se editan acá
+
+Si la plantilla tiene opciones del formato que esta pantalla no sabe cambiar —las arma el asistente o vienen de
+antes—, debajo del formato aparece un recuadro **Opciones que no se editan acá**, con lo que hay:
+
+- **Ancho fijo**: cuántas columnas, con qué anchos, y cuántas están alineadas a la derecha o rellenas con ceros.
+- **Codificación latin1**.
+- **Sin BOM**.
+- **Fin de línea `\n`**.
+
+Se **conservan al guardar**. Del ancho fijo, los anchos, la alineación y el relleno **siguen a cada columna**: si agregás una, entra con 10 caracteres, a la izquierda y con espacios (lo ves en el recuadro; para cambiarlo, quitá el ancho fijo o armá la plantilla de nuevo con el asistente: sale una plantilla nueva); si la quitás o la movés, su ancho se va o se mueve con ella. Si por algún motivo la cantidad de anchos no coincide con la de columnas, la pantalla avisa y no deja guardar. Cada una tiene un botón **Quitar**, que vuelve al
+comportamiento de siempre de ese formato (para el ancho fijo, el archivo pasa a salir con separador). Si el
+recuadro no aparece, la plantilla no tiene ninguna para el formato elegido.
 
 ---
 
@@ -181,6 +209,16 @@ Para no perder tiempo buscándolo:
 |---|---|
 | **Una columna con una cuenta** (cuántos pagos, suma de lo pagado) | Las cuentas van en Totales o en filtros |
 | **Pedir solo los teléfonos** | Los contactos vienen todos juntos |
+| **El segundo teléfono, o el de cierto tipo** | El explorador ofrece el campo de los contactos, no un elemento puntual |
+
+Con **el asistente** (ver [Armar un reporte con el asistente](/ayuda/reportes/armar-con-el-asistente)) sí se
+arman estas tres: columnas con una cuenta, el teléfono que se pide por tipo y el segundo teléfono. El campo que
+arma el asistente con una expresión así lo sigue mostrando el panel de propiedades, con un cartel que explica que
+el explorador no la ofrece; se puede **renombrar o borrar**, y para cambiarle el campo hay que borrarla y agregar
+otra.
+
+Lo mismo con el **TXT de ancho fijo**: se arma con el asistente, y el editor lo muestra y lo conserva (ver
+*Opciones que no se editan acá*), pero no tiene dónde configurarlo.
 
 ---
 

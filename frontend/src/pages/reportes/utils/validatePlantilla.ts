@@ -85,7 +85,7 @@ export const validatePlantilla = (plantilla: Partial<Plantilla>): ValidationErro
   if (plantilla.definicion?.totales) {
     const columnPaths = plantilla.definicion.columnas.map((c: Columna) => c.path)
     const columnasNumericas = plantilla.definicion.columnas
-      .filter((c: Columna) => c.tipo === 'numero' || c.tipo === 'moneda')
+      .filter((c: Columna) => c.tipo === 'numero' || c.tipo === 'moneda' || c.tipo === 'dias')
       .map((c: Columna) => c.path)
 
     plantilla.definicion.totales.forEach((total: Total, index: number) => {
@@ -105,6 +105,32 @@ export const validatePlantilla = (plantilla: Partial<Plantilla>): ValidationErro
         errors.push({
           type: 'warning',
           message: `Total #${index + 1} (${total.path}): se aplicará ${total.funcion} sobre una columna no numérica`,
+        })
+      }
+    })
+  }
+
+  // TXT de ancho fijo: los anchos, la alineación y el relleno van uno por columna. El backend también lo rechaza (400).
+  const txt = plantilla.formatoSalida === 'txt' ? plantilla.opcionesFormato?.txt : undefined
+  if (txt?.anchoFijo && plantilla.definicion?.columnas) {
+    const columnas = plantilla.definicion.columnas
+    const n = columnas.length
+    if (txt.anchoFijo.length !== n) {
+      errors.push({
+        type: 'error',
+        message: `El ancho fijo tiene ${txt.anchoFijo.length} ${txt.anchoFijo.length === 1 ? 'ancho' : 'anchos'} y hay ${n} ${n === 1 ? 'columna' : 'columnas'}. Quitá el ancho fijo (en «Opciones que no se editan acá») o pedile otra plantilla al asistente`,
+      })
+    }
+    for (const [campo, valores] of [['alineación', txt.alineacion], ['relleno', txt.relleno]] as const) {
+      if (valores && valores.length !== txt.anchoFijo.length) {
+        errors.push({ type: 'error', message: `La ${campo} del ancho fijo tiene ${valores.length} valores y los anchos son ${txt.anchoFijo.length}` })
+      }
+    }
+    txt.relleno?.forEach((r, i) => {
+      if (r === '0' && txt.alineacion?.[i] !== 'derecha') {
+        errors.push({
+          type: 'error',
+          message: `En «${columnas[i]?.label ?? `la columna ${i + 1}`}» el relleno con ceros solo se puede usar con alineación a la derecha`,
         })
       }
     })

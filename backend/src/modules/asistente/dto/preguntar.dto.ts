@@ -1,5 +1,5 @@
 import { Transform, Type } from 'class-transformer';
-import { IsInt, IsOptional, IsString, Matches, MaxLength, MinLength } from 'class-validator';
+import { ArrayMaxSize, IsArray, IsIn, IsInt, IsOptional, IsString, Matches, MaxLength, MinLength } from 'class-validator';
 
 export class PreguntarDto {
     @IsOptional()
@@ -17,4 +17,16 @@ export class PreguntarDto {
     @MaxLength(200)
     @Matches(/^\//, { message: 'La ruta tiene que empezar con "/".' })
     ruta!: string;
+
+    /** Fase B. Sin esto rige la función de la conversación y, en una nueva, `ayuda`. */
+    @IsOptional()
+    @IsIn(['ayuda', 'reportes'])
+    funcion?: 'ayuda' | 'reportes';
+
+    /** Fase B: los archivos de ejemplo (ids de `POST /asistente/adjuntos`) que se mandan con este mensaje. */
+    @IsOptional()
+    @IsArray()
+    @ArrayMaxSize(3)
+    @IsInt({ each: true })
+    adjuntos?: number[];
 }

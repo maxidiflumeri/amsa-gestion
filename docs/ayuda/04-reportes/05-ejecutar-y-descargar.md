@@ -26,6 +26,10 @@ Desde **Reportes → Mis plantillas**, el botón de ejecutar.
 Si la plantilla tiene **filtros variables**, primero te los pide: el período, la empresa, lo que se
 haya definido. Los que tengan valor por defecto vienen completados.
 
+Los filtros de **fecha** tienen dos botones, **Fecha fija** y **Relativa a hoy**. Con *Relativa a hoy* indicás cuántos días
+antes o después de hoy (*"hace 90 días"*) y debajo ves a qué día corresponde (*"hace 90 días: 21/07/2026"*). Si la
+plantilla trae un valor por defecto relativo, ya viene en *Relativa a hoy*, con la fecha que le corresponde debajo. Más en [Filtros](/ayuda/reportes/filtros).
+
 Después el sistema decide solo cómo correrlo:
 
 | | Qué pasa |

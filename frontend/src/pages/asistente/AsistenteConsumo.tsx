@@ -45,7 +45,53 @@ const Indicador: React.FC<{ titulo: string; valor: string; detalle?: string; chi
     </SectionCard>
 );
 
-/** El tope de una función: vacío = sin tope propio (rige solo el global). */
+type CambiosFuncion = { habilitada?: boolean; topeMensualUsd?: number | null; topeTurnoUsd?: number | null; limiteDiarioUsuario?: number | null };
+
+/** Un valor editable de una función con su botón de guardar. Vacío = sin valor propio (rige el global). */
+const CampoFuncion: React.FC<{
+    original: number | null;
+    /** «Tope mensual de «X» en USD» */
+    etiqueta: string;
+    /** «Guardar el tope de «X»» */
+    etiquetaGuardar: string;
+    entero?: boolean;
+    ancho?: number;
+    /** Lo que significa dejarlo vacío: «Sin tope» (rige el general) o «Predeterminado» (vuelve al valor de arranque de la función). */
+    vacio?: string;
+    min?: number;
+    max?: number;
+    deshabilitado: boolean;
+    onGuardar: (v: number | null) => void;
+}> = ({ original, etiqueta, etiquetaGuardar, entero: soloEntero = false, ancho = 100, vacio = 'Sin tope', min = 0, max = Infinity, deshabilitado, onGuardar }) => {
+    const [texto, setTexto] = useState(original === null ? '' : String(original));
+    useEffect(() => setTexto(original === null ? '' : String(original)), [original]);
+    const nuevo = texto.trim() === '' ? null : aNumero(texto);
+    const valido = nuevo === null || (Number.isFinite(nuevo) && nuevo >= min && nuevo <= max && (!soloEntero || Number.isInteger(nuevo)));
+    const cambio = valido && nuevo !== original;
+    return (
+        <Stack direction="row" spacing={0.5} alignItems="center">
+            <TextField
+                size="small"
+                value={texto}
+                placeholder={vacio}
+                onChange={(e) => setTexto(e.target.value)}
+                error={!valido}
+                disabled={deshabilitado}
+                inputProps={{ 'aria-label': etiqueta, inputMode: 'decimal' }}
+                sx={{ width: ancho }}
+            />
+            <MuiTooltip title="Guardar">
+                <span>
+                    <IconButton size="small" aria-label={etiquetaGuardar} disabled={!cambio || deshabilitado} onClick={() => onGuardar(nuevo)}>
+                        <SaveIcon fontSize="small" />
+                    </IconButton>
+                </span>
+            </MuiTooltip>
+        </Stack>
+    );
+};
+
+/** Una función del asistente: se puede apagar y limitar por su cuenta (tope del mes, tope por pregunta y pedidos por persona y día). */
 const FilaFuncion: React.FC<{
     f: ConsumoAsistente['porFuncion'][number];
     config: ConfigAsistente | null;
@@ -53,16 +99,9 @@ const FilaFuncion: React.FC<{
 }> = ({ f, config, onCambio }) => {
     const notify = useNotify();
     const propia = config?.funciones.find((x) => x.clave === f.funcion);
-    const original = propia?.topeMensualUsd ?? null;
-    const [tope, setTope] = useState(original === null ? '' : String(original));
     const [guardando, setGuardando] = useState(false);
-    useEffect(() => setTope(original === null ? '' : String(original)), [original]);
 
-    const nuevo = tope.trim() === '' ? null : aNumero(tope);
-    const valido = nuevo === null || (Number.isFinite(nuevo) && nuevo >= 0);
-    const cambio = valido && nuevo !== original;
-
-    const patch = async (cambios: { habilitada?: boolean; topeMensualUsd?: number | null }) => {
+    const patch = async (cambios: CambiosFuncion) => {
         setGuardando(true);
         try {
             await asistenteApi.actualizarFuncion(f.funcion, cambios);
@@ -74,43 +113,100 @@ const FilaFuncion: React.FC<{
             setGuardando(false);
         }
     };
+    const sinConfig = !propia || guardando;
 
     return (
         <TableRow>
-            <TableCell>{f.nombre}</TableCell>
+            <TableCell>
+                {f.nombre}
+                {propia?.modelo && <Typography variant="caption" color="text.secondary" sx={{ display: 'block', overflowWrap: 'anywhere' }}>{propia.modelo}</Typography>}
+            </TableCell>
             <TableCell align="right">{usd(f.gastoUsd, 4)}</TableCell>
             <TableCell align="right">{entero(f.preguntas)}</TableCell>
             <TableCell>
                 <Switch
                     size="small"
                     checked={propia?.habilitada ?? true}
-                    disabled={!propia || guardando}
+                    disabled={sinConfig}
                     onChange={(e) => void patch({ habilitada: e.target.checked })}
                     inputProps={{ 'aria-label': `Activar «${f.nombre}»` }}
                 />
             </TableCell>
             <TableCell>
-                <Stack direction="row" spacing={0.5} alignItems="center">
-                    <TextField
-                        size="small"
-                        value={tope}
-                        placeholder="Sin tope"
-                        onChange={(e) => setTope(e.target.value)}
-                        error={!valido}
-                        disabled={!propia}
-                        inputProps={{ 'aria-label': `Tope mensual de «${f.nombre}» en USD`, inputMode: 'decimal' }}
-                        sx={{ width: 110 }}
-                    />
-                    <MuiTooltip title="Guardar el tope">
-                        <span>
-                            <IconButton size="small" aria-label={`Guardar el tope de «${f.nombre}»`} disabled={!cambio || guardando} onClick={() => void patch({ topeMensualUsd: nuevo })}>
-                                <SaveIcon fontSize="small" />
-                            </IconButton>
-                        </span>
-                    </MuiTooltip>
-                </Stack>
+                <CampoFuncion
+                    original={propia?.topeMensualUsd ?? null}
+                    etiqueta={`Tope mensual de «${f.nombre}» en USD`}
+                    etiquetaGuardar={`Guardar el tope de «${f.nombre}»`}
+                    deshabilitado={sinConfig}
+                    onGuardar={(v) => void patch({ topeMensualUsd: v })}
+                />
+            </TableCell>
+            <TableCell>
+                <CampoFuncion
+                    original={propia?.topeTurnoUsd ?? null}
+                    etiqueta={`Tope por pregunta de «${f.nombre}» en USD`}
+                    etiquetaGuardar={`Guardar el tope por pregunta de «${f.nombre}»`}
+                    vacio="Predeterminado"
+                    min={0.005}
+                    max={2}
+                    deshabilitado={sinConfig}
+                    onGuardar={(v) => void patch({ topeTurnoUsd: v })}
+                />
+            </TableCell>
+            <TableCell>
+                <CampoFuncion
+                    original={propia?.limiteDiarioUsuario ?? null}
+                    etiqueta={`Límite diario por persona de «${f.nombre}»`}
+                    etiquetaGuardar={`Guardar el límite diario de «${f.nombre}»`}
+                    entero
+                    ancho={90}
+                    vacio="Predeterminado"
+                    min={1}
+                    max={1000}
+                    deshabilitado={sinConfig}
+                    onGuardar={(v) => void patch({ limiteDiarioUsuario: v })}
+                />
             </TableCell>
         </TableRow>
+    );
+};
+
+/** Las plantillas que armó el asistente: cuántas se mostraron, cuántas se abrieron en el editor y cuántas se guardaron (§12, §14). */
+const PlantillasArmadas: React.FC<{ porFuncion: ConsumoAsistente['porFuncion'] }> = ({ porFuncion }) => {
+    const filas = porFuncion.filter((f) => f.plantillas);
+    if (filas.length === 0) return null;
+    return (
+        <SectionCard title="Plantillas armadas con el asistente" subtitle="De las que mostró, cuántas se abrieron en el editor y cuántas se guardaron">
+            <TableContainer>
+                <Table size="small" aria-label="Plantillas armadas con el asistente">
+                    <TableHead>
+                        <TableRow>
+                            <TableCell>Función</TableCell>
+                            <TableCell align="right">Mostradas</TableCell>
+                            <TableCell align="right">Abiertas</TableCell>
+                            <TableCell align="right">Guardadas</TableCell>
+                            <TableCell align="right">Guardadas sin cambios</TableCell>
+                            <TableCell align="right">Costo por guardada</TableCell>
+                        </TableRow>
+                    </TableHead>
+                    <TableBody>
+                        {filas.map((f) => {
+                            const p = f.plantillas!;
+                            return (
+                                <TableRow key={f.funcion}>
+                                    <TableCell>{f.nombre}</TableCell>
+                                    <TableCell align="right">{entero(p.mostradas)}</TableCell>
+                                    <TableCell align="right">{entero(p.abiertas)}{p.mostradas > 0 ? ` (${porcentaje((p.abiertas / p.mostradas) * 100)})` : ''}</TableCell>
+                                    <TableCell align="right">{entero(p.guardadas)}{p.mostradas > 0 ? ` (${porcentaje((p.guardadas / p.mostradas) * 100)})` : ''}</TableCell>
+                                    <TableCell align="right">{p.guardadas > 0 ? porcentaje((p.guardadasSinCambios / p.guardadas) * 100) : '—'}</TableCell>
+                                    <TableCell align="right">{p.costoPorGuardada === null ? '—' : usd(p.costoPorGuardada, 4)}</TableCell>
+                                </TableRow>
+                            );
+                        })}
+                    </TableBody>
+                </Table>
+            </TableContainer>
+        </SectionCard>
     );
 };
 
@@ -254,6 +350,8 @@ const AsistenteConsumo: React.FC = () => {
                                             <TableCell align="right">Preguntas</TableCell>
                                             <TableCell>Activa</TableCell>
                                             <TableCell>Tope mensual (USD)</TableCell>
+                                            <TableCell>Tope por pregunta (USD)</TableCell>
+                                            <TableCell>Pedidos por persona y día</TableCell>
                                         </TableRow>
                                     </TableHead>
                                     <TableBody>
@@ -262,6 +360,8 @@ const AsistenteConsumo: React.FC = () => {
                                 </Table>
                             </TableContainer>
                         </SectionCard>
+
+                        <PlantillasArmadas porFuncion={consumo.porFuncion} />
 
                         <SectionCard title="Por persona" subtitle="Las 50 que más gastaron en el mes">
                             {consumo.porUsuario.length === 0 ? (

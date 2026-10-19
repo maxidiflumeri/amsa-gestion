@@ -8,6 +8,12 @@ import { ActualizarFuncionDto } from './dto/actualizar-funcion.dto';
 import { ConfigAsistente, FuncionAsistente, PrecioModelo } from './dto/asistente.tipos';
 import { AsistenteModeloService } from './modelo/asistente-modelo.service';
 import { PRECIOS_DEFAULT, resolverPrecio } from './modelo/precios';
+import { DEFAULTS_REPORTES, FUNCION_REPORTES } from './reportes/funcion-reportes';
+
+/** Lo que vale una función mientras su columna esté en null (el tope por turno global cortaría reportes en la primera llamada). */
+export const DEFAULTS_POR_FUNCION: Record<string, { topeTurnoUsd?: number; limiteDiarioUsuario?: number }> = {
+    [FUNCION_REPORTES]: { topeTurnoUsd: DEFAULTS_REPORTES.topeTurnoUsd, limiteDiarioUsuario: DEFAULTS_REPORTES.limiteDiarioUsuario },
+};
 
 /** La configuración tal como la usa el código (los Decimal ya son number). */
 export interface ConfigInterna {
@@ -133,25 +139,41 @@ export class AsistenteConfigService {
         }
     }
 
-    async funciones(): Promise<FuncionAsistente[]> {
-        await this.leer();
-        const filas = await this.prisma.asistente_funcion.findMany({ orderBy: { clave: 'asc' } });
-        return filas.map((f) => ({
+    private aFuncion(f: {
+        clave: string;
+        nombre: string;
+        habilitada: boolean;
+        topeMensualUsd: Prisma.Decimal | null;
+        topeTurnoUsd: Prisma.Decimal | null;
+        limiteDiarioUsuario: number | null;
+    }): FuncionAsistente {
+        const d = DEFAULTS_POR_FUNCION[f.clave] ?? {};
+        return {
             clave: f.clave,
             nombre: f.nombre,
             habilitada: f.habilitada,
             topeMensualUsd: f.topeMensualUsd === null ? null : Number(f.topeMensualUsd),
-        }));
+            modelo: this.modelo.modeloPara(f.clave),
+            // Lo que vale de verdad: lo configurado o, si no hay, el de código de la función.
+            topeTurnoUsd: f.topeTurnoUsd === null ? (d.topeTurnoUsd ?? null) : Number(f.topeTurnoUsd),
+            limiteDiarioUsuario: f.limiteDiarioUsuario ?? d.limiteDiarioUsuario ?? null,
+        };
+    }
+
+    async funciones(): Promise<FuncionAsistente[]> {
+        await this.leer();
+        const filas = await this.prisma.asistente_funcion.findMany({ orderBy: { clave: 'asc' } });
+        return filas.map((f) => this.aFuncion(f));
     }
 
     async funcion(clave: string): Promise<FuncionAsistente | null> {
         return (await this.funciones()).find((f) => f.clave === clave) ?? null;
     }
 
-    /** El precio del modelo en uso: el configurado o el de código. `null` = el asistente no llama. */
-    async precioVigente(): Promise<PrecioModelo | null> {
+    /** El precio de un modelo (por defecto, el de la ayuda): el configurado o el de código. `null` = no se llama. */
+    async precioVigente(modelo: string = this.modelo.modelo): Promise<PrecioModelo | null> {
         const c = await this.leer();
-        return resolverPrecio(this.modelo.modelo, c.precios);
+        return resolverPrecio(modelo, c.precios);
     }
 
     /** Ids de los usuarios activos que pueden administrar el asistente (reciben los avisos de tope). */
@@ -229,6 +251,8 @@ export class AsistenteConfigService {
         const data: Prisma.asistente_funcionUpdateInput = {};
         if (dto.habilitada !== undefined) data.habilitada = dto.habilitada;
         if (dto.topeMensualUsd !== undefined) data.topeMensualUsd = dto.topeMensualUsd;
+        if (dto.topeTurnoUsd !== undefined) data.topeTurnoUsd = dto.topeTurnoUsd;
+        if (dto.limiteDiarioUsuario !== undefined) data.limiteDiarioUsuario = dto.limiteDiarioUsuario;
 
         const t0 = Date.now();
         this.logger.log(`Actualizando la función del asistente ${clave} (usuario=${usuarioId})`);
@@ -249,14 +273,14 @@ export class AsistenteConfigService {
                         antes: existente.topeMensualUsd === null ? null : Number(existente.topeMensualUsd),
                         despues: fila.topeMensualUsd === null ? null : Number(fila.topeMensualUsd),
                     },
+                    topeTurnoUsd: {
+                        antes: existente.topeTurnoUsd === null ? null : Number(existente.topeTurnoUsd),
+                        despues: fila.topeTurnoUsd === null ? null : Number(fila.topeTurnoUsd),
+                    },
+                    limiteDiarioUsuario: { antes: existente.limiteDiarioUsuario, despues: fila.limiteDiarioUsuario },
                 } as any,
             },
         });
-        return {
-            clave: fila.clave,
-            nombre: fila.nombre,
-            habilitada: fila.habilitada,
-            topeMensualUsd: fila.topeMensualUsd === null ? null : Number(fila.topeMensualUsd),
-        };
+        return this.aFuncion(fila);
     }
 }

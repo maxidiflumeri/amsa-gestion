@@ -5,12 +5,16 @@ export type Columna = {
   label: string
   /** Solo en columnas fijas: el texto que va en todas las filas. */
   valorFijo?: string
-  tipo?: 'texto' | 'numero' | 'fecha' | 'boolean' | 'moneda' | 'telefono'
+  tipo?: 'texto' | 'numero' | 'fecha' | 'boolean' | 'moneda' | 'telefono' | 'dias'
   formato?: string
   ancho?: number
   cardinalidad?: 'expandir' | 'concatenar' | 'primero' | 'ultimo'
   separadorConcat?: string
   formatoTelefonoId?: number
+  /** Solo en columnas de tipo número: cantidad de decimales (0 a 4). Con alguna de las tres propiedades el número se arma con estos separadores (coma decimal y punto de miles por defecto). */
+  decimales?: number
+  separadorDecimal?: ',' | '.'
+  separadorMiles?: '.' | ',' | ''
 }
 
 export type FormatoTelefono = {
@@ -48,6 +52,8 @@ export type Agrupacion = {
 
 export type Total = {
   path: string
+  /** La columna a la que está atado (su `id`). Sin él, el backend usa la única columna con ese campo; con dos, da 400 por ambiguo. */
+  columnaId?: string
   funcion: 'sum' | 'avg' | 'count' | 'min' | 'max'
   label?: string
 }
@@ -102,6 +108,10 @@ export type OpcionesTxt = {
   lineEnding?: '\r\n' | '\n'
   incluirHeader?: boolean
   anchoFijo?: number[]
+  /** Una por columna de ancho fijo; por defecto, izquierda. */
+  alineacion?: ('izquierda' | 'derecha')[]
+  /** Una por columna de ancho fijo; por defecto, espacio. */
+  relleno?: (' ' | '0')[]
 }
 
 export type OpcionesFormato = {
@@ -121,6 +131,8 @@ export type Plantilla = {
   definicion: Definicion
   formatoSalida: 'xlsx' | 'csv' | 'txt' | 'pdf'
   opcionesFormato?: OpcionesFormato
+  /** Solo al crear: la propuesta del asistente de la que sale (se vincula al guardar). */
+  asistentePropuestaId?: number
   createdAt?: string
   updatedAt?: string
   empresa?: { id: number; nombre: string } | null

@@ -1,8 +1,19 @@
-import { ConflictException, Inject, Injectable, Logger } from '@nestjs/common';
+import { BadRequestException, ConflictException, ForbiddenException, Inject, Injectable, Logger, Optional } from '@nestjs/common';
+import { createHash } from 'crypto';
 import { PrismaService } from '../../prisma/prisma.service';
+import { CatalogoService } from '../reportes/catalogo/catalogo.service';
+import { AdjuntosService } from './adjuntos/adjuntos.service';
+import { DatosAdicionalesService } from './reportes/datos-adicionales.service';
+import { FUNCION_REPORTES, MENSAJE_SIN_PERMISO_FUNCION, PERMISOS_REPORTES, mensajeFuncionDistinta } from './reportes/funcion-reportes';
+import { catalogoCompacto, nodosVisibles } from './reportes/prompt/catalogo-compacto';
+import { PropuestasService } from './reportes/propuestas.service';
+import { PruebaPropuestaService } from './reportes/prueba-propuesta.service';
+import { CAPACIDADES_TODAS } from './reportes/tipos-reportes';
+import { TurnoReportesRunner } from './reportes/turno-reportes.runner';
+import { VocabulariosService } from './reportes/vocabularios.service';
 import { ConversacionesService } from './conversaciones.service';
 import { PreguntarDto } from './dto/preguntar.dto';
-import { EventoSse } from './dto/asistente.tipos';
+import { EventoSse, FuncionClave, Paso, TarjetaPropuesta } from './dto/asistente.tipos';
 import { MedicionService } from './medicion.service';
 import { AsistenteModeloService } from './modelo/asistente-modelo.service';
 import { MENSAJE_INTERNO } from './turno/errores';
@@ -35,6 +46,9 @@ export interface TurnoPreparado {
 export class AsistenteService {
     private readonly logger = new Logger(AsistenteService.name);
     private readonly runner: TurnoRunner;
+    private readonly medicionConAvisos: PuertoMedicion;
+    /** El de la función de reportes se arma en el primer turno (necesita el catálogo). */
+    private runnerReportes: Promise<TurnoReportesRunner> | null = null;
 
     constructor(
         private readonly prisma: PrismaService,
@@ -44,7 +58,14 @@ export class AsistenteService {
         private readonly wiki: WikiIndiceService,
         private readonly modelo: AsistenteModeloService,
         private readonly turnos: TurnosActivos,
-        @Inject(CLIENTE_MODELO) cliente: ClienteModelo,
+        @Inject(CLIENTE_MODELO) private readonly cliente: ClienteModelo,
+        // Fase B. Opcionales solo para que los tests de la ayuda no tengan que armarlos.
+        @Optional() private readonly adjuntos?: AdjuntosService,
+        @Optional() private readonly propuestas?: PropuestasService,
+        @Optional() private readonly vocabularios?: VocabulariosService,
+        @Optional() private readonly datosAdicionales?: DatosAdicionalesService,
+        @Optional() private readonly prueba?: PruebaPropuestaService,
+        @Optional() private readonly catalogo?: CatalogoService,
     ) {
         const medicionConAvisos: PuertoMedicion = {
             registrarLlamada: async (l: LlamadaRegistro) => {
@@ -57,6 +78,7 @@ export class AsistenteService {
                 return costo;
             },
         };
+        this.medicionConAvisos = medicionConAvisos;
         this.runner = new TurnoRunner({
             cliente,
             wiki: this.wiki,
@@ -66,6 +88,44 @@ export class AsistenteService {
             strict: this.modelo.soportaStrict,
             maxTokensContexto: leerMaxTokensContexto(),
         });
+    }
+
+    /** El runner de la función de reportes: catálogo entero, compacto, en el `system` cacheado. */
+    private armarRunnerReportes(): Promise<TurnoReportesRunner> {
+        if (!this.runnerReportes) {
+            const p = (async () => {
+                if (!this.catalogo || !this.vocabularios || !this.datosAdicionales || !this.prueba || !this.propuestas) {
+                    throw new Error('La función de reportes del asistente no está configurada.');
+                }
+                const catalogo = await this.catalogo.getCatalogo('deudor', 3);
+                const texto = catalogoCompacto(catalogo);
+                const runner = new TurnoReportesRunner({
+                    cliente: this.cliente,
+                    topes: this.topes,
+                    medicion: this.medicionConAvisos,
+                    modelo: this.modelo.modeloPara(FUNCION_REPORTES),
+                    strict: this.modelo.soportaStrict,
+                    timeoutMs: this.modelo.timeoutReportesMs,
+                    catalogo,
+                    catalogoTexto: texto,
+                    capacidades: CAPACIDADES_TODAS,
+                    vocabularios: this.vocabularios,
+                    datosAdicionales: this.datosAdicionales,
+                    prueba: this.prueba,
+                    propuestas: this.propuestas,
+                });
+                this.logger.log(
+                    `Asistente reportes: system=${texto.length} caracteres, catálogo=${nodosVisibles(catalogo).length} campos, sha1=${createHash('sha1').update(texto).digest('hex').slice(0, 8)}`,
+                );
+                return runner;
+            })();
+            // Si falla (catálogo, configuración), el próximo turno lo reintenta.
+            p.catch(() => {
+                this.runnerReportes = null;
+            });
+            this.runnerReportes = p;
+        }
+        return this.runnerReportes;
     }
 
     async preparar(u: UsuarioJwt, dto: PreguntarDto): Promise<TurnoPreparado> {
@@ -78,7 +138,17 @@ export class AsistenteService {
             });
         }
         try {
-            const limite = await this.topes.verificarInicio(u.sub, FUNCION_AYUDA);
+            const funcion = await this.resolverFuncion(u.sub, dto);
+            const permisos = Array.isArray(u.permisos) ? u.permisos : [];
+            if (funcion === FUNCION_REPORTES && !PERMISOS_REPORTES.every((p) => permisos.includes(p))) {
+                const mensaje = MENSAJE_SIN_PERMISO_FUNCION;
+                this.logger.warn(`Función de reportes sin permisos (usuario=${u.sub})`);
+                throw new ForbiddenException({ codigo: 'SIN_PERMISO_FUNCION', mensaje, message: mensaje });
+            }
+            if (funcion === 'ayuda' && dto.adjuntos && dto.adjuntos.length > 0) {
+                throw new BadRequestException({ codigo: 'ADJUNTO_INVALIDO', mensaje: 'Los archivos de ejemplo son del modo «Armar un reporte».', message: 'Los archivos de ejemplo son del modo «Armar un reporte».' });
+            }
+            const limite = await this.topes.verificarInicio(u.sub, funcion);
             const persona = await this.prisma.usuario.findUnique({
                 where: { id: u.sub },
                 select: { nombre: true, rol: true, rolObj: { select: { nombre: true } } },
@@ -89,9 +159,9 @@ export class AsistenteService {
                 pregunta: dto.pregunta,
                 ruta: dto.ruta,
                 versionWiki: this.wiki.version,
-                funcion: FUNCION_AYUDA,
+                funcion,
+                ...(funcion === FUNCION_REPORTES ? { adjuntoIds: dto.adjuntos ?? [] } : {}),
             });
-            const permisos = Array.isArray(u.permisos) ? u.permisos : [];
             const nombre = (persona?.nombre ?? '').trim().split(/\s+/)[0] || 'Usuario';
             const rol = persona?.rolObj?.nombre ?? persona?.rol ?? 'usuario';
 
@@ -107,6 +177,7 @@ export class AsistenteService {
                     this.ejecutar({
                         ac,
                         usuarioId: u.sub,
+                        funcion,
                         creado,
                         emitir,
                         entrada: { pregunta: dto.pregunta, ruta: dto.ruta, persona: { nombre, rol, permisos } },
@@ -118,9 +189,56 @@ export class AsistenteService {
         }
     }
 
+    /** `dto.funcion ?? la de la conversación ?? 'ayuda'`; una conversación es de una sola función. */
+    private async resolverFuncion(usuarioId: number, dto: PreguntarDto): Promise<FuncionClave> {
+        if (dto.conversacionId != null) {
+            const deLaConversacion = await this.conversaciones.funcionDe(usuarioId, dto.conversacionId);
+            if (deLaConversacion !== null) {
+                if (dto.funcion && dto.funcion !== deLaConversacion) {
+                    this.logger.warn(`Función distinta (conversación ${dto.conversacionId} es de ${deLaConversacion}, se pidió ${dto.funcion})`);
+                    {
+                        const mensaje = mensajeFuncionDistinta(deLaConversacion);
+                        throw new ConflictException({ codigo: 'FUNCION_DISTINTA', mensaje, message: mensaje });
+                    }
+                }
+                return deLaConversacion;
+            }
+        }
+        return dto.funcion ?? 'ayuda';
+    }
+
+    private async correrReportes(
+        p: { ac: AbortController; usuarioId: number; creado: Awaited<ReturnType<ConversacionesService['crearTurno']>>; emitir: (e: EventoSse) => void; entrada: { pregunta: string; ruta: string; persona: { nombre: string; rol: string } } },
+        ids: { usuarioId: number; conversacionId: number; mensajeId: number },
+    ) {
+        const runner = await this.armarRunnerReportes();
+        const { creado } = p;
+        const [ejemplos, ultima] = await Promise.all([
+            this.adjuntos!.paraTurno(creado.conversacionId, creado.mensajeUsuarioId),
+            this.propuestas!.ultimaMostrada(creado.conversacionId),
+        ]);
+        return runner.correr({
+            pregunta: p.entrada.pregunta,
+            ruta: p.entrada.ruta,
+            persona: { nombre: p.entrada.persona.nombre, rol: p.entrada.persona.rol },
+            ahora: new Date(),
+            // Con los bloques de thinking tal cual: recortar invalidaría las firmas.
+            previos: creado.historial.flatMap((t) => t.mensajes),
+            esPrimerTurno: creado.esPrimerTurno,
+            adjuntosNuevos: ejemplos.nuevos,
+            ejemplos: ejemplos.ejemplos,
+            principalId: ejemplos.principalId,
+            ultimaPropuesta: ultima,
+            ids,
+            signal: p.ac.signal,
+            emitir: p.emitir,
+        });
+    }
+
     private async ejecutar(p: {
         ac: AbortController;
         usuarioId: number;
+        funcion: FuncionClave;
         creado: Awaited<ReturnType<ConversacionesService['crearTurno']>>;
         emitir: (e: EventoSse) => void;
         entrada: { pregunta: string; ruta: string; persona: { nombre: string; rol: string; permisos: string[] } };
@@ -132,24 +250,35 @@ export class AsistenteService {
             `Turno asistente iniciado: usuario=${p.usuarioId} conversacion=${creado.conversacionId} mensaje=${creado.mensajeId}`,
         );
         try {
-            const resultado: ResultadoTurno = await this.runner.correr({
-                funcion: FUNCION_AYUDA,
-                pregunta: p.entrada.pregunta,
-                ruta: p.entrada.ruta,
-                persona: p.entrada.persona,
-                ahora: new Date(),
-                historial: creado.historial,
-                ultimoPromptTokens: creado.ultimoPromptTokens,
-                ids: { usuarioId: p.usuarioId, conversacionId: creado.conversacionId, mensajeId: creado.mensajeId },
-                signal: p.ac.signal,
-                emitir,
-            });
+            const ids = { usuarioId: p.usuarioId, conversacionId: creado.conversacionId, mensajeId: creado.mensajeId };
+            const resultado: ResultadoTurno & { pasos?: Paso[]; propuestas?: TarjetaPropuesta[] } =
+                p.funcion === FUNCION_REPORTES
+                    ? await this.correrReportes(p, ids)
+                    : await this.runner.correr({
+                          funcion: FUNCION_AYUDA,
+                          pregunta: p.entrada.pregunta,
+                          ruta: p.entrada.ruta,
+                          persona: p.entrada.persona,
+                          ahora: new Date(),
+                          historial: creado.historial,
+                          ultimoPromptTokens: creado.ultimoPromptTokens,
+                          ids,
+                          signal: p.ac.signal,
+                          emitir,
+                      });
             await this.conversaciones.finalizarTurno({
                 conversacionId: creado.conversacionId,
                 mensajeUsuarioId: creado.mensajeUsuarioId,
                 mensajeId: creado.mensajeId,
                 resultado,
             });
+            if (resultado.propuestas && resultado.propuestas.length > 0 && this.propuestas) {
+                try {
+                    await this.propuestas.asignarCosto(creado.mensajeId, resultado.costoUsd);
+                } catch (e: any) {
+                    this.logger.warn(`No se pudo guardar el costo de la propuesta del mensaje ${creado.mensajeId}: ${e?.message}`);
+                }
+            }
             this.logger.log(
                 `Turno asistente ${creado.mensajeId} terminado estado=${resultado.estado} llamadas=${resultado.llamadas} ` +
                     `costo=$${resultado.costoUsd.toFixed(4)} en ${Date.now() - t0}ms`,
@@ -172,6 +301,8 @@ export class AsistenteService {
                         texto: resultado.texto,
                         fuentes: resultado.fuentes,
                         acciones: resultado.acciones,
+                        pasos: resultado.pasos ?? [],
+                        propuestas: resultado.propuestas ?? [],
                         ms: resultado.ms,
                     },
                 });

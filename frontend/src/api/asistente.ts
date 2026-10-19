@@ -1,7 +1,7 @@
 import api from './axios';
 import type {
-    ConfigAsistente, ConsumoAsistente, ConversacionDetalle, ConversacionResumen, EstadoAsistente, EventoAsistente,
-    FuncionAsistente, PreguntarBody,
+    AdjuntoSubido, ConfigAsistente, ConsumoAsistente, ConversacionDetalle, ConversacionResumen, EstadoAsistente, EventoAsistente,
+    FuncionAsistente, FuncionClave, PlantillaDesdeAsistente, PreguntarBody, VistaPreviaPropuesta,
 } from '../types/asistente';
 
 const BASE = import.meta.env.VITE_API_URL || 'http://localhost:3001/api';
@@ -50,7 +50,8 @@ function parsearBloque(bloque: string): EventoAsistente | null {
         else if (linea.startsWith('data:')) datos.push(linea.slice(5).replace(/^ /, ''));
     }
     if (!nombre || datos.length === 0) return null;
-    if (!['inicio', 'texto', 'herramienta', 'accion', 'fin', 'error'].includes(nombre)) return null;
+    // `paso` y `propuesta` son de la Fase B: sin ellos en la lista la tarjeta no aparecería y tampoco habría un error.
+    if (!['inicio', 'texto', 'herramienta', 'accion', 'paso', 'propuesta', 'fin', 'error'].includes(nombre)) return null;
     try {
         return { evento: nombre, data: JSON.parse(datos.join('\n')) } as EventoAsistente;
     } catch {
@@ -133,11 +134,12 @@ export async function preguntar(body: PreguntarBody, { onEvento, signal }: { onE
 }
 
 export const asistenteApi = {
-    estado(): Promise<EstadoAsistente> {
-        return api.get('/asistente/estado', { silencioso: true }).then((r) => r.data);
+    /** El estado de una función (la ayuda, si no se dice cuál). */
+    estado(funcion?: FuncionClave): Promise<EstadoAsistente> {
+        return api.get('/asistente/estado', { params: funcion && funcion !== 'ayuda' ? { funcion } : undefined, silencioso: true }).then((r) => r.data);
     },
-    conversaciones(limite = 10): Promise<ConversacionResumen[]> {
-        return api.get('/asistente/conversaciones', { params: { limite }, silencioso: true }).then((r) => r.data);
+    conversaciones(limite = 10, funcion?: FuncionClave): Promise<ConversacionResumen[]> {
+        return api.get('/asistente/conversaciones', { params: { limite, ...(funcion ? { funcion } : {}) }, silencioso: true }).then((r) => r.data);
     },
     conversacion(id: number): Promise<ConversacionDetalle> {
         return api.get(`/asistente/conversaciones/${id}`).then((r) => r.data);
@@ -158,7 +160,33 @@ export const asistenteApi = {
     actualizarConfig(cambios: Partial<Pick<ConfigAsistente, 'habilitado' | 'topeMensualUsd' | 'avisoPorcentaje' | 'limiteDiarioUsuario' | 'topeTurnoUsd' | 'precios'>>): Promise<ConfigAsistente> {
         return api.patch('/asistente/config', cambios).then((r) => r.data);
     },
-    actualizarFuncion(clave: string, cambios: { habilitada?: boolean; topeMensualUsd?: number | null }): Promise<FuncionAsistente> {
+    actualizarFuncion(clave: string, cambios: { habilitada?: boolean; topeMensualUsd?: number | null; topeTurnoUsd?: number | null; limiteDiarioUsuario?: number | null }): Promise<FuncionAsistente> {
         return api.patch(`/asistente/funciones/${encodeURIComponent(clave)}`, cambios).then((r) => r.data);
+    },
+
+    // ─── Fase B: armar reportes (docs/asistente-reportes-spec.md §6.1) ───
+    /** Sube un ejemplo (multipart, campo `archivo`). `onProgreso` recibe 0 a 100. El 400/413 trae `{ codigo, mensaje }`: lo muestra el chip. */
+    subirAdjunto(archivo: File, onProgreso?: (porcentaje: number) => void, signal?: AbortSignal): Promise<AdjuntoSubido> {
+        const datos = new FormData();
+        datos.append('archivo', archivo);
+        return api.post('/asistente/adjuntos', datos, {
+            silencioso: true,
+            signal,
+            onUploadProgress: (e) => { if (onProgreso && e.total) onProgreso(Math.min(100, Math.round((e.loaded / e.total) * 100))); },
+        }).then((r) => r.data);
+    },
+    actualizarAdjunto(id: number, primeraFilaEsEncabezado: boolean): Promise<AdjuntoSubido> {
+        return api.patch(`/asistente/adjuntos/${id}`, { primeraFilaEsEncabezado }, { silencioso: true }).then((r) => r.data);
+    },
+    borrarAdjunto(id: number): Promise<void> {
+        return api.delete(`/asistente/adjuntos/${id}`, { silencioso: true }).then(() => undefined);
+    },
+    /** La plantilla de una propuesta, lista para cargar en el editor. Marca la propuesta como abierta. */
+    plantillaDePropuesta(id: number): Promise<PlantillaDesdeAsistente> {
+        return api.get(`/asistente/propuestas/${id}/plantilla`).then((r) => r.data);
+    },
+    /** Filas de muestra, enmascaradas (docs/asistente-reportes-spec.md §8.4). No se guardan. */
+    vistaPrevia(id: number, filas = 5): Promise<VistaPreviaPropuesta> {
+        return api.get(`/asistente/propuestas/${id}/vista-previa`, { params: { filas }, silencioso: true }).then((r) => r.data);
     },
 };

@@ -2,6 +2,8 @@ import { PathAST } from '../parser/path-ast';
 import { PathParser } from '../parser/path-parser';
 import { DefinicionPlantillaDto } from '../dto/plantilla.dto';
 import { esColumnaFija } from '../columna-fija';
+import { campoFinal } from '../validador/definicion-validator';
+import { clasificarFecha, TipoFecha } from '../validador/fechas-negocio';
 
 /**
  * Una columna lista para resolver: el path ya parseado, la cardinalidad ya resuelta contra el
@@ -17,6 +19,19 @@ export interface ColumnaPreparada {
   cardinalidad: string;
   separadorConcat?: string;
   valorFijo?: string;
+  /** E3 (tipo `numero`). */
+  decimales?: number;
+  separadorDecimal?: string;
+  separadorMiles?: string;
+  /** E2 (tipo `dias`): cómo se guarda la fecha del path, para elegir el día calendario o el local. */
+  tipoFecha?: TipoFecha;
+}
+
+/** Cómo se guarda la fecha a la que apunta un path, o `undefined` si no apunta a una fecha del modelo. */
+function tipoFechaDelPath(ast: PathAST): TipoFecha | undefined {
+  const final = campoFinal('deudor', ast);
+  if (final.claveJson || final.campo?.type !== 'DateTime') return undefined;
+  return clasificarFecha(final.modelo ?? '', final.campo.name) ?? 'instante';
 }
 
 /**
@@ -31,18 +46,26 @@ export function prepararColumnas(
   parser: PathParser,
   formatosTelefono: Map<number, string>,
 ): ColumnaPreparada[] {
-  return definicion.columnas.map(col => ({
-    path: esColumnaFija(col) ? null : parser.parse(col.path),
-    label: col.label,
-    tipo: col.tipo,
-    formato:
-      col.tipo === 'telefono' && col.formatoTelefonoId
-        ? formatosTelefono.get(col.formatoTelefonoId) || col.formato
-        : col.formato,
-    cardinalidad: col.cardinalidad || definicion.cardinalidadDefault || 'primero',
-    separadorConcat: col.separadorConcat,
-    valorFijo: esColumnaFija(col) ? (col.valorFijo ?? '') : undefined,
-  }));
+  return definicion.columnas.map(col => {
+    const ast = esColumnaFija(col) ? null : parser.parse(col.path);
+    return {
+      path: ast,
+      label: col.label,
+      tipo: col.tipo,
+      formato:
+        col.tipo === 'telefono' && col.formatoTelefonoId
+          ? formatosTelefono.get(col.formatoTelefonoId) || col.formato
+          : col.formato,
+      cardinalidad: col.cardinalidad || definicion.cardinalidadDefault || 'primero',
+      separadorConcat: col.separadorConcat,
+      valorFijo: esColumnaFija(col) ? (col.valorFijo ?? '') : undefined,
+      // Solo si la columna las trae: sin ellas el objeto queda como estaba (las claves sin definir no se agregan).
+      ...(col.decimales !== undefined && { decimales: col.decimales }),
+      ...(col.separadorDecimal !== undefined && { separadorDecimal: col.separadorDecimal }),
+      ...(col.separadorMiles !== undefined && { separadorMiles: col.separadorMiles }),
+      ...(col.tipo === 'dias' && ast && { tipoFecha: tipoFechaDelPath(ast) }),
+    };
+  });
 }
 
 /** Los patrones del catálogo que usa la plantilla, en una sola consulta. */

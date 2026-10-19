@@ -1,6 +1,6 @@
 <!--
 seccion: Primeros pasos
-resumen: Qué es el asistente, qué te puede explicar, qué no hace y cómo sacarle provecho.
+resumen: Qué es el asistente, sus dos modos (ayuda y armar reportes), qué te puede explicar, qué no hace y cómo sacarle provecho.
 revisado: 2026-10-19
 -->
 # El asistente
@@ -15,11 +15,34 @@ Responde **solo con la Documentación** de esta misma plataforma (la que ves en 
 Busca en **todo el texto** de la Documentación, no solo en los títulos de las páginas. Si le preguntás algo que
 ahí no está, te lo dice: *"Eso no está en la documentación"*, en vez de inventar una respuesta.
 
+Tiene **dos modos**, y los dos viven en el mismo panel (ver *Los dos modos*, más abajo): **Ayuda**, que explica
+cómo se usa la plataforma, y **Armar un reporte**, que arma plantillas de reportes. Esta página habla sobre todo del
+primero; el segundo tiene la suya: [Armar un reporte con el asistente](/ayuda/reportes/armar-con-el-asistente).
+
 ## Antes de empezar
 
 El permiso **Usar el asistente**. Si no ves el botón **Asistente** en la barra, es porque no lo tenés. Se
 pide a quien administre los roles (ver [Roles y permisos](/ayuda/administracion/roles-y-permisos)); y después
 hay que cerrar sesión y volver a entrar.
+
+Para el modo **Armar un reporte** hacen falta además *Asistente: armar reportes*, *Ver reportes* y *Crear
+reportes*. Sin los tres, el panel es solo el de ayuda.
+
+## Los dos modos
+
+Si tenés los permisos de reportes, arriba del panel hay un selector con dos botones:
+
+| Modo | Para qué | Qué modelo usa |
+|---|---|---|
+| **Ayuda** | Preguntar cómo se hace algo o dónde está. Responde con la Documentación | El de siempre |
+| **Armar un reporte** | Pedir una plantilla de reportes, con o sin un archivo de ejemplo. Ver [Armar un reporte con el asistente](/ayuda/reportes/armar-con-el-asistente) | Otro, más potente: **cada pedido cuesta bastante más** |
+
+- **El cambio es explícito**: el asistente no pasa solo de un modo al otro. Al elegir **Armar un reporte**, el
+  panel te recuerda que ese modo cuesta más.
+- **Cada conversación es de un solo modo.** Al cambiar, empieza una conversación nueva, y el menú **Conversaciones
+  anteriores** muestra las del modo en el que estás.
+- **El panel se acuerda del modo** con el que lo dejaste. Si no tenés los permisos, siempre arranca en **Ayuda**.
+- Si estás en **Reportes**, el botón **Armar con el asistente** lo abre directamente en el segundo modo.
 
 ## Cómo se usa
 
@@ -55,7 +78,8 @@ conversación: al volver a abrirlo está todo como lo dejaste.
 - **No ve datos.** No puede decirte cuánto debe un caso, qué pasó con una importación ni quién cargó un pago.
   Si le preguntás algo así, te explica en qué pantalla se mira.
 - **No hace nada por vos.** No guarda, no importa, no manda mails, no llama. Nunca te va a decir que hizo algo
-  en el sistema.
+  en el sistema. En el modo **Armar un reporte** arma una *plantilla* y te la muestra, pero **no la guarda** (la
+  guardás vos en el editor) y tampoco ve los datos de los casos.
 - **No te lleva a ningún lado sin preguntarte** (ver más abajo).
 - **No responde de otros temas.** Ayuda con el uso de AMSA Gestión, nada más.
 - **No recuerda conversaciones anteriores** salvo que la abras desde **Conversaciones anteriores**. Cada
@@ -95,11 +119,13 @@ Vale la pena usarlos: las respuestas con 👎 son la lista de lo que hay que mej
 
 ## Límite por día
 
-Cada persona puede hacer **100 preguntas por día** (quien administra el asistente puede cambiar ese número).
+Cada persona puede hacer **100 preguntas por día** en el modo Ayuda (quien administra el asistente puede cambiar
+ese número). El modo **Armar un reporte** tiene además su propio límite, más bajo: **40 pedidos por día**, que
+también cuentan dentro de las 100.
 Es un tope contra errores, no un cupo para repartir. Al llegar, el panel dice *"Llegaste al límite de … preguntas
 de hoy. Mañana se renueva."* y el cuadro de texto queda deshabilitado. Lo que escribiste, no se pierde.
 
-Además, una conversación tiene un máximo de 40 preguntas. Cuando se llena, el panel te lo avisa y te ofrece
+Además, una conversación tiene un máximo de 40 preguntas (en el modo Armar un reporte, unos 12 pedidos). Cuando se llena, el panel te lo avisa y te ofrece
 empezar una nueva.
 
 ## Cuando el asistente está pausado
@@ -124,7 +150,8 @@ Mientras tanto, la Documentación sigue disponible desde el menú y desde el bot
 
 ## Tus conversaciones
 
-- Quedan guardadas **90 días** y después se borran solas.
+- Quedan guardadas **90 días** y después se borran solas. En el modo **Armar un reporte**, junto con la
+  conversación queda el **resumen** del archivo de ejemplo (sin los datos); el archivo en sí **no se guarda**.
 - Desde el menú **⋮** del panel podés empezar una **Nueva conversación** o volver a abrir una de las últimas 10
   en **Conversaciones anteriores**.
 - **Quien administra el asistente puede leer las respuestas que marcaste con 👎**, con tu pregunta, la respuesta
@@ -186,6 +213,10 @@ Solo sabe el **nombre de la pantalla** en que estás, no lo que hay escrito ni l
 **¿Se entera de mi rol?**
 Sí: usa los permisos de tu rol para no explicarte cosas que no podés hacer, y te dice qué permiso te falta.
 Si le decís que tenés otro rol o más permisos, no le cree: va por lo que dice el sistema.
+
+**¿Me puede armar un reporte?**
+Sí, en el modo **Armar un reporte**, si tenés los permisos. Te muestra una propuesta que abrís en el editor para
+revisarla y guardarla vos. Ver [Armar un reporte con el asistente](/ayuda/reportes/armar-con-el-asistente).
 
 **¿Puedo borrar una conversación?**
 No hay botón para eso. Se borran solas a los 90 días.

@@ -14,7 +14,13 @@ export interface StreamModelo {
 
 /** El puerto del modelo. La implementación real es `ClienteBedrock`; los tests usan un doble con guion. */
 export interface ClienteModelo {
-    stream(params: MessageCreateParamsNonStreaming, signal?: AbortSignal): StreamModelo;
+    stream(params: MessageCreateParamsNonStreaming, signal?: AbortSignal, opciones?: OpcionesStream): StreamModelo;
+}
+
+/** Opciones del request que no son parte de los `params` (la ayuda no pasa ninguna). */
+export interface OpcionesStream {
+    /** Timeout de esta llamada, en ms. Sin esto rige el del cliente. */
+    timeoutMs?: number;
 }
 
 /** Token de inyección de `ClienteModelo`. */
@@ -25,7 +31,7 @@ export interface ClienteAnthropic {
     messages: {
         stream(
             params: MessageCreateParamsNonStreaming,
-            options?: { signal?: AbortSignal },
+            options?: { signal?: AbortSignal; timeout?: number },
         ): {
             on(evento: 'text', cb: (delta: string) => void): unknown;
             finalMessage(): Promise<Message>;
@@ -37,8 +43,11 @@ export interface ClienteAnthropic {
 export class ClienteBedrock implements ClienteModelo {
     constructor(private readonly cliente: ClienteAnthropic) {}
 
-    stream(params: MessageCreateParamsNonStreaming, signal?: AbortSignal): StreamModelo {
-        const s = this.cliente.messages.stream(params, { signal });
+    stream(params: MessageCreateParamsNonStreaming, signal?: AbortSignal, opciones?: OpcionesStream): StreamModelo {
+        const s = this.cliente.messages.stream(
+            params,
+            opciones?.timeoutMs !== undefined ? { signal, timeout: opciones.timeoutMs } : { signal },
+        );
         return {
             onTexto: (cb) => {
                 s.on('text', (delta) => cb(delta));

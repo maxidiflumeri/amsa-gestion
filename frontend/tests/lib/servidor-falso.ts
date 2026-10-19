@@ -30,6 +30,30 @@ export type Respuesta = {
 export const evento = (nombre: string, data: unknown) => `event: ${nombre}\ndata: ${JSON.stringify(data)}\n\n`;
 type Manejador = (m: RegExpMatchArray, p: Pedido) => Respuesta | Promise<Respuesta>;
 
+/**
+ * Un multipart/form-data tal como lo arma el navegador (FormData): los campos de texto y el archivo, con su nombre y su tamaño.
+ * Sirve para comprobar que el frontend manda el campo `archivo` y no otro (docs/asistente-reportes-spec.md §6.1).
+ */
+export function multipart(p: Pedido): { campos: Record<string, string>; archivo: { campo: string; nombre: string; tipo: string; bytes: number } | null } {
+    const limite = /boundary=(.+)$/.exec(p.tipo)?.[1];
+    const campos: Record<string, string> = {};
+    let archivo: { campo: string; nombre: string; tipo: string; bytes: number } | null = null;
+    if (!limite) return { campos, archivo };
+    const crudo = p.cuerpo.toString('latin1');
+    for (const parte of crudo.split(`--${limite}`)) {
+        const corte = parte.indexOf('\r\n\r\n');
+        if (corte < 0) continue;
+        const cabecera = parte.slice(0, corte);
+        const contenido = parte.slice(corte + 4).replace(/\r\n$/, '');
+        const campo = /name="([^"]+)"/.exec(cabecera)?.[1];
+        if (!campo) continue;
+        const nombre = /filename="([^"]*)"/.exec(cabecera)?.[1];
+        if (nombre !== undefined) archivo = { campo, nombre, tipo: /Content-Type:\s*([^\r\n]+)/i.exec(cabecera)?.[1] ?? '', bytes: contenido.length };
+        else campos[campo] = contenido;
+    }
+    return { campos, archivo };
+}
+
 export class ServidorFalso {
     pedidos: Pedido[] = [];
     private rutas: Array<{ metodo: string; patron: RegExp; manejar: Manejador }> = [];

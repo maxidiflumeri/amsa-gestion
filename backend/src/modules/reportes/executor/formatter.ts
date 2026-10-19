@@ -1,10 +1,44 @@
 import dayjs from 'dayjs';
+import { diaCalendario, diasEntre, esSoloFecha, ymdLocal } from '../../../common/utils/dia-local';
+import type { TipoFecha } from '../validador/fechas-negocio';
 import { clasificarPorEnacom, codigoAreaDe, normalizarTelefonoArgentino } from '../../../common/utils/phone-utils';
 
+/**
+ * Lo que una columna puede pedir además de `tipo` y `formato`. Todo es opcional y **aditivo**: sin
+ * ninguna de estas propiedades la salida es exactamente la de siempre.
+ */
+export interface OpcionesColumnaFormato {
+  /** E3, tipo `numero`: cantidad de decimales (0 a 4). Sin él, los que tenga el número. */
+  decimales?: number;
+  /** E3: `,` (default) o `.`. */
+  separadorDecimal?: string;
+  /** E3: `.` (default), `,` o `''` (sin separador de miles). */
+  separadorMiles?: string;
+  /** E2, tipo `dias`: cómo se guarda la fecha (ver `fechas-negocio.ts`). Sin clasificar = instante. */
+  tipoFecha?: TipoFecha;
+  /** E2: el día de hoy (`YYYY-MM-DD`). Solo para los tests; en producción es `ymdLocal()`. */
+  hoyYmd?: string;
+}
+
+/**
+ * Los números sin formatear de las columnas con E3, colgados de la fila formateada. Los totales se
+ * calculan sobre estos y no sobre el texto: «1.234» con miles `.` se leía como 1,234. No es
+ * enumerable, así que ningún exportador ni `JSON.stringify` lo ve. Solo existe en filas con E3.
+ */
+export const VALORES_CRUDOS = Symbol('valoresCrudos');
+
 export class Formatter {
-  formatValue(value: any, tipo?: string, formato?: string): any {
+  formatValue(value: any, tipo?: string, formato?: string, opciones?: OpcionesColumnaFormato): any {
     if (value === null || value === undefined) {
       return '';
+    }
+
+    if (tipo === 'dias') {
+      return this.formatDias(value, opciones);
+    }
+
+    if (tipo === 'numero' && opciones && this.pideFormatoNumerico(opciones)) {
+      return this.formatNumeroPersonalizado(value, opciones);
     }
 
     if (tipo === 'fecha' && value instanceof Date) {
@@ -132,6 +166,62 @@ export class Formatter {
     return { numero: esMovil ? nacional.slice(1) : nacional, marcaMovil: esMovil };
   }
 
+  /**
+   * E2: días enteros entre el **día** de la fecha y hoy, en hora de Argentina. Una fecha pasada da un
+   * número positivo (`fechaVencimiento` de hace 90 días = 90) y una futura, negativo. Es un número,
+   * no un texto, para que `sum` y `avg` de los totales funcionen.
+   *
+   * El día de la fecha depende de cómo se guarda la columna: una fecha calendario (vencimiento, fecha
+   * de pago) se guarda a las 00:00Z o a las 03:00Z y su día es el de la parte de fecha del ISO; un
+   * instante (alta, comentario) tiene el día local. Lo que no es una fecha sale vacío.
+   */
+  private formatDias(value: any, opciones?: OpcionesColumnaFormato): number | '' {
+    let dia: string;
+    if (value instanceof Date) {
+      if (Number.isNaN(value.getTime())) return '';
+      dia = opciones?.tipoFecha === 'calendario' ? diaCalendario(value) : ymdLocal(value);
+    } else if (typeof value === 'string' && esSoloFecha(value)) {
+      dia = value.trim();
+    } else {
+      return '';
+    }
+    try {
+      return diasEntre(dia, opciones?.hoyYmd ?? ymdLocal());
+    } catch {
+      // Un `YYYY-MM-DD` con forma de fecha pero mes 13: no es un día.
+      return '';
+    }
+  }
+
+  private pideFormatoNumerico(o: OpcionesColumnaFormato): boolean {
+    return o.decimales !== undefined || o.separadorDecimal !== undefined || o.separadorMiles !== undefined;
+  }
+
+  /**
+   * E3: número con decimales y separadores elegidos. Sin `decimales` deja los que tiene el número.
+   * Los separadores por defecto son coma decimal y punto de miles; si se elige uno solo, el otro se
+   * acomoda para no chocar (decimal `.` → miles `,`; miles `,` → decimal `.`). Lo que no es un número
+   * sale tal cual, no se inventa un 0.
+   */
+  private formatNumeroPersonalizado(value: any, o: OpcionesColumnaFormato): any {
+    const n = typeof value === 'number' ? value : typeof value === 'bigint' || (typeof value === 'string' && value.trim() !== '') ? Number(value) : NaN;
+    if (!Number.isFinite(n)) return value;
+
+    const decimal = o.separadorDecimal ?? (o.separadorMiles === ',' ? '.' : ',');
+    const miles = o.separadorMiles ?? (decimal === '.' ? ',' : '.');
+
+    const digitos = Math.abs(n).toLocaleString('en-US', {
+      useGrouping: false,
+      minimumFractionDigits: o.decimales ?? 0,
+      maximumFractionDigits: o.decimales ?? 20,
+    });
+    const [entera, fraccion] = digitos.split('.');
+    const conMiles = miles ? entera.replace(/\B(?=(\d{3})+(?!\d))/g, miles) : entera;
+    const cuerpo = fraccion ? `${conMiles}${decimal}${fraccion}` : conMiles;
+    // "-0,00" no le sirve a nadie: un negativo que redondea a cero sale sin signo.
+    return n < 0 && /[1-9]/.test(digitos) ? `-${cuerpo}` : cuerpo;
+  }
+
   private formatFecha(fecha: Date, formato?: string): string {
     const fmt = formato || 'DD/MM/YYYY';
     return dayjs(fecha).format(fmt);
@@ -152,14 +242,26 @@ export class Formatter {
     }).format(valor);
   }
 
-  formatFila(fila: Record<string, any>, columnas: Array<{ label: string; tipo?: string; formato?: string }>): Record<string, any> {
+  formatFila(
+    fila: Record<string, any>,
+    columnas: Array<{ label: string; tipo?: string; formato?: string } & OpcionesColumnaFormato>,
+  ): Record<string, any> {
     const formatted: Record<string, any> = {};
+    let crudos: Record<string, number> | undefined;
 
     for (const col of columnas) {
       const valor = fila[col.label];
-      formatted[col.label] = this.formatValue(valor, col.tipo, col.formato);
+      formatted[col.label] = this.formatValue(valor, col.tipo, col.formato, col);
+      if (col.tipo === 'numero' && this.pideFormatoNumerico(col)) {
+        const n = typeof valor === 'number' ? valor : typeof valor === 'bigint' || (typeof valor === 'string' && valor.trim() !== '') ? Number(valor) : NaN;
+        if (Number.isFinite(n)) {
+          crudos ??= {};
+          crudos[col.label] = n;
+        }
+      }
     }
 
+    if (crudos) Object.defineProperty(formatted, VALORES_CRUDOS, { value: crudos, enumerable: false });
     return formatted;
   }
 }

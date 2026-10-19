@@ -1,7 +1,7 @@
 <!--
 seccion: Reportes
 resumen: Cómo se piensa un reporte dinámico: la raíz, las ramas y qué pasa cuando un caso tiene varios de algo.
-revisado: 2026-08-20
+revisado: 2026-10-19
 rutas: /reportes
 -->
 # Cómo funciona un reporte
@@ -14,6 +14,11 @@ con qué filtros y en qué formato, lo guardás como plantilla y lo ejecutás cu
 No es una herramienta de BI ni reemplaza a Power BI: está pensada para el trabajo operativo de
 cobranzas — sacar la cartera de un cedente, el listado de promesas de la semana, los casos sin
 contacto.
+
+> **También se puede pedir con palabras.** Si tenés los permisos, el [asistente](/ayuda/reportes/armar-con-el-asistente)
+> arma la plantilla a partir de lo que le contás o de un archivo de ejemplo (el Excel que te pidió el cedente).
+> Te la muestra para que la revises, la abrís en el editor y la guardás vos: lo que se explica en esta
+> sección vale igual para lo que arma.
 
 ## Los dos objetos
 

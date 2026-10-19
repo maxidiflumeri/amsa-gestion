@@ -161,7 +161,7 @@ export const TODOS_LOS_PERMISOS: PermisoSeccion[] = [
         seccion: 'Asistente',
         permisos: [
             { key: 'asistente.usar', label: 'Usar el asistente', descripcion: 'Abre el asistente de ayuda y navegación desde la barra superior' },
-            { key: 'asistente.reportes', label: 'Asistente: armar reportes', descripcion: 'Próximamente: el asistente arma plantillas de reportes, siempre con tu confirmación' },
+            { key: 'asistente.reportes', label: 'Asistente: armar reportes', descripcion: 'El asistente arma plantillas de reportes a partir de un pedido o de un archivo de ejemplo. No guarda: la plantilla la guarda la persona. Necesita también Crear reportes.' },
             { key: 'asistente.administrar', label: 'Administrar el asistente', descripcion: 'Ve el consumo, configura los topes y pausa el asistente' },
         ],
     },

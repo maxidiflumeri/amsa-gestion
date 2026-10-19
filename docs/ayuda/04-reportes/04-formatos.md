@@ -1,7 +1,7 @@
 <!--
 seccion: Reportes
 resumen: Excel, CSV, TXT y PDF: cuándo conviene cada uno, qué se puede configurar y qué no.
-revisado: 2026-08-20
+revisado: 2026-10-19
 rutas: /reportes
 -->
 # Formatos de salida
@@ -52,8 +52,32 @@ TXT.
 **El encabezado.** Un switch para sacar la fila de títulos. Muchos sistemas la rechazan.
 
 > **El CSV lleva una marca invisible al principio del archivo** (se llama BOM) que algunos sistemas
-> viejos no entienden y hace que la primera columna llegue con basura adelante. **No se puede sacar
-> desde la pantalla.** Si el destino la rechaza, hay que pedir ayuda a sistemas.
+> viejos no entienden y hace que la primera columna llegue con basura adelante. **Desde esta pantalla no se
+> puede sacar.** Sí la puede sacar el [asistente](/ayuda/reportes/armar-con-el-asistente) al armar la plantilla:
+> en ese caso el editor lo muestra como **Sin BOM**, en el recuadro *Opciones que no se editan acá*, y lo
+> conserva al guardar. Si el destino rechaza el archivo y la plantilla no la armó el asistente, pedí ayuda a
+> sistemas.
+
+Dos opciones más del CSV y del TXT que se pueden tener y no se cambian en esta pantalla: la **codificación
+latin1** (en vez de UTF-8) y el **fin de línea** `\n` (en vez de `\r\n`). También se muestran en ese recuadro
+cuando la plantilla las tiene.
+
+### TXT de ancho fijo
+
+En vez de separar con un carácter, cada columna ocupa un **ancho fijo** de caracteres: es el formato que piden
+muchos sistemas viejos y las bases de los cedentes. Cada columna tiene, además:
+
+- **Alineación**: a la izquierda (lo de siempre) o a la derecha. Los importes suelen ir a la derecha.
+- **Relleno**: con espacios o con ceros. `0000012345` en vez de `     12345`. **El relleno con ceros exige alineación a la derecha** explícita: si no, la plantilla no se guarda ni se ejecuta y avisa *"En «X» el relleno con ceros solo se puede usar con alineación a la derecha"*.
+
+Si un valor no entra en su ancho, **se corta**: alineado a la izquierda, pierde los últimos caracteres; alineado a
+la derecha, pierde los **primeros**. En un número, eso quiere decir **perder los dígitos que más valen**, así que
+conviene dejar siempre un ancho que alcance. El encabezado, si lo lleva, se alinea igual que los datos y siempre se
+completa con espacios.
+
+**Esta pantalla no tiene un editor del ancho fijo**: lo arma el asistente, y el recuadro *Opciones que no se
+editan acá* lo muestra (cuántas columnas, con qué anchos y cuántas alineadas a la derecha o con ceros) y lo
+conserva al guardar. Los anchos, la alineación y el relleno siguen a cada columna: una columna nueva entra con 10 caracteres, a la izquierda y con espacios (para cambiarlo, quitá el ancho fijo o armá la plantilla de nuevo con el asistente), y si la cantidad de anchos no coincide con la de columnas el editor avisa y no deja guardar. **Quitar** lo saca y el archivo pasa a salir con separador.
 
 > Si el destino es un sistema, **preguntá qué separador espera antes de armar el reporte**.
 
@@ -86,6 +110,22 @@ funciona:
 > cualquier otra cosa: alcanza con que el campo no esté vacío para que aplique el formato argentino.
 > **No fuerza dos decimales ni agrega el signo `$`.**
 
+**Para fijar los decimales y los separadores, usá los campos propios.** Una columna de tipo **Número** (no
+Moneda) tiene **Decimales** (de 0 a 4), **Separador decimal** y **Separador de miles**. Con cualquiera de los tres
+completo, el número se arma así:
+
+| Decimales | Separadores | Sale |
+|---|---|---|
+| 2 | los de siempre (coma decimal, punto de miles) | `1.234,50` |
+| 2 | decimal `.`, miles ninguno | `1234.50` |
+| 0 | miles `.` | `1.235` |
+
+Lo que no completás queda en *Predeterminado* (coma decimal y punto de miles; si elegís uno solo, el otro se acomoda
+para no chocar: con decimal `.`, los miles pasan a coma). Si la columna no tiene ninguno de los tres, sale como
+antes (`1.234,5` con el campo **Formato** completo, y `1234.5` sin él). Los decimales **redondean**. Sigue siendo texto en el archivo, como todo.
+
+La columna de tipo **Días desde la fecha** sale como un número entero (`132`), sin separadores.
+
 > **El tipo "Moneda" no tiene efecto** sobre los campos de plata del sistema: se comportan como número.
 
 ---
@@ -112,8 +152,8 @@ estilo americano. Configurando el formato sale bien, aunque quede como texto.
 
 ### Los importes salen sin los centavos
 
-El formato argentino no fuerza dos decimales: `1.234,5` en vez de `1.234,50`. No hay forma de cambiarlo
-desde la pantalla.
+El formato argentino no fuerza dos decimales: `1.234,5` en vez de `1.234,50`. Poné **Decimales: 2** en esa
+columna (tiene que ser de tipo **Número**).
 
 ---
 

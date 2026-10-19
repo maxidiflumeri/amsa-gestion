@@ -18,11 +18,13 @@ function armar(tandas: number[]) {
     for (const n of tandas) deleteMany.mockResolvedValueOnce({ count: n });
     deleteMany.mockResolvedValue({ count: 0 });
     const borrarLlamadas = jest.fn().mockResolvedValue({ count: 4 });
+    const borrarAdjuntos = jest.fn().mockResolvedValue({ count: 2 });
     const prisma: any = {
         asistente_conversacion: { findMany, deleteMany },
         asistente_llamada: { deleteMany: borrarLlamadas },
+        asistente_adjunto: { deleteMany: borrarAdjuntos },
     };
-    return { svc: new AsistenteLimpiezaService(prisma), findMany, deleteMany, borrarLlamadas };
+    return { svc: new AsistenteLimpiezaService(prisma), findMany, deleteMany, borrarLlamadas, borrarAdjuntos };
 }
 
 describe('AsistenteLimpiezaService', () => {
@@ -43,6 +45,13 @@ describe('AsistenteLimpiezaService', () => {
         expect(r).toMatchObject({ conversaciones: 3, llamadas: 4, tandas: 1, topeAlcanzado: false });
         expect(findMany.mock.calls[0][0].where).toEqual({ updatedAt: { lt: new Date(AHORA.getTime() - 90 * DIA) } });
         expect(borrarLlamadas).toHaveBeenCalledWith({ where: { createdAt: { lt: new Date(AHORA.getTime() - RETENCION_LLAMADAS_DIAS * DIA) } } });
+    });
+
+    it('borra los adjuntos que nunca se mandaron (sin conversación) de más de 24 h; los vinculados caen con su conversación', async () => {
+        const { svc, borrarAdjuntos } = armar([1]);
+        const r = await svc.limpiar(AHORA);
+        expect(r.adjuntos).toBe(2);
+        expect(borrarAdjuntos).toHaveBeenCalledWith({ where: { conversacionId: null, createdAt: { lt: new Date(AHORA.getTime() - DIA) } } });
     });
 
     it('borra por tandas de 500 hasta que una no viene llena', async () => {

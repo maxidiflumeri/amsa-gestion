@@ -1,11 +1,11 @@
 import { Injectable, Logger, BadRequestException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
-import { esSoloFecha } from '../../../common/utils/dia-local';
+import { esSoloFecha, ymdLocal } from '../../../common/utils/dia-local';
 import { PathParser } from '../parser/path-parser';
 import { IncludeBuilder } from './include-builder';
 import { PathAST } from '../parser/path-ast';
 import { DefinicionPlantillaDto } from '../dto/plantilla.dto';
-import { FechaInvalidaError, mensajeFechaInvalida, parsearFechaFiltro, validarFechasFiltro } from '../validador/fecha-filtro';
+import { FechaInvalidaError, mensajeFechaInvalida, parsearFechaFiltro, resolverFechasRelativas, validarFechasFiltro } from '../validador/fecha-filtro';
 import { esOperadorDeRango, esOperadorSoportado, esValorVacio, extremosDeRango, OPERADORES_SOPORTADOS } from '../validador/operadores';
 import { clasificarFecha, TipoFecha, ventanaDelDia } from '../validador/fechas-negocio';
 import { campoFinal, modeloPorNombre } from '../validador/definicion-validator';
@@ -39,6 +39,7 @@ export class QueryPlanner {
     definicion: DefinicionPlantillaDto,
     filtrosVars?: Record<string, any>,
     preview: boolean = false,
+    hoyYmd: string = ymdLocal(),
   ): QueryPlan {
     this.logger.log('Planificando query para F2');
 
@@ -77,13 +78,13 @@ export class QueryPlanner {
 
     const include = this.includeBuilder.buildInclude(paths);
 
-    const { where, postProcessingFilters } = this.buildWhere(definicion, filtrosVars, preview);
+    const { where, postProcessingFilters } = this.buildWhere(definicion, filtrosVars, preview, hoyYmd);
 
     if (postProcessingFilters.length > 0) {
       requiresPostProcessing = true;
     }
 
-    this.applyListFiltersToInclude(include, definicion, filtrosVars, preview);
+    this.applyListFiltersToInclude(include, definicion, filtrosVars, preview, hoyYmd);
 
     const plan: QueryPlan = {
       where,
@@ -104,10 +105,35 @@ export class QueryPlanner {
     return plan;
   }
 
+  /**
+   * E1: si el filtro apunta a una fecha (`DateTime`), reemplaza `hoy`, `hoy-N` y `hoy+N` —en el valor o
+   * en cada punta de un rango— por el `YYYY-MM-DD` de ese día en hora de Argentina. Se hace **antes**
+   * de armar la ventana del día y antes del post-procesado, así vale igual para la ejecución
+   * sincrónica, la encolada, la estimación y el preview. Sobre un campo que no es una fecha no se toca:
+   * `nombre eq "hoy"` es un texto.
+   */
+  private resolverFechasDelFiltro(path: string, valor: any, hoyYmd: string, etiqueta: string): any {
+    if (valor === undefined || valor === null) return valor;
+    const candidatos = Array.isArray(valor) ? valor : [valor];
+    if (!candidatos.some((v) => typeof v === 'string')) return valor;
+
+    const final = campoFinal('deudor', this.parser.parse(path));
+    if (final.claveJson || final.campo?.type !== 'DateTime') return valor;
+
+    const { valor: resuelto, resolvio } = resolverFechasRelativas(valor, hoyYmd);
+    if (resolvio) {
+      this.logger.log(
+        `Filtro «${etiqueta}»: fecha relativa ${JSON.stringify(valor)} resuelta a ${JSON.stringify(resuelto)}`,
+      );
+    }
+    return resuelto;
+  }
+
   private buildWhere(
     definicion: DefinicionPlantillaDto,
-    filtrosVars?: Record<string, any>,
-    preview: boolean = false,
+    filtrosVars: Record<string, any> | undefined,
+    preview: boolean,
+    hoyYmd: string,
   ): { where: any; postProcessingFilters: FiltroEnMemoria[] } {
     if (!definicion.filtros || definicion.filtros.length === 0) {
       return { where: {}, postProcessingFilters: [] };
@@ -149,6 +175,8 @@ export class QueryPlanner {
           continue;
         }
       }
+
+      valor = this.resolverFechasDelFiltro(filtro.path, valor, hoyYmd, etiqueta);
 
       // Saltar filtro si el valor está vacío
       if (sinValor && esValorVacio(valor)) {
@@ -388,8 +416,9 @@ export class QueryPlanner {
   private applyListFiltersToInclude(
     include: any,
     definicion: DefinicionPlantillaDto,
-    filtrosVars?: Record<string, any>,
-    preview: boolean = false,
+    filtrosVars: Record<string, any> | undefined,
+    preview: boolean,
+    hoyYmd: string,
   ): void {
     if (!include || !definicion.filtros || definicion.filtros.length === 0) return;
 
@@ -411,6 +440,7 @@ export class QueryPlanner {
           continue;
         }
       }
+      valor = this.resolverFechasDelFiltro(filtro.path, valor, hoyYmd, filtro.labelVariable || filtro.path);
       if (esValorVacio(valor)) continue;
 
       this.injectListFilter(include, parts, 'deudor', filtro.operador, valor);

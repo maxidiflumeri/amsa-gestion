@@ -1,0 +1,9 @@
+{
+  "_nota": "Lo que devuelve el doble de la prueba (sin base): casos de la consulta y paths que salen 100 % vacíos en la muestra de 100 casos. Los valores nunca existen: el doble de la prueba, como el real, devuelve solo cantidades.",
+  "porDefecto": { "casos": 8412, "filasMuestra": 100, "vaciasPorPath": ["apellido", "pagos.idExterno", "convenios.cuotas.fechaPago"] },
+  "porCaso": {
+    "R05": { "casos": 3200 },
+    "R11": { "casos": 1850 },
+    "R20": { "casos": 142000 }
+  }
+}

@@ -1,17 +1,24 @@
 import { useEffect, useState } from 'react'
-import { Box, Paper, Typography, TextField, MenuItem, Stack } from '@mui/material'
+import { Box, Paper, Typography, TextField, MenuItem, Stack, Alert } from '@mui/material'
 import SettingsIcon from '@mui/icons-material/Settings'
-import { Columna, FormatoTelefono } from '../../../../types/reportes'
+import { Columna, FormatoTelefono, NodoCatalogo } from '../../../../types/reportes'
 import { reportesApi } from '../../../../api/reportes'
 import { EmptyState } from '../../../../components/ui'
 import CardinalitySelector from './CardinalitySelector'
+import { buscarNodoPorPath, tieneModificadores } from '../../utils/catalogoPath'
 
 type PropertiesPanelProps = {
   columna: Columna | null
   onColumnChange: (field: keyof Columna, value: any) => void
+  /** Para saber si el campo de la columna es una fecha (la única que admite «Días desde la fecha»). */
+  catalogo?: NodoCatalogo[]
 }
 
-const PropertiesPanel = ({ columna, onColumnChange }: PropertiesPanelProps) => {
+// "Predeterminado" no es un valor: la columna no trae la propiedad y el motor usa su formato de siempre.
+const POR_DEFECTO = '__defecto'
+const SIN_SEPARADOR = '__ninguno'
+
+const PropertiesPanel = ({ columna, onColumnChange, catalogo = [] }: PropertiesPanelProps) => {
   const [formatosTelefono, setFormatosTelefono] = useState<FormatoTelefono[]>([])
 
   useEffect(() => {
@@ -36,6 +43,14 @@ const PropertiesPanel = ({ columna, onColumnChange }: PropertiesPanelProps) => {
   }
 
   const showFormatoField = columna.tipo === 'fecha' || columna.tipo === 'numero' || columna.tipo === 'moneda'
+  // Los decimales y separadores son del tipo Número (E3); «Moneda» no los toma.
+  const esNumerica = columna.tipo === 'numero'
+  // «Días desde la fecha» solo tiene sentido sobre una fecha. Una columna que ya es de ese tipo la conserva aunque el catálogo no cargue.
+  const esFecha =
+    columna.tipo === 'fecha' ||
+    columna.tipo === 'dias' ||
+    buscarNodoPorPath(catalogo, columna.path)?.tipoEscalar === 'fecha'
+  const conExpresion = tieneModificadores(columna.path)
   const showCardinalityField = true
   // Sin path la columna no sale de los datos: no hay tipo, formato ni cardinalidad que configurar.
   const esFija = !columna.path
@@ -99,6 +114,13 @@ const PropertiesPanel = ({ columna, onColumnChange }: PropertiesPanelProps) => {
             size="small"
           />
 
+          {conExpresion && (
+            <Alert severity="info" data-testid="ayuda-expresion">
+              Este campo lo armó el asistente con una expresión que el explorador no ofrece (por ejemplo, el 2.º teléfono).
+              Podés renombrarlo o borrarlo; para cambiarle el campo, borrala y agregá otra.
+            </Alert>
+          )}
+
           <TextField
             select
             label="Tipo de dato"
@@ -112,7 +134,19 @@ const PropertiesPanel = ({ columna, onColumnChange }: PropertiesPanelProps) => {
             <MenuItem value="boolean">Booleano</MenuItem>
             <MenuItem value="moneda">Moneda</MenuItem>
             <MenuItem value="telefono">Teléfono</MenuItem>
+            <MenuItem value="dias" disabled={!esFecha}>Días desde la fecha</MenuItem>
           </TextField>
+
+          {columna.tipo === 'dias' && (
+            <Typography variant="caption" color="text.secondary">
+              Muestra cuántos días pasaron entre la fecha y hoy. Si la fecha es futura, el número es negativo.
+            </Typography>
+          )}
+          {!esFecha && (
+            <Typography variant="caption" color="text.secondary">
+              «Días desde la fecha» se habilita solo con campos de fecha.
+            </Typography>
+          )}
 
           {columna.tipo === 'telefono' && (
             <TextField
@@ -162,6 +196,47 @@ const PropertiesPanel = ({ columna, onColumnChange }: PropertiesPanelProps) => {
                   : 'Ej: $#,##0.00, #,##0.00'
               }
             />
+          )}
+
+          {esNumerica && (
+            <>
+              <TextField
+                label="Decimales"
+                type="number"
+                fullWidth
+                value={columna.decimales ?? ''}
+                onChange={e =>
+                  onColumnChange('decimales', e.target.value === '' ? undefined : Math.min(4, Math.max(0, parseInt(e.target.value, 10) || 0)))
+                }
+                inputProps={{ min: 0, max: 4 }}
+                helperText="De 0 a 4. Vacío: el número sale como está guardado o con el formato de siempre."
+              />
+              <TextField
+                select
+                label="Separador decimal"
+                fullWidth
+                value={columna.separadorDecimal ?? POR_DEFECTO}
+                onChange={e => onColumnChange('separadorDecimal', e.target.value === POR_DEFECTO ? undefined : e.target.value)}
+              >
+                <MenuItem value={POR_DEFECTO}>Predeterminado</MenuItem>
+                <MenuItem value=",">Coma  ,</MenuItem>
+                <MenuItem value=".">Punto  .</MenuItem>
+              </TextField>
+              <TextField
+                select
+                label="Separador de miles"
+                fullWidth
+                value={columna.separadorMiles === undefined ? POR_DEFECTO : columna.separadorMiles === '' ? SIN_SEPARADOR : columna.separadorMiles}
+                onChange={e =>
+                  onColumnChange('separadorMiles', e.target.value === POR_DEFECTO ? undefined : e.target.value === SIN_SEPARADOR ? '' : e.target.value)
+                }
+              >
+                <MenuItem value={POR_DEFECTO}>Predeterminado</MenuItem>
+                <MenuItem value=".">Punto  .</MenuItem>
+                <MenuItem value=",">Coma  ,</MenuItem>
+                <MenuItem value={SIN_SEPARADOR}>Sin separador</MenuItem>
+              </TextField>
+            </>
           )}
 
           <TextField

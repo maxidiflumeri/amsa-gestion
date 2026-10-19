@@ -532,6 +532,8 @@ model usuario {
   asistenteConversaciones asistente_conversacion[]
   asistenteMensajes       asistente_mensaje[]
   asistenteLlamadas       asistente_llamada[]
+  asistenteAdjuntos       asistente_adjunto[]
+  asistentePropuestas     asistente_propuesta[]
 
   @@index([rolId])
 }
@@ -761,6 +763,7 @@ model plantilla_reporte {
   empresa         empresa?            @relation("PlantillaEmpresa", fields: [empresaId], references: [id])
   creadoPor       usuario?            @relation("PlantillaCreadoPor", fields: [creadoPorId], references: [id])
   ejecuciones     ejecucion_reporte[]
+  asistentePropuestas asistente_propuesta[]
 
   @@index([empresaId])
   @@index([activo])
@@ -1140,6 +1143,11 @@ model asistente_funcion {
   habilitada     Boolean  @default(true)
   /// null = sin tope propio (solo rige el global).
   topeMensualUsd Decimal? @db.Decimal(10, 2)
+  /// Tope de gasto de UN turno de esta función. null = el global (asistente_config.topeTurnoUsd). El global, USD 0,05,
+  /// cortaría la función de reportes en la primera llamada.
+  topeTurnoUsd   Decimal? @db.Decimal(10, 4)
+  /// Turnos por persona por día en esta función. null = sin límite propio (rige igual el global).
+  limiteDiarioUsuario Int?
   updatedAt      DateTime @updatedAt
 }
 
@@ -1159,6 +1167,8 @@ model asistente_conversacion {
   usuario     usuario  @relation(fields: [usuarioId], references: [id], onDelete: Cascade, map: "AsistenteConversacion_usuarioId_fkey")
   mensajes    asistente_mensaje[]
   llamadas    asistente_llamada[]
+  adjuntos    asistente_adjunto[]
+  propuestas  asistente_propuesta[]
 
   @@index([usuarioId, updatedAt])
   @@index([updatedAt])
@@ -1181,6 +1191,8 @@ model asistente_mensaje {
   fuentes        Json?
   /// [{id, tipo:'ir_a', ruta, etiqueta, motivo, resultado: null|'aceptada'|'rechazada'}]
   acciones       Json?
+  /// Paso[] del turno (Fase B): lo que hizo el asistente, para volver a mostrarlo al reabrir la conversación.
+  pasos          Json?
   /// 'en_curso' | 'ok' | 'cortado' | 'rechazado' | 'error'
   estado         String    @default("ok") @db.VarChar(12)
   /// 1 = 👍, -1 = 👎, null = sin calificar.
@@ -1226,4 +1238,70 @@ model asistente_llamada {
   @@index([createdAt])
   @@index([funcion, createdAt])
   @@index([usuarioId, createdAt])
+}
+
+/// Un archivo de ejemplo que la persona adjuntó al asistente (Fase B). NO guarda el archivo: solo su perfil (forma,
+/// tipos, formatos; nunca valores salvo encabezados, nombres de hoja y valores de vocabularios cerrados). Vive lo que
+/// la conversación (cascada); los que nunca se mandaron se borran a las 24 h (limpieza de las 04:30).
+model asistente_adjunto {
+  id             Int       @id @default(autoincrement())
+  usuarioId      Int
+  conversacionId Int?
+  /// El mensaje de la persona al que se adjuntó. Sin FK: se borra con la conversación.
+  mensajeId      Int?
+  /// Nombre original, recortado a 200 caracteres. Se muestra en el chip y se le pasa al modelo.
+  nombre         String    @db.VarChar(200)
+  /// 'xlsx' | 'xls' | 'csv' | 'txt': el tipo REAL, por los primeros bytes, no por la extensión.
+  tipo           String    @db.VarChar(10)
+  bytes          Int
+  /// sha256 del archivo: el mismo archivo adjuntado dos veces en una conversación reusa el perfil.
+  sha256         String    @db.Char(64)
+  /// PerfilEjemplo. Todas las hojas leídas (hasta 5); el texto que va al modelo se arma de acá.
+  perfil         Json
+  /// Lo que no se pudo leer o se recortó, en castellano, para el chip ("Se leyeron las primeras 200 filas").
+  avisos         Json?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+  usuario        usuario   @relation(fields: [usuarioId], references: [id], onDelete: Cascade, map: "AsistenteAdjunto_usuarioId_fkey")
+  conversacion   asistente_conversacion? @relation(fields: [conversacionId], references: [id], onDelete: Cascade, map: "AsistenteAdjunto_conversacionId_fkey")
+
+  @@index([usuarioId, createdAt])
+  @@index([conversacionId])
+}
+
+/// Cada plantilla que el asistente PROBÓ sin errores (Fase B). La que se muestra en una tarjeta queda `mostrada`; la que
+/// la persona abre en el editor, `abierta`; la que guarda, `guardada` con su plantillaId. Se borra con la conversación.
+model asistente_propuesta {
+  id                 Int       @id @default(autoincrement())
+  conversacionId     Int
+  /// El mensaje del asistente (el turno) que la probó.
+  mensajeId          Int
+  usuarioId          Int
+  /// "p1", "p2"…: el id que ve el modelo, correlativo por conversación. Un turno por persona a la vez (TurnosActivos)
+  /// y la conversación es de una sola persona: la secuencia no tiene carrera.
+  prueba             String    @db.VarChar(10)
+  /// Lo que mandó el modelo a probar_plantilla, tal cual (para depurar y para el set de evaluación).
+  entrada            Json
+  /// La plantilla lista para el editor: { nombre, descripcion, raiz, empresaId, definicion (con ids), formatoSalida,
+  /// opcionesFormato: { [formato]: {...} } }.
+  plantilla          Json
+  /// TarjetaPropuesta sin `estado`: mapeo con "Sale de", filtros descriptos, métricas, mensaje y sugerencias.
+  tarjeta            Json
+  /// sha1 de la definición normalizada (ids fuera, claves ordenadas): para saber si se guardó sin cambios.
+  hash               String    @db.Char(40)
+  /// 'probada' | 'mostrada' | 'abierta' | 'guardada'
+  estado             String    @default("probada") @db.VarChar(12)
+  plantillaId        Int?
+  guardadaSinCambios Boolean?
+  costoUsd           Decimal   @default(0) @db.Decimal(12, 6)
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+  conversacion       asistente_conversacion @relation(fields: [conversacionId], references: [id], onDelete: Cascade, map: "AsistentePropuesta_conversacionId_fkey")
+  usuario            usuario   @relation(fields: [usuarioId], references: [id], onDelete: Cascade, map: "AsistentePropuesta_usuarioId_fkey")
+  plantillaReporte   plantilla_reporte? @relation(fields: [plantillaId], references: [id], onDelete: SetNull, map: "AsistentePropuesta_plantillaId_fkey")
+
+  @@unique([conversacionId, prueba])
+  @@index([mensajeId])
+  @@index([usuarioId, createdAt])
+  @@index([estado, createdAt])
 }

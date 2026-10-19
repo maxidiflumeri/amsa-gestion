@@ -46,3 +46,46 @@ describe('AsistenteConfigService.leer', () => {
         expect(prisma.asistente_config.upsert).toHaveBeenCalledTimes(1);
     });
 });
+
+describe('AsistenteConfigService: funciones por modelo (Fase B)', () => {
+    const fila = { clave: 'reportes', nombre: 'Constructor de reportes', habilitada: true, topeMensualUsd: null, topeTurnoUsd: null, limiteDiarioUsuario: null };
+    const modelo: any = { modelo: 'us.anthropic.claude-haiku-5-5', modeloPara: (f: string) => (f === 'reportes' ? 'us.anthropic.claude-sonnet-5-5' : 'us.anthropic.claude-haiku-5-5') };
+
+    function armar(filas: object[]) {
+        const prisma: any = {
+            asistente_config: { upsert: jest.fn().mockResolvedValue({ id: 1, habilitado: true, topeMensualUsd: 100, avisoPorcentaje: 80, limiteDiarioUsuario: 100, topeTurnoUsd: 0.05, precios: null }) },
+            asistente_funcion: { upsert: jest.fn().mockResolvedValue({}), findMany: jest.fn().mockResolvedValue(filas), findUnique: jest.fn(), update: jest.fn() },
+        };
+        return { prisma, svc: new AsistenteConfigService(prisma, modelo, { log: jest.fn().mockResolvedValue(undefined) } as any) };
+    }
+
+    it('la función de reportes informa su modelo y, con la columna en null, el tope por turno y el límite de código', async () => {
+        const { svc } = armar([{ ...fila, clave: 'ayuda', nombre: 'Ayuda' }, fila]);
+        const [ayuda, reportes] = await svc.funciones();
+        expect(reportes).toMatchObject({ clave: 'reportes', modelo: 'us.anthropic.claude-sonnet-5-5', topeTurnoUsd: 0.3, limiteDiarioUsuario: 40 });
+        expect(ayuda).toMatchObject({ clave: 'ayuda', modelo: 'us.anthropic.claude-haiku-5-5', topeTurnoUsd: null, limiteDiarioUsuario: null });
+    });
+
+    it('lo configurado manda sobre el de código', async () => {
+        const { svc } = armar([{ ...fila, topeTurnoUsd: 0.5, limiteDiarioUsuario: 10 }]);
+        expect(await svc.funcion('reportes')).toMatchObject({ topeTurnoUsd: 0.5, limiteDiarioUsuario: 10 });
+    });
+
+    it('precioVigente(modelo): el de código de Sonnet, y null para un modelo sin precio', async () => {
+        const { svc } = armar([]);
+        expect(await svc.precioVigente('us.anthropic.claude-sonnet-5-5')).toMatchObject({ entrada: 2.2, salida: 11 });
+        expect(await svc.precioVigente('un.modelo.nuevo')).toBeNull();
+        expect(await svc.precioVigente()).toMatchObject({ entrada: 0.11 });
+    });
+
+    it('el PATCH guarda tope por turno y límite diario, y se audita', async () => {
+        const { prisma, svc } = armar([]);
+        prisma.asistente_funcion.findUnique.mockResolvedValue({ ...fila });
+        prisma.asistente_funcion.update.mockResolvedValue({ ...fila, topeTurnoUsd: 0.25, limiteDiarioUsuario: 20 });
+        const r = await svc.actualizarFuncion('reportes', { topeTurnoUsd: 0.25, limiteDiarioUsuario: 20 }, 1);
+        expect(prisma.asistente_funcion.update.mock.calls[0][0].data).toEqual({ topeTurnoUsd: 0.25, limiteDiarioUsuario: 20 });
+        expect(r).toMatchObject({ topeTurnoUsd: 0.25, limiteDiarioUsuario: 20 });
+        const audit = (svc as any).auditoria.log;
+        expect(audit).toHaveBeenCalled();
+    });
+});

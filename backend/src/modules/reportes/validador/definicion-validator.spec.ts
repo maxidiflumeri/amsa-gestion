@@ -53,7 +53,7 @@ describe('validarDefinicion', () => {
 
   describe('fechas (falla 3)', () => {
     it('un valor fijo de fecha mal escrito da 400', () => {
-      const m = mensaje(() => validarDefinicion(def({ filtros: [{ id: 'f', path: 'fechaVencimiento', operador: 'gte', valor: 'hoy-90', labelVariable: 'Vence desde' }] }) as any));
+      const m = mensaje(() => validarDefinicion(def({ filtros: [{ id: 'f', path: 'fechaVencimiento', operador: 'gte', valor: 'ayer', labelVariable: 'Vence desde' }] }) as any));
       expect(m).toBe('Fecha inválida en el filtro «Vence desde». Usá el formato AAAA-MM-DD');
     });
 

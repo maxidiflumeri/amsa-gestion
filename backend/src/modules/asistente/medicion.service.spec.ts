@@ -42,6 +42,17 @@ describe('MedicionService', () => {
         });
     });
 
+    it('costea con el precio del modelo DE LA LLAMADA (reportes corre con Sonnet, la ayuda con Haiku)', async () => {
+        const { svc, config } = armar();
+        const sonnet = PRECIOS_DEFAULT['us.anthropic.claude-sonnet-5-5'];
+        config.precioVigente.mockImplementation(async (m: string) => (m === 'us.anthropic.claude-sonnet-5-5' ? sonnet : PRECIO));
+        const uso = usoDeUsage({ input_tokens: 1000, output_tokens: 100 });
+        const costo = await svc.registrarLlamada({ ...llamada(uso), funcion: 'reportes', modelo: 'us.anthropic.claude-sonnet-5-5' });
+        expect(config.precioVigente).toHaveBeenCalledWith('us.anthropic.claude-sonnet-5-5');
+        expect(Math.abs(costo - calcularCosto(uso, sonnet))).toBeLessThanOrEqual(0.000001);
+        expect(costo).toBeGreaterThan(calcularCosto(uso, PRECIO) * 10);
+    });
+
     it('si la base falla, el costo no se pierde: se devuelve igual y queda en el log con todo para reconstruirlo', async () => {
         const { svc, create } = armar();
         create.mockRejectedValue(new Error('db caída'));

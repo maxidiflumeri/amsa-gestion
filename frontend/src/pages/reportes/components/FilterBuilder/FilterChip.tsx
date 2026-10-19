@@ -7,6 +7,7 @@ import FilterAltIcon from '@mui/icons-material/FilterAlt'
 import InputIcon from '@mui/icons-material/Input'
 import { Filtro } from '../../../../types/reportes'
 import { getOperatorLabel } from './operatorMatrix'
+import { describirFechaRelativa, esFechaRelativa } from '../../utils/fechaRelativa'
 
 type FilterChipProps = {
   filtro: Filtro
@@ -27,17 +28,20 @@ const FilterChip = ({ filtro, tipoEscalar, onClick, onDelete }: FilterChipProps)
     opacity: isDragging ? 0.5 : 1,
   }
 
+  // Una fecha relativa se muestra como se lee («hace 90 días»), no como se guarda («hoy-90»).
+  const unValor = (val: any): string => (esFechaRelativa(val) ? describirFechaRelativa(val) : String(val ?? ''))
+
   const formatValor = (val: any): string => {
     if (val === undefined || val === null) return ''
     if (Array.isArray(val)) {
       if (val.length === 0) return ''
       if (val.length === 2 && (filtro.operador === 'between' || filtro.operador === 'notBetween')) {
-        return `${val[0]} - ${val[1]}`
+        return `${unValor(val[0])} - ${unValor(val[1])}`
       }
-      return val.join(', ')
+      return val.map(unValor).join(', ')
     }
     if (typeof val === 'boolean') return val ? 'Sí' : 'No'
-    return String(val)
+    return unValor(val)
   }
 
   const operadorLabel = getOperatorLabel(filtro.operador, tipoEscalar)

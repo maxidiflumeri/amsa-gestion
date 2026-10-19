@@ -43,8 +43,9 @@ export class TopesService implements PuertoTopes {
         if (!cfg.habilitado) return { codigo: 'PAUSADO', mensaje: MENSAJE_PAUSADO };
         const fn = await this.config.funcion(funcion);
         if (!fn || !fn.habilitada) return { codigo: 'PAUSADO', mensaje: MENSAJE_PAUSADO };
-        if (!(await this.config.precioVigente())) {
-            this.logger.error(`No hay precio configurado para el modelo ${this.modelo.modelo}: el asistente queda en pausa SIN_PRECIO`);
+        const modeloFuncion = this.modelo.modeloPara(funcion);
+        if (!(await this.config.precioVigente(modeloFuncion))) {
+            this.logger.error(`No hay precio configurado para el modelo ${modeloFuncion} (función ${funcion}): queda en pausa SIN_PRECIO`);
             return { codigo: 'SIN_PRECIO', mensaje: 'El asistente no tiene el precio del modelo cargado. Avisale a un administrador.' };
         }
         const gasto = await this.medicion.gastoDelMes();
@@ -55,16 +56,27 @@ export class TopesService implements PuertoTopes {
         return null;
     }
 
-    /** Preguntas que la persona ya hizo hoy (hora de Argentina). */
-    async preguntasDeHoy(usuarioId: number): Promise<number> {
+    /** Preguntas que la persona ya hizo hoy (hora de Argentina), en todas las funciones o en una. */
+    async preguntasDeHoy(usuarioId: number, funcion?: string): Promise<number> {
         return this.prisma.asistente_mensaje.count({
-            where: { usuarioId, rol: 'usuario', createdAt: { gte: inicioDelDia(ymdLocal()) } },
+            where: {
+                usuarioId,
+                rol: 'usuario',
+                createdAt: { gte: inicioDelDia(ymdLocal()) },
+                ...(funcion ? { conversacion: { funcion } } : {}),
+            },
         });
     }
 
+    /** El límite diario propio de la función (lo configurado o el de código), o null si no tiene. */
+    private async limiteDeLaFuncion(funcion: string): Promise<number | null> {
+        return (await this.config.funcion(funcion))?.limiteDiarioUsuario ?? null;
+    }
+
     async estado(usuarioId: number, funcion = 'ayuda'): Promise<EstadoAsistente> {
-        const [pausa, cfg, usadas] = await Promise.all([this.pausa(funcion), this.config.leer(), this.preguntasDeHoy(usuarioId)]);
-        return { habilitado: pausa === null, pausa, limiteDiario: { usadas, limite: cfg.limiteDiarioUsuario } };
+        const [pausa, cfg, propio] = await Promise.all([this.pausa(funcion), this.config.leer(), this.limiteDeLaFuncion(funcion)]);
+        const usadas = await this.preguntasDeHoy(usuarioId, propio !== null ? funcion : undefined);
+        return { habilitado: pausa === null, pausa, limiteDiario: { usadas, limite: propio ?? cfg.limiteDiarioUsuario } };
     }
 
     /**
@@ -89,6 +101,22 @@ export class TopesService implements PuertoTopes {
             );
         }
         const cfg = await this.config.leer();
+        const propio = await this.limiteDeLaFuncion(funcion);
+        if (propio !== null) {
+            const deLaFuncion = await this.preguntasDeHoy(usuarioId, funcion);
+            if (deLaFuncion >= propio) {
+                this.logger.warn(`Límite diario de la función ${funcion} alcanzado (usuario=${usuarioId}, ${deLaFuncion}/${propio})`);
+                const mensaje =
+                    funcion === 'reportes'
+                        ? `Llegaste al límite de ${propio} pedidos de reportes de hoy. Mañana se renueva.`
+                        : `Llegaste al límite de ${propio} preguntas de hoy. Mañana se renueva.`;
+                // `LIMITE_FUNCION` y no `LIMITE_DIARIO`: el panel tiene que poder decir cuál de los dos se alcanzó.
+                throw new HttpException(
+                    { codigo: 'LIMITE_FUNCION', mensaje, message: mensaje, usadas: deLaFuncion, limite: propio, funcion },
+                    HttpStatus.TOO_MANY_REQUESTS,
+                );
+            }
+        }
         const hechas = await this.preguntasDeHoy(usuarioId);
         if (hechas >= cfg.limiteDiarioUsuario) {
             this.logger.warn(`Límite diario alcanzado (usuario=${usuarioId}, ${hechas}/${cfg.limiteDiarioUsuario})`);
@@ -103,6 +131,7 @@ export class TopesService implements PuertoTopes {
                 HttpStatus.TOO_MANY_REQUESTS,
             );
         }
+        if (propio !== null) return { usadas: (await this.preguntasDeHoy(usuarioId, funcion)) + 1, limite: propio };
         return { usadas: hechas + 1, limite: cfg.limiteDiarioUsuario };
     }
 
@@ -115,7 +144,9 @@ export class TopesService implements PuertoTopes {
         if (fn?.topeMensualUsd != null && (gasto.porFuncion[funcion] ?? 0) >= fn.topeMensualUsd) {
             throw new TopeError('TOPE_FUNCION', MENSAJE_TOPE_FUNCION);
         }
-        if (costoTurno > 0 && costoTurno >= cfg.topeTurnoUsd) {
+        // El tope por turno de la función (reportes: USD 0,30); si no tiene, el global.
+        const topeTurno = fn?.topeTurnoUsd ?? cfg.topeTurnoUsd;
+        if (costoTurno > 0 && costoTurno >= topeTurno) {
             throw new TopeError('TOPE_TURNO', 'El turno llegó a su tope de gasto.');
         }
     }

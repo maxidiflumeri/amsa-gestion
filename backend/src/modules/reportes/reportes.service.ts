@@ -1,7 +1,7 @@
 import { Injectable, Logger, NotFoundException, BadRequestException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
-import { CreatePlantillaDto, UpdatePlantillaDto, FormatoSalida } from './dto/plantilla.dto';
+import { CreatePlantillaDto, DefinicionPlantillaDto, UpdatePlantillaDto, FormatoSalida } from './dto/plantilla.dto';
 import { EjecutarDto, PreviewDto } from './dto/ejecutar.dto';
 import { ExecutorService } from './executor/executor.service';
 import { XlsxExportador } from './exportadores/xlsx.exportador';
@@ -10,7 +10,7 @@ import { TxtExportador } from './exportadores/txt.exportador';
 import { PdfExportador } from './exportadores/pdf.exportador';
 import { opcionesDelFormato } from './exportadores/opciones-formato';
 import { FilaConSubtotales } from './executor/grouping.service';
-import { validarDefinicion } from './validador/definicion-validator';
+import { validarDefinicion, validarOpcionesFormato } from './validador/definicion-validator';
 
 @Injectable()
 export class ReportesService {
@@ -81,6 +81,7 @@ export class ReportesService {
 
     // 400 claro acá y no un reporte que sale mal después: campos inexistentes, columnas repetidas, operadores sin soporte.
     validarDefinicion(dto.definicion, dto.raiz);
+    validarOpcionesFormato(dto.definicion.columnas, dto.opcionesFormato, dto.formatoSalida);
 
     return this.prisma.plantilla_reporte.create({
       data: {
@@ -107,6 +108,10 @@ export class ReportesService {
 
     if (dto.definicion) {
       validarDefinicion(dto.definicion, actual.raiz);
+    }
+    if (dto.definicion || dto.opcionesFormato || dto.formatoSalida) {
+      const definicion = (dto.definicion ?? actual.definicion) as unknown as DefinicionPlantillaDto;
+      validarOpcionesFormato(definicion.columnas ?? [], dto.opcionesFormato ?? actual.opcionesFormato, dto.formatoSalida ?? actual.formatoSalida);
     }
 
     this.logger.log(`Actualizando plantilla ${id}`);

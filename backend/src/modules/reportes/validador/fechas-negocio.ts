@@ -74,6 +74,8 @@ export const FECHAS_INSTANTE: Record<string, string[]> = {
   asistente_conversacion: ['createdAt', 'updatedAt'],
   asistente_mensaje: ['createdAt'],
   asistente_llamada: ['createdAt'],
+  asistente_adjunto: ['createdAt', 'updatedAt'],
+  asistente_propuesta: ['createdAt', 'updatedAt'],
 };
 
 export type TipoFecha = 'calendario' | 'instante';

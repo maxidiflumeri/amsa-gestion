@@ -17,7 +17,7 @@ import FilterPathSelector from './FilterPathSelector'
 import FilterOperatorSelector from './FilterOperatorSelector'
 import FilterValueInput from './FilterValueInput'
 
-const findInCatalogo = (
+export const findInCatalogo = (
   nodos: NodoCatalogo[],
   targetPath: string,
   parentPath = '',

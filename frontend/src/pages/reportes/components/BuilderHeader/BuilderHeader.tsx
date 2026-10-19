@@ -1,4 +1,4 @@
-import { TextField, Autocomplete, MenuItem, Stack, FormControlLabel, Switch } from '@mui/material'
+import { TextField, Autocomplete, MenuItem, Stack, FormControlLabel, Switch, Box, Button, Typography } from '@mui/material'
 import { OpcionesFormato } from '../../../../types/reportes'
 import { Plantilla } from '../../../../types/reportes'
 
@@ -22,6 +22,32 @@ const SEPARADORES = [
 
 const SEPARADOR_DEFAULT: Record<string, string> = { txt: '\t', csv: ',' }
 
+type OpcionSoloLectura = { clave: string; texto: string; campos: string[] }
+
+/**
+ * Opciones del formato que este editor no ofrece cambiar pero que la plantilla tiene (las arma el asistente o vienen de antes).
+ * Se conservan al guardar; sin este recuadro serían configuración invisible (docs/asistente-reportes-spec.md §16.4).
+ * Cada una se puede quitar: vuelve al comportamiento de siempre del formato.
+ */
+function opcionesSoloLectura(formato: string, o: Record<string, any>): OpcionSoloLectura[] {
+  const lista: OpcionSoloLectura[] = []
+  if (formato === 'txt' && Array.isArray(o.anchoFijo) && o.anchoFijo.length > 0) {
+    const anchos: number[] = o.anchoFijo
+    const aDerecha = Array.isArray(o.alineacion) ? o.alineacion.filter((a: string) => a === 'derecha').length : 0
+    const conCeros = Array.isArray(o.relleno) ? o.relleno.filter((r: string) => r === '0').length : 0
+    const detalle = [
+      `anchos ${anchos.join(', ')}`,
+      aDerecha > 0 ? `${aDerecha} alineada${aDerecha === 1 ? '' : 's'} a la derecha` : null,
+      conCeros > 0 ? `${conCeros} rellena${conCeros === 1 ? '' : 's'} con ceros` : null,
+    ].filter(Boolean).join(' · ')
+    lista.push({ clave: 'anchoFijo', texto: `Ancho fijo: ${anchos.length} ${anchos.length === 1 ? 'columna' : 'columnas'} (${detalle})`, campos: ['anchoFijo', 'alineacion', 'relleno'] })
+  }
+  if (o.encoding === 'latin1') lista.push({ clave: 'encoding', texto: 'Codificación latin1', campos: ['encoding'] })
+  if (o.bom === false) lista.push({ clave: 'bom', texto: 'Sin BOM', campos: ['bom'] })
+  if ((formato === 'txt' || formato === 'csv') && o.lineEnding === '\n') lista.push({ clave: 'lineEnding', texto: 'Fin de línea \\n', campos: ['lineEnding'] })
+  return lista
+}
+
 const BuilderHeader = ({ plantilla, empresas, onPlantillaChange }: BuilderHeaderProps) => {
   const empresaSeleccionada = empresas.find(e => e.id === plantilla.empresaId) || null
 
@@ -41,6 +67,13 @@ const BuilderHeader = ({ plantilla, empresas, onPlantillaChange }: BuilderHeader
       ...opciones,
       [formato]: { ...opcionesDelFormato, [campo]: valor },
     })
+  }
+
+  const soloLectura = opcionesSoloLectura(formato, opcionesDelFormato)
+  const quitarOpcion = (campos: string[]) => {
+    const resto = { ...opcionesDelFormato }
+    campos.forEach(c => delete resto[c])
+    onPlantillaChange('opcionesFormato', { ...opciones, [formato]: resto })
   }
 
   return (
@@ -127,6 +160,30 @@ const BuilderHeader = ({ plantilla, empresas, onPlantillaChange }: BuilderHeader
             label="Incluir fila de encabezado"
           />
         </Stack>
+      )}
+
+      {soloLectura.length > 0 && (
+        <Box
+          role="group"
+          aria-label="Opciones que no se editan acá"
+          data-testid="opciones-solo-lectura"
+          sx={{ border: '1px dashed', borderColor: 'divider', borderRadius: 1, p: 1.5, minWidth: 0 }}
+        >
+          <Typography variant="subtitle2">Opciones que no se editan acá</Typography>
+          <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 1 }}>
+            Se guardan con la plantilla tal cual. Quitar una vuelve al comportamiento de siempre del formato.
+          </Typography>
+          <Stack spacing={0.5}>
+            {soloLectura.map(op => (
+              <Stack key={op.clave} direction="row" spacing={1} alignItems="center" justifyContent="space-between" sx={{ minWidth: 0 }}>
+                <Typography variant="body2" sx={{ minWidth: 0, overflowWrap: 'anywhere' }}>{op.texto}</Typography>
+                <Button size="small" color="inherit" onClick={() => quitarOpcion(op.campos)} aria-label={`Quitar: ${op.texto}`} sx={{ flex: 'none' }}>
+                  Quitar
+                </Button>
+              </Stack>
+            ))}
+          </Stack>
+        </Box>
       )}
     </Stack>
   )

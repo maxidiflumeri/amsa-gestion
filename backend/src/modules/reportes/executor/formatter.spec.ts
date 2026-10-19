@@ -1,3 +1,5 @@
+process.env.TZ = 'America/Argentina/Buenos_Aires';
+
 import { Formatter } from './formatter';
 
 // Los cuatro patrones que trae el catálogo (`seed-formatos-tel.ts`), con el ejemplo que declara
@@ -132,5 +134,201 @@ describe('Formatter — teléfonos', () => {
     it('tipo texto devuelve el valor crudo de la base', () => {
       expect(f.formatValue(CELULAR, 'texto')).toBe(CELULAR);
     });
+  });
+});
+
+
+// ─── Extensiones del motor: E2 (días desde), E3 (decimales y separadores) ─────────────────────
+
+describe('Formatter — sin las propiedades nuevas la salida no cambia (snapshot)', () => {
+  const f = new Formatter();
+  const fecha = new Date(2026, 2, 5, 10, 0, 0);
+
+  // Valores fijados con lo que devolvía el formatter antes de E2/E3. Si alguno cambia, una plantilla
+  // guardada empieza a salir distinta.
+  const CASOS: Array<[string, any, string | undefined, string | undefined, any]> = [
+    ['numero sin formato', 1234.5, 'numero', undefined, '1234.5'],
+    ['numero con formato', 1234.5, 'numero', '0,0.00', '1.234,5'],
+    ['numero entero con formato', 1234567, 'numero', '#', '1.234.567'],
+    ['numero grande sin formato', 1234567.891, 'numero', undefined, '1234567.891'],
+    ['sin tipo, un número', 42.5, undefined, undefined, '42.5'],
+    ['sin tipo, un número con formato', 12345.678, undefined, 'x', '12.345,678'],
+    ['moneda', 1500.5, 'moneda', undefined, f.formatValue(1500.5, 'moneda')],
+    ['fecha por defecto', fecha, 'fecha', undefined, '05/03/2026'],
+    ['fecha con formato', fecha, 'fecha', 'YYYY-MM-DD HH:mm', '2026-03-05 10:00'],
+    ['boolean', true, 'boolean', undefined, 'Sí'],
+    ['texto', 'hola', 'texto', undefined, 'hola'],
+    ['null', null, 'numero', undefined, ''],
+    ['undefined', undefined, 'fecha', undefined, ''],
+    ['número como texto sin tipo numérico', '1234.5', 'texto', undefined, '1234.5'],
+  ];
+
+  it.each(CASOS)('%s', (_n, valor, tipo, formato, esperado) => {
+    expect(f.formatValue(valor, tipo, formato)).toBe(esperado);
+  });
+
+  it('con las opciones vacías (lo que arma formatFila para una columna común) da lo mismo', () => {
+    for (const [, valor, tipo, formato, esperado] of CASOS) {
+      expect(f.formatValue(valor, tipo, formato, {})).toBe(esperado);
+      expect(f.formatFila({ C: valor }, [{ label: 'C', tipo, formato }])).toEqual({ C: esperado });
+    }
+  });
+
+  it('decimales o separadores en una columna que no es numero no hacen nada', () => {
+    expect(f.formatValue(1234.5, 'texto', undefined, { decimales: 2, separadorDecimal: ',' })).toBe('1234.5');
+    expect(f.formatValue(1234.5, 'moneda', undefined, { decimales: 0 })).toBe(f.formatValue(1234.5, 'moneda'));
+  });
+});
+
+describe('Formatter — E3 decimales y separadores', () => {
+  const f = new Formatter();
+  const num = (v: any, o: any) => f.formatValue(v, 'numero', undefined, o);
+
+  it.each([
+    [0, '1.235'],
+    [1, '1.234,6'],
+    [2, '1.234,57'],
+    [3, '1.234,568'],
+    [4, '1.234,5678'],
+  ])('%i decimales, defaults: coma decimal y punto de miles', (d, esperado) => {
+    expect(num(1234.5678, { decimales: d })).toBe(esperado);
+  });
+
+  it('completa con ceros hasta los decimales pedidos', () => {
+    expect(num(5, { decimales: 2 })).toBe('5,00');
+    expect(num(0.5, { decimales: 3 })).toBe('0,500');
+    expect(num(1234, { decimales: 2 })).toBe('1.234,00');
+  });
+
+  it('separadores de los dos estilos y sin miles', () => {
+    expect(num(1234567.891, { decimales: 2, separadorDecimal: '.', separadorMiles: ',' })).toBe('1,234,567.89');
+    expect(num(1234567.891, { decimales: 2, separadorDecimal: ',', separadorMiles: '' })).toBe('1234567,89');
+    expect(num(1234567.891, { decimales: 2, separadorDecimal: '.', separadorMiles: '' })).toBe('1234567.89');
+    expect(num(1234567.891, { decimales: 0, separadorMiles: '' })).toBe('1234568');
+  });
+
+  it('solo un separador: el otro se acomoda para no chocar', () => {
+    expect(num(1234.5, { separadorDecimal: '.' })).toBe('1,234.5');
+    expect(num(1234.5, { separadorMiles: ',' })).toBe('1,234.5');
+    expect(num(1234.5, { separadorMiles: '.' })).toBe('1.234,5');
+  });
+
+  it('sin decimales deja los que tiene el número', () => {
+    expect(num(1234.5, { separadorMiles: '.' })).toBe('1.234,5');
+    expect(num(1234, { separadorMiles: '.' })).toBe('1.234');
+    expect(num(0.125, { separadorDecimal: ',' })).toBe('0,125');
+  });
+
+  it('no usa notación científica', () => {
+    expect(num(1e21, { separadorMiles: '' })).toBe('1000000000000000000000');
+    expect(num(0.0000001, { separadorDecimal: ',' })).toBe('0,0000001');
+  });
+
+  it('los miles en los bordes: 999, 1.000, 999.999, 1.000.000', () => {
+    expect(num(999, { decimales: 0 })).toBe('999');
+    expect(num(1000, { decimales: 0 })).toBe('1.000');
+    expect(num(999999, { decimales: 0 })).toBe('999.999');
+    expect(num(1000000, { decimales: 0 })).toBe('1.000.000');
+  });
+
+  it('negativos, y un negativo que redondea a cero no deja "-0,00"', () => {
+    expect(num(-1234.5, { decimales: 2 })).toBe('-1.234,50');
+    expect(num(-0.001, { decimales: 2 })).toBe('0,00');
+    expect(num(-0.006, { decimales: 2 })).toBe('-0,01');
+  });
+
+  it('redondea como lo espera quien mira el número (1.005 → 1,01, no 1,00)', () => {
+    expect(num(1.005, { decimales: 2 })).toBe('1,01');
+    expect(num(2.5, { decimales: 0 })).toBe('3');
+  });
+
+  it('acepta el número como texto o bigint; lo que no es un número sale tal cual', () => {
+    expect(num('1234.5', { decimales: 2 })).toBe('1.234,50');
+    expect(num(BigInt(1234567), { decimales: 0 })).toBe('1.234.567');
+    expect(num('abc', { decimales: 2 })).toBe('abc');
+    expect(num('', { decimales: 2 })).toBe('');
+    expect(num(NaN, { decimales: 2 })).toBeNaN();
+  });
+
+  it('null sale vacío', () => {
+    expect(num(null, { decimales: 2 })).toBe('');
+  });
+
+  it('formatFila lo aplica por columna y no toca a las demás', () => {
+    const fila = { Saldo: 1234.5, Otro: 1234.5 };
+    expect(
+      f.formatFila(fila, [
+        { label: 'Saldo', tipo: 'numero', decimales: 2 },
+        { label: 'Otro', tipo: 'numero' },
+      ]),
+    ).toEqual({ Saldo: '1.234,50', Otro: '1234.5' });
+  });
+});
+
+describe('Formatter — E2 días desde la fecha', () => {
+  const f = new Formatter();
+  const HOY = '2026-10-17';
+  const dias = (v: any, tipoFecha?: 'calendario' | 'instante', hoyYmd = HOY) => f.formatValue(v, 'dias', undefined, { tipoFecha, hoyYmd });
+
+  it('una fecha calendario de hace 90 días da 90', () => {
+    expect(dias(new Date('2026-07-19T00:00:00.000Z'), 'calendario')).toBe(90);
+  });
+
+  it('una fecha calendario guardada a las 00:00Z o a las 03:00Z es el mismo día', () => {
+    expect(dias(new Date('2026-10-10T00:00:00.000Z'), 'calendario')).toBe(7);
+    expect(dias(new Date('2026-10-10T03:00:00.000Z'), 'calendario')).toBe(7);
+    expect(dias(new Date('2026-10-10T02:00:00.000Z'), 'calendario')).toBe(7);
+  });
+
+  it('un instante usa el día local: 23:30 AR del 10 (= 02:30Z del 11) es el 10', () => {
+    expect(dias(new Date('2026-10-11T02:30:00.000Z'), 'instante')).toBe(7);
+    expect(dias(new Date('2026-10-11T03:10:00.000Z'), 'instante')).toBe(6); // 00:10 AR del 11
+  });
+
+  it('sin clasificar se trata como instante', () => {
+    expect(dias(new Date('2026-10-11T02:30:00.000Z'))).toBe(7);
+  });
+
+  it('el mismo día es 0', () => {
+    expect(dias(new Date('2026-10-17T00:00:00.000Z'), 'calendario')).toBe(0);
+    expect(dias(new Date(2026, 9, 17, 23, 59, 59), 'instante')).toBe(0);
+  });
+
+  it('una fecha futura da negativo', () => {
+    expect(dias(new Date('2026-10-24T00:00:00.000Z'), 'calendario')).toBe(-7);
+  });
+
+  it('cruza fin de mes, de año y bisiesto', () => {
+    expect(dias(new Date('2026-09-30T00:00:00.000Z'), 'calendario', '2026-10-02')).toBe(2);
+    expect(dias(new Date('2025-12-31T00:00:00.000Z'), 'calendario', '2026-01-01')).toBe(1);
+    expect(dias(new Date('2028-02-28T00:00:00.000Z'), 'calendario', '2028-03-01')).toBe(2);
+  });
+
+  it('null y undefined salen vacíos; lo que no es una fecha también', () => {
+    expect(dias(null)).toBe('');
+    expect(dias(undefined)).toBe('');
+    expect(dias('no es una fecha')).toBe('');
+    expect(dias(new Date('nada'))).toBe('');
+    expect(dias(42)).toBe('');
+  });
+
+  it('un YYYY-MM-DD de texto (dato adicional) cuenta como día calendario', () => {
+    expect(dias('2026-10-10')).toBe(7);
+    expect(dias('2026-13-40')).toBe('');
+  });
+
+  it('es un número (no un texto), así sum y avg de los totales andan', () => {
+    expect(typeof dias(new Date('2026-07-19T00:00:00.000Z'), 'calendario')).toBe('number');
+  });
+
+  it('sin hoyYmd usa el día de hoy en hora local', () => {
+    jest.useFakeTimers().setSystemTime(new Date('2026-10-17T02:59:00.000Z')); // 23:59 AR del 16
+    try {
+      expect(f.formatValue(new Date('2026-10-10T00:00:00.000Z'), 'dias', undefined, { tipoFecha: 'calendario' })).toBe(6);
+      jest.setSystemTime(new Date('2026-10-17T03:00:00.000Z')); // 00:00 AR del 17
+      expect(f.formatValue(new Date('2026-10-10T00:00:00.000Z'), 'dias', undefined, { tipoFecha: 'calendario' })).toBe(7);
+    } finally {
+      jest.useRealTimers();
+    }
   });
 });

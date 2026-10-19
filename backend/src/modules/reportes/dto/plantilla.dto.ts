@@ -1,4 +1,4 @@
-import { IsString, IsOptional, IsInt, IsBoolean, IsEnum, IsObject, ValidateNested, IsArray } from 'class-validator';
+import { IsString, IsOptional, IsInt, IsBoolean, IsEnum, IsObject, IsIn, Min, Max, ValidateNested, IsArray } from 'class-validator';
 import { Type } from 'class-transformer';
 
 export enum FormatoSalida {
@@ -31,11 +31,28 @@ export class ColumnaDto {
 
   @IsOptional()
   @IsString()
-  tipo?: 'texto' | 'numero' | 'fecha' | 'boolean' | 'moneda' | 'telefono';
+  tipo?: 'texto' | 'numero' | 'fecha' | 'boolean' | 'moneda' | 'telefono' | 'dias';
 
   @IsOptional()
   @IsString()
   formato?: string;
+
+  /** E3, solo `tipo: 'numero'`: cantidad de decimales (0 a 4). Sin él, los que tenga el número. */
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  @Max(4)
+  decimales?: number;
+
+  /** E3, solo `tipo: 'numero'`: `,` (default) o `.`. */
+  @IsOptional()
+  @IsIn([',', '.'])
+  separadorDecimal?: ',' | '.';
+
+  /** E3, solo `tipo: 'numero'`: `.` (default), `,` o vacío (sin separador de miles). */
+  @IsOptional()
+  @IsIn(['.', ',', ''])
+  separadorMiles?: '.' | ',' | '';
 
   @IsOptional()
   @IsInt()
@@ -113,6 +130,15 @@ export class TotalDto {
   @IsString()
   path: string;
 
+  /**
+   * Id de la columna sobre la que se calcula. Obligatorio en la práctica si dos columnas comparten
+   * el `path` (si no, el total es ambiguo y da 400). Un total guardado con solo `path` sigue andando
+   * cuando hay una única columna con ese campo.
+   */
+  @IsOptional()
+  @IsString()
+  columnaId?: string;
+
   @IsString()
   funcion: 'sum' | 'avg' | 'count' | 'min' | 'max';
 
@@ -186,6 +212,15 @@ export class CreatePlantillaDto {
   @IsOptional()
   @IsObject()
   opcionesFormato?: any;
+
+  /**
+   * Id de la propuesta del asistente de la que salió esta plantilla (el editor lo manda al guardar lo
+   * que armó el asistente). Se acepta y por ahora no hace nada acá: el vínculo lo resuelve el módulo
+   * del asistente, y un id ajeno o inexistente nunca hace fallar el alta.
+   */
+  @IsOptional()
+  @IsInt()
+  asistentePropuestaId?: number;
 }
 
 export class DuplicarPlantillaDto {

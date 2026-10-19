@@ -3,11 +3,17 @@
  *
  * - `YYYY-MM-DD` (lo que manda el input de fecha del navegador), con un día que exista en el calendario;
  * - un ISO completo con hora (`2026-07-31T03:00:00.000Z`);
- * - un `Date` ya válido.
+ * - un `Date` ya válido;
+ *
+ * y, solo donde el llamador lo pide (`permitirRelativa`), las fechas relativas `hoy`, `hoy-N` y
+ * `hoy+N` (E1). El planner las resuelve a `YYYY-MM-DD` **antes** de llegar acá, así que una relativa
+ * que llega sin resolver es un error de programación y se rechaza como cualquier otra cosa.
  *
  * Antes cualquier otra cosa pasaba por `new Date(valor)`: `"hoy-90"` daba 1990-01-01 y `"2026-02-31"`
  * se corría solo a marzo, sin avisar. El reporte salía con otro rango y nadie se enteraba.
  */
+
+import { esFechaRelativa, resolverFechaRelativa } from '../../../common/utils/dia-local';
 
 const SOLO_FECHA = /^(\d{4})-(\d{2})-(\d{2})$/;
 const ISO_COMPLETO = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})(?::(\d{2})(?:\.\d{1,9})?)?(?:Z|[+-]\d{2}:?\d{2})?$/;
@@ -31,7 +37,12 @@ function diaExiste(anio: number, mes: number, dia: number): boolean {
  * completo en hora local), o un `Date` si era un ISO con hora. Lanza {@link FechaInvalidaError} si no
  * es ninguna de las formas aceptadas.
  */
-export function parsearFechaFiltro(valor: unknown): string | Date {
+export interface OpcionesFechaFiltro {
+  /** Acepta `hoy`, `hoy-N`, `hoy+N` (N de 1 a 3650) y los devuelve sin resolver. Solo para validar plantillas. */
+  permitirRelativa?: boolean;
+}
+
+export function parsearFechaFiltro(valor: unknown, opciones: OpcionesFechaFiltro = {}): string | Date {
   if (valor instanceof Date) {
     if (Number.isNaN(valor.getTime())) throw new FechaInvalidaError(valor);
     return valor;
@@ -39,6 +50,8 @@ export function parsearFechaFiltro(valor: unknown): string | Date {
   if (typeof valor !== 'string') throw new FechaInvalidaError(valor);
 
   const texto = valor.trim();
+
+  if (opciones.permitirRelativa && esFechaRelativa(texto)) return texto;
 
   const soloFecha = SOLO_FECHA.exec(texto);
   if (soloFecha) {
@@ -67,13 +80,29 @@ export function parsearFechaFiltro(valor: unknown): string | Date {
 }
 
 /** Aplica {@link parsearFechaFiltro} a un valor o a cada elemento de una lista. Vacíos pasan tal cual. */
-export function validarFechasFiltro(valor: unknown): void {
+export function validarFechasFiltro(valor: unknown, opciones: OpcionesFechaFiltro = {}): void {
   const vacio = (v: unknown) => v === null || v === undefined || v === '';
   if (Array.isArray(valor)) {
-    for (const v of valor) if (!vacio(v)) parsearFechaFiltro(v);
+    for (const v of valor) if (!vacio(v)) parsearFechaFiltro(v, opciones);
     return;
   }
-  if (!vacio(valor)) parsearFechaFiltro(valor);
+  if (!vacio(valor)) parsearFechaFiltro(valor, opciones);
+}
+
+/**
+ * Reemplaza las fechas relativas (`hoy-90`) de un valor, o de cada punta de una lista, por el
+ * `YYYY-MM-DD` de ese día a partir de `hoyYmd`. Lo que no es relativo pasa igual, incluidas las
+ * puntas vacías de un rango abierto. Devuelve el valor nuevo y, aparte, si resolvió alguna.
+ */
+export function resolverFechasRelativas(valor: any, hoyYmd: string): { valor: any; resolvio: boolean } {
+  let resolvio = false;
+  const uno = (v: any) => {
+    if (!esFechaRelativa(v)) return v;
+    resolvio = true;
+    return resolverFechaRelativa(v, hoyYmd);
+  };
+  const resuelto = Array.isArray(valor) ? valor.map(uno) : uno(valor);
+  return { valor: resuelto, resolvio };
 }
 
 /**

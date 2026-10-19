@@ -2,7 +2,7 @@ import { Logger } from '@nestjs/common';
 import type { ContentBlock, ContentBlockParam, Message, MessageParam, ToolResultBlockParam } from '@anthropic-ai/sdk/resources/messages';
 import { AccionIrA, EventoSse, FuenteAyuda } from '../dto/asistente.tipos';
 import { ClienteModelo } from '../modelo/cliente-modelo';
-import { USO_VACIO, UsoTokens, usoDeUsage } from '../modelo/precios';
+import { UsoTokens } from '../modelo/precios';
 import { INSTRUCCIONES } from '../prompt/instrucciones';
 import {
     TurnoHistorial,
@@ -28,6 +28,11 @@ import { PaginaWiki } from '../wiki/parsear-pagina';
 import { PuertoWiki } from '../wiki/wiki-indice';
 import { extraerCitas } from './citas';
 import { MENSAJE_MODELO_NO_DISPONIBLE, TopeError } from './errores';
+import { LlamadaRegistro, PuertoMedicion, PuertoTopes, ResultadoLlamada, llamarModelo, usoAbortado } from './llamada-modelo';
+
+// Lo que se extrajo a `llamada-modelo.ts` sigue saliendo de acá: lo importan el servicio, la medición y los tests.
+export { usoAbortado };
+export type { LlamadaRegistro, PuertoMedicion, PuertoTopes };
 
 /** Iteraciones máximas del loop de herramientas por turno (buscar → leer → leer → responder entra con margen). */
 export const MAX_ITERACIONES = 5;
@@ -150,38 +155,7 @@ export function quitarOfertaSinTarjeta(texto: string): string {
 export const TEXTO_RECHAZO = 'No puedo responder eso. Probá reformular la pregunta o buscá en la Documentación.';
 const SUFIJO_CORTADA = '\n\n_(La respuesta quedó cortada.)_';
 const SUFIJO_SIN_TERMINAR = '\n\n_(No llegué a terminar: probá preguntar más concreto.)_';
-/**
- * Un stream cortado con Detener trae en `usage` solo la salida del `message_start`. Se estima la que alcanzó a generar
- * por el texto ya emitido (unos 3 caracteres por token), para que el costo no quede por debajo de lo facturado.
- */
-export function usoAbortado(uso: UsoTokens, textoEmitido: string): UsoTokens {
-    return { ...uso, salida: Math.max(uso.salida, Math.ceil(textoEmitido.length / 3)) };
-}
-
 const TEXTO_VACIO = 'No pude armar una respuesta. Probá reformular la pregunta.';
-
-export interface LlamadaRegistro {
-    usuarioId: number | null;
-    conversacionId: number | null;
-    mensajeId: number | null;
-    funcion: string;
-    modelo: string;
-    iteracion: number;
-    uso: UsoTokens;
-    ms: number;
-    stopReason: string | null;
-    error: string | null;
-}
-
-export interface PuertoMedicion {
-    /** Registra la llamada y devuelve su costo en USD. Nunca debe perder el costo. */
-    registrarLlamada(l: LlamadaRegistro): Promise<number>;
-}
-
-export interface PuertoTopes {
-    /** Lanza `TopeError` si ya no se puede llamar al modelo (mensual, de la función o del turno). */
-    verificarIteracion(funcion: string, costoTurno: number): Promise<void>;
-}
 
 export interface DependenciasTurno {
     cliente: ClienteModelo;
@@ -223,7 +197,7 @@ export interface ResultadoTurno {
     costoUsd: number;
     llamadas: number;
     ms: number;
-    error?: { codigo: 'TOPE_MENSUAL' | 'TOPE_FUNCION' | 'MODELO_NO_DISPONIBLE'; mensaje: string };
+    error?: { codigo: 'TOPE_MENSUAL' | 'TOPE_FUNCION' | 'MODELO_NO_DISPONIBLE' | 'PROMPT_DEMASIADO_GRANDE'; mensaje: string };
 }
 
 interface ResultadoHerramienta {
@@ -406,8 +380,31 @@ export class TurnoRunner {
 
         // --- Loop -----------------------------------------------------------------------------------------------
         for (let iter = 0; iter < MAX_ITERACIONES; iter++) {
+            let primerTexto = true;
+            let llamada: ResultadoLlamada;
             try {
-                await topes.verificarIteracion(e.funcion, costoTurno);
+                llamada = await llamarModelo(
+                    { cliente, topes, medicion },
+                    {
+                        funcion: e.funcion,
+                        modelo: this.deps.modelo,
+                        iteracion: iter,
+                        ids: e.ids,
+                        params: paramsDeLlamada({ modelo: this.deps.modelo, system, tools, messages }),
+                        signal: e.signal,
+                        costoTurno,
+                        onTexto: (d) => {
+                            // Los textos de iteraciones distintas se pegan con un salto de párrafo.
+                            let delta = d;
+                            if (primerTexto) {
+                                primerTexto = false;
+                                if (textoTurno && !textoTurno.endsWith('\n')) delta = `\n\n${d}`;
+                            }
+                            textoTurno += delta;
+                            e.emitir({ evento: 'texto', data: { delta } });
+                        },
+                    },
+                );
             } catch (err) {
                 if (!(err instanceof TopeError)) throw err;
                 if (err.codigo === 'TOPE_TURNO') {
@@ -427,63 +424,27 @@ export class TurnoRunner {
                 estado = 'error';
                 return resultado({ error: { codigo: err.codigo, mensaje: err.message } });
             }
+            llamadas++;
+            costoTurno += llamada.costo;
+            const textoIter = llamada.textoIter;
 
-            let textoIter = '';
-            let primerTexto = true;
-            const ti = Date.now();
-            const stream = cliente.stream(
-                paramsDeLlamada({ modelo: this.deps.modelo, system, tools, messages }),
-                e.signal,
-            );
-            stream.onTexto((d) => {
-                // Los textos de iteraciones distintas se pegan con un salto de párrafo.
-                let delta = d;
-                if (primerTexto) {
-                    primerTexto = false;
-                    if (textoTurno && !textoTurno.endsWith('\n')) delta = `\n\n${d}`;
-                }
-                textoIter += d;
-                textoTurno += delta;
-                e.emitir({ evento: 'texto', data: { delta } });
-            });
-
-            let msg: Message;
-            try {
-                msg = await stream.finalMessage();
-                // El texto de esta iteración es lo último que se agregó al del turno.
-                if (textoIter) segmentos.push({ inicio: textoTurno.length - textoIter.length, texto: textoIter });
-            } catch (err: any) {
-                const abortado = e.signal.aborted || err?.constructor?.name === 'APIUserAbortError';
-                llamadas++;
-                costoTurno += await medicion.registrarLlamada({
-                    ...this.base(e, iter),
-                    uso: abortado ? usoAbortado(usoDeUsage(stream.parcial()?.usage), textoIter) : { ...USO_VACIO },
-                    ms: Date.now() - ti,
-                    stopReason: null,
-                    error: abortado ? 'abortado' : String(err?.name ?? 'Error').slice(0, 120),
-                });
-                if (abortado) {
-                    estado = 'cortado';
-                    cerrarCortado(textoIter, textoIter ? '' : '(Respuesta interrumpida.)');
-                    break;
-                }
+            if (llamada.tipo === 'abortada') {
+                estado = 'cortado';
+                cerrarCortado(textoIter, textoIter ? '' : '(Respuesta interrumpida.)');
+                break;
+            }
+            if (llamada.tipo === 'fallo') {
                 // AccessDenied o credenciales: señal de IAM mal aplicada. Siempre con stack.
                 this.logger.error(
-                    `Falló la llamada al modelo (mensaje=${e.ids.mensajeId}, iteracion=${iter}): ${err?.name}: ${err?.message}`,
-                    err?.stack,
+                    `Falló la llamada al modelo (mensaje=${e.ids.mensajeId}, iteracion=${iter}): ${llamada.error?.name}: ${llamada.error?.message}`,
+                    llamada.error?.stack,
                 );
                 estado = 'error';
                 return resultado({ error: { codigo: 'MODELO_NO_DISPONIBLE', mensaje: MENSAJE_MODELO_NO_DISPONIBLE } });
             }
-
-            llamadas++;
-            costoTurno += await medicion.registrarLlamada({
-                ...this.base(e, iter),
-                uso: usoDeUsage(msg.usage),
-                ms: Date.now() - ti,
-                stopReason: msg.stop_reason,
-                error: null,
-            });
+            const msg: Message = llamada.msg;
+            // El texto de esta iteración es lo último que se agregó al del turno.
+            if (textoIter) segmentos.push({ inicio: textoTurno.length - textoIter.length, texto: textoIter });
 
             const usos = msg.content.filter((b) => b.type === 'tool_use');
 
@@ -576,16 +537,5 @@ export class TurnoRunner {
             }
         }
         return resultado({ fuentes });
-    }
-
-    private base(e: EntradaTurno, iter: number) {
-        return {
-            usuarioId: e.ids.usuarioId,
-            conversacionId: e.ids.conversacionId,
-            mensajeId: e.ids.mensajeId,
-            funcion: e.funcion,
-            modelo: this.deps.modelo,
-            iteracion: iter,
-        };
     }
 }

@@ -44,6 +44,16 @@ import { EjecucionesCleanupService } from './ejecuciones/ejecuciones.cleanup';
     EjecucionesService,
     EjecucionesCleanupService,
   ],
-  exports: [ReportesService, EjecucionesService, XlsxExportador, CsvExportador, PdfExportador],
+  // CatalogoService, ExecutorService y AsyncExecutorService los usa el asistente (Fase B) para armar y probar plantillas.
+  exports: [
+    ReportesService,
+    EjecucionesService,
+    XlsxExportador,
+    CsvExportador,
+    PdfExportador,
+    CatalogoService,
+    ExecutorService,
+    AsyncExecutorService,
+  ],
 })
 export class ReportesModule {}

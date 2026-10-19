@@ -1,11 +1,13 @@
-import { useEffect, useReducer } from 'react'
-import { useParams, useNavigate } from 'react-router-dom'
+import { useEffect, useReducer, useRef } from 'react'
+import { useParams, useNavigate, useSearchParams } from 'react-router-dom'
 import { Box, Grid, Alert, Tabs, Tab, Paper, Button } from '@mui/material'
 import { v4 as uuidv4 } from 'uuid'
 import SaveIcon from '@mui/icons-material/Save'
 import CloseIcon from '@mui/icons-material/Close'
 import { Plantilla, Columna, NodoCatalogo, Filtro, Agrupacion, Total, Ordenamiento } from '../../types/reportes'
 import { reportesApi } from '../../api/reportes'
+import { asistenteApi } from '../../api/asistente'
+import { EVENTO_PROPUESTA_ABIERTA, EVENTO_PROPUESTA_GUARDADA, type DetalleGuardada } from '../../context/AsistenteContext'
 import api from '../../api/axios'
 import { PageHeader, SectionCard, LoadingSkeleton } from '../../components/ui'
 import { useNotify } from '../../hooks/useNotify'
@@ -22,6 +24,7 @@ import SortBuilder from './components/SortBuilder/SortBuilder'
 import PreviewPanel from './components/Preview/PreviewPanel'
 import { validatePlantilla, ValidationError } from './utils/validatePlantilla'
 import { nombreColumnaFijaLibre } from './utils/nombreColumnaFija'
+import { acompanarColumnas } from './utils/anchoFijo'
 
 type BuilderState = {
   plantilla: Partial<Plantilla>
@@ -39,6 +42,7 @@ type BuilderState = {
 
 type BuilderAction =
   | { type: 'SET_PLANTILLA'; payload: Partial<Plantilla> }
+  | { type: 'SET_PLANTILLA_ASISTENTE'; payload: Partial<Plantilla> }
   | { type: 'SET_CATALOGO'; payload: NodoCatalogo[] }
   | { type: 'SET_EMPRESAS'; payload: any[] }
   | { type: 'UPDATE_FIELD'; field: keyof Plantilla; value: any }
@@ -90,6 +94,9 @@ const builderReducer = (state: BuilderState, action: BuilderAction): BuilderStat
   switch (action.type) {
     case 'SET_PLANTILLA':
       return { ...state, plantilla: action.payload, hasChanges: false }
+    // La plantilla armada por el asistente todavía no existe: se carga como cambios sin guardar (el aviso de salir funciona).
+    case 'SET_PLANTILLA_ASISTENTE':
+      return { ...state, plantilla: action.payload, hasChanges: true, validationErrors: [] }
     case 'SET_CATALOGO':
       return { ...state, catalogo: action.payload, catalogoLoading: false }
     case 'SET_EMPRESAS':
@@ -105,6 +112,7 @@ const builderReducer = (state: BuilderState, action: BuilderAction): BuilderStat
         ...state,
         plantilla: {
           ...state.plantilla,
+          opcionesFormato: acompanarColumnas(state.plantilla.opcionesFormato, state.plantilla.definicion?.columnas || [], action.columnas),
           definicion: { ...state.plantilla.definicion!, columnas: action.columnas },
         },
         hasChanges: true,
@@ -114,6 +122,7 @@ const builderReducer = (state: BuilderState, action: BuilderAction): BuilderStat
         ...state,
         plantilla: {
           ...state.plantilla,
+          opcionesFormato: acompanarColumnas(state.plantilla.opcionesFormato, state.plantilla.definicion?.columnas || [], [...(state.plantilla.definicion?.columnas || []), action.columna]),
           definicion: {
             ...state.plantilla.definicion!,
             columnas: [...(state.plantilla.definicion?.columnas || []), action.columna],
@@ -140,6 +149,11 @@ const builderReducer = (state: BuilderState, action: BuilderAction): BuilderStat
         ...state,
         plantilla: {
           ...state.plantilla,
+          opcionesFormato: acompanarColumnas(
+            state.plantilla.opcionesFormato,
+            state.plantilla.definicion?.columnas || [],
+            (state.plantilla.definicion?.columnas || []).filter(c => c.id !== action.id),
+          ),
           definicion: {
             ...state.plantilla.definicion!,
             columnas: state.plantilla.definicion!.columnas.filter(c => c.id !== action.id),
@@ -201,11 +215,18 @@ const builderReducer = (state: BuilderState, action: BuilderAction): BuilderStat
 
 const ReportesBuilder = () => {
   const { id } = useParams<{ id: string }>()
+  const [searchParams, setSearchParams] = useSearchParams()
+  // `?propuesta=ID` viene de la tarjeta del asistente (docs/asistente-reportes-spec.md §12). Solo vale en «Nueva plantilla».
+  const propuestaParam = searchParams.get('propuesta')
+  const propuestaId = !id && propuestaParam && /^\d+$/.test(propuestaParam) ? parseInt(propuestaParam, 10) : null
   const navigate = useNavigate()
   const notify = useNotify()
   const confirm = useConfirm()
   const { isMobile } = useBreakpoint()
   const [state, dispatch] = useReducer(builderReducer, initialState)
+  // Lo que el efecto de la propuesta necesita saber sin volver a correr cuando cambia.
+  const hasChangesRef = useRef(false)
+  hasChangesRef.current = state.hasChanges
 
   useEffect(() => {
     const loadData = async () => {
@@ -217,22 +238,120 @@ const ReportesBuilder = () => {
 
         dispatch({ type: 'SET_CATALOGO', payload: catalogoRes.data })
         dispatch({ type: 'SET_EMPRESAS', payload: empresasRes.data })
-
-        if (id) {
-          dispatch({ type: 'SET_LOADING', loading: true })
-          const plantillaRes = await reportesApi.obtenerPlantilla(parseInt(id))
-          dispatch({ type: 'SET_PLANTILLA', payload: plantillaRes.data })
-          dispatch({ type: 'SET_LOADING', loading: false })
-        }
       } catch (error: any) {
         notify.error(error)
         dispatch({ type: 'SET_CATALOGO_LOADING', loading: false })
-        dispatch({ type: 'SET_LOADING', loading: false })
       }
     }
 
     loadData()
-  }, [id])
+  }, [])
+
+  // Qué plantilla hay cargada en el estado. El editor se reutiliza entre /reportes/nuevo y /reportes/:id/editar: si la ruta
+  // cambia con cambios sin guardar, no se puede pisar ni dejar el estado de una plantilla bajo la URL de otra (Guardar
+  // haría un alta en vez de actualizar).
+  const plantillaCargadaRef = useRef<number | undefined>(undefined)
+  plantillaCargadaRef.current = state.plantilla.id
+
+  useEffect(() => {
+    // Con ?propuesta= lo resuelve el efecto de abajo.
+    if (propuestaId !== null) return
+    const idNum = id ? parseInt(id, 10) : undefined
+    if (idNum === plantillaCargadaRef.current) return
+    let cancelado = false
+    const cargar = async () => {
+      try {
+        if (hasChangesRef.current) {
+          const ok = await confirm({
+            title: idNum === undefined ? 'Salir de la edición' : 'Cambios sin guardar',
+            description: 'Hay cambios sin guardar en lo que estás editando. Si seguís, se pierden.',
+            confirmLabel: 'Descartar los cambios',
+            cancelLabel: 'Seguir editando',
+            confirmColor: 'warning',
+          })
+          if (cancelado) return
+          if (!ok) {
+            // Se vuelve a donde estaba, con su estado intacto.
+            const actual = plantillaCargadaRef.current
+            navigate(actual ? `/reportes/${actual}/editar` : '/reportes/nuevo', { replace: true })
+            return
+          }
+        }
+        if (idNum === undefined) {
+          dispatch({ type: 'SET_PLANTILLA', payload: initialState.plantilla })
+          return
+        }
+        dispatch({ type: 'SET_LOADING', loading: true })
+        const plantillaRes = await reportesApi.obtenerPlantilla(idNum)
+        if (cancelado) return
+        dispatch({ type: 'SET_PLANTILLA', payload: plantillaRes.data })
+        dispatch({ type: 'SET_LOADING', loading: false })
+      } catch (error: any) {
+        notify.error(error)
+        dispatch({ type: 'SET_LOADING', loading: false })
+      }
+    }
+
+    void cargar()
+    return () => { cancelado = true }
+  }, [id, propuestaId])
+
+  // Abrir una propuesta del asistente. Depende de `propuesta` además de `id`: tocar «Abrir en el editor» estando ya en
+  // /reportes/nuevo no cambia de ruta, solo la query, y un efecto que mira solo `id` no se enteraría.
+  // `pedidaRef` evita pedirla dos veces (el modo estricto de React corre cada efecto dos veces al montar en desarrollo).
+  const propuestaVigenteRef = useRef<number | null>(null)
+  propuestaVigenteRef.current = propuestaId
+  const pedidaRef = useRef<number | null>(null)
+  const montadoRef = useRef(true)
+  useEffect(() => {
+    montadoRef.current = true
+    return () => { montadoRef.current = false }
+  }, [])
+  useEffect(() => {
+    if (propuestaId === null || pedidaRef.current === propuestaId) return
+    pedidaRef.current = propuestaId
+    const sigueVigente = () => montadoRef.current && propuestaVigenteRef.current === propuestaId
+    const soltarParam = () => setSearchParams(prev => { const p = new URLSearchParams(prev); p.delete('propuesta'); return p }, { replace: true })
+    const abrir = async () => {
+      try {
+        if (hasChangesRef.current) {
+          const ok = await confirm({
+            title: 'Reemplazar lo que tenés armado',
+            description: 'Ya tenés una plantilla sin guardar en el editor. Si abrís la propuesta del asistente, se reemplaza.',
+            confirmLabel: 'Reemplazar lo que tenés armado',
+            cancelLabel: 'Seguir con lo mío',
+            confirmColor: 'warning',
+          })
+          if (!ok) {
+            // Si venía editando una plantilla que ya existe, vuelve a su ruta: soltar solo el parámetro lo dejaría en /reportes/nuevo
+            // con el estado de esa plantilla, y Guardar crearía una copia.
+            const actual = plantillaCargadaRef.current
+            if (sigueVigente()) {
+              if (actual) navigate(`/reportes/${actual}/editar`, { replace: true })
+              else soltarParam()
+            }
+            return
+          }
+        }
+        dispatch({ type: 'SET_LOADING', loading: true })
+        const plantilla = await asistenteApi.plantillaDePropuesta(propuestaId)
+        if (!sigueVigente()) return
+        dispatch({ type: 'SET_PLANTILLA_ASISTENTE', payload: plantilla as Partial<Plantilla> })
+        // Recién ahora la propuesta está abierta: la tarjeta del panel lo refleja.
+        window.dispatchEvent(new CustomEvent(EVENTO_PROPUESTA_ABIERTA, { detail: { propuestaId } }))
+        soltarParam()
+      } catch (error: any) {
+        if (sigueVigente()) {
+          notify.error(error)
+          soltarParam()
+        }
+      } finally {
+        pedidaRef.current = null
+        if (montadoRef.current) dispatch({ type: 'SET_LOADING', loading: false })
+      }
+    }
+    void abrir()
+  }, [propuestaId])
 
   useEffect(() => {
     const handleBeforeUnload = (e: BeforeUnloadEvent) => {
@@ -322,7 +441,14 @@ const ReportesBuilder = () => {
       if (id) {
         await reportesApi.actualizarPlantilla(parseInt(id), state.plantilla)
       } else {
-        await reportesApi.crearPlantilla(state.plantilla as Omit<Plantilla, 'id'>)
+        const creada = await reportesApi.crearPlantilla(state.plantilla as Omit<Plantilla, 'id'>)
+        // La tarjeta del asistente pasa a «Guardada» sin esperar a que se vuelva a abrir la conversación.
+        const propuesta = state.plantilla.asistentePropuestaId
+        const plantillaId = creada.data?.id
+        if (propuesta && plantillaId) {
+          const detalle: DetalleGuardada = { propuestaId: propuesta, plantillaId, nombre: state.plantilla.nombre }
+          window.dispatchEvent(new CustomEvent(EVENTO_PROPUESTA_GUARDADA, { detail: detalle }))
+        }
       }
 
       dispatch({ type: 'MARK_CHANGES', hasChanges: false })
@@ -385,6 +511,12 @@ const ReportesBuilder = () => {
           },
         ]}
       />
+
+      {!id && state.plantilla.asistentePropuestaId && (
+        <Alert severity="info" sx={{ mb: 2 }} data-testid="aviso-asistente">
+          Esta plantilla la armó el asistente y <strong>todavía no existe</strong>. Revisala y tocá <strong>Guardar</strong>.
+        </Alert>
+      )}
 
       {state.validationErrors.length > 0 && (
         <Box sx={{ mb: 2 }}>
@@ -474,6 +606,7 @@ const ReportesBuilder = () => {
                   {state.mobileSubTab === 2 && (
                     <Box sx={{ minHeight: 400 }}>
                       <PropertiesPanel
+                        catalogo={state.catalogo}
                         columna={state.plantilla.definicion?.columnas.find(c => c.id === selectedId) || null}
                         onColumnChange={(field, value) => {
                           if (selectedId) handleColumnChange(selectedId, field, value)
@@ -511,6 +644,7 @@ const ReportesBuilder = () => {
                   <Grid item xs={12} md={3}>
                     <Box sx={{ height: 'calc(100vh - 280px)', minHeight: 400 }}>
                       <PropertiesPanel
+                        catalogo={state.catalogo}
                         columna={state.plantilla.definicion?.columnas.find(c => c.id === selectedId) || null}
                         onColumnChange={(field, value) => {
                           if (selectedId) handleColumnChange(selectedId, field, value)

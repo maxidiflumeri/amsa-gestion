@@ -5,11 +5,13 @@ import { Route, Routes, useLocation, useNavigate, type NavigateFunction } from '
 import { transferableAbortController } from 'node:util';
 import AppShell from '@fe/components/layout/AppShell/AppShell';
 import AsistenteConsumo from '@fe/pages/asistente/AsistenteConsumo';
+import ReportesHome from '@fe/pages/reportes/ReportesHome';
 import { usePageMeta } from '@fe/context/PageMetaContext';
 import type {
-    AccionIrA, ConfigAsistente, ConsumoAsistente, ConversacionDetalle, ConversacionResumen, EstadoAsistente, FuenteAyuda,
+    AccionIrA, AdjuntoSubido, ConfigAsistente, ConsumoAsistente, ConversacionDetalle, ConversacionResumen, EstadoAsistente, FuenteAyuda,
+    FilaMapeo, Paso, TarjetaPropuesta, VistaPreviaPropuesta,
 } from '@fe/types/asistente';
-import { evento, ServidorFalso, type Pedido, type Respuesta } from './servidor-falso';
+import { evento, multipart, ServidorFalso, type Pedido, type Respuesta } from './servidor-falso';
 import { fijarAncho } from './ancho';
 import { boton, clic, esperar, iniciarSesion, limpio, montar, pasar, type Montado } from './montar';
 
@@ -23,6 +25,12 @@ export const PATCH_FUNCION = /^\/asistente\/funciones\/([^/]+)$/;
 /** Un usuario con el asistente y lo que hace falta para ver las sugerencias de Gestión. */
 export const PERMISOS_IA = ['asistente.usar', 'deudores.ver', 'promesas.crear', 'convenios.generar_cupon', 'reportes.ver', 'reportes.crear'];
 export const PERMISOS_ADMIN_IA = [...PERMISOS_IA, 'asistente.administrar'];
+/** Además puede armar reportes con el asistente (Fase B, D-2): `asistente.reportes` + `reportes.crear` + `reportes.ver`. */
+export const PERMISOS_REPORTES_IA = [...PERMISOS_IA, 'asistente.reportes'];
+export const ADJUNTOS = /^\/asistente\/adjuntos$/;
+export const ADJUNTO = /^\/asistente\/adjuntos\/(\d+)$/;
+export const VISTA_PREVIA = /^\/asistente\/propuestas\/(\d+)\/vista-previa$/;
+export const PLANTILLA_DE_PROPUESTA = /^\/asistente\/propuestas\/(\d+)\/plantilla$/;
 
 const TITULOS: Record<string, string> = { '/': 'Inicio', '/gestion': 'Gestión', '/reportes/nuevo': 'Nueva plantilla de reportes', '/reportes': 'Reportes' };
 
@@ -54,10 +62,53 @@ export const ev = {
     busqueda: (): EventoSse => ['herramienta', { nombre: 'buscar_en_wiki' }],
     accion: (over: Partial<AccionIrA> = {}): EventoSse => ['accion', { id: 'toolu_1', tipo: 'ir_a', ruta: '/reportes/nuevo', etiqueta: 'Nueva plantilla de reportes', motivo: 'crear una plantilla de reportes', ...over }],
     fin: (texto: string, over: Record<string, unknown> = {}): EventoSse => ['fin', { mensajeId: 102, estado: 'ok', texto, fuentes: [], acciones: [], ms: 900, ...over }],
+    paso: (tipo: Paso['tipo'], texto: string, estado: Paso['estado'] = 'ok'): EventoSse => ['paso', { tipo, estado, texto }],
+    propuesta: (over: Partial<TarjetaPropuesta> = {}): EventoSse => ['propuesta', tarjeta(over)],
     error: (over: Record<string, unknown> = {}): EventoSse => ['error', { codigo: 'MODELO_NO_DISPONIBLE', mensaje: 'El asistente no está disponible en este momento. Probá en un rato.', ...over }],
 };
 export const accionIrA = (over: Partial<AccionIrA> = {}): AccionIrA => ({ id: 'toolu_1', tipo: 'ir_a', ruta: '/reportes/nuevo', etiqueta: 'Nueva plantilla de reportes', motivo: 'crear una plantilla de reportes', resultado: null, ...over });
 export const fuente = (slug = 'reportes/armar-un-reporte', titulo = 'Armar un reporte'): FuenteAyuda => ({ slug, titulo });
+
+// ─── Fase B: ejemplos adjuntos y propuestas (docs/asistente-reportes-spec.md §6.4) ───────────────────
+export function adjuntoIA(over: Partial<AdjuntoSubido> = {}): AdjuntoSubido {
+    return {
+        id: 501, nombre: 'ejemplo_cartera.xlsx', tipo: 'xlsx', bytes: 18_400,
+        resumen: { hojas: [{ nombre: 'Hoja1', filas: 4, usada: true }], columnas: 9, filasDatos: 3, conEncabezado: true, anchoFijo: false, encabezados: ['DNI', 'Cliente', 'Saldo'] },
+        avisos: [],
+        ...over,
+    };
+}
+
+export const mapeoIA = (over: Partial<FilaMapeo> = {}): FilaMapeo => ({
+    columnaEjemplo: 'DNI', label: 'DNI', estado: 'exacta', nota: '', saleDe: 'Documento', formato: null, ...over,
+});
+
+/** Una tarjeta con las cuatro situaciones del mapeo. */
+export function tarjeta(over: Partial<TarjetaPropuesta> = {}): TarjetaPropuesta {
+    return {
+        propuestaId: 31, prueba: 'p-1', version: 1, nombre: 'Cartera Toyota +90', descripcion: null, empresa: 'TOYOTA', formato: 'xlsx', opciones: [],
+        mapeo: [
+            mapeoIA(),
+            mapeoIA({ columnaEjemplo: 'Saldo', label: 'Saldo', saleDe: 'Saldo pendiente', formato: '2 decimales, coma' }),
+            mapeoIA({ columnaEjemplo: 'Teléfono', label: 'Teléfono', estado: 'aproximada', nota: 'El 2.º teléfono no es el principal', saleDe: 'Teléfono / email / dirección · 2.º teléfono' }),
+            mapeoIA({ columnaEjemplo: 'Observaciones', label: 'Observaciones', estado: 'sin_campo', nota: '', saleDe: 'Columna vacía' }),
+            mapeoIA({ columnaEjemplo: null, label: 'Días de mora', estado: 'agregada', saleDe: 'Vencimiento', formato: 'Días desde el vencimiento' }),
+        ],
+        filtros: ['Empresa: TOYOTA', 'Vencimiento: hasta hace 90 días (hoy, 21/07/2026)'], orden: [],
+        casos: 8412, casosAproximado: false, avisos: [], mensaje: 'Armé la plantilla igual a tu ejemplo.', sugerencias: [],
+        estado: 'mostrada', plantillaId: null, vigente: true,
+        ...over,
+    };
+}
+
+export function vistaPreviaIA(over: Partial<VistaPreviaPropuesta> = {}): VistaPreviaPropuesta {
+    return {
+        columnas: ['DNI', 'Cliente', 'Saldo'],
+        filas: [{ DNI: '··· 4521', Cliente: 'M. L. G.', Saldo: '$ 248.300,00' }, { DNI: '··· 1190', Cliente: 'A. P.', Saldo: '$ 91.750,50' }],
+        casos: 8412,
+        ...over,
+    };
+}
 
 /** Una respuesta SSE que entrega cada evento por separado, con una pausa entre uno y otro. */
 export function respuestaSse(eventos: EventoSse[], pausaMs = 30, extra: { cerrar?: boolean; destruir?: boolean } = {}): Respuesta {
@@ -97,7 +148,7 @@ export function configIA(over: Partial<ConfigAsistente> = {}): ConfigAsistente {
                 largo: { entrada: 0.55, salida: 2.75, cacheEscritura5m: 0.6875, cacheEscritura1h: 1.1, cacheLectura: 0.055 },
             },
         },
-        funciones: [{ clave: 'ayuda', nombre: 'Ayuda y navegación', habilitada: true, topeMensualUsd: null }],
+        funciones: [{ clave: 'ayuda', nombre: 'Ayuda y navegación', habilitada: true, topeMensualUsd: null, modelo: 'us.anthropic.claude-haiku-5-5', topeTurnoUsd: null, limiteDiarioUsuario: null }],
         sinAdministradores: false,
         ...over,
     };
@@ -117,6 +168,15 @@ export interface BancoIA {
     preguntar: (cuerpo: Record<string, unknown>, n: number, p: Pedido) => Resp;
     /** Cuántas veces se preguntó. */
     preguntas: number;
+    /** Lo que contesta `POST /asistente/adjuntos`; recibe el archivo que llegó y el número de subida (desde 1). */
+    subirAdjunto: (archivo: { campo: string; nombre: string; tipo: string; bytes: number } | null, n: number) => Resp;
+    subidas: number;
+    /** Lo que contesta `PATCH /asistente/adjuntos/:id`. */
+    parchearAdjunto: (id: number, cuerpo: Record<string, unknown>) => Resp;
+    /** Lo que contesta `GET /asistente/propuestas/:id/vista-previa`. */
+    vistaPrevia: (id: number) => Resp;
+    /** Lo que contesta `GET /asistente/propuestas/:id/plantilla`. */
+    plantillaDePropuesta: (id: number) => Resp;
     /** Cuerpos JSON de los pedidos que coinciden (en orden). */
     cuerpos: (metodo: string, patron: RegExp) => Array<Record<string, unknown>>;
     texto: () => string;
@@ -172,6 +232,11 @@ export async function armarIA(o: Opciones = {}): Promise<BancoIA> {
         conversaciones: o.conversaciones ?? [], detalles: Object.fromEntries((o.detalles ?? []).map((d) => [d.id, d])), preguntas: 0,
     } as unknown as BancoIA;
     b.preguntar = () => respuestaNormal(['Respuesta de prueba.']);
+    b.subidas = 0;
+    b.subirAdjunto = (archivo) => ({ status: 201, body: adjuntoIA({ nombre: archivo?.nombre ?? 'ejemplo.xlsx', id: 500 + b.subidas }) });
+    b.parchearAdjunto = (id, cuerpo) => ({ body: adjuntoIA({ id, resumen: { ...adjuntoIA().resumen, conEncabezado: cuerpo.primeraFilaEsEncabezado === true } }) });
+    b.vistaPrevia = () => ({ body: vistaPreviaIA() });
+    b.plantillaDePropuesta = (id) => ({ status: 404, body: { message: `Propuesta ${id} no prevista por el arnés` } });
     b.cuerpos = (metodo, patron) => srv.de(metodo, patron).map((p) => (p.cuerpo.length ? JSON.parse(p.cuerpo.toString('utf8')) : {}));
 
     srv.en('GET', ESTADO, () => ({ body: b.estado }));
@@ -186,6 +251,11 @@ export async function armarIA(o: Opciones = {}): Promise<BancoIA> {
         const salto = 2 * (n - 1);
         return { ...r, stream: { ...r.stream, trozos: r.stream.trozos.map((t) => t.replace(/"mensajeUsuarioId":101/g, `"mensajeUsuarioId":${101 + salto}`).replace(/"mensajeId":102/g, `"mensajeId":${102 + salto}`)) } };
     });
+    srv.en('POST', ADJUNTOS, (_m, p) => { b.subidas++; return b.subirAdjunto(multipart(p).archivo, b.subidas); });
+    srv.en('PATCH', ADJUNTO, (m, p) => b.parchearAdjunto(Number(m[1]), JSON.parse(p.cuerpo.toString('utf8'))));
+    srv.en('DELETE', ADJUNTO, () => ({ status: 204 }));
+    srv.en('GET', VISTA_PREVIA, (m) => b.vistaPrevia(Number(m[1])));
+    srv.en('GET', PLANTILLA_DE_PROPUESTA, (m) => b.plantillaDePropuesta(Number(m[1])));
     srv.en('POST', CALIFICACION, () => ({ status: 204 }));
     srv.en('POST', ACCION, () => ({ status: 204 }));
     srv.en('GET', /^\/asistente\/consumo$/, () => ({ body: b.consumo }));
@@ -208,6 +278,7 @@ export async function armarIA(o: Opciones = {}): Promise<BancoIA> {
             <Routes>
                 <Route element={<AppShell />}>
                     <Route path="asistente/consumo" element={<AsistenteConsumo />} />
+                    <Route path="reportes-real" element={<ReportesHome />} />
                     <Route path="*" element={<PantallaFalsa />} />
                 </Route>
             </Routes>

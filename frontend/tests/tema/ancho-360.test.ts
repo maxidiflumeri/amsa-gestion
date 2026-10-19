@@ -26,6 +26,10 @@ const ARCHIVOS = [
     'components/layout/AppShell/AppShell.tsx',
     'context/AsistenteContext.tsx',
     'pages/ayuda/Markdown.tsx',
+    // Asistente de IA, Fase B: el editor de reportes con lo que sumó
+    'pages/reportes/components/BuilderHeader/BuilderHeader.tsx',
+    'pages/reportes/components/PropertiesPanel/PropertiesPanel.tsx',
+    'pages/reportes/components/FilterBuilder/CampoFecha.tsx',
 ];
 
 const EN_SRC = (rel: string) => path.join(RAIZ_FE, 'src', rel);

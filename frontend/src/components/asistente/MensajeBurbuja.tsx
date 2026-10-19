@@ -1,15 +1,19 @@
 import React, { useState } from 'react';
 import { alpha, Alert, Box, Button, Chip, IconButton, Link as MuiLink, Stack, TextField, Tooltip, Typography } from '@mui/material';
+import InsertDriveFileOutlinedIcon from '@mui/icons-material/InsertDriveFileOutlined';
 import MenuBookIcon from '@mui/icons-material/MenuBook';
 import ThumbUpIcon from '@mui/icons-material/ThumbUp';
 import ThumbUpOutlinedIcon from '@mui/icons-material/ThumbUpOutlined';
 import ThumbDownIcon from '@mui/icons-material/ThumbDown';
 import ThumbDownOutlinedIcon from '@mui/icons-material/ThumbDownOutlined';
 import type { MensajeVista } from '../../context/AsistenteContext';
-import type { AccionIrA } from '../../types/asistente';
+import type { AccionIrA, TarjetaPropuesta as Tarjeta } from '../../types/asistente';
 import Markdown from '../../pages/ayuda/Markdown';
 import { buscarPagina } from '../../pages/ayuda/contenido';
+import AdjuntoChip, { etiquetaAdjunto } from './AdjuntoChip';
+import PasosTurno from './PasosTurno';
 import TarjetaIrA from './TarjetaIrA';
+import TarjetaPropuesta from './TarjetaPropuesta';
 
 interface Props {
     mensaje: MensajeVista;
@@ -22,6 +26,11 @@ interface Props {
     onReintentar: () => void;
     /** Recarga la conversación: la respuesta que quedó «escribiéndose» en el servidor puede haber terminado. */
     onActualizar: () => void;
+    /** Fase B: la tarjeta de la propuesta. Hay una respuesta escribiéndose en otro mensaje: sus botones esperan. */
+    ocupado?: boolean;
+    onAbrirPropuesta?: (p: Tarjeta) => void;
+    onAjustar?: () => void;
+    onSugerencia?: (texto: string) => void;
 }
 
 /** `/ayuda/gestion/pagos-y-promesas#algo` → `gestion/pagos-y-promesas`, solo si esa página existe. */
@@ -31,7 +40,10 @@ function slugConocido(href: string): string | null {
     return buscarPagina(slug) ? slug : null;
 }
 
-const MensajeBurbuja: React.FC<Props> = ({ mensaje, panelQuedaAbierto, puedeReintentar, onAbrirAyuda, onResponderAccion, onCalificar, onReintentar, onActualizar }) => {
+const MensajeBurbuja: React.FC<Props> = ({
+    mensaje, panelQuedaAbierto, puedeReintentar, onAbrirAyuda, onResponderAccion, onCalificar, onReintentar, onActualizar,
+    ocupado = false, onAbrirPropuesta, onAjustar, onSugerencia,
+}) => {
     const [pidiendoComentario, setPidiendoComentario] = useState(false);
     const [comentario, setComentario] = useState('');
     const [comentarioEnviado, setComentarioEnviado] = useState(false);
@@ -51,6 +63,13 @@ const MensajeBurbuja: React.FC<Props> = ({ mensaje, panelQuedaAbierto, puedeRein
                     bgcolor: (t) => alpha(t.palette.primary.main, 0.12),
                 }}
             >
+                {mensaje.adjuntos?.length > 0 && (
+                    <Stack spacing={0.5} sx={{ mb: 0.75 }} data-testid="adjuntos-enviados">
+                        {mensaje.adjuntos.map((a) => (
+                            <Chip key={a.id} size="small" variant="outlined" icon={<InsertDriveFileOutlinedIcon />} label={etiquetaAdjunto(a.tipo, a.nombre, a.columnas)} sx={{ maxWidth: '100%', alignSelf: 'flex-start', '& .MuiChip-label': { overflow: 'hidden', textOverflow: 'ellipsis' } }} />
+                        ))}
+                    </Stack>
+                )}
                 <Typography variant="body2" sx={{ whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' }}>{mensaje.texto}</Typography>
             </Box>
         );
@@ -62,6 +81,8 @@ const MensajeBurbuja: React.FC<Props> = ({ mensaje, panelQuedaAbierto, puedeRein
     const terminado = mensaje.estado === 'ok' || mensaje.estado === 'cortado';
     const puedeCalificar = terminado && mensaje.id > 0;
     const sinTexto = mensaje.texto.trim() === '';
+    const hayPasos = (mensaje.pasos?.length ?? 0) > 0;
+    const esperando = escribiendo && !enOtraPestania && sinTexto;
 
     const enlace = (href: string, hijos: React.ReactNode) => {
         const slug = slugConocido(href);
@@ -113,7 +134,9 @@ const MensajeBurbuja: React.FC<Props> = ({ mensaje, panelQuedaAbierto, puedeRein
             aria-busy={escribiendo}
             data-testid="burbuja-asistente"
         >
-            {escribiendo && !enOtraPestania && sinTexto && (
+            {/* Con pasos (modo reportes) la espera se muestra como la última fila de la lista de pasos. */}
+            {hayPasos && <PasosTurno pasos={mensaje.pasos} corriendo={esperando && (mensaje.propuestas?.length ?? 0) === 0} actividad={mensaje.actividad} />}
+            {esperando && !hayPasos && (
                 <Typography variant="body2" color="text.secondary" role="status">
                     {mensaje.actividad ?? 'Pensando…'}
                 </Typography>
@@ -173,6 +196,18 @@ const MensajeBurbuja: React.FC<Props> = ({ mensaje, panelQuedaAbierto, puedeRein
                     panelQuedaAbierto={panelQuedaAbierto}
                     onAceptar={() => onResponderAccion(mensaje, a, 'aceptada')}
                     onRechazar={() => onResponderAccion(mensaje, a, 'rechazada')}
+                />
+            ))}
+
+            {(mensaje.propuestas ?? []).map((p) => (
+                <TarjetaPropuesta
+                    key={p.propuestaId}
+                    propuesta={p}
+                    enVivo={mensaje.enVivo === true}
+                    ocupado={ocupado}
+                    onAbrir={(x) => onAbrirPropuesta?.(x)}
+                    onAjustar={() => onAjustar?.()}
+                    onSugerencia={(t) => onSugerencia?.(t)}
                 />
             ))}
 

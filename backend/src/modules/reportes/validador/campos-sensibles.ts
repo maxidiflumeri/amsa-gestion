@@ -24,6 +24,8 @@ export const MODELOS_BLOQUEADOS = new Set<string>([
   'asistente_conversacion',
   'asistente_mensaje',
   'asistente_llamada',
+  'asistente_adjunto',
+  'asistente_propuesta',
 ]);
 
 /**
@@ -44,6 +46,13 @@ export function campoPermitido(modelo: string, campo: string): boolean {
   const permitidos = CAMPOS_PERMITIDOS_POR_MODELO[modelo];
   return !permitidos || permitidos.includes(campo);
 }
+
+/**
+ * La única columna JSON que un reporte puede leer, y solo por clave (`camposAdicionales.<clave>`).
+ * Las demás (`tarjeta`, `perfil`, `rawRow`, `permisos`, `configuracion`…) salen como `[object Object]`, y con
+ * una clave adentro rompen en Prisma (500 que loguea el `where`). Todas son internas del sistema.
+ */
+export const COLUMNA_JSON_PERMITIDA = 'camposAdicionales';
 
 /** ¿Se puede entrar al modelo `modelo` desde una relación? */
 export function modeloPermitido(modelo: string): boolean {

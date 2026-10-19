@@ -1,7 +1,7 @@
 <!--
 seccion: Administración
-resumen: Cuánto cuesta el asistente, cómo se controla el gasto y cómo usar las respuestas con 👎 para mejorar la Documentación.
-revisado: 2026-10-16
+resumen: Cuánto cuesta el asistente, cómo se controla el gasto por función y cómo usar las respuestas con 👎 para mejorar la Documentación.
+revisado: 2026-10-19
 rutas: /asistente/consumo
 rutaPrincipal: /asistente/consumo
 -->
@@ -50,14 +50,28 @@ cero. Si cambiás un precio, vale para las llamadas siguientes, no cambia lo ya 
 - **Aviso**: al llegar al porcentaje configurado (80 % por defecto), le llega una **notificación** a cada
   persona con el permiso *Administrar el asistente*. Se avisa **una sola vez por mes**; subir el tope no
   vuelve a avisar.
-- **Tope por función**: en la tabla **Por función** hay dos funciones, *Ayuda y navegación* (la que hoy usa la
-  gente) y *Constructor de reportes*, que **todavía no hace nada**: está apagada y no conviene encenderla.
-  Cada una tiene su **interruptor** y su **tope mensual**. Un tope vacío significa "sin tope propio": rige solo
-  el general. Con la función apagada, la gente ve el mismo cartel de *"El asistente está pausado por un
-  administrador"*; al llegar al tope de la función, ven uno que dice que **esa función** llegó a su tope.
+- **Tope por función**: en la tabla **Por función** hay dos funciones, *Ayuda y navegación* y *Constructor de
+  reportes* (el modo **Armar un reporte** del asistente, ver
+  [Armar un reporte con el asistente](/ayuda/reportes/armar-con-el-asistente)). Cada una tiene su
+  **interruptor**, su **tope mensual**, su **tope por pregunta** y sus **pedidos por persona y día**, y debajo
+  del nombre se ve **qué modelo usa**. En el tope mensual, vacío significa "sin tope propio": rige el general. En el tope por pregunta y en los pedidos por día, los campos de *Constructor de reportes* muestran el valor que **rige** (el que configuraste, o el de arranque de la función), y vaciarlos vuelve a ese valor de arranque. El tope por pregunta va de 0,005 a 2 y los pedidos por día, de 1 a 1.000. Con la
+  función apagada, la gente ve el mismo cartel de *"El asistente está pausado por un administrador"*; al llegar
+  al tope de la función, ven uno que dice que **esa función** llegó a su tope.
 - **Tope por pregunta**: el gasto máximo de una sola respuesta. Corta las que se descontrolan. Cuando pasa, la
-  persona ve la respuesta cortada, no un error.
-- **Preguntas por persona por día**: protege contra errores y bucles; no es un cupo.
+  persona ve la respuesta cortada, no un error. **Cada función puede tener el suyo.** El de la ayuda es chico
+  (centavos), y **no le sirve a reportes**: armar una plantilla hace varias llamadas al modelo (probarla, corregirla,
+  mostrarla), y con ese tope se cortaría después de la primera prueba. Por eso *Constructor de reportes* tiene su
+  tope propio, más alto.
+- **Preguntas por persona por día**: protege contra errores y bucles; no es un cupo. También **por función**:
+  el límite de *Constructor de reportes* cuenta pedidos de reportes, que además suman al límite general de cada persona.
+
+> **Los valores de arranque de reportes** son un tope por pregunta de **US$ 0,30** y **40 pedidos por persona por
+> día**. El tope mensual **no viene cargado**: se recomienda **US$ 30** y hay que escribirlo en la tabla; mientras
+> tanto rige solo el general. La función arranca **apagada**: la prende quien administra, desde esta tabla,
+> y conviene hacerlo primero para pocas personas.
+> **Un pedido de reportes cuesta unas 30 veces lo que una pregunta de ayuda**: usa un modelo más potente, lleva
+> el catálogo de campos entero y prueba la plantilla contra la base. Armar una plantilla suele salir entre
+> US$ 0,07 y 0,20, ajustes incluidos.
 
 Varias personas pueden preguntar al mismo tiempo, así que el gasto puede pasar un poco del tope antes de que
 la pausa llegue a todas. Además puede haber un presupuesto aparte en AWS, configurado por quien administra la
@@ -77,8 +91,14 @@ hay forma de pausarlo para una sola persona.
 ## Las tablas
 
 - **Por día**: un gráfico de barras con el gasto y las preguntas de cada día.
-- **Por función**: gasto, preguntas, un interruptor para activar o desactivar la función y su tope mensual
-  (con un botón para guardarlo).
+- **Por función**: gasto, preguntas, un interruptor para activar o desactivar la función y sus tres valores
+  editables —tope mensual, tope por pregunta y pedidos por persona y día—, cada uno con su botón para guardarlo.
+  Los dos últimos son números: el tope por pregunta admite decimales y el de pedidos tiene que ser un entero.
+- **Plantillas armadas con el asistente**: aparece siempre; sin uso, con ceros. Cuenta, por función:
+  cuántas propuestas se **mostraron**, cuántas se **abrieron en el editor** y cuántas se **guardaron** (con el
+  porcentaje de las mostradas), qué porcentaje de las guardadas **no se cambió** en el editor y cuánto salió cada
+  **plantilla guardada** en promedio. Sirve para saber si el modo da resultado: si se muestran muchas y se guardan
+  pocas, las propuestas no están convenciendo; si casi todas se guardan sin tocar, la propuesta ya sale bien.
 - **Por persona**: las 50 personas que más gastaron en el mes.
 
 ## Respuestas con 👎: cómo mejorar la Documentación
@@ -140,3 +160,16 @@ normal es de centavos; si es grande, revisá que los precios cargados sean los v
 
 **Alguien me dice que el asistente "no le responde".** Mirá el cartel de pausa, y mirá si esa persona llegó al
 límite de preguntas del día.
+
+**Alguien me cuenta que le aparece "Llegaste al límite de … pedidos de reportes de hoy".** Es el límite propio de
+*Constructor de reportes* (40 por defecto). Se sube en la tabla **Por función**, en la fila de *Constructor de reportes*, columna "Pedidos por persona y día".
+Si el cartel dice "…preguntas de hoy", puede ser el límite **general** (se cambia en **Configuración**, en "Preguntas por
+persona por día") o el propio de *Ayuda y navegación*, si se le cargó uno en la tabla **Por función**. Fijate en las dos.
+
+**Armar un reporte se corta enseguida con "Me quedé sin margen de gasto".** El tope por pregunta de *Constructor
+de reportes* quedó bajo para ese pedido (por ejemplo, un archivo de ejemplo con muchas columnas). Subilo en la
+tabla **Por función**.
+
+**El modo Armar un reporte no aparece para alguien.** Le falta algún permiso (ver
+[Roles y permisos](/ayuda/administracion/roles-y-permisos)). Si la función está apagada, el selector aparece igual y
+dice que el asistente está pausado por un administrador.

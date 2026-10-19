@@ -12,8 +12,9 @@ import {
   esValorVacio,
   OPERADORES_SOPORTADOS,
 } from './operadores';
-import { campoPermitido, modeloPermitido } from './campos-sensibles';
+import { campoPermitido, COLUMNA_JSON_PERMITIDA, modeloPermitido } from './campos-sensibles';
 import { terminaEnCount } from '../executor/contar-rama';
+import { resolverTotales } from '../executor/totales';
 
 /**
  * Validación de una definición de reporte contra el modelo de datos, para que lo que está mal salga
@@ -85,6 +86,7 @@ export function recorrer(modelo: ModeloDmmf, nombres: string[]): ResultadoCampo 
     }
 
     if (campo.kind === 'scalar' && campo.type === 'Json') {
+      if (campo.name !== COLUMNA_JSON_PERMITIDA) return BLOQUEADO;
       return ultimo
         ? { existe: true, bloqueado: false, campo, modelo: actual.name, claveJson: false, jsonSinClave: true }
         : { existe: true, bloqueado: false, claveJson: true, jsonSinClave: false };
@@ -217,7 +219,8 @@ function validarFiltro(raiz: ModeloDmmf, filtro: FiltroDto, valores: boolean): v
     const sinModificadores = ast.segments.every((s) => s.modifiers.length === 0);
     if (sinModificadores && !resultado.claveJson && resultado.campo?.type === 'DateTime') {
       try {
-        validarFechasFiltro(valor);
+        // E1: acá (al guardar) se aceptan `hoy`, `hoy-N`, `hoy+N`; el planner las resuelve al ejecutar.
+        validarFechasFiltro(valor, { permitirRelativa: true });
       } catch (error) {
         if (error instanceof FechaInvalidaError) {
           logger.warn(`Fecha inválida en el filtro «${etiqueta}»`);
@@ -294,7 +297,16 @@ export function validarDefinicion(
     } catch (error) {
       return fallar(`Path inválido en columna "${columna.label}": ${(error as Error).message}`);
     }
-    validarPath(raiz, ast);
+    const resultado = validarPath(raiz, ast);
+
+    // E2: los días desde una fecha solo tienen sentido sobre una fecha del modelo.
+    if (columna.tipo === 'dias' && (resultado.claveJson || resultado.campo?.type !== 'DateTime')) {
+      fallar(`Columna «${columna.label}»: el tipo dias necesita un campo de fecha.`);
+    }
+    // E3: coma y punto no pueden ser a la vez el decimal y el de miles.
+    if (columna.separadorDecimal && columna.separadorDecimal === columna.separadorMiles) {
+      fallar(`Columna «${columna.label}»: el separador decimal y el de miles no pueden ser el mismo (${columna.separadorDecimal}).`);
+    }
   }
 
   for (const filtro of definicion.filtros ?? []) {
@@ -313,7 +325,63 @@ export function validarDefinicion(
   for (const agrupacion of definicion.agrupaciones ?? []) {
     validarCampoSimple(raiz, agrupacion.path, 'agrupación');
   }
+  // Cada total tiene que apuntar a una sola columna: dos con el mismo campo y sin `columnaId` es ambiguo.
+  try {
+    resolverTotales(definicion.columnas, definicion.totales);
+  } catch (error) {
+    if (error instanceof BadRequestException) logger.warn(error.message);
+    throw error;
+  }
   for (const total of definicion.totales ?? []) {
     validarCampoSimple(raiz, total.path, 'total');
   }
+}
+
+/**
+ * Opciones del TXT de ancho fijo que dejarían un dato equivocado:
+ *
+ * - **Largos distintos de la cantidad de columnas.** Al borrar o reordenar columnas en el editor,
+ *   `anchoFijo`, `alineacion` y `relleno` quedan corridos (una fecha de 12, a la derecha y con ceros:
+ *   `0021/07/2026`). Antes un ancho faltante valía 10 en silencio.
+ * - **Relleno `'0'` con alineación `izquierda`** (la de por defecto): pone los ceros a la derecha,
+ *   `12345` en 10 posiciones sale `1234500000`. Con ceros hay que pedir `derecha` explícito.
+ *
+ * `opcionesFormato` es el objeto guardado por formato (`{ txt: {...} }`). Las columnas se emparejan
+ * con las listas por posición. Con `formatoSalida` distinto de `txt` no se revisa nada: las opciones
+ * del TXT que quedaron guardadas no se usan.
+ */
+export function validarOpcionesFormato(columnas: Array<{ label: string }>, opcionesFormato: any, formatoSalida?: string): void {
+  if (formatoSalida !== undefined && formatoSalida !== 'txt') return;
+  const txt = opcionesFormato && typeof opcionesFormato === 'object' ? opcionesFormato.txt : undefined;
+  if (!txt) return;
+
+  if (Array.isArray(txt.anchoFijo)) {
+    const m = columnas.length;
+    if (txt.anchoFijo.length !== m) fallar(`El ancho fijo tiene ${txt.anchoFijo.length} valores y la plantilla ${m} columnas`);
+    if (Array.isArray(txt.alineacion) && txt.alineacion.length !== m) {
+      fallar(`La alineación tiene ${txt.alineacion.length} valores y la plantilla ${m} columnas`);
+    }
+    if (Array.isArray(txt.relleno) && txt.relleno.length !== m) {
+      fallar(`El relleno tiene ${txt.relleno.length} valores y la plantilla ${m} columnas`);
+    }
+  }
+
+  // Valores fuera de los que entiende el exportador: por API se guardaba `relleno: ['x']` y el TXT salía `xxxx12`.
+  if (Array.isArray(txt.alineacion)) {
+    txt.alineacion.forEach((a: unknown, i: number) => {
+      if (a != null && a !== 'izquierda' && a !== 'derecha') fallar(`La alineación de «${columnas[i]?.label ?? i + 1}» tiene que ser izquierda o derecha`);
+    });
+  }
+  if (Array.isArray(txt.relleno)) {
+    txt.relleno.forEach((r: unknown, i: number) => {
+      if (r != null && r !== ' ' && r !== '0') fallar(`El relleno de «${columnas[i]?.label ?? i + 1}» tiene que ser un espacio o un cero`);
+    });
+  }
+
+  if (!Array.isArray(txt.relleno)) return;
+  columnas.forEach((columna, i) => {
+    if (txt.relleno[i] === '0' && txt.alineacion?.[i] !== 'derecha') {
+      fallar(`En «${columna.label}» el relleno con ceros solo se puede usar con alineación a la derecha`);
+    }
+  });
 }

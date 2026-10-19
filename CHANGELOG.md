@@ -6,6 +6,236 @@
 
 ---
 
+## [2026-10-19] — Asistente de IA, Fase B: armar plantillas de reportes con lenguaje natural y archivos de ejemplo
+
+La persona pide un reporte con sus palabras y, si quiere, adjunta un archivo de ejemplo (.xlsx, .xls, .csv, .txt o .tsv)
+con el formato que necesita. El asistente arma la plantilla, la prueba contra la base y la muestra en una tarjeta; con
+**Abrir en el editor**, la persona la revisa y la guarda con el botón de siempre. El asistente nunca guarda nada solo.
+
+- **Spec:** [docs/asistente-reportes-spec.md](docs/asistente-reportes-spec.md). Lo que cambió al integrar y auditar está
+  en §26 y §27, que mandan sobre el resto.
+- **Maqueta aprobada:** escena v2 de https://claude.ai/artifact/YSqMEKNMaji5akfLfB5QTo
+
+**Estado: sin desplegar.**
+- El schema es aditivo, sin `--accept-data-loss`.
+- Antes del push hace falta el `terraform apply -target` del permiso de Sonnet (ver Deploy).
+
+**Decisiones del usuario (§24):**
+- solo **Abrir en el editor**, sin guardar desde la tarjeta;
+- las extensiones del motor E1 a E4;
+- ADMIN la primera semana;
+- las demás, con la recomendada;
+- las fallas silenciosas del motor salieron antes, en un arreglo aparte (`918547b`).
+
+### Qué hace
+- **El panel tiene dos modos, Ayuda y Armar un reporte**, con un selector explícito.
+  - El modo reportes usa **Claude Sonnet 5.5** y cuesta más: lo avisa.
+  - Pide **Usar el asistente**, **Asistente: armar reportes**, **Crear reportes** y **Ver reportes**.
+  - También se entra con el botón **Armar con el asistente** de Reportes, o soltando un archivo.
+- **Lee el ejemplo sin ver los datos.** Al modelo le llegan:
+  - los encabezados;
+  - los tipos;
+  - los formatos;
+  - la *forma* de hasta 3 valores (`30.111.222` → `99.999.999`).
+
+  Nunca un valor. De la prueba contra la base recibe solo cantidades. La vista previa con datos reales va del backend a
+  la pantalla, enmascarada. **El archivo no se guarda**, solo su perfil, durante 90 días.
+- **Ninguna tarjeta sin una prueba sin errores.** Un validador propio aplica las mismas reglas que el alta, más las del
+  asistente. Las columnas que no encuentra las dice; nunca las inventa.
+- **La tarjeta** muestra:
+  - el mapeo "Tu columna → Sale de", con la cardinalidad;
+  - los filtros, en palabras;
+  - el formato;
+  - la vista previa enmascarada;
+  - el total de casos;
+  - los avisos;
+  - las versiones;
+  - chips para ajustar.
+- **La empresa exacta:** si el nombre coincide con una empresa, la usa y avisa en la tarjeta las otras que empiezan
+  igual. Solo pregunta si no hay ninguna exacta.
+
+### Backend
+- **Función `reportes` del mismo asistente:** el mismo panel, SSE, tablas, medición y topes.
+  - Corre en su propio `TurnoReportesRunner`, sobre `turno/llamada-modelo.ts`, la iteración común extraída del runner de
+    la ayuda. **El request de la ayuda no cambió ni un byte:** lo fija un snapshot de `params`.
+  - Usa `us.anthropic.claude-sonnet-5-5`, con effort `low` y caché de 1 h en el `system`.
+  - El historial guarda el thinking solo en esta función.
+- **Cinco herramientas:** `valores_de_campo`, `datos_adicionales`, `ver_otra_hoja`, `probar_plantilla` y
+  `mostrar_propuesta`.
+  - El catálogo va en formato compacto, sin los campos que bloquea `campos-sensibles.ts`.
+  - El texto se manda una sola vez al final; mientras tanto, el panel muestra pasos armados por el backend.
+- **Redes deterministas:**
+  - el validador corre las reglas del alta (DTO, `validarDefinicion`, `validarOpcionesFormato`) y las suyas;
+  - los números que escribió la persona (DNI, CUIT, teléfono) no se repiten en el texto, el mensaje ni las sugerencias;
+  - un "encabezado" con forma de dato nunca sale literal;
+  - la codificación del ejemplo se toma por defecto;
+  - las sugerencias se sanean.
+- **Adjuntos:**
+  - el tipo se detecta por bytes;
+  - se perfilan en un `worker_thread`, 2 a la vez, con cola y `429 OCUPADO`;
+  - el descomprimido tiene un tope de 40 MB;
+  - el perfil, de 40 KB, y el `<ejemplo>`, de 15.000 caracteres;
+  - hay una estimación previa del prompt (`PROMPT_DEMASIADO_GRANDE`);
+  - el dedupe va después de validar.
+- **Endpoints:**
+  - `POST/PATCH/DELETE /asistente/adjuntos`;
+  - `GET /asistente/propuestas/:id/{plantilla,vista-previa}`;
+  - `estado` y `conversaciones` con `?funcion=`.
+
+  `POST /reportes/plantillas` vincula la propuesta (`asistentePropuestaId`) sin hacer fallar el alta.
+- **Topes por función:** tope por turno (USD 0,30 en reportes) y pedidos por persona y día (40). El 429 dice cuál se
+  alcanzó: `LIMITE_DIARIO` o `LIMITE_FUNCION`. Consumo suma las métricas de plantillas (mostradas → abiertas → guardadas →
+  sin cambios).
+- **Motor de reportes (E1 a E4):**
+  - E1, fechas relativas (`hoy-90`) en filtros, en todos los caminos;
+  - E2, la columna "Días desde la fecha";
+  - E3, decimales y separadores;
+  - E4, TXT de ancho fijo con alineación y relleno.
+
+  Además:
+  - **los totales se atan a una columna** (`columnaId`) y se calculan sobre los números crudos, con el formato de la
+    columna;
+  - el relleno con ceros exige alineación a la derecha;
+  - los largos del ancho fijo tienen que coincidir con las columnas;
+  - se bloquean las tablas del asistente y las columnas JSON que no son `camposAdicionales`.
+
+  Ninguna plantilla guardada cambia de salida: la #1 de prod y otras dos dan idéntico a antes, medido.
+- **Schema:**
+  - `asistente_adjunto` y `asistente_propuesta`, nuevas;
+  - `asistente_funcion.{topeTurnoUsd,limiteDiarioUsuario}` y `asistente_mensaje.pasos`, columnas nuevas.
+- **Infra:** `bedrock.tf` con Haiku y Sonnet. `plan -target` da 0 to add, 1 to change, 0 to destroy.
+
+### Frontend
+- **Panel:**
+  - el selector de modo;
+  - los adjuntos, con chip, progreso, errores, "La primera fila no es el encabezado" y Quitar;
+  - los pasos del turno;
+  - la tarjeta de la propuesta;
+  - la vista previa a demanda en las versiones viejas.
+
+  Los textos de error salen del mensaje del backend, nunca del modo.
+- **Editor de reportes:**
+  - abre `?propuesta=ID` con aviso;
+  - confirma antes de pisar cambios;
+  - "Seguir con lo mío" vuelve a la plantilla que se estaba editando;
+  - manda `asistentePropuestaId`;
+  - tiene un recuadro de opciones de solo lectura;
+  - suma "Días desde la fecha", decimales y separadores, y filtros de fecha "Relativa a hoy";
+  - el ancho fijo acompaña a las columnas;
+  - los totales eligen la columna.
+- **Consumo del asistente:** el tope por pregunta y los pedidos por día de cada función, el modelo de cada una y la tabla
+  de plantillas.
+- **Wiki:**
+  - una página nueva, `04-reportes/07-armar-con-el-asistente.md`;
+  - actualizadas El asistente, Cómo funciona, Armar un reporte, Filtros, Formatos, Ejecutar y descargar, Recetas, Roles y
+    permisos y Consumo del asistente.
+
+### Medido contra Bedrock (corrida final, con el prompt definitivo)
+
+**Set de evaluación v2:** 24 casos y 62 turnos, con 2 repeticiones (4 en los principales). 60 de 62 salieron sin
+diferencias.
+
+| Métrica | Resultado | Umbral |
+|---|---|---|
+| Tarjeta cuando se espera tarjeta | 100 % | ≥ 90 % |
+| Pregunta cuando se espera pregunta | 100 % | ≥ 75 % |
+| Columnas con path aceptado | 100 % | ≥ 90 % |
+| Filtro de empresa | 100 % | 100 % |
+| Resto de los filtros | 96,2 % | ≥ 85 % |
+| Formato y opciones | 100 % | ≥ 90 % |
+| Estado del mapeo | 98,6 % | ≥ 85 % |
+| Sin datos de la persona ni del prompt (`noDebe`) | 100 % | 100 % |
+| Costo medio por turno | USD 0,037 | ≤ USD 0,08 |
+| Costo máximo de un turno | USD 0,15 | < USD 0,30 |
+| Latencia p50 / p95 | 17,7 s / 41,9 s | ≤ 45 s / ≤ 90 s |
+
+Lectura de caché: 91 %. Primera prueba vacía: 0 de 52.
+
+**Una plantilla cuesta unos USD 0,04 a 0,15**, ajustes incluidos.
+
+**Regresión de la Fase A:**
+- 39/39 páginas correctas;
+- p95 de 9,8 s;
+- las seis preguntas de reportes de la ayuda, 16 veces cada una: 96/96 páginas, y la tarjeta en el mismo nivel que con
+  el código anterior.
+
+**Gasto del día en Bedrock:** unos USD 12, entre diseño, implementación, evaluaciones y auditorías.
+
+### Antes de cerrar
+- **Una ronda de cada paquete (BE-motor, BE-asistente, FE).**
+- **Cuatro auditorías:**
+  - backend: NO PASA y, después de los arreglos, PASA CON OBSERVACIONES;
+  - frontend y wiki: PASA CON RESERVAS y re-auditoría.
+- **Lo que se arregló**, cada punto con su test (§26 y §27 del spec):
+  - un archivo de una sola fila mandaba el DNI, el nombre y el teléfono al modelo como "encabezados";
+  - la vista previa no enmascaraba con otros separadores;
+  - el validador dejaba pasar propuestas que el alta rechazaba;
+  - un TXT de ancho fijo perdía dígitos o se corría al tocar columnas;
+  - "Seguir con lo mío" duplicaba la plantilla;
+  - "más de 90 días" incluía el 90;
+  - la memoria y el tamaño de los adjuntos no tenían tope;
+  - los totales salían mal con dos columnas sobre el mismo campo;
+  - las expectativas del set de evaluación aceptaban respuestas mal.
+
+**Riesgo aceptado, documentado en §27:** un archivo de **una sola fila** con solo texto (nombres, direcciones) se
+toma como encabezado y esos textos llegan al modelo. No se puede distinguir de un layout que trae solo los
+encabezados, que es el caso común. No pasa con identificadores fuertes (DNI, CUIT, teléfono, mail, importes), que
+siempre se enmascaran. La red es el chip, que muestra los encabezados antes de mandar y tiene "La primera fila no es el
+encabezado".
+
+**Tests:**
+- backend: 3.242, con `npm run build` limpio;
+- frontend: `npm test` 1.007 en 62 archivos, `tsc` sin errores nuevos;
+- `verificar-ayuda` OK.
+
+La re-auditoría del frontend se cortó antes de entregar: el auditor quedó colgado de un backend local que había
+levantado él mismo. Los arreglos del frontend quedan cubiertos por sus tests, y el párrafo nuevo de la wiki sobre los
+archivos de una sola fila se verificó a mano contra el código.
+
+### Deploy (en este orden)
+1. **Conteo en prod**, por SSM y de solo lectura: plantillas TXT con `anchoFijo` de largo distinto a sus columnas, y
+   columnas JSON que no son `camposAdicionales`. El 19/10 había una sola plantilla, la #1, sin ninguna de las dos cosas.
+2. **IAM, con el OK del usuario:**
+   - `cd infra/terraform && AWS_PROFILE=amsa-gestion terraform plan -lock=false -target=aws_iam_role_policy.ec2_bedrock -out=asis-b.plan`;
+   - comprobar que dice 1 to change;
+   - `terraform apply asis-b.plan`.
+
+   **Nunca un apply completo.**
+3. **Push**, que lleva el `db push` aditivo.
+4. **En Consumo del asistente:** prender **Constructor de reportes** con tope mensual USD 30 (no viene cargado), tope por
+   pregunta USD 0,30 y 40 pedidos por día. En Roles, darle **Asistente: armar reportes** a ADMIN, que ya tiene Crear y Ver
+   reportes.
+5. **Verificar:**
+   - el arranque sin ERROR;
+   - `SHOW TABLES LIKE 'asistente_%'` da 7;
+   - el primer pedido real: filas en `asistente_llamada` con `funcion='reportes'` y el modelo Sonnet, y una
+     `asistente_propuesta` `mostrada`;
+   - el log `Asistente reportes: system=… sha1=…`, que sale en ese primer turno.
+
+### Guion de prueba manual
+1. **Abrir el modo:** Reportes → **Armar con el asistente**. El panel abre en **Armar un reporte**, con el aviso del
+   modelo más potente.
+2. **Adjuntar `ejemplo_cartera_toyota.xlsx` y pedir** "igual a este, de TOYOTA, con más de 90 días de mora":
+   - los pasos con ✓;
+   - la tarjeta, con el mapeo, el filtro "hasta hace 91 días", la vista previa enmascarada y el total de casos;
+   - el mensaje nombra las otras empresas TOYOTA.
+3. **Ajustar algo antes** → "Agregá el teléfono alternativo": aparece la versión 2 y la 1 queda colapsada.
+4. **Abrir en el editor:**
+   - el aviso de propuesta;
+   - "Días de mora" como "Días desde la fecha";
+   - el filtro "Relativa a hoy".
+
+   Guardar: la tarjeta dice "Guardada como «…»" y Consumo suma 1 guardada.
+5. **Editar una plantilla existente con cambios** → en el panel, **Abrir en el editor** → **Seguir con lo mío**: vuelve a
+   la plantilla y Guardar la actualiza, no la duplica.
+6. **Un TXT de ancho fijo:** borrar una columna en el editor; los anchos la acompañan.
+7. **Un CSV de una sola línea con un DNI** (`30111222;GOMEZ MARIA;…`): el chip no lo muestra como encabezado.
+8. **Un PDF:** chip rojo, sin llamar al modelo.
+9. **Un OPERADOR** no ve el selector ni el botón.
+10. **En tema claro y oscuro, y a 360 px:** sin scroll horizontal.
+
+---
+
 ## [2026-10-19] — Reportes: el motor deja de fallar en silencio
 
 Arreglo aparte y previo a la Fase B del asistente de reportes ([docs/asistente-reportes-spec.md](docs/asistente-reportes-spec.md)

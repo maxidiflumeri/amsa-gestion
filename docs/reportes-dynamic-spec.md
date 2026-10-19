@@ -815,7 +815,7 @@ y que el plan sigue siendo idéntico, y `reportes-validaciones-ejecucion.spec.ts
 
 ### 16.7 Pendiente (Fase B)
 
-Las fechas relativas (`hoy-90`) son la extensión E1 de la Fase B: hoy dan `400`, que es lo correcto.
+Las fechas relativas (`hoy-90`) son la extensión E1 de la Fase B: se implementaron en §17.
 
 ### 16.8 Segunda ronda (2026-10-19)
 
@@ -833,3 +833,72 @@ Las fechas relativas (`hoy-90`) son la extensión E1 de la Fase B: hoy dan `400`
 - **Filtro fijo sin valor:** 400 «El filtro «X» no tiene valor». Datos adicionales: valores como texto.
 - **Valores guardados vs. efectivos:** al guardar se validan los valores fijos y por defecto; al ejecutar, el planner
   valida el valor efectivo (`validarDefinicion(def, raiz, { valores: false })`).
+
+## 17. Extensiones del motor E1 a E4 (2026-10-19, Fase B del asistente)
+
+Cuatro extensiones **aditivas**: solo actúan si la definición trae la propiedad o el valor nuevo. Una plantilla que no
+las usa sale byte a byte igual (la plantilla de prod #1 sigue dando el mismo plan; hay tests de "sin las propiedades,
+la salida no cambia"). Diseño en [asistente-reportes-spec.md §11](asistente-reportes-spec.md).
+
+### 17.1 E1 — fechas relativas en filtros
+
+- **Valor:** `hoy`, `hoy-N` o `hoy+N`, con N de 1 a 3650 (`hoy-0` y `hoy-3651` no valen). Helpers en
+  `common/utils/dia-local.ts`: `esFechaRelativa`, `resolverFechaRelativa(valor, hoyYmd)`, `diasEntre`.
+- **Dónde vale:** `valor` y `valorPorDefecto` de filtros sobre un campo `DateTime`, el valor que manda quien ejecuta en
+  un filtro variable, y cada punta de `between` / `notBetween` (también el rango abierto, con una punta vacía).
+  Sobre un campo que no es fecha, `"hoy"` es un texto y no se toca.
+- **Dónde se resuelve:** en `QueryPlanner.planQuery`, **antes** de armar la ventana del día (`fechas-negocio.ts`:
+  calendario o instante) y antes del post-procesado, que recibe ya el `YYYY-MM-DD`. Como la ejecución sincrónica, la
+  encolada, la estimación y el preview pasan por `planQuery`, valen igual. El "hoy" es el día local del servidor
+  (`ymdLocal()`, Argentina) y se calcula una vez por plan.
+- **Validación:** `validarDefinicion` (al guardar) acepta las relativas con `permitirRelativa` de `parsearFechaFiltro`;
+  el resto del motor las rechaza si llegan sin resolver. Una relativa mal escrita (`hoy-0`) es el 400 de siempre
+  «Fecha inválida en el filtro X».
+- **Qué queda guardado:** `ejecucion_reporte.filtrosUsados` guarda lo pedido (`"hoy-90"`). El log del planner suma la
+  fecha resuelta (`Filtro «X»: fecha relativa "hoy-90" resuelta a "2026-07-19"`), sin datos personales.
+
+### 17.2 E2 — columna «días desde la fecha» (`tipo: 'dias'`)
+
+- Sobre un path de fecha, devuelve los **días enteros entre el día de la fecha y hoy**: fecha pasada = positivo,
+  futura = negativo, `null` = vacío. Es un número, así `sum` y `avg` de los totales funcionan.
+- El día de la fecha sale de la clasificación de `fechas-negocio.ts`: *calendario* (vencimiento, fecha de pago) → la
+  parte de fecha del ISO (cubre lo guardado a las 00:00Z y a las 03:00Z); *instante* → el día local.
+  `prepararColumnas` resuelve la clasificación una vez por columna (`tipoFecha`).
+- `validarDefinicion`: «Columna «X»: el tipo dias necesita un campo de fecha.» si el path no termina en un `DateTime`.
+
+### 17.3 E3 — decimales y separadores (`decimales`, `separadorDecimal`, `separadorMiles`)
+
+- Columna `numero` con alguna de las tres: `decimales` 0 a 4 (sin él, los que tenga el número), `separadorDecimal`
+  `,` o `.`, `separadorMiles` `.`, `,` o `''`. Defaults: coma decimal y punto de miles; si se elige solo uno, el otro se
+  acomoda (decimal `.` → miles `,`). Decimal y miles iguales: 400.
+- Sin ninguna de las tres, `formatNumero` queda como estaba (con `formato`, `es-AR`; sin `formato`, `toString()`).
+- Un negativo que redondea a cero sale sin signo; lo que no es número sale tal cual.
+- El total (`sum`, `avg`) de una columna con E3 se calcula sobre el texto formateado: `GroupingService.parseNumeric`
+  toma como decimal el último separador (`1.234,50` y `1,234.50`). Con `decimales: 0` y miles `.`, `1.234` se lee como
+  1,234: para totales conviene sin separador de miles.
+
+### 17.4 E4 — ancho fijo con alineación y relleno (TXT)
+
+- `opcionesFormato.txt.alineacion` (por columna, `izquierda` default / `derecha`) y `relleno` (por columna, `' '`
+  default / `'0'`). Izquierda: `padEnd` y corte por la derecha (lo de siempre). Derecha: `padStart` y, si no entra, se
+  conservan los **últimos** caracteres: un importe que no entra pierde los dígitos más significativos.
+- El encabezado (`incluirHeader`) usa la misma alineación y siempre se completa con espacios.
+- Menos entradas que columnas: las que faltan son `izquierda` y `' '`.
+
+### 17.5 Otros
+
+- `ColumnaDto` y `CreatePlantillaDto.asistentePropuestaId` (`IsInt`, opcional; lo acepta y no hace nada, el vínculo lo
+  hace el módulo del asistente). `ReportesModule` exporta `CatalogoService`, `ExecutorService` y `AsyncExecutorService`.
+- `fechas-negocio.ts` clasifica `asistente_adjunto` y `asistente_propuesta` (instante).
+
+### 17.6 Endurecimientos tras la auditoría de la Fase B
+
+- **Bloqueo:** `asistente_adjunto` y `asistente_propuesta` están en `MODELOS_BLOQUEADOS`; un test recorre el DMMF y falla
+  si aparece una tabla `asistente_*` sin bloquear. Toda columna JSON que no sea `camposAdicionales` (`tarjeta`, `perfil`,
+  `rawRow`, `filtroFilas`…) da 400 «no se puede usar en un reporte», con o sin clave.
+- **Totales:** `TotalDto.columnaId` ata el total a una columna (`executor/totales.ts`); con solo `path` y dos columnas
+  sobre el mismo campo, 400 «ambiguo». Se calculan sobre los números crudos de las columnas con E3 y se muestran con los
+  decimales y separadores de la columna (`count` no se formatea).
+- **TXT de ancho fijo:** `anchoFijo`, `alineacion` y `relleno` deben tener tantos valores como columnas (400 «El ancho fijo
+  tiene N valores y la plantilla M columnas»), al guardar (`validarOpcionesFormato`) y al exportar. Relleno `'0'` exige
+  `derecha` explícito; un negativo con ceros lleva el signo adelante (`-0001234`).

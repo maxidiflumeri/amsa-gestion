@@ -12,6 +12,7 @@ import DeleteIcon from '@mui/icons-material/Delete'
 import PlayArrowIcon from '@mui/icons-material/PlayArrow'
 import BusinessIcon from '@mui/icons-material/Business'
 import AssessmentIcon from '@mui/icons-material/Assessment'
+import AutoAwesomeIcon from '@mui/icons-material/AutoAwesome'
 import { Tooltip } from '@mui/material'
 import api from '../../api/axios'
 import { reportesApi } from '../../api/reportes'
@@ -20,6 +21,7 @@ import { PageHeader, SectionCard, EmptyState, LoadingSkeleton, DataTableResponsi
 import type { DataTableColumn } from '../../components/ui'
 import { useNotify } from '../../hooks/useNotify'
 import { useConfirm } from '../../context/ConfirmContext'
+import { useAsistente } from '../../context/AsistenteContext'
 import ClonarPlantillaDialog, { type EmpresaOpt } from '../../components/plantillas/ClonarPlantillaDialog'
 import CambiarEmpresaDialog from '../../components/plantillas/CambiarEmpresaDialog'
 
@@ -27,6 +29,7 @@ const ReportesHome = () => {
   const navigate = useNavigate()
   const notify = useNotify()
   const confirm = useConfirm()
+  const asistente = useAsistente()
   const [plantillas, setPlantillas] = useState<Plantilla[]>([])
   const [loading, setLoading] = useState(true)
   const [empresas, setEmpresas] = useState<EmpresaOpt[]>([])
@@ -196,6 +199,17 @@ const ReportesHome = () => {
       <PageHeader
         title="Reportes dinámicos"
         actions={[
+          // Abre el panel del asistente en el modo «Armar un reporte» (docs/asistente-reportes-spec.md §16.1).
+          ...(asistente.puedeArmarReportes
+            ? [{
+                label: 'Armar con el asistente',
+                onClick: () => { asistente.cambiarModo('reportes'); asistente.abrir() },
+                startIcon: <AutoAwesomeIcon />,
+                variant: 'outlined' as const,
+                // Cambiar de modo corta la respuesta en curso: mientras se escribe una, espera (igual que el selector del panel).
+                disabled: asistente.enviando,
+              }]
+            : []),
           {
             label: 'Nueva plantilla',
             onClick: () => navigate('/reportes/nuevo'),

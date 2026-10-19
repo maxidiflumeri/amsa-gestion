@@ -93,4 +93,19 @@ describe('GroupingService', () => {
     expect(resultado.length).toBe(2);
     expect(resultado.every(r => r.tipo === 'dato')).toBe(true);
   });
+
+  it('suma montos ya formateados: "1.234,50" (es-AR) y "1,234.50" (E3 con punto decimal) valen lo mismo', () => {
+    const totales: TotalDto[] = [{ path: 'monto', funcion: 'sum', label: 'Total' }];
+    const suma = (a: string, b: string) =>
+      service.aplicarAgrupacionYTotales([{ monto: a }, { monto: b }], [], totales, ['monto', 'Total'])[2].datos['Total'];
+    expect(suma('1.234,50', '10,25')).toBe(1244.75);
+    expect(suma('1,234.50', '10.25')).toBe(1244.75);
+    expect(suma('1234,5', '1.000.000,5')).toBe(1001235);
+  });
+
+  it('suma días (E2): son números, no hace falta parsear nada', () => {
+    const totales: TotalDto[] = [{ path: 'dias', funcion: 'avg', label: 'Promedio' }];
+    const r = service.aplicarAgrupacionYTotales([{ dias: 90 }, { dias: -10 }, { dias: '' }], [], totales, ['dias', 'Promedio']);
+    expect(r[3].datos['Promedio']).toBe(40);
+  });
 });

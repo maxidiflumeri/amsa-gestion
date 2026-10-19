@@ -2,6 +2,8 @@ import { useState, useEffect, useMemo } from 'react'
 import { TextField, Autocomplete, FormControl, InputLabel, Select, MenuItem, Box, Chip, CircularProgress } from '@mui/material'
 import { getInputTypeForOperator } from './operatorMatrix'
 import api from '../../../../api/axios'
+import CampoFecha from './CampoFecha'
+import { esFechaRelativa } from '../../utils/fechaRelativa'
 
 type FilterValueInputProps = {
   operador: string
@@ -42,7 +44,7 @@ const detectSpecialSource = (path?: string): SpecialSource => {
 
 const FilterValueInput = ({
   operador,
-  tipoEscalar,
+  tipoEscalar: tipoEscalarProp,
   enumValues,
   path,
   value,
@@ -50,6 +52,9 @@ const FilterValueInput = ({
   label = 'Valor',
   disabled = false,
 }: FilterValueInputProps) => {
+  // Un filtro que armó el asistente puede no traer el tipo del campo: si el valor es una fecha relativa, es una fecha.
+  const valorRelativo = Array.isArray(value) ? value.some(esFechaRelativa) : esFechaRelativa(value)
+  const tipoEscalar = tipoEscalarProp ?? (valorRelativo ? 'fecha' : undefined)
   const inputType = getInputTypeForOperator(operador, tipoEscalar)
   const [parametros, setParametros] = useState<Array<{ clave: string; descripcion: string }>>([])
 
@@ -316,18 +321,7 @@ const FilterValueInput = ({
   }
 
   if (inputType === 'date') {
-    return (
-      <TextField
-        fullWidth
-        type="date"
-        label={label}
-        value={value || ''}
-        onChange={e => onChange(e.target.value)}
-        disabled={disabled}
-        required={!disabled}
-        InputLabelProps={{ shrink: true }}
-      />
-    )
+    return <CampoFecha label={label} value={value} onChange={onChange} disabled={disabled} required={!disabled} />
   }
 
   if (inputType === 'range') {
@@ -335,27 +329,13 @@ const FilterValueInput = ({
 
     if (tipoEscalar === 'fecha') {
       return (
-        <Box sx={{ display: 'flex', gap: 1 }}>
-          <TextField
-            fullWidth
-            type="date"
-            label="Desde"
-            value={desde || ''}
-            onChange={e => onChange([e.target.value, hasta])}
-            disabled={disabled}
-            required={!disabled}
-            InputLabelProps={{ shrink: true }}
-          />
-          <TextField
-            fullWidth
-            type="date"
-            label="Hasta"
-            value={hasta || ''}
-            onChange={e => onChange([desde, e.target.value])}
-            disabled={disabled}
-            required={!disabled}
-            InputLabelProps={{ shrink: true }}
-          />
+        <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap' }}>
+          <Box sx={{ flex: '1 1 200px', minWidth: 0, display: 'flex' }}>
+            <CampoFecha label="Desde" value={desde} onChange={v => onChange([v, hasta])} disabled={disabled} required={!disabled} />
+          </Box>
+          <Box sx={{ flex: '1 1 200px', minWidth: 0, display: 'flex' }}>
+            <CampoFecha label="Hasta" value={hasta} onChange={v => onChange([desde, v])} disabled={disabled} required={!disabled} />
+          </Box>
         </Box>
       )
     }

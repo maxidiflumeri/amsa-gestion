@@ -1,7 +1,7 @@
 <!--
 seccion: Administración
 resumen: Qué puede hacer cada persona en el sistema, y por qué un permiso nuevo no se ve hasta volver a entrar.
-revisado: 2026-10-16
+revisado: 2026-10-19
 rutas: /admin/roles
 rutaPrincipal: /admin/roles
 -->
@@ -96,8 +96,13 @@ Son tres, de la sección **Asistente**:
   [El asistente](/ayuda/primeros-pasos/el-asistente).
 - **Administrar el asistente** — deja ver el **consumo**, cambiar los topes y pausarlo. Ve también las
   respuestas que la gente marcó con 👎. Ver [Consumo del asistente](/ayuda/administracion/consumo-del-asistente).
-- **Asistente: armar reportes** — todavía **no hace nada**. Está reservado para cuando el asistente pueda armar
-  plantillas de reportes (siempre con confirmación). Tildarlo hoy no cambia nada.
+- **Asistente: armar reportes** — habilita el modo **Armar un reporte** del asistente, que arma plantillas de
+  reportes a partir de un pedido o de un archivo de ejemplo (siempre con confirmación: la persona las revisa y las
+  guarda). **No alcanza por sí solo**: la persona necesita además **Usar el asistente**, **Ver reportes** y
+  **Crear reportes**, porque sin poder guardar la plantilla, cada propuesta sería gasto sin resultado. Sin
+  alguno de los cuatro, el selector de modo no aparece. Ver
+  [Armar un reporte con el asistente](/ayuda/reportes/armar-con-el-asistente). Este modo cuesta bastante más que
+  el de ayuda: conviene darlo solo a quien arma reportes.
 
 El asistente le explica a cada persona lo que **su rol** puede hacer: si alguien le pregunta cómo hacer algo
 que no tiene habilitado, le dice qué permiso le falta y que se lo pida a quien administra los roles.

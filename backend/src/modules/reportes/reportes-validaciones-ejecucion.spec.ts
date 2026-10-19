@@ -51,7 +51,7 @@ describe('validaciones al ejecutar', () => {
 
   it('una fecha mal escrita en un filtro variable corta antes de consultar', async () => {
     const definicion = mala({ filtros: [{ id: 'v', path: 'fechaVencimiento', operador: 'gte', variable: true, labelVariable: 'Vence desde' }] });
-    await expect(sync.execute(definicion, 'deudor', { v: 'hoy-90' }, false)).rejects.toThrow('Fecha inválida en el filtro «Vence desde». Usá el formato AAAA-MM-DD');
+    await expect(sync.execute(definicion, 'deudor', { v: 'ayer' }, false)).rejects.toThrow('Fecha inválida en el filtro «Vence desde». Usá el formato AAAA-MM-DD');
     expect(prisma.deudor.findMany).not.toHaveBeenCalled();
   });
 

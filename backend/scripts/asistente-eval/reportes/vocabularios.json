@@ -1,0 +1,59 @@
+{
+  "_nota": "Vocabularios del doble de la base en el set de evaluación v2: empresas del seed (prisma/seed-empresas.ts) con casos inventados, parámetros de ejemplo y claves de datos adicionales por empresa.",
+  "empresas": [
+    { "nombre": "AHORRISTAS PEUGEOT/CITR", "casos": 5200 },
+    { "nombre": "PEUGEOT/CITROEN", "casos": 12800 },
+    { "nombre": "TOYOTA", "casos": 342000 },
+    { "nombre": "FIAT", "casos": 88000 },
+    { "nombre": "MOVISTAR_LEGALES", "casos": 4100 },
+    { "nombre": "FIAT MORA TEMPRANA", "casos": 9300 },
+    { "nombre": "CLARO  PL", "casos": 2100 },
+    { "nombre": "TELECOM", "casos": 19400 },
+    { "nombre": "TELECOM_PERSONAL", "casos": 7700 },
+    { "nombre": "TELECOM  FRAUDES", "casos": 900 },
+    { "nombre": "TOYOTA PLAN DE AHORRO", "casos": 15800 },
+    { "nombre": "FULLER /TUPPERWARE", "casos": 3400 },
+    { "nombre": "PLAN ROMBO S.A.", "casos": 6100 },
+    { "nombre": "FIAT PLAN", "casos": 21000 },
+    { "nombre": "JEEP RAM PLAN", "casos": 2900 },
+    { "nombre": "TOYOTA REFINANCIACION", "casos": 4300 },
+    { "nombre": "PEUGEOT CITROEN (PAR)", "casos": 1800 },
+    { "nombre": "AYSA", "casos": 410000 },
+    { "nombre": "UALA", "casos": 52000 },
+    { "nombre": "AUSA", "casos": 133000 },
+    { "nombre": "TOYOTA RELEVAMIENTO", "casos": 1200 },
+    { "nombre": "TOYOTA 0800", "casos": 800 },
+    { "nombre": "TOYOTA VENTA SEGUROS", "casos": 2600 },
+    { "nombre": "FIBERTEL", "casos": 14500 }
+  ],
+  "parametros": {
+    "situacion": [
+      { "clave": "SIT-001", "descripcion": "NUEVO" },
+      { "clave": "SIT-020", "descripcion": "PROMESA DE PAGO" },
+      { "clave": "SIT-041", "descripcion": "PAGO PARCIAL" },
+      { "clave": "SIT-050", "descripcion": "CANCELADO / PAGADO" },
+      { "clave": "SIT-051", "descripcion": "CANCELADO CON QUITA" },
+      { "clave": "SIT-060", "descripcion": "INCOBRABLE" }
+    ],
+    "gestion": [
+      { "clave": "GES-001", "descripcion": "SIN GESTION" },
+      { "clave": "GES-010", "descripcion": "CONTACTADO" },
+      { "clave": "GES-020", "descripcion": "NO LOCALIZADO" }
+    ],
+    "motivo_no_pago": [
+      { "clave": "MNP-001", "descripcion": "DESEMPLEO" },
+      { "clave": "MNP-002", "descripcion": "DESCONOCE LA DEUDA" }
+    ]
+  },
+  "clavesAdicionales": {
+    "TOYOTA": ["MODELO", "PATENTE", "VERSION", "PLAN"],
+    "FIAT": ["CHASIS", "MODELO", "PATENTE"],
+    "TELECOM": ["LINEA", "SERVICIO", "PLAN"],
+    "AYSA": ["PARTIDA", "UNIDAD_FUNCIONAL"]
+  },
+  "formatosTelefono": [
+    { "id": 1, "nombre": "10 dígitos", "patron": "{numero}" },
+    { "id": 2, "nombre": "WhatsApp Internacional AR", "patron": "549{numero}" },
+    { "id": 3, "nombre": "Con cero adelante", "patron": "0{numero}" }
+  ]
+}

@@ -1,7 +1,7 @@
 import { BadRequestException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { validarDefinicion, recorrer, modeloPorNombre, ModeloDmmf } from './definicion-validator';
-import { CAMPOS_PERMITIDOS_POR_MODELO, MODELOS_BLOQUEADOS, NOMBRE_SENSIBLE } from './campos-sensibles';
+import { CAMPOS_PERMITIDOS_POR_MODELO, MODELOS_BLOQUEADOS, modeloPermitido, NOMBRE_SENSIBLE } from './campos-sensibles';
 import { fechasSinClasificar } from './fechas-negocio';
 import { DefinicionPlantillaDto } from '../dto/plantilla.dto';
 import * as fs from 'fs';
@@ -106,6 +106,52 @@ describe('campos sensibles', () => {
       const porNombre = m.fields.filter((f) => NOMBRE_SENSIBLE.test(f.name)).every((f) => !recorrer(m, [f.name]).existe);
       expect(cubierto || porNombre).toBe(true);
     }
+  });
+});
+
+describe('tablas del asistente y columnas JSON (auditoría Fase B)', () => {
+  it('toda tabla asistente_* del schema está en MODELOS_BLOQUEADOS (si aparece una nueva, este test la pide)', () => {
+    const sinBloquear = modelos.filter((m) => m.name.startsWith('asistente_') && !MODELOS_BLOQUEADOS.has(m.name)).map((m) => m.name);
+    expect(sinBloquear).toEqual([]);
+  });
+
+  it.each([
+    'empresa.plantillas.asistentePropuestas.usuarioId',
+    'empresa.plantillas.asistentePropuestas.costoUsd',
+    'empresa.plantillas.asistentePropuestas.estado',
+  ])('«%s» no se puede usar en un reporte', (path) => {
+    for (const donde of ['columna', 'filtro']) {
+      const llamar = () =>
+        validarDefinicion(
+          (donde === 'columna'
+            ? { columnas: [{ id: 'c', path, label: 'X' }] }
+            : { columnas: [{ id: 'c', path: 'documento', label: 'X' }], filtros: [{ id: 'f', path, operador: 'isNull' }] }) as any,
+        );
+      expect(llamar).toThrow('no se puede usar en un reporte');
+    }
+  });
+
+  it('ninguna tabla asistente_* se alcanza desde el deudor ni desde la transacción', () => {
+    for (const m of modelos.filter((x) => x.name.startsWith('asistente_'))) expect(modeloPermitido(m.name)).toBe(false);
+  });
+
+  it('una columna JSON que no es camposAdicionales da 400, con o sin clave', () => {
+    const rechaza = (path: string) =>
+      expect(() => validarDefinicion({ columnas: [{ id: 'c', path, label: 'X' }] } as any)).toThrow('no se puede usar en un reporte');
+    // Cualquier JSON del schema alcanzable desde la raíz que no sea camposAdicionales.
+    for (const modelo of modelos) {
+      for (const campo of modelo.fields.filter((f) => f.type === 'Json' && f.name !== 'camposAdicionales')) {
+        expect(recorrer(modelo, [campo.name]).bloqueado).toBe(true);
+      }
+    }
+    rechaza('remesa.filtroFilas');
+    rechaza('remesa.filtroFilas.algo');
+    rechaza('remesa.divisionValores');
+  });
+
+  it('camposAdicionales sigue andando, con clave y sin ella', () => {
+    expect(() => validarDefinicion({ columnas: [{ id: 'c', path: 'camposAdicionales.cuota', label: 'X' }] } as any)).not.toThrow();
+    expect(() => validarDefinicion({ columnas: [{ id: 'c', path: 'camposAdicionales', label: 'X' }] } as any)).not.toThrow();
   });
 });
 
