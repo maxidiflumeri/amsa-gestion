@@ -1,11 +1,24 @@
 import { Injectable, Logger, BadRequestException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
-import { esSoloFecha, finDelDia, inicioDelDia } from '../../../common/utils/dia-local';
+import { esSoloFecha } from '../../../common/utils/dia-local';
 import { PathParser } from '../parser/path-parser';
 import { IncludeBuilder } from './include-builder';
-import { esColumnaFija } from '../columna-fija';
 import { PathAST } from '../parser/path-ast';
 import { DefinicionPlantillaDto } from '../dto/plantilla.dto';
+import { FechaInvalidaError, mensajeFechaInvalida, parsearFechaFiltro, validarFechasFiltro } from '../validador/fecha-filtro';
+import { esOperadorDeRango, esOperadorSoportado, esValorVacio, extremosDeRango, OPERADORES_SOPORTADOS } from '../validador/operadores';
+import { clasificarFecha, TipoFecha, ventanaDelDia } from '../validador/fechas-negocio';
+import { campoFinal, modeloPorNombre } from '../validador/definicion-validator';
+import { terminaEnCount } from '../executor/contar-rama';
+import { esColumnaFija } from '../columna-fija';
+
+export interface FiltroEnMemoria {
+  path: string;
+  operador: string;
+  valor: any;
+  /** Solo si el path termina en una fecha: cómo se guarda, para comparar por día igual que Prisma. */
+  tipoFecha?: TipoFecha;
+}
 
 export interface QueryPlan {
   where: any;
@@ -13,7 +26,7 @@ export interface QueryPlan {
   orderBy?: any;
   take?: number;
   requiresPostProcessing: boolean;
-  postProcessingFilters: Array<{ path: string; operador: string; valor: any }>;
+  postProcessingFilters: FiltroEnMemoria[];
 }
 
 @Injectable()
@@ -80,7 +93,8 @@ export class QueryPlanner {
     };
 
     if (definicion.ordenamientos && definicion.ordenamientos.length > 0) {
-      plan.orderBy = this.buildOrderBy(definicion.ordenamientos);
+      const orderBy = this.buildOrderBy(definicion.ordenamientos);
+      if (orderBy.length > 0) plan.orderBy = orderBy;
     }
 
     if (definicion.limiteFilas) {
@@ -94,15 +108,27 @@ export class QueryPlanner {
     definicion: DefinicionPlantillaDto,
     filtrosVars?: Record<string, any>,
     preview: boolean = false,
-  ): { where: any; postProcessingFilters: Array<{ path: string; operador: string; valor: any }> } {
+  ): { where: any; postProcessingFilters: FiltroEnMemoria[] } {
     if (!definicion.filtros || definicion.filtros.length === 0) {
       return { where: {}, postProcessingFilters: [] };
     }
 
     const conditions: any[] = [];
-    const postProcessingFilters: Array<{ path: string; operador: string; valor: any }> = [];
+    const postProcessingFilters: FiltroEnMemoria[] = [];
 
     for (const filtro of definicion.filtros) {
+      const etiqueta = filtro.labelVariable || filtro.path;
+
+      // Un operador que el motor no implementa tiene que frenar el reporte: si el filtro se
+      // descartara, saldría la cartera entera sin ningún error.
+      if (!esOperadorSoportado(filtro.operador)) {
+        this.logger.warn(`Filtro «${etiqueta}» con operador no soportado: ${filtro.operador}`);
+        throw new BadRequestException(
+          `El filtro «${etiqueta}» usa un operador que el motor no soporta: ${filtro.operador} ` +
+          `(los válidos son ${OPERADORES_SOPORTADOS.join(', ')})`,
+        );
+      }
+
       let valor = filtro.valor;
       const sinValor =
         filtro.operador !== 'isNull' && filtro.operador !== 'isNotNull';
@@ -125,16 +151,35 @@ export class QueryPlanner {
       }
 
       // Saltar filtro si el valor está vacío
-      if (sinValor && this.esValorVacio(valor)) {
+      if (sinValor && esValorVacio(valor)) {
         if (filtro.variable && filtro.obligatorio && !preview) {
           throw new BadRequestException(
             `Filtro variable "${filtro.labelVariable || filtro.id}" es requerido pero no se proporcionó valor`,
           );
         }
+        // Un filtro fijo sin valor no puede ignorarse: sería traer la cartera entera sin avisar.
+        if (!filtro.variable) {
+          this.logger.warn(`Filtro «${etiqueta}» fijo sin valor`);
+          throw new BadRequestException(`El filtro «${etiqueta}» no tiene valor`);
+        }
         continue;
       }
 
-      const condition = this.buildCondition(filtro.path, filtro.operador, valor, postProcessingFilters);
+      if (esOperadorDeRango(filtro.operador) && extremosDeRango(valor) === null) {
+        this.logger.warn(`Filtro «${etiqueta}»: ${filtro.operador} sin dos valores`);
+        throw new BadRequestException(`El filtro «${etiqueta}» necesita dos valores (desde y hasta)`);
+      }
+
+      let condition: any;
+      try {
+        condition = this.buildCondition(filtro.path, filtro.operador, valor, postProcessingFilters);
+      } catch (error) {
+        if (error instanceof FechaInvalidaError) {
+          this.logger.warn(`Fecha inválida en el filtro «${etiqueta}»`);
+          throw new BadRequestException(mensajeFechaInvalida(etiqueta));
+        }
+        throw error;
+      }
       if (condition) {
         conditions.push(condition);
       }
@@ -151,7 +196,7 @@ export class QueryPlanner {
     path: string,
     operador: string,
     valor: any,
-    postProcessingFilters: Array<{ path: string; operador: string; valor: any }>,
+    postProcessingFilters: FiltroEnMemoria[],
   ): any {
     // Detectar si el path contiene agregadores o filtros
     const ast = this.parser.parse(path);
@@ -164,26 +209,20 @@ export class QueryPlanner {
 
     // Si tiene agregadores o filtros sobre relaciones, debe ser post-procesado
     if (hasAggregator || hasFilter) {
-      // Casos especiales optimizables con Prisma
-      if (hasAggregator && ast.segments.length >= 1) {
-        // Buscar el modificador count en el path
-        const segmentWithCount = ast.segments.find(seg =>
-          seg.modifiers.some(mod => mod.type === 'aggregator' && mod.aggregator === 'count'),
-        );
+      const esCantidad = terminaEnCount(ast);
 
-        if (segmentWithCount) {
-          const relacion = segmentWithCount.name;
+      if (esCantidad) {
+        valor = this.cantidadComoNumero(path, operador, valor);
 
-          // pagos[count] > 0 → { pagos: { some: {} } }
-          if (operador === 'gt' && valor === 0) {
-            this.logger.log(`Optimizando filtro ${path} > 0 con Prisma "some"`);
-            return { [relacion]: { some: {} } };
-          }
-
-          // pagos[count] = 0 → { pagos: { none: {} } }
-          if (operador === 'eq' && valor === 0) {
-            this.logger.log(`Optimizando filtro ${path} = 0 con Prisma "none"`);
-            return { [relacion]: { none: {} } };
+        // `rama[count] > 0` / `= 0` se expresan en Prisma con some / none. Los `[campo=valor]` de cada
+        // segmento van adentro: `contactos[tipo=telefono][count] = 0` son los casos SIN teléfono, no
+        // los casos sin ningún contacto. Y `convenios.cuotas[count] = 0` es "ningún convenio tiene
+        // cuotas", que incluye a los casos sin convenios.
+        if ((operador === 'gt' || operador === 'eq') && valor === 0) {
+          const condicion = this.condicionCantidadCero(ast, operador);
+          if (condicion !== null) {
+            this.logger.log(`Optimizando filtro ${path} ${operador === 'gt' ? '> 0' : '= 0'} con Prisma`);
+            return condicion;
           }
         }
       }
@@ -192,7 +231,7 @@ export class QueryPlanner {
       this.logger.warn(
         `Filtro sobre path con agregador/filtro "${path}" requiere post-procesamiento (no se puede expresar en Prisma where)`,
       );
-      postProcessingFilters.push({ path, operador, valor });
+      postProcessingFilters.push({ path, operador, valor, tipoFecha: this.tipoFechaDelPath(ast, valor) });
       return null;
     }
 
@@ -206,6 +245,106 @@ export class QueryPlanner {
       // Path relacional: empresa.nombre, estadoSituacion.clave, contactos.tipo
       return this.buildNestedCondition(parts, operador, valor, 'deudor');
     }
+  }
+
+  /** La cantidad se compara como número: `"0"` que llega por API es 0, y un texto es un error. */
+  private cantidadComoNumero(path: string, operador: string, valor: any): any {
+    if (operador === 'isNull' || operador === 'isNotNull') return valor;
+    const comoNumero = (v: any) => {
+      if (typeof v === 'number') return v;
+      if (typeof v === 'string' && v.trim() !== '' && !Number.isNaN(Number(v))) return Number(v);
+      throw new BadRequestException(`La cantidad de «${path}» tiene que ser un número`);
+    };
+    // En «Entre» / «Fuera de», una punta vacía es un rango abierto (como en el resto de los filtros): queda null.
+    const extremo = (v: any) => (v == null || (typeof v === 'string' && v.trim() === '') ? null : comoNumero(v));
+    return Array.isArray(valor) ? valor.map(extremo) : comoNumero(valor);
+  }
+
+  /**
+   * Si el path termina en una fecha, valida el valor (400 si está mal escrita) y devuelve cómo se
+   * guarda, para que el post-procesado compare por día igual que Prisma. Un path sin fecha: `undefined`.
+   */
+  private tipoFechaDelPath(ast: PathAST, valor: any): TipoFecha | undefined {
+    const final = campoFinal('deudor', ast);
+    if (final.claveJson || final.campo?.type !== 'DateTime') return undefined;
+    validarFechasFiltro(valor);
+    return clasificarFecha(final.modelo ?? '', final.campo.name) ?? 'instante';
+  }
+
+  /**
+   * La condición de Prisma que equivale a los `[campo=valor]` de un segmento (`{}` si no tiene).
+   * Devuelve `null` si alguno no se puede expresar —campo anidado, no escalar o de fecha—: en ese
+   * caso el filtro se resuelve en memoria, que aplica los mismos `[campo=valor]` sobre las filas.
+   */
+  private condicionDeFiltrosDeRama(
+    segmento: PathAST['segments'][number],
+    modeloRelacion: string,
+  ): Record<string, any> | null {
+    const tiposNumericos = ['Int', 'BigInt', 'Float', 'Decimal'];
+    const condicion: Record<string, any> = {};
+    for (const modificador of segmento.modifiers) {
+      if (modificador.type !== 'filter') {
+        if (modificador.type === 'aggregator' && modificador.aggregator === 'count') continue;
+        return null;
+      }
+      for (const { field, value } of modificador.filters) {
+        const campo = this.getRelationField(modeloRelacion, field);
+        const simple = campo && (
+          campo.kind === 'enum' ||
+          (campo.kind === 'scalar' && ['String', 'Boolean', ...tiposNumericos].includes(campo.type))
+        );
+        if (!simple) return null;
+
+        const coercionado = this.coerceValor(modeloRelacion, field, value);
+        // Un valor que no se pudo convertir (`whatsapp=quizas`) no se compara por igualdad.
+        if (campo.type === 'Boolean' && typeof coercionado !== 'boolean') return null;
+        if (tiposNumericos.includes(campo.type) && typeof coercionado !== 'number') return null;
+        if (field in condicion && condicion[field] !== coercionado) return null;
+        condicion[field] = coercionado;
+      }
+    }
+    return condicion;
+  }
+
+  /**
+   * `rama[count] = 0` / `> 0` para un path de una o más ramas que termina en `[count]`.
+   *
+   * La cantidad es el **total** de la última rama sumando todas las de las ramas del medio:
+   * - `> 0`: existe algún elemento. `{convenios: {some: {cuotas: {some: {}}}}}`
+   * - `= 0`: no existe ninguno, incluidos los casos sin ramas del medio.
+   *   `{convenios: {none: {cuotas: {some: {}}}}}`
+   *
+   * Devuelve `null` si algún tramo no se puede expresar en Prisma; el filtro se cuenta entonces en
+   * memoria sobre todos los elementos (`contarRama`).
+   */
+  private condicionCantidadCero(ast: PathAST, operador: 'gt' | 'eq'): any | null {
+    const tramos: Array<{ nombre: string; esLista: boolean; filtro: Record<string, any> }> = [];
+    let modelo = 'deudor';
+    for (const segmento of ast.segments) {
+      const campo = this.getRelationField(modelo, segmento.name);
+      if (!campo || campo.kind !== 'object') return null;
+      const filtro = this.condicionDeFiltrosDeRama(segmento, campo.type);
+      if (filtro === null) return null;
+      tramos.push({ nombre: segmento.name, esLista: campo.isList === true, filtro });
+      modelo = campo.type;
+    }
+    if (!tramos[tramos.length - 1].esLista) return null;
+
+    // De adentro hacia afuera: `interior` es lo que va dentro del `some` del tramo.
+    let existe: Record<string, any> = {};
+    let interiorDelPrimero: Record<string, any> = {};
+    for (let i = tramos.length - 1; i >= 0; i--) {
+      const tramo = tramos[i];
+      const siguiente = i === tramos.length - 1 ? {} : existe;
+      if (Object.keys(tramo.filtro).some((k) => k in siguiente)) return null;
+      const interior = { ...tramo.filtro, ...siguiente };
+      if (i === 0) interiorDelPrimero = interior;
+      existe = { [tramo.nombre]: tramo.esLista ? { some: interior } : interior };
+    }
+
+    if (operador === 'gt') return existe;
+    if (tramos[0].esLista) return { [tramos[0].nombre]: { none: interiorDelPrimero } };
+    return { NOT: existe };
   }
 
   private buildNestedCondition(
@@ -236,7 +375,7 @@ export class QueryPlanner {
           : null;
 
     if (inner === null) {
-      return null;
+      throw new BadRequestException(`El campo «${parts.join('.')}» no existe`);
     }
 
     if (isList) {
@@ -272,7 +411,7 @@ export class QueryPlanner {
           continue;
         }
       }
-      if (this.esValorVacio(valor)) continue;
+      if (esValorVacio(valor)) continue;
 
       this.injectListFilter(include, parts, 'deudor', filtro.operador, valor);
     }
@@ -320,15 +459,6 @@ export class QueryPlanner {
     }
   }
 
-  private esValorVacio(valor: any): boolean {
-    if (valor === undefined || valor === null || valor === '') return true;
-    if (Array.isArray(valor)) {
-      if (valor.length === 0) return true;
-      return valor.every(v => v === undefined || v === null || v === '');
-    }
-    return false;
-  }
-
   /**
    * Filtro sobre una clave de una columna JSON (`camposAdicionales`, los "datos adicionales").
    *
@@ -340,15 +470,19 @@ export class QueryPlanner {
    * comparación es de strings: `gt` sobre un número guardado como "9" no ordena como número.
    */
   private buildJsonCondition(campo: string, rest: string[], operador: string, valor: any): any {
-    if (rest.length === 0) return null;
+    if (rest.length === 0) {
+      throw new BadRequestException(`El campo «${campo}» necesita una clave de los datos adicionales`);
+    }
     const path = `$.${rest.join('.')}`;
-    const jsonPath = { path, [operador === 'neq' ? 'equals' : operador]: valor };
+    // Los datos adicionales se guardan **como texto**: el import escribe cada valor como string. Un
+    // `[2, 4]` numérico no coincide con ningún "2" guardado (devolvía 0 filas, y `['2','4']` 5.322).
+    const texto = (v: any) => (v === undefined || v === null ? v : String(v));
 
     switch (operador) {
       case 'eq':
-        return { [campo]: { path, equals: valor } };
+        return { [campo]: { path, equals: texto(valor) } };
       case 'neq':
-        return { NOT: { [campo]: { path, equals: valor } } };
+        return { NOT: { [campo]: { path, equals: texto(valor) } } };
       case 'contains':
         return { [campo]: { path, string_contains: String(valor) } };
       case 'startsWith':
@@ -359,18 +493,35 @@ export class QueryPlanner {
       case 'gte':
       case 'lt':
       case 'lte':
-        return { [campo]: jsonPath };
+        return { [campo]: { path, [operador]: texto(valor) } };
       case 'isNull':
         return { [campo]: { path, equals: Prisma.DbNull } };
       case 'isNotNull':
         return { NOT: { [campo]: { path, equals: Prisma.DbNull } } };
+      case 'in':
+        return { OR: this.listaDeValores(valor).map((v) => ({ [campo]: { path, equals: texto(v) } })) };
+      case 'notIn':
+        return { NOT: { OR: this.listaDeValores(valor).map((v) => ({ [campo]: { path, equals: texto(v) } })) } };
+      case 'between':
+      case 'notBetween': {
+        const extremos = extremosDeRango(valor);
+        if (!extremos) throw new BadRequestException(`El campo «${campo}.${rest.join('.')}» necesita dos valores (desde y hasta)`);
+        // Un solo extremo es un rango abierto.
+        const partes: any[] = [];
+        if (extremos.desde !== undefined) partes.push({ [campo]: { path, gte: texto(extremos.desde) } });
+        if (extremos.hasta !== undefined) partes.push({ [campo]: { path, lte: texto(extremos.hasta) } });
+        const dentro = partes.length === 1 ? partes[0] : { AND: partes };
+        return operador === 'between' ? dentro : { NOT: dentro };
+      }
       default:
-        this.logger.warn(
-          `Operador "${operador}" no se puede expresar sobre un dato adicional (${campo}.${rest.join('.')}); ` +
-          `se resuelve en post-procesado.`,
+        throw new BadRequestException(
+          `El operador "${operador}" no se puede usar sobre un dato adicional (${campo}.${rest.join('.')})`,
         );
-        return null;
     }
+  }
+
+  private listaDeValores(valor: any): any[] {
+    return Array.isArray(valor) ? valor : [valor];
   }
 
   private getRelationField(modelName: string, fieldName: string): any | null {
@@ -396,9 +547,9 @@ export class QueryPlanner {
         return Number.isNaN(n) ? v : n;
       }
       if (field.type === 'DateTime') {
-        if (v instanceof Date) return v;
-        const d = new Date(v);
-        return Number.isNaN(d.getTime()) ? v : d;
+        // Solo `YYYY-MM-DD`, ISO completo o Date. Antes `new Date('hoy-90')` daba 1990 sin avisar.
+        const fecha = parsearFechaFiltro(v);
+        return typeof fecha === 'string' ? new Date(fecha) : fecha;
       }
       if (field.type === 'Boolean') {
         if (typeof v === 'boolean') return v;
@@ -415,47 +566,59 @@ export class QueryPlanner {
 
   /**
    * Un filtro de fecha sobre una columna `DateTime`, con el valor en `YYYY-MM-DD`, tiene que abarcar
-   * el **día completo en hora local**.
+   * el **día completo**, y "el día" depende de cómo se guarda esa columna (ver `fechas-negocio.ts`):
+   * una fecha calendario es de D 00:00Z a D 23:59:59.999Z; un instante, el día local.
    *
    * `new Date('2026-07-31')` es medianoche **UTC**: en Argentina, las 21:00 del 30. Así, `lte` perdía
    * todo el último día del rango y `gte` metía tres horas del día anterior. Es el mismo error que ya
    * se había corregido en los filtros del tablero (ver `common/utils/dia-local.ts`).
+   *
+   * Un rango con un solo extremo es un rango abierto.
    */
-  private buildCondicionFecha(field: string, operador: string, valorOriginal: any): any | null {
-    const esRango = ['gt', 'gte', 'lt', 'lte', 'eq', 'neq', 'between', 'notBetween'].includes(operador);
-    if (!esRango) return null;
+  private buildCondicionFecha(field: string, operador: string, valorOriginal: any, tipo: TipoFecha): any | null {
+    const dia = (v: string) => ventanaDelDia(v, tipo);
 
-    const unaFecha = esSoloFecha(valorOriginal);
-    const dosFechas = Array.isArray(valorOriginal) && valorOriginal.length === 2
-        && valorOriginal.every((v) => esSoloFecha(v));
-    if (!unaFecha && !dosFechas) return null;
+    if (operador === 'between' || operador === 'notBetween') {
+      const extremos = extremosDeRango(valorOriginal);
+      if (!extremos) return null;
+      const dados = [extremos.desde, extremos.hasta].filter((v) => v !== undefined);
+      if (dados.length === 0 || !dados.every((v) => esSoloFecha(v))) return null;
+      const rango: any = {};
+      if (extremos.desde !== undefined) rango.gte = dia(extremos.desde).desde;
+      if (extremos.hasta !== undefined) rango.lte = dia(extremos.hasta).hasta;
+      return operador === 'between' ? { [field]: rango } : { NOT: { [field]: rango } };
+    }
+
+    if (!['gt', 'gte', 'lt', 'lte', 'eq', 'neq'].includes(operador)) return null;
+    if (!esSoloFecha(valorOriginal)) return null;
+    const { desde, hasta } = dia(valorOriginal);
 
     switch (operador) {
-      // El límite inferior arranca al principio del día; el superior termina al final.
-      case 'gte':
+      // `gt` / `lt` son "después / antes de ese día": quedan afuera las horas del propio día.
       case 'gt':
-        return { [field]: { gte: inicioDelDia(valorOriginal) } };
-      case 'lte':
+        return { [field]: { gt: hasta } };
+      case 'gte':
+        return { [field]: { gte: desde } };
       case 'lt':
-        return { [field]: { lte: finDelDia(valorOriginal) } };
+        return { [field]: { lt: desde } };
+      case 'lte':
+        return { [field]: { lte: hasta } };
       // "Igual a un día" es el día entero, no un instante: sin esto no matcheaba nunca.
       case 'eq':
-        return { [field]: { gte: inicioDelDia(valorOriginal), lte: finDelDia(valorOriginal) } };
-      case 'neq':
-        return { NOT: { [field]: { gte: inicioDelDia(valorOriginal), lte: finDelDia(valorOriginal) } } };
-      case 'between':
-        return { [field]: { gte: inicioDelDia(valorOriginal[0]), lte: finDelDia(valorOriginal[1]) } };
-      case 'notBetween':
-        return { NOT: { [field]: { gte: inicioDelDia(valorOriginal[0]), lte: finDelDia(valorOriginal[1]) } } };
+        return { [field]: { gte: desde, lte: hasta } };
       default:
-        return null;
+        return { NOT: { [field]: { gte: desde, lte: hasta } } };
     }
   }
 
   private buildPrismaCondition(modeloActual: string, field: string, operador: string, valorOriginal: any): any {
     const tipo = this.getRelationField(modeloActual, field)?.type;
     if (tipo === 'DateTime') {
-      const porDia = this.buildCondicionFecha(field, operador, valorOriginal);
+      // `2026-02-31` pasa el formato pero JS lo corre a marzo: se valida el calendario antes.
+      if (operador !== 'isNull' && operador !== 'isNotNull') validarFechasFiltro(valorOriginal);
+      const nombreModelo = modeloPorNombre(modeloActual)?.name ?? modeloActual;
+      const tipoFecha = clasificarFecha(nombreModelo, field) ?? 'instante';
+      const porDia = this.buildCondicionFecha(field, operador, valorOriginal, tipoFecha);
       if (porDia) return porDia;
     }
 
@@ -495,18 +658,17 @@ export class QueryPlanner {
         return { [field]: { lte: valor } };
 
       case 'between':
-        if (Array.isArray(valor) && valor.length === 2) {
-          return { [field]: { gte: valor[0], lte: valor[1] } };
+      case 'notBetween': {
+        const extremos = extremosDeRango(valor);
+        if (!extremos) {
+          throw new BadRequestException(`El campo «${field}» con «${operador === 'between' ? 'entre' : 'fuera de'}» necesita dos valores (desde y hasta)`);
         }
-        this.logger.warn(`Operador "between" requiere array de 2 elementos, recibido: ${valor}`);
-        return null;
-
-      case 'notBetween':
-        if (Array.isArray(valor) && valor.length === 2) {
-          return { [field]: { not: { gte: valor[0], lte: valor[1] } } };
-        }
-        this.logger.warn(`Operador "notBetween" requiere array de 2 elementos, recibido: ${valor}`);
-        return null;
+        // Un solo extremo es un rango abierto: antes un `null` llegaba a Prisma y reventaba.
+        const rango: any = {};
+        if (extremos.desde !== undefined) rango.gte = extremos.desde;
+        if (extremos.hasta !== undefined) rango.lte = extremos.hasta;
+        return operador === 'between' ? { [field]: rango } : { [field]: { not: rango } };
+      }
 
       case 'isNull':
         return { [field]: null };
@@ -514,20 +676,15 @@ export class QueryPlanner {
       case 'isNotNull':
         return { [field]: { not: null } };
 
-      case 'rangoClaves':
-        // Operador especial para rangos alfabéticos (como en v1)
-        // Requiere: { desde, hasta, excluir[] }
-        this.logger.warn('Operador "rangoClaves" requiere lógica custom, se deja para post-procesamiento');
-        return null;
-
       default:
-        this.logger.warn(`Operador "${operador}" no soportado`);
-        return null;
+        // No debería llegar: buildWhere frena antes los operadores que el motor no soporta.
+        throw new BadRequestException(`El motor no soporta el operador: ${operador}`);
     }
   }
 
   private buildOrderBy(ordenamientos: any[]): any {
-    return ordenamientos.map(ord => {
+    // Una columna fija no sale de los datos: no hay nada que ordenar.
+    return ordenamientos.filter(ord => !esColumnaFija(ord)).map(ord => {
       const parts = ord.path.split('.');
 
       if (parts.length === 1) {

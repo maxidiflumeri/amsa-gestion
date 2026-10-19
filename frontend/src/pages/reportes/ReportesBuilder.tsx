@@ -21,6 +21,7 @@ import GroupingBuilder from './components/GroupingBuilder/GroupingBuilder'
 import SortBuilder from './components/SortBuilder/SortBuilder'
 import PreviewPanel from './components/Preview/PreviewPanel'
 import { validatePlantilla, ValidationError } from './utils/validatePlantilla'
+import { nombreColumnaFijaLibre } from './utils/nombreColumnaFija'
 
 type BuilderState = {
   plantilla: Partial<Plantilla>
@@ -265,11 +266,12 @@ const ReportesBuilder = () => {
    * columnas de teléfono aunque el caso tenga uno solo.
    */
   const handleAddFixedColumn = () => {
-    const fijas = (state.plantilla.definicion?.columnas || []).filter(c => !c.path).length
+    // El primer nombre libre: si se borró una columna fija y se agrega otra, `columna${cantidad + 1}`
+    // repetía un nombre que ya existe, y dos columnas con el mismo nombre no se pueden guardar.
     const newColumn: Columna = {
       id: uuidv4(),
       path: '',
-      label: `columna${fijas + 1}`,
+      label: nombreColumnaFijaLibre((state.plantilla.definicion?.columnas || []).map(c => c.label)),
       tipo: 'texto',
       valorFijo: '',
     }

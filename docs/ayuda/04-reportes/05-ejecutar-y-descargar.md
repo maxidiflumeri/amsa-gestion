@@ -97,6 +97,27 @@ Volver a ejecutar la plantilla no reproduce el mismo archivo: los datos cambiaro
 
 ## Qué puede salir mal
 
+### Me dice que un filtro necesita un valor
+
+Si al ejecutar el cartel dice **«Filtro variable … es requerido»**, completá ese filtro (los obligatorios
+llevan `*`). Si dice **«El filtro … no tiene valor»**, el filtro está fijo en la plantilla y se le borró
+el valor: hay que arreglarlo en la plantilla. En un **Entre** alcanza con completar una sola punta.
+
+### Me dice «Fecha inválida en el filtro …»
+
+Una fecha mal escrita. Usá el selector de fecha (formato AAAA-MM-DD). Si la fecha estaba cargada así en
+la plantilla y no la tocaste, el cartel dice cuál filtro es.
+
+### Me dice «El campo … no existe» o «no se puede usar en un reporte»
+
+La plantilla apunta a un campo que ya no existe o que un reporte no puede mostrar. Hay que editar la
+plantilla (ver [Filtros](/ayuda/reportes/filtros)).
+
+### Me dice «El filtro … usa un operador que el motor no soporta» o «Hay dos columnas con el nombre …»
+
+También es un problema de la plantilla, no de quien ejecuta. Los detalles están en
+[Filtros](/ayuda/reportes/filtros).
+
 ### El reporte tarda muchísimo
 
 Es grande. Lo primero es agregar filtros — sobre todo el de empresa y un período. Un reporte bien

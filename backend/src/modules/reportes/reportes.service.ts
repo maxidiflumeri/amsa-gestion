@@ -10,6 +10,7 @@ import { TxtExportador } from './exportadores/txt.exportador';
 import { PdfExportador } from './exportadores/pdf.exportador';
 import { opcionesDelFormato } from './exportadores/opciones-formato';
 import { FilaConSubtotales } from './executor/grouping.service';
+import { validarDefinicion } from './validador/definicion-validator';
 
 @Injectable()
 export class ReportesService {
@@ -78,6 +79,9 @@ export class ReportesService {
   async create(dto: CreatePlantillaDto, usuarioId?: number) {
     this.logger.log(`Creando plantilla: ${dto.nombre}`);
 
+    // 400 claro acá y no un reporte que sale mal después: campos inexistentes, columnas repetidas, operadores sin soporte.
+    validarDefinicion(dto.definicion, dto.raiz);
+
     return this.prisma.plantilla_reporte.create({
       data: {
         nombre: dto.nombre,
@@ -99,7 +103,11 @@ export class ReportesService {
   }
 
   async update(id: number, dto: UpdatePlantillaDto) {
-    await this.findOne(id);
+    const actual = await this.findOne(id);
+
+    if (dto.definicion) {
+      validarDefinicion(dto.definicion, actual.raiz);
+    }
 
     this.logger.log(`Actualizando plantilla ${id}`);
 

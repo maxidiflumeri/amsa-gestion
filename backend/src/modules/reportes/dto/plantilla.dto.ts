@@ -61,6 +61,11 @@ export class FiltroDto {
   @IsString()
   path: string;
 
+  /**
+   * Sin `@IsIn`: el `ValidationPipe` le antepone al mensaje el camino técnico (`definicion.filtros.0.`).
+   * El operador lo valida `validarDefinicion` en el servicio —al crear, actualizar y en el preview—,
+   * con el nombre del filtro y sin prefijo.
+   */
   @IsString()
   operador: string;
 

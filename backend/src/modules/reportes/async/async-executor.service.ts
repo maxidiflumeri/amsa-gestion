@@ -1,6 +1,6 @@
 import { Injectable, Logger, BadRequestException } from '@nestjs/common';
 import { PrismaService } from '../../../prisma/prisma.service';
-import { QueryPlanner } from '../planner/query-planner';
+import { QueryPlanner, FiltroEnMemoria } from '../planner/query-planner';
 import { PathParser } from '../parser/path-parser';
 import { PathResolver } from '../executor/path-resolver';
 import { Formatter } from '../executor/formatter';
@@ -10,7 +10,9 @@ import {
   FilaConSubtotales,
 } from '../executor/grouping.service';
 import { DefinicionPlantillaDto } from '../dto/plantilla.dto';
-import { esColumnaFija } from '../columna-fija';
+import { evaluarCondicion } from '../executor/evaluar-condicion';
+import { contarRama, terminaEnCount } from '../executor/contar-rama';
+import { validarDefinicion } from '../validador/definicion-validator';
 import {
   cargarFormatosTelefono,
   columnasAExpandir,
@@ -79,7 +81,7 @@ export class AsyncExecutorService {
       throw new BadRequestException(`Raíz ${raiz} no soportada`);
     }
 
-    this.validateDefinicion(definicion);
+    this.validateDefinicion(definicion, raiz);
 
     const plan = this.queryPlanner.planQuery(definicion, filtrosVars);
 
@@ -201,7 +203,7 @@ export class AsyncExecutorService {
       throw new BadRequestException(`Raíz ${raiz} no soportada`);
     }
 
-    this.validateDefinicion(definicion);
+    this.validateDefinicion(definicion, raiz);
 
     const plan = this.queryPlanner.planQuery(definicion, filtrosVars);
 
@@ -218,7 +220,7 @@ export class AsyncExecutorService {
 
   private applyPostProcessingFilters(
     data: any[],
-    filters: Array<{ path: string; operador: string; valor: any }>,
+    filters: FiltroEnMemoria[],
   ): any[] {
     let filtered = data;
 
@@ -226,76 +228,18 @@ export class AsyncExecutorService {
       const path = this.parser.parse(filter.path);
 
       filtered = filtered.filter((fila) => {
-        const valor = this.resolver.resolve(fila, path);
-        return this.evaluateCondition(valor, filter.operador, filter.valor);
+        // `[count]` cuenta todos los elementos de la última rama, no solo los del primero.
+        const valor = terminaEnCount(path) ? contarRama(fila, path) : this.resolver.resolve(fila, path);
+        return evaluarCondicion(valor, filter.operador, filter.valor, filter.tipoFecha);
       });
     }
 
     return filtered;
   }
 
-  private evaluateCondition(
-    valor: any,
-    operador: string,
-    valorEsperado: any,
-  ): boolean {
-    switch (operador) {
-      case 'eq':
-        return valor === valorEsperado;
-      case 'neq':
-        return valor !== valorEsperado;
-      case 'gt':
-        return valor > valorEsperado;
-      case 'gte':
-        return valor >= valorEsperado;
-      case 'lt':
-        return valor < valorEsperado;
-      case 'lte':
-        return valor <= valorEsperado;
-      case 'in':
-        return Array.isArray(valorEsperado) && valorEsperado.includes(valor);
-      case 'notIn':
-        return Array.isArray(valorEsperado) && !valorEsperado.includes(valor);
-      case 'contains':
-        return String(valor)
-          .toLowerCase()
-          .includes(String(valorEsperado).toLowerCase());
-      case 'startsWith':
-        return String(valor)
-          .toLowerCase()
-          .startsWith(String(valorEsperado).toLowerCase());
-      case 'endsWith':
-        return String(valor)
-          .toLowerCase()
-          .endsWith(String(valorEsperado).toLowerCase());
-      case 'between':
-        if (Array.isArray(valorEsperado) && valorEsperado.length === 2) {
-          return valor >= valorEsperado[0] && valor <= valorEsperado[1];
-        }
-        return false;
-      case 'isNull':
-        return valor === null || valor === undefined;
-      case 'isNotNull':
-        return valor !== null && valor !== undefined;
-      default:
-        return true;
-    }
-  }
-
-  private validateDefinicion(definicion: DefinicionPlantillaDto): void {
-    if (!definicion.columnas || definicion.columnas.length === 0) {
-      throw new BadRequestException('La definición debe tener al menos una columna');
-    }
-
-    for (const col of definicion.columnas) {
-      if (esColumnaFija(col)) continue;   // sin path que validar
-      this.parser.validate(col.path);
-    }
-
-    if (definicion.filtros) {
-      for (const filtro of definicion.filtros) {
-        this.parser.validate(filtro.path);
-      }
-    }
+  private validateDefinicion(definicion: DefinicionPlantillaDto, raiz: string): void {
+    // Al ejecutar, el planner valida el valor efectivo de cada filtro (el que mandó quien ejecuta o el
+    // por defecto): un valor por defecto viejo e inválido no frena a quien cargó otro.
+    validarDefinicion(definicion, raiz, { valores: false });
   }
 }

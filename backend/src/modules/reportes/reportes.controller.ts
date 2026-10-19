@@ -138,9 +138,9 @@ export class ReportesController {
     resumen: (res) => `Creó plantilla reporte "${res?.nombre}"`,
     data: (res, req) => ({ params: req.body, after: { id: res?.id, nombre: res?.nombre } }),
   })
-  async create(@Body() dto: CreatePlantillaDto) {
+  async create(@Body() dto: CreatePlantillaDto, @Req() req: Request) {
     this.logger.log(`POST /reportes/plantillas`);
-    return this.reportesService.create(dto);
+    return this.reportesService.create(dto, resolverUsuarioId(req));
   }
 
   @Patch('plantillas/:id')

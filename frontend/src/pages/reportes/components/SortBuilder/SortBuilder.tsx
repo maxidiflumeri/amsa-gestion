@@ -34,8 +34,10 @@ interface SortBuilderProps {
 }
 
 export default function SortBuilder({ ordenamientos, columnas, onChange }: SortBuilderProps) {
+  // Una columna fija (sin path) no sale de los datos: no hay nada que ordenar.
+  const ordenables = columnas.filter((c) => c.path)
   const usados = new Set(ordenamientos.map((o) => o.path))
-  const disponibles = columnas.filter((c) => !usados.has(c.path))
+  const disponibles = ordenables.filter((c) => !usados.has(c.path))
 
   const agregar = () => {
     if (disponibles.length === 0) return
@@ -74,8 +76,8 @@ export default function SortBuilder({ ordenamientos, columnas, onChange }: SortB
         </Button>
       </Stack>
 
-      {columnas.length === 0 ? (
-        <Alert severity="info">Agregá columnas antes de definir el orden.</Alert>
+      {ordenables.length === 0 ? (
+        <Alert severity="info">Agregá columnas con datos antes de definir el orden (las columnas fijas no se pueden ordenar).</Alert>
       ) : ordenamientos.length === 0 ? (
         <Alert severity="info">
           Sin orden definido, las filas salen como las devuelve la base. Agregá un criterio para que el
@@ -98,7 +100,7 @@ export default function SortBuilder({ ordenamientos, columnas, onChange }: SortB
                     onChange={(e) => actualizar(i, { path: e.target.value })}
                   >
                     {/* La propia más las que no estén ya usadas: ordenar dos veces por lo mismo no hace nada. */}
-                    {columnas
+                    {ordenables
                       .filter((c) => c.path === o.path || !usados.has(c.path))
                       .map((c) => (
                         <MenuItem key={c.path} value={c.path}>

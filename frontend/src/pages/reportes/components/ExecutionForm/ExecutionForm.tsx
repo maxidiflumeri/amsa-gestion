@@ -60,6 +60,8 @@ const ExecutionForm = ({ plantillaId, filtrosVariables }: ExecutionFormProps) =>
     setValores((prev) => ({ ...prev, [filtroId]: value }))
   }
 
+  // Mismo criterio que el backend: Entre / Fuera de con las dos puntas vacías es "sin valor"; con una
+  // sola punta es un rango abierto y se manda tal cual.
   const isVacio = (v: any): boolean => {
     if (v === undefined || v === null || v === '') return true
     if (Array.isArray(v)) {

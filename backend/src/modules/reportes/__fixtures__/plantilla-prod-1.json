@@ -1,0 +1,206 @@
+{
+ "raiz": "deudor",
+ "empresaId": null,
+ "formatoSalida": "txt",
+ "opcionesFormato": {
+  "txt": {
+   "separador": "|",
+   "incluirHeader": false
+  }
+ },
+ "definicion": {
+  "filtros": [
+   {
+    "id": "60884e76-a79d-42af-80b1-f884e94ba1e3",
+    "path": "empresa.nombre",
+    "operador": "eq",
+    "variable": true,
+    "obligatorio": true,
+    "tipoEscalar": "texto",
+    "labelVariable": "Nombre empresa"
+   },
+   {
+    "id": "e516b35e-a01d-4388-9038-16af92a6754f",
+    "path": "remesa.numeroRemesa",
+    "operador": "between",
+    "variable": true,
+    "obligatorio": true,
+    "tipoEscalar": "texto",
+    "labelVariable": "Remesa Incluye Desde Hasta"
+   },
+   {
+    "id": "e72b381d-21b9-458e-8408-e9bb824ed564",
+    "path": "remesa.numeroRemesa",
+    "operador": "notBetween",
+    "variable": true,
+    "obligatorio": false,
+    "tipoEscalar": "texto",
+    "labelVariable": "Remesa omite desde hasta"
+   },
+   {
+    "id": "80fef08e-10d9-4091-bb46-4a802bc1058f",
+    "path": "estadoGestion.descripcion",
+    "operador": "in",
+    "variable": true,
+    "obligatorio": false,
+    "tipoEscalar": "texto",
+    "labelVariable": "Estado gestion"
+   },
+   {
+    "id": "d35bc68d-d0eb-42dd-8453-2917a33cf620",
+    "path": "estadoSituacion.descripcion",
+    "operador": "in",
+    "variable": true,
+    "obligatorio": false,
+    "tipoEscalar": "texto",
+    "labelVariable": "Estado situacion"
+   },
+   {
+    "id": "f16510f7-013d-4e70-b508-cdb4cbbd5451",
+    "path": "contactos.tipo",
+    "valor": "telefono",
+    "operador": "eq",
+    "variable": false,
+    "tipoEscalar": "texto"
+   },
+   {
+    "id": "ab5c031c-37bb-4a2e-868e-0540b3a6642c",
+    "path": "contactos.validado",
+    "valor": true,
+    "operador": "eq",
+    "variable": false,
+    "tipoEscalar": "boolean"
+   }
+  ],
+  "totales": [],
+  "columnas": [
+   {
+    "id": "4cf9bb25-bd6c-4510-88c5-d6dfcbf8adbe",
+    "path": "contactos.valor",
+    "tipo": "telefono",
+    "label": "telefono1",
+    "cardinalidad": "expandir",
+    "formatoTelefonoId": 5
+   },
+   {
+    "id": "6a0c68ea-50c0-4ddc-b8da-8bc23120024b",
+    "path": "",
+    "tipo": "texto",
+    "label": "telefono2",
+    "valorFijo": ""
+   },
+   {
+    "id": "d1ec2f11-bcf5-4115-b6b4-02ef71425dd6",
+    "path": "",
+    "tipo": "texto",
+    "label": "telefono3",
+    "valorFijo": ""
+   },
+   {
+    "id": "a6fd220a-b42c-4559-bf0e-ae0c8b845c9b",
+    "path": "",
+    "tipo": "texto",
+    "label": "telefono4",
+    "valorFijo": ""
+   },
+   {
+    "id": "eb3fcd0f-02c9-474f-916f-2b56918a8148",
+    "path": "",
+    "tipo": "texto",
+    "label": "telefono5",
+    "valorFijo": ""
+   },
+   {
+    "id": "58f7c91c-42c1-4773-a28d-cde5f07b6ac8",
+    "path": "",
+    "tipo": "texto",
+    "label": "telefono6",
+    "valorFijo": ""
+   },
+   {
+    "id": "a9d720da-7d09-4644-b0b0-a046220932b4",
+    "path": "",
+    "tipo": "texto",
+    "label": "telefono7",
+    "valorFijo": ""
+   },
+   {
+    "id": "053fc151-75d9-4e66-b4bd-5cbf97c0c050",
+    "path": "",
+    "tipo": "texto",
+    "label": "telefono8",
+    "valorFijo": ""
+   },
+   {
+    "id": "449d8a68-ec2b-4fad-bea4-e15577445eca",
+    "path": "id",
+    "tipo": "numero",
+    "label": "data"
+   },
+   {
+    "id": "5bcbef99-b6b5-47e0-94b3-a5e3cd7b6a8f",
+    "path": "nroCliente",
+    "tipo": "texto",
+    "label": "campo1"
+   },
+   {
+    "id": "a256aa72-a0f1-4623-82b2-6113764d480b",
+    "path": "montoTotal",
+    "tipo": "moneda",
+    "label": "campo2"
+   },
+   {
+    "id": "03b1ec10-32b3-410b-8e0d-76357568b5a8",
+    "path": "nombre",
+    "tipo": "texto",
+    "label": "campo3"
+   },
+   {
+    "id": "208023f7-f775-4843-9b7c-3f994fd21bcf",
+    "path": "estadoSituacion.clave",
+    "tipo": "texto",
+    "label": "campo4"
+   },
+   {
+    "id": "85389fc0-92d4-445f-984d-5ebaf2963dc0",
+    "path": "estadoGestion.clave",
+    "tipo": "texto",
+    "label": "campo5"
+   },
+   {
+    "id": "6dbc56f7-3a6e-4b7d-a035-1a71beaf670d",
+    "path": "empresa.remesa.politicaId",
+    "tipo": "numero",
+    "label": "campo6"
+   },
+   {
+    "id": "dda62d86-b890-4d2e-837d-d1771aebc4a1",
+    "path": "empresa.nombre",
+    "tipo": "texto",
+    "label": "campo7"
+   },
+   {
+    "id": "8d936930-9655-4053-9c85-414651a50979",
+    "path": "remesa.numeroRemesa",
+    "tipo": "texto",
+    "label": "campo8"
+   },
+   {
+    "id": "08e43314-ed75-4371-a365-8d9269f5939c",
+    "path": "apellido",
+    "tipo": "texto",
+    "label": "campo9"
+   },
+   {
+    "id": "fc807a3d-ffa1-430d-85bc-404de1d4288e",
+    "path": "saldo",
+    "tipo": "moneda",
+    "label": "campo10"
+   }
+  ],
+  "agrupaciones": [],
+  "ordenamientos": [],
+  "cardinalidadDefault": "concatenar"
+ }
+}
+

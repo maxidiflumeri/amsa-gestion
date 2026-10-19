@@ -132,7 +132,7 @@ type Filtro = {
   id: string
   path: string                // mismo DSL que columnas
   operador: 'eq'|'neq'|'in'|'notIn'|'contains'|'startsWith'|'endsWith'|
-            'gt'|'gte'|'lt'|'lte'|'between'|'isNull'|'isNotNull'|'rangoClaves'
+            'gt'|'gte'|'lt'|'lte'|'between'|'notBetween'|'isNull'|'isNotNull'   // ver §16: rangoClaves nunca se implementó
   valor?: any                 // si fijo
   variable?: boolean          // si true, se pide al ejecutar
   labelVariable?: string      // label que ve el usuario al ejecutar
@@ -411,7 +411,7 @@ backend/src/modules/reportes/v2/
 | número | eq, neq, gt, gte, lt, lte, between, in, notIn, isNull, isNotNull |
 | fecha | eq, gt, gte, lt, lte, between, isNull, isNotNull, relativo (últimos N días) |
 | boolean | eq, isNull, isNotNull |
-| enum / parámetro | eq, in, notIn, rangoClaves (rango alfabético desde-hasta + excluir) |
+| enum / parámetro | eq, in, notIn (`rangoClaves` se descartó: ver §16) |
 
 ### 7.2 Variables
 
@@ -745,3 +745,91 @@ POST /api/internal/reportes/ejecutar  body: { plantillaId, filtrosVars }
 - B. Mockups detallados de UI (Figma o similar).
 - C. Comparativa de librerías de tree/dnd evaluadas.
 - D. Plan de pruebas detallado por fase.
+
+---
+
+## 16. Validaciones del motor (2026-10-19)
+
+Antes de la Fase B del asistente (`asistente-reportes-spec.md` §0.8, §0.13, §11.5, §19) se cerraron
+seis fallas **silenciosas**: el reporte salía mal y sin ningún error. Ahora todas son un `400`
+(`BadRequestException`, log `warn`, nunca `error`) con el motivo en castellano.
+
+### 16.1 Dónde se valida
+
+`validador/definicion-validator.ts` → `validarDefinicion(definicion, raiz)`. Se llama:
+
+| Momento | Dónde |
+|---|---|
+| Guardar | `ReportesService.create` y `update` (en `update`, solo si viene `definicion`; la raíz es la de la plantilla) |
+| Preview y ejecución sync | `ExecutorService.execute` |
+| Ejecución async y estimación | `AsyncExecutorService.executeStreaming` / `estimarFilas` |
+
+Lo que depende del **valor** (el que llega en `filtrosVars` al ejecutar) lo revisa además el planner con
+el valor real. Una plantilla vieja que no cumple falla al ejecutar con el mismo mensaje.
+
+### 16.2 Reglas
+
+| # | Regla | Mensaje |
+|---|---|---|
+| 1 | El operador del filtro está en `OPERADORES_SOPORTADOS` (`validador/operadores.ts`): eq, neq, in, notIn, contains, startsWith, endsWith, gt, gte, lt, lte, between, notBetween, isNull, isNotNull. Se valida en el servicio (no en el DTO: el `ValidationPipe` le anteponía `definicion.filtros.0.` al mensaje), en el planner (aunque el filtro variable no se haya completado) y en el post-procesado, cuyo `default` ya no devuelve `true` sino que lanza. `between` / `notBetween` exigen un array de 2 | `El filtro «<labelVariable o path>» usa un operador que el motor no soporta: X` · `El filtro «X» necesita dos valores (desde y hasta)` |
+| 2 | Una fecha de filtro es `YYYY-MM-DD` (día real del calendario), un ISO completo o un `Date`. Cualquier otra cosa no se convierte. Aplica a valores fijos, por defecto (al guardar), variables al ejecutar, cada punta de `between` y filtros que se resuelven en memoria. El mensaje no lleva el valor (se loguea `err.message`) | `Fecha inválida en el filtro «X». Usá el formato AAAA-MM-DD` |
+| 3 | Cada segmento de cada path (columnas, filtros, ordenamientos, agrupaciones, totales) existe en el modelo de Prisma de la raíz; los `[campo=valor]` apuntan a campos de esa relación. Una columna fija (`path: ""`) es válida. `camposAdicionales.<clave>`: se valida el prefijo, la clave es libre; filtrar por el bloque entero sin clave es error | `El campo «X» no existe` |
+| 4 | No hay dos columnas con el mismo `label` (las filas se arman por label: la primera pierde su dato y repite el de la segunda) | `Hay dos columnas con el nombre «X»` |
+
+**Contra qué se valida.** Contra el modelo de Prisma (DMMF), que es de donde sale el catálogo, y **no**
+contra el catálogo ya podado: éste oculta ramas (p. ej. `empresa.remesa`) que el resolver recorre bien y
+que usa la plantilla de prod #1 (`empresa.remesa.politicaId`).
+
+### 16.3 `rangoClaves`
+
+Figuraba en el tipo del frontend y en este spec, pero **nunca se implementó** (el planner lo dejaba
+pasar con un `return null`) y el editor no lo ofrecía (`operatorMatrix.ts`). Se sacó del tipo `Filtro`
+del frontend; no es un operador válido. Si hace falta un rango alfabético sobre claves, `between` sobre
+texto ya lo cubre.
+
+### 16.4 `[campo=valor][count]`
+
+`contactos[tipo=telefono][count] = 0` se traducía a `{contactos: {none: {}}}` (casos sin **ningún**
+contacto). Ahora: `{contactos: {none: {tipo: 'telefono'}}}`, con los valores pasados por `coerceValor`
+(`whatsapp=true` → booleano, `prioridad=1` → número). Solo se optimiza `= 0` y `> 0` sobre una relación
+que cuelga directo del caso y con campos escalares simples; todo lo demás (`>= 2`, filtro por fecha) va a
+post-procesado, que resuelve los mismos `[campo=valor]` en memoria. **Las ramas anidadas
+(`convenios.cuotas[count]`) cambiaron en la segunda ronda: ver §16.8, que manda sobre este párrafo.**
+
+### 16.5 Otros cambios del mismo arreglo
+
+- Filtros sobre datos adicionales (`JSON`) con `in`, `notIn`, `between` y `notBetween`: se descartaban
+  (`return null`); ahora se arman. Un operador imposible sobre un JSON es `400`.
+- `notBetween` faltaba en el post-procesado: caía en el `default` y no filtraba.
+- `creadoPorId` de la plantilla se completa con el usuario del JWT al crear
+  (`ReportesController.create`); `duplicar` ya lo hacía. Backfill de las existentes:
+  `backend/prisma/scripts/backfill-creado-por-reportes.ts` (dry-run por defecto, `--aplicar` escribe).
+- Frontend: duplicar el nombre de una columna pasa de aviso a error en `validatePlantilla`.
+
+### 16.6 Plantilla de prod #1 como red de seguridad
+
+`__fixtures__/plantilla-prod-1.json` es la definición de la única plantilla de prod;
+`__fixtures__/plan-prod-1.esperado.json` es el plan (where / include / post-procesado) que armaba el
+planner **antes** de este cambio. `plantilla-prod-1.regresion.spec.ts` verifica que pasa `validarDefinicion`
+y que el plan sigue siendo idéntico, y `reportes-validaciones-ejecucion.spec.ts` que ejecuta.
+
+### 16.7 Pendiente (Fase B)
+
+Las fechas relativas (`hoy-90`) son la extensión E1 de la Fase B: hoy dan `400`, que es lo correcto.
+
+### 16.8 Segunda ronda (2026-10-19)
+
+- **`[count]` anidado:** cantidad total de la última rama (`executor/contar-rama.ts`); `= 0` / `> 0` con `some` / `none`
+  anidados (`planner.condicionCantidadCero`), el resto en memoria. `[count]` va al final, solo con `[campo=valor]`, sobre
+  una relación con varios elementos.
+- **Rangos abiertos:** `Entre` / `Fuera de` con un extremo vacío (`null`, `''`) filtran de un solo lado; sin ninguno,
+  un variable opcional no aplica y uno obligatorio o fijo es 400. `extremosDeRango` en `validador/operadores.ts`.
+- **Fechas:** `validador/fechas-negocio.ts` clasifica cada `DateTime` del schema. *Calendario* → ventana UTC del día
+  (D 00:00:00.000Z a D 23:59:59.999Z, toma las convenciones 00:00Z y 03:00Z); *instante* → día local. Un test falla si
+  hay una columna sin clasificar. `gt` / `lt` son "después / antes del día".
+- **Lista de bloqueo:** `validador/campos-sensibles.ts` (modelos de credenciales y sesiones, `usuario` limitado a
+  `id` / `nombre` / `email`, y nombres que matchean `/pass|secret|token|hash|enc$|apiKey|googleId/i`).
+  400 «El campo «X» no se puede usar en un reporte».
+- **Filtro fijo sin valor:** 400 «El filtro «X» no tiene valor». Datos adicionales: valores como texto.
+- **Valores guardados vs. efectivos:** al guardar se validan los valores fijos y por defecto; al ejecutar, el planner
+  valida el valor efectivo (`validarDefinicion(def, raiz, { valores: false })`).

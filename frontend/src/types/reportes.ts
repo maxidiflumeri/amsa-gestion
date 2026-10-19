@@ -25,7 +25,7 @@ export type Filtro = {
   id: string
   path: string
   operador: 'eq' | 'neq' | 'in' | 'notIn' | 'contains' | 'startsWith' | 'endsWith' |
-            'gt' | 'gte' | 'lt' | 'lte' | 'between' | 'notBetween' | 'isNull' | 'isNotNull' | 'rangoClaves'
+            'gt' | 'gte' | 'lt' | 'lte' | 'between' | 'notBetween' | 'isNull' | 'isNotNull'
   valor?: any
   variable?: boolean
   labelVariable?: string

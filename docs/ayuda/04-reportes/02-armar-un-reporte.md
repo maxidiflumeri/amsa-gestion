@@ -1,7 +1,7 @@
 <!--
 seccion: Reportes
 resumen: El constructor paso a paso: elegir columnas, configurarlas y guardar la plantilla.
-revisado: 2026-08-20
+revisado: 2026-10-19
 rutas: /reportes
 rutaPrincipal: /reportes
 -->
@@ -136,8 +136,14 @@ Está desarrollado en [Formatos de salida](/ayuda/reportes/formatos).
 Ponele nombre y, si el reporte usa **datos adicionales** de un cedente, asociala a esa empresa: es lo
 que hace que esos campos aparezcan en el explorador.
 
-No te va a dejar guardar sin nombre o sin al menos una columna. Y avisa si hay etiquetas repetidas, o
-si una agrupación apunta a una columna que sacaste.
+No te va a dejar guardar sin nombre o sin al menos una columna, ni con **dos columnas que se llamen
+igual** (las filas se arman por nombre: la primera columna perdía su dato y repetía el de la segunda).
+Y avisa si una agrupación apunta a una columna que sacaste.
+
+Los dos primeros avisos —el nombre repetido y los filtros sin valor— aparecen **mientras editás** y
+dejan **Guardar deshabilitado**. Al guardar, el sistema revisa además que cada campo exista, que no sea
+uno de los que un reporte no puede mostrar (claves, sesiones, datos personales de usuarios) y que los
+filtros usen comparaciones que sabe resolver; si no, te dice cuál y no guarda.
 
 ---
 
@@ -192,6 +198,11 @@ filtraste pagos del mes, las columnas de pago traen solo los de ese mes.
 ### Puse "Primero" en el teléfono y no me trae el principal
 
 "Primero" no respeta la prioridad del contacto. No hay forma de pedir el prioritario.
+
+### Al guardar dice «Hay dos columnas con el nombre …»
+
+Cambiale el nombre a una de las dos en el panel de propiedades. Pasa seguido al agregar dos veces el
+mismo campo. El aviso aparece mientras editás, con **Guardar** deshabilitado.
 
 ### Una columna sale vacía en todas las filas
 

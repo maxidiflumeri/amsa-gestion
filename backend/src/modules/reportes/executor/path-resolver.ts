@@ -1,3 +1,4 @@
+import { contarRama, terminaEnCount } from './contar-rama';
 import { Logger, BadRequestException } from '@nestjs/common';
 import { PathAST, PathSegment, Selector } from '../parser/path-ast';
 import { Aggregator } from './aggregator';
@@ -286,7 +287,10 @@ export class PathResolver {
         continue;
       }
 
-      if (this.hasNumericAggregator(col.path)) {
+      if (terminaEnCount(col.path)) {
+        // Cantidad total de la última rama: `convenios.cuotas[count]` son las cuotas de todos los convenios.
+        valor = contarRama(fila, col.path);
+      } else if (this.hasNumericAggregator(col.path)) {
         valor = this.resolveWithNumericAggregator(fila, col.path);
       } else {
         valor = this.resolve(fila, col.path, col.cardinalidad as any);

@@ -20,10 +20,17 @@ export const validatePlantilla = (plantilla: Partial<Plantilla>): ValidationErro
     const labels = plantilla.definicion.columnas.map((c: Columna) => c.label)
     const duplicates = labels.filter((label: string, index: number) => labels.indexOf(label) !== index)
 
+    // Las filas del reporte se arman por nombre de columna: con dos iguales, la primera pierde su dato y
+    // repite el de la segunda. El backend también lo rechaza; acá se frena antes de guardar.
     if (duplicates.length > 0) {
+      const unicos = [...new Set(duplicates)] as string[]
+      const nombres = unicos.map(d => `«${d}»`).join(', ')
       errors.push({
-        type: 'warning',
-        message: `Hay columnas con labels duplicados: ${[...new Set(duplicates)].join(', ')}`,
+        type: 'error',
+        message:
+          unicos.length === 1
+            ? `Hay dos columnas con el nombre ${nombres}`
+            : `Hay columnas con el mismo nombre: ${nombres}`,
       })
     }
   }
@@ -41,7 +48,9 @@ export const validatePlantilla = (plantilla: Partial<Plantilla>): ValidationErro
       const requiresValue = filtro.operador !== 'isNull' && filtro.operador !== 'isNotNull'
 
       if (!filtro.variable && requiresValue) {
-        if (filtro.valor === undefined || filtro.valor === '' || (Array.isArray(filtro.valor) && filtro.valor.length === 0)) {
+        const vacio = (v: any) => v === undefined || v === null || v === ''
+        // Entre / Fuera de con las dos puntas vacías también es "sin valor"; con una sola es un rango abierto.
+        if (vacio(filtro.valor) || (Array.isArray(filtro.valor) && filtro.valor.every(vacio))) {
           errors.push({
             type: 'error',
             message: `Filtro #${index + 1} (${filtro.path}): falta el valor`,

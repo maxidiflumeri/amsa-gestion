@@ -265,17 +265,17 @@ describe('QueryPlanner', () => {
     });
   });
 
-  describe('Filtros de fecha por día completo', () => {
+  describe('Filtros de fecha por día completo (instantes: createdAt, ventana del día local)', () => {
     // `new Date('2026-07-31')` es medianoche UTC: en Argentina, las 21:00 del 30. Sin normalizar,
     // `lte` perdía todo el último día del rango y `gte` metía tres horas del día anterior.
     const conFiltro = (operador: string, valor: any) =>
       planner.planQuery(
         {
           columnas: [{ id: 'c1', path: 'documento', label: 'DNI' }],
-          filtros: [{ id: 'f1', path: 'fechaVencimiento', operador, valor }],
+          filtros: [{ id: 'f1', path: 'createdAt', operador, valor }],
         } as DefinicionPlantillaDto,
         {},
-      ).where.AND[0].fechaVencimiento;
+      ).where.AND[0].createdAt;
 
     const local = (a: number, m: number, d: number, ...resto: number[]) => new Date(a, m - 1, d, ...(resto as [number, number, number, number]));
 
@@ -351,8 +351,24 @@ describe('QueryPlanner', () => {
       expect(where).toEqual({ AND: [{ camposAdicionales: { path: '$.plan.cuotas', equals: '6' } }] });
     });
 
-    it('un operador que no se puede expresar no rompe: cae al post-procesado', () => {
-      expect(conFiltro('between', ['1', '5'])).toEqual({});
+    it('entre / en lista sobre un dato adicional se arman de verdad, no se descartan', () => {
+      // Antes `between` devolvía null y el filtro desaparecía: el reporte salía con todos los casos.
+      expect(conFiltro('between', ['1', '5'])).toEqual({
+        AND: [{
+          AND: [
+            { camposAdicionales: { path: '$.cuotas_vencidas', gte: '1' } },
+            { camposAdicionales: { path: '$.cuotas_vencidas', lte: '5' } },
+          ],
+        }],
+      });
+      expect(conFiltro('in', ['1', '2'])).toEqual({
+        AND: [{
+          OR: [
+            { camposAdicionales: { path: '$.cuotas_vencidas', equals: '1' } },
+            { camposAdicionales: { path: '$.cuotas_vencidas', equals: '2' } },
+          ],
+        }],
+      });
     });
   });
 

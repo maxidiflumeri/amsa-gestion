@@ -1,7 +1,7 @@
 <!--
 seccion: Reportes
 resumen: Cómo acotar qué casos entran, y cómo dejar filtros que se piden al ejecutar.
-revisado: 2026-09-16
+revisado: 2026-10-19
 rutas: /reportes
 -->
 # Filtros
@@ -49,12 +49,32 @@ Cambian según el tipo de campo. Estos son los que ofrece la pantalla:
 
 Para acotar un período se usan **Desde** y **Hasta**, o **Entre**.
 
-> ### ⚠ El rango de fechas se come el último día
->
-> Si ponés **Entre 01/01 y 31/01**, el 31 de enero **queda afuera**. Es un problema de zona horaria: el
-> sistema toma el "hasta" a la medianoche, y con nuestro huso eso cae antes de que empiece el día.
->
-> **El workaround: poné un día más en el Hasta.** Para cubrir enero, `01/01` a `01/02`.
+**El "Hasta" incluye el día entero.** **Entre 01/01 y 31/01** trae todo enero, el 31 completo, y
+**Igual a** una fecha trae todo ese día. No hace falta sumar un día: si lo hacés, el reporte trae un día
+de más.
+
+**Dos clases de fecha, y cada una cuenta el día a su manera.** Las **fechas de negocio** —vencimiento de
+la deuda, de una factura, de una cuota o de una clave, emisión de la factura, fecha de un pago, fecha
+prometida de una promesa, fecha de inicio de un convenio— son un día de calendario: "vence el 15/03" es
+el 15 de marzo. Algún pago que entró con la hora real de la carga, si se cargó de noche (después de las
+21:00), puede aparecer en el día siguiente. Las **fechas de registro** —cuándo se escribió un comentario,
+cuándo se creó o se modificó algo, cuándo se envió un mail, cuándo sonó una llamada— tienen hora, y el
+día es el de Argentina (de las 00:00 a las 23:59). Vos solo elegís el día; el sistema usa la cuenta que
+corresponde a ese campo.
+
+**Desde el 19/10 cambia el resultado de los filtros de fecha de negocio.** Hasta entonces se contaba
+todo como fecha de registro, y las fechas guardadas sin hora (la gran mayoría de los vencimientos de los
+casos) caían en el **día anterior**: un filtro "vence el 15/03" traía los del 14. Si una plantilla de
+vencimientos le sumaba o restaba un día para compensarlo, hay que sacarlo.
+
+**La fecha tiene que estar bien escrita.** Se acepta un día del calendario (`2026-07-31`, el que manda
+el selector de la pantalla). Si la fecha no es válida —un texto, un día que no existe como el 31 de
+febrero— el reporte **no se ejecuta** y avisa en qué filtro; antes tomaba cualquier cosa como fecha y
+salía con un período cualquiera, sin avisar. Más abajo están los mensajes.
+
+**Con una sola punta, el rango queda abierto.** **Entre** con solo el "desde" son las fechas de ahí en
+adelante, y con solo el "hasta", hasta esa fecha. **Fuera de** con una sola punta deja afuera de ahí en
+adelante (o hasta ahí).
 
 ### Sí / No
 
@@ -122,8 +142,9 @@ Al ejecutar, las etiquetas salen con un `*` si son obligatorias y con "(opcional
 
 ## Qué NO se puede filtrar
 
-**Los datos adicionales del cedente.** Aparecen en el selector de filtros, pero **el reporte falla al
-ejecutarse**. Se pueden usar como columna, no como filtro.
+**Ver todos los valores de un dato adicional en una lista.** Los datos adicionales del cedente se pueden
+usar como filtro y como columna, pero **En lista** no te ofrece los valores para elegir. Para comparar
+contra un valor, usá **Igual a** o **Contiene**.
 
 ---
 
@@ -154,9 +175,59 @@ en 3.000 puede terminar en 40.000 filas.
 
 Los filtros se combinan con Y y alguno se contradice con otro. Sacalos de a uno.
 
-### Falta el último día del período
+### Me trae un día de más en el período
 
-Es el problema de zona horaria. Poné un día más en el Hasta.
+Lo más probable es que la plantilla se armó cuando el "Hasta" se comía el último día, y se le sumó un día
+a mano para compensarlo. Desde el 21/08 el "Hasta" ya incluye el día entero: poné la fecha real (para
+enero, `01/01` a `31/01`).
+
+### El reporte no se ejecuta y dice que el filtro usa un operador que el motor no soporta
+
+> **El filtro «Rango de claves» usa un operador que el motor no soporta: rangoClaves**
+
+La plantilla tiene un filtro con una comparación que el sistema no sabe resolver. Antes ese filtro se
+descartaba en silencio y el reporte salía con **todos los casos**; ahora se frena. Abrí la plantilla,
+cambiá ese filtro por uno de los que ofrece la pantalla y guardá.
+
+### El reporte no se ejecuta y dice «Fecha inválida en el filtro»
+
+> **Fecha inválida en el filtro «Vence desde». Usá el formato AAAA-MM-DD**
+
+El valor de ese filtro no es una fecha. Usá el selector de fecha de la pantalla. Escribir cosas como
+`hoy-90` todavía no se puede: elegí la fecha puntual.
+
+### Dice «El campo … no existe»
+
+> **El campo «empresa.nombrecito» no existe**
+
+La plantilla (en una columna, filtro, orden, agrupación o total) apunta a un campo que no está en el
+sistema, por ejemplo porque se renombró. Antes esa columna salía **vacía en todas las filas** sin
+avisar. Entrá a la plantilla, reemplazá el campo por el correcto y guardá. Los datos adicionales no se
+revisan de esta forma: cada cedente manda los suyos.
+
+### Dice «Hay dos columnas con el nombre …»
+
+Dos columnas se llaman igual y las filas se arman por nombre: salían **todas las columnas, pero la
+primera perdía su dato y repetía el de la segunda**. Cambiale el nombre a una de las dos.
+
+### Dice «El filtro … no tiene valor»
+
+Es un filtro **fijo** (no variable) al que se le borró el valor. Antes se ignoraba en silencio y el
+reporte salía con **todos los casos**; ahora se frena. Cargale el valor o sacalo. Vale igual para un
+**Entre** o **Fuera de** con las dos puntas vacías.
+
+### Dice «El filtro … necesita dos valores (desde y hasta)»
+
+Pasa casi solo por API: una lista de **Entre** o **Fuera de** que no tiene exactamente dos lugares. En la
+pantalla, un solo extremo vacío **no** es un error: es un rango abierto.
+
+### Casos "sin teléfono" que traía los "sin ningún contacto"
+
+Si una plantilla pide **los casos sin teléfono** (Cantidad = 0 de los contactos de tipo teléfono), el
+reporte traía los casos sin **ningún** contacto, así que se perdían los que tenían un mail pero no un
+teléfono. Ya está corregido: ahora cuenta solo los teléfonos. Ojo: **desde la pantalla no se puede armar**
+(el camino de la rama no se escribe a mano); solo aplica a plantillas cargadas por otra vía. En la
+pantalla, **Cantidad** cuenta todos los contactos juntos.
 
 ### Filtré por un dato adicional y no trae lo que espero
 

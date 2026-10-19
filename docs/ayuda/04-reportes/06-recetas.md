@@ -1,7 +1,7 @@
 <!--
 seccion: Reportes
 resumen: Seis reportes armados de punta a punta, para copiar y adaptar.
-revisado: 2026-08-20
+revisado: 2026-10-19
 rutas: /reportes
 -->
 # Recetas
@@ -123,6 +123,9 @@ lo que permite cruzar contra el extracto.
 | **Orden** | Fecha prometida |
 | **Formato** | Excel |
 
+La fecha prometida es un **día de calendario**: "entre el lunes y el viernes" trae las promesas del
+viernes completo, sin sumar un día.
+
 Mezclar promesas en expandir con contactos en concatenar **no multiplica las filas**: las columnas de
 una misma rama se emparejan entre sí, y las de otra rama concatenada quedan igual en cada fila.
 
@@ -145,6 +148,10 @@ contacto; `> 0`, los que tienen alguno.
 
 Ordenado por saldo porque es la lista de **cuánta plata no se puede gestionar** — ese es el argumento
 para pedirle datos al cedente.
+
+**Cantidad cuenta todos los contactos juntos** (teléfonos, mails y domicilios). Los casos sin
+**teléfono** pero con un mail **no se pueden pedir desde la pantalla**: el camino de la rama no se
+escribe a mano.
 
 > No pongas columnas de contacto en este reporte: por definición van a salir todas vacías.
 

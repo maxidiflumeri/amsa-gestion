@@ -6,6 +6,220 @@
 
 ---
 
+## [2026-10-19] — Reportes: el motor deja de fallar en silencio
+
+Arreglo aparte y previo a la Fase B del asistente de reportes ([docs/asistente-reportes-spec.md](docs/asistente-reportes-spec.md)
+§0.8, §0.13, §11.5 y §19). Seis fallas en las que el reporte **salía mal sin ningún error**. El detalle de las reglas
+está en [docs/reportes-dynamic-spec.md §16](docs/reportes-dynamic-spec.md).
+
+**Estado: sin desplegar. Sin cambios de schema.**
+
+### Lo que pasaba
+- **Operador desconocido = la cartera entera.** El planner devolvía `null` para `rangoClaves` (y para cualquier operador
+  que no conociera) y el filtro desaparecía; en el post-procesado el `default` devolvía `true`. Lo mismo con `between` /
+  `notBetween` sin un array de 2. Además `notBetween` ni existía en el post-procesado.
+- **`contactos[tipo=telefono][count] = 0` ignoraba el filtro de la rama:** se armaba `{contactos: {none: {}}}` (casos
+  sin **ningún** contacto), así que "sin teléfono" perdía a los que tenían un mail.
+- **Una fecha mal escrita terminaba en 1990:** `coerceValor` hacía `new Date('hoy-90')`. Y `2026-02-31` se corría solo
+  a marzo.
+- **Un path que no existe salía como columna vacía** (`path-resolver`).
+- **Dos columnas con el mismo label se pisaban** (las filas se arman por label): salían todas las columnas, pero la primera perdía su dato y repetía el de la segunda.
+- **`creadoPorId` quedaba `null` en todas las plantillas:** `POST /reportes/plantillas` no le pasaba el usuario al servicio.
+- Hallazgo de paso: los filtros sobre datos adicionales (columna JSON) con `in`, `notIn`, `between` y `notBetween`
+  también se descartaban (`return null`). Un test existente lo daba por bueno ("cae al post-procesado") pero el filtro
+  no llegaba a ningún lado.
+
+### Backend
+- **`validador/definicion-validator.ts`** (`validarDefinicion`): un solo lugar para validar la definición. Se llama al
+  guardar (`ReportesService.create/update`), en preview / ejecución sync (`ExecutorService`) y en async / estimación
+  (`AsyncExecutorService`). Valida operadores, columnas repetidas, y que cada path de columnas, filtros, ordenamientos,
+  agrupaciones y totales exista (también los `[campo=valor]`). Columnas fijas (`path: ""`) válidas; en
+  `camposAdicionales.*` se valida el prefijo y la clave es libre. Se valida contra el DMMF de Prisma y no contra el
+  catálogo podado, porque la plantilla de prod usa `empresa.remesa.politicaId`, que el catálogo oculta.
+- **`validador/operadores.ts`**: la lista única de operadores (`OPERADORES_SOPORTADOS`); `FiltroDto.operador` quedó sin
+  `@IsIn` (ver la segunda ronda: el ValidationPipe le ponía un prefijo técnico al mensaje). **`validador/fecha-filtro.ts`**: solo `YYYY-MM-DD` real, ISO completo o `Date`.
+- **`planner/query-planner.ts`**: operador no soportado, rango sin 2 valores y fecha inválida son `BadRequestException`
+  con el nombre del filtro (`labelVariable` o path) y `warn` (sin loguear el valor). El `[count]` con filtro de rama
+  mete la condición adentro del `some`/`none` (valores con `coerceValor`); solo se optimiza `= 0` / `> 0` de una
+  relación directa con campos escalares simples, el resto va a post-procesado. Datos adicionales: `in`, `notIn`,
+  `between` y `notBetween` se arman de verdad.
+- **`executor/evaluar-condicion.ts`**: el evaluador en memoria, antes duplicado en los dos executors. Operador
+  desconocido lanza en vez de devolver `true`; agrega `notBetween`.
+- **`rangoClaves`:** nunca se implementó (el planner lo dejaba pasar con `null`) y el editor **no lo ofrecía**
+  (`operatorMatrix.ts`). Se lo sacó del tipo `Filtro` del frontend y del spec: no es un operador válido.
+- **`creadoPorId`:** `ReportesController.create` pasa el usuario del JWT. `duplicar` ya lo hacía.
+- **`prisma/scripts/backfill-creado-por-reportes.ts`**: completa `creadoPorId` desde la auditoría
+  (`entidad='PlantillaReporte'`, `tipo='CREATE'`). Idempotente, no pisa lo ya cargado. **`--dry-run` por defecto**,
+  `--aplicar` escribe.
+
+### Frontend
+- `types/reportes.ts`: sin `rangoClaves`.
+- `validatePlantilla.ts`: dos columnas con el mismo nombre pasa de aviso a **error** (frena el guardado con el mismo
+  texto que el backend). Los demás 400 salen por `notify.error`, que ya muestra el mensaje del backend.
+
+### Wiki
+- `reportes/filtros`: se corrigieron las dos entradas viejas (el "Hasta" que se comía el último día y los datos
+  adicionales que "fallaban"; ambas se arreglaron el 21/08, `cb67ec9`; el consejo de "poné un día más" ahora agrega un
+  día de más). Entradas nuevas con los cuatro mensajes de error y el arreglo de "sin teléfono".
+  `reportes/armar-un-reporte` y `reportes/recetas` actualizadas.
+
+### Tests (primera ronda)
+- Backend: `npx jest src/modules/reportes` en verde (25 suites, 312 tests). Nuevos: `validador/*.spec.ts`,
+  `planner/query-planner-validaciones.spec.ts`, `executor/evaluar-condicion.spec.ts`, `reportes.service.spec.ts`,
+  `reportes-validaciones-ejecucion.spec.ts` (incluye `ReportesController.create`). Con el código viejo, 27 de los
+  tests nuevos fallan.
+- **Regresión de la plantilla de prod #1:** `__fixtures__/plantilla-prod-1.json` + `plan-prod-1.esperado.json` (el plan
+  que armaba el planner **antes** del cambio). `plantilla-prod-1.regresion.spec.ts`: pasa todas las validaciones y el
+  `where` / `include` son idénticos, con filtros completos, solo los obligatorios y en preview. Pasa con el código viejo
+  y con el nuevo.
+- Frontend: `tests/unit/reportes-validar.test.ts`.
+
+### Deploy (primera ronda; ver abajo la segunda)
+Sin `db push`. **Un paso manual, con el OK del usuario** (en prod hay 1 plantilla, id 1, y la auditoría dice usuario 1):
+```bash
+# desde el contenedor del backend en prod (ver memoria: Prod DB query vía SSM)
+npx ts-node --transpile-only prisma/scripts/backfill-creado-por-reportes.ts            # dry-run: muestra qué haría
+npx ts-node --transpile-only prisma/scripts/backfill-creado-por-reportes.ts --aplicar  # recién después de mirar el dry-run
+```
+Nada más. La plantilla de prod #1 no cambia de resultado ni empieza a fallar (test de regresión).
+
+### Guion de prueba manual (primera ronda)
+1. Abrir la plantilla de prod #1, ejecutarla con empresa y remesa: mismo resultado que antes.
+2. Armar una plantilla con dos columnas llamadas igual: el editor muestra el error y no deja guardar; por API, `POST
+   /api/reportes/plantillas` da 400 «Hay dos columnas con el nombre …».
+3. `POST /api/reportes/preview` con un filtro `operador: "rangoClaves"`: 400 «El filtro «…» usa un operador que el motor
+   no soporta».
+4. Filtro de fecha con valor `hoy-90` o `2026-02-31`: 400 «Fecha inválida en el filtro «…». Usá el formato AAAA-MM-DD» (sin el valor escrito).
+5. Columna con path `empresa.nombrecito`: 400 «El campo «empresa.nombrecito» no existe».
+6. Preview con filtro `contactos[tipo=telefono][count]` `eq` `0`: devuelve los casos sin teléfono, incluidos los que
+   tienen mail.
+7. Crear una plantilla nueva: `creadoPorId` es el usuario logueado (`GET /api/reportes/plantillas` devuelve `creadoPor`).
+
+### Segunda ronda (auditoría: NO PASA) — lo que se arregló
+
+La regla de fondo: **ninguna condición se descarta ni se evalúa mal en silencio; o se resuelve bien o da 400.**
+
+1. **`[count]` sobre una rama anidada** (el editor ofrece "Convenios > Cuotas del convenio > Cantidad"). Se resolvía
+   en memoria con cardinalidad "primero": miraba solo el primer convenio y un caso sin convenios daba `null` y
+   desaparecía de `= 0` y de `> 0`. Ahora la cantidad es el **total** de la última rama sumando todos los de la del
+   medio, con 0 si está vacía. `= 0` → `{convenios: {none: {cuotas: {some: {}}}}}` (incluye a los que no tienen
+   convenios); `> 0` → `{convenios: {some: {cuotas: {some: {}}}}}`; los `[campo=valor]` de cada tramo van adentro.
+   Los demás operadores (`>= 2`…) se cuentan en memoria con `executor/contar-rama.ts` sobre todos los elementos;
+   la columna `rama.rama[count]` usa el mismo conteo. Se validó contra la base local con datos armados (sin
+   convenios, convenio con 0 cuotas, 0 y 2 cuotas, 1 cuota): `= 0` → los dos primeros, `> 0` → los otros dos,
+   `>= 2` → solo el de 2. El validador exige `[count]` al final, solo con filtros `[campo=valor]` y sobre una
+   relación con varios elementos.
+2. **Entre / Fuera de con un extremo vacío.** Desde la pantalla llega `[desde, null]` (o `''`): daba un 500 de
+   Prisma, 0 filas o un `notBetween` sin efecto. Un solo extremo es un **rango abierto** (`gte` o `lte`; `NOT` de
+   uno) en Prisma, en fechas, en datos adicionales y en memoria. Con los dos vacíos: un variable opcional no
+   aplica; uno obligatorio da 400 y uno fijo da 400 «no tiene valor». El editor trata las dos puntas vacías como
+   "sin valor". `ExecutionForm.isVacio` ya era coherente (solo es vacío si todas las puntas lo son).
+3. **Ventana del día de las fechas.** Medido en prod: conviven dos convenciones para la misma fecha calendario D,
+   00:00Z y 03:00Z (`deudor.fechaVencimiento` 25.242 a las 00:00Z y 269 a las 03:00Z; `factura.vencimiento` 56.423 a
+   las 00:00Z, 156.777 a las 03:00Z y 56 a las 02:00Z; `factura.fechaEmision` 141.506 a las 03:00Z; `pago.fecha`
+   2.105 a las 03:00Z; remesa, cuota y clave 100 % a las 00:00Z). La ventana local (de D 03:00Z a D+1 02:59Z), que
+   viene de `cb67ec9` (21/08), perdía todo lo de las 00:00Z: el 99 % de `deudor.fechaVencimiento` y el 26 % de
+   `factura.vencimiento` caían en el día anterior. **Cambia el resultado de cualquier filtro de fecha calendario,
+   hacia lo correcto.** Ahora `validador/fechas-negocio.ts` clasifica **cada** columna `DateTime` del schema:
+   - *calendario* (ventana UTC, de D 00:00:00.000Z a D 23:59:59.999Z, toma las dos convenciones):
+     `deudor.fechaVencimiento`, `factura.fechaEmision`, `factura.vencimiento`, `pago.fecha`,
+     `promesa_pago.fechaPromesa`, `remesa.fechaVencimiento`, `cuota_convenio.fechaVencimiento`,
+     `cuota_convenio.fechaPago`, `clave_pago.fechaVencimiento`, `indice_mora.fecha` (`@db.Date`) y, desde la tercera
+     ronda, `convenio.fechaInicio`;
+   - *instante* (día local): todas las demás (`createdAt`, `updatedAt`, `comentario.fecha`,
+     `pago.confirmadoEn`, `callback_neotel.fechaAgenda`, llamadas, sesiones, etc.).
+   Un test falla si aparece una columna `DateTime` sin clasificar. Se aplica en Prisma y en memoria, en `eq`, `neq`,
+   `gt`, `gte`, `lt`, `lte`, `between` y `notBetween`. De paso, `gt` / `lt` pasan a ser "después / antes de ese día"
+   (antes eran iguales a `gte` / `lte`). La plantilla #1 no filtra por fecha: su plan no cambia.
+   **Dashboards (deuda, NO se tocó):** `dashboards/rango-fechas.ts` usa la ventana local (`inicioDelDia` /
+   `finDelDia`) sobre `pago.fecha` (calendario) y `comentario.fecha` (instante, bien). Para `pago.fecha` hoy casi todo
+   está a las 03:00Z, que la ventana local toma bien; si hubiera pagos a las 00:00Z, caerían en el día anterior.
+   `dashboards.service.ts` también filtra con `DATEDIFF(NOW(), d.fechaVencimiento)`, que no depende de la ventana.
+4. **Campos sensibles por el preview** (anterior a este cambio). `POST /reportes/preview` pide solo `reportes.ver`.
+   `validador/campos-sensibles.ts` bloquea, en columnas, filtros, ordenamientos, agrupaciones y totales, al guardar,
+   en preview y al ejecutar: todo camino que atraviese `agente_telefonia`, `sesion_agente_neotel`,
+   `campaña_sesion_neotel`, `estado_agente_evento`, `neotel_evento_log`, `rol`, `Notificacion` y los `asistente_*`;
+   de `usuario` todo menos `id`, `nombre` y `email`; y cualquier campo que matchee
+   `/pass|secret|token|hash|enc$|apiKey|googleId/i`. 400 «El campo «X» no se puede usar en un reporte»; el `warn` lleva
+   el usuario (lo agrega el logger) y no el valor. No hay modelo de cuentas SMTP en este schema (solo
+   `empresa.cuentaSmtpId`, un entero). Un test recorre el modelo de Prisma desde `deudor` y `transaccion` y verifica
+   que nada sensible quede alcanzable; `empresa.remesa.politicaId` (plantilla #1) sigue pasando.
+5. **Huecos solo por API** (los pisaría el asistente de la Fase B): un filtro fijo sin valor, o con `in []` o
+   `between [null,null]`, desaparecía y traía la cartera entera → 400 «El filtro «X» no tiene valor» (salvo
+   `isNull` / `isNotNull`). Datos adicionales: los valores se convierten a texto, que es como los guarda la
+   importación (`between [2,4]` daba 0 filas y `['2','4']` 5.322). Una fecha en un filtro que se resuelve en memoria
+   (`pagos[origen=X].fecha`) ahora se valida (400) y se compara por día con la misma clasificación.
+6. **Texto «una columna de menos»**: era falso, salen todas; la primera pierde su dato y repite el de la segunda.
+   Corregido en la wiki, acá arriba y en el comentario de `validatePlantilla.ts`.
+7. **El 400 de operador inválido** llegaba con el prefijo técnico del `ValidationPipe` (`definicion.filtros.0.El
+   filtro…`). Se sacó el `@IsIn` del DTO; la validación queda en el servicio (crear, actualizar, preview y ejecutar).
+   `notify.error` y `PreviewPanel` muestran `response.data.message` tal cual llega, ya limpio.
+8. **El valor de la fecha quedaba en el log** (el `LoggingInterceptor` loguea `err.message`). El mensaje ahora es
+   «Fecha inválida en el filtro «X». Usá el formato AAAA-MM-DD». (Por eso en la sección de la primera ronda el
+   mensaje con `: <valor>` ya no existe.)
+9. **Editor:** una columna fija nueva toma el primer `columnaN` libre (antes repetía el nombre si se borraba una del
+   medio y eso bloquea el guardado). "Orden de las filas" ya no ofrece las columnas fijas; un orden guardado por una
+   columna fija se ignora con `warn` en vez de dar 400.
+10. **Wiki / validación:** `armar-un-reporte` (los avisos aparecen mientras se edita y Guardar queda deshabilitado),
+    `recetas` ("sin teléfono" no se arma desde la pantalla), `ejecutar-y-descargar` (mensajes nuevos que ve quien
+    ejecuta) y `filtros` (fechas de negocio vs. de registro, rangos abiertos, «no tiene valor»). Un `valorPorDefecto`
+    de fecha inválido guardado antes ya no frena la ejecución si quien ejecuta cargó otra fecha: al guardar se valida
+    el valor guardado; al ejecutar, el valor efectivo.
+
+**Tests de la segunda ronda:** `executor/contar-rama.spec.ts`, `planner/query-planner-ronda2.spec.ts`,
+`validador/campos-sensibles.spec.ts` (incluye el test de fechas sin clasificar), `validador/ronda2.spec.ts`, más lo
+agregado a `query-planner-validaciones.spec.ts`, `reportes-validaciones-ejecucion.spec.ts` y
+`frontend/tests/unit/reportes-validar.test.ts`. Los tests de fecha de `query-planner.spec.ts` pasaron a `createdAt`
+(instante) porque `deudor.fechaVencimiento` ahora es calendario.
+
+**Deploy de la segunda ronda:** sin `db push` y sin pasos nuevos. Aviso para quien use reportes: cambia el resultado
+de los filtros de fecha de negocio (hacia lo correcto), y las plantillas que ya tengan un campo bloqueado, un filtro
+fijo sin valor o una fecha inválida empiezan a dar 400 al ejecutar (la #1 no).
+
+### Tercera ronda (auditoría: PASA CON OBSERVACIONES)
+
+Arreglado, cada uno con su test:
+- **«Cantidad» con «Entre» y un solo extremo** daba 400 «tiene que ser un número» en vez de rango abierto (lo que dice
+  la wiki). Ahora una punta vacía es un rango abierto, como en el resto de los filtros.
+- **`convenio.fechaInicio` pasa a fecha calendario:** el alta la toma de un `<input type="date">` y la guarda a las
+  00:00Z. Con la ventana local, un convenio del 01/07 aparecía en el 30/06.
+- **`camposAdicionales.codeudores[count]`** (una lista dentro de los datos adicionales, la usan los imports
+  multiarchivo) volvió a contarse: el validador nuevo la rechazaba. Solo por API.
+- `docs/reportes-dynamic-spec.md` §16.4 decía que `convenios.cuotas[count]` iba a post-procesado; ahora remite a §16.8.
+
+**Deuda: anterior a este cambio o fuera de su alcance, no se tocó:**
+- **Tableros y reportes no cuentan igual el día de un pago.** El tablero usa el día local sobre `pago.fecha` y el
+  reporte, el día UTC. Además, `actualizaciones.processor.ts:894` crea pagos con `fecha: new Date()`, la hora real: una
+  carga corrida después de las 21:00 los pasa al día siguiente en el reporte. Con casi todo `pago.fecha` a las 03:00Z
+  en prod, el impacto es chico. Lo de fondo es unificar cómo se guardan las fechas de negocio, y merece su propio
+  diseño.
+- **El rango de remesas compara como texto** (`numeroRemesa` es `String`): «entre "10" y "20"» trae "1783379425572".
+  La plantilla #1 hace exactamente eso; no se tocó porque no puede cambiar su resultado.
+- **«Llamadas > Campaña > …»** siempre da «Path contiene caracteres inválidos»: la `ñ` de `campaña` no entra en la
+  regex del parser. Ya fallaba antes.
+- **«Cantidad» con «Vacío» / «No vacío»:** una cantidad nunca es nula, así que da 0 filas.
+- **Solo por API:**
+  - un `[campo=valor]` sobre una fecha (`pagos[fecha=2026-07-03][count]`) no coincide nunca;
+  - `in` sobre una fecha calendario compara contra el instante 00:00Z;
+  - `between [día, ISO]` sobre un instante toma el día como medianoche UTC.
+
+**Tests al cerrar:**
+- backend: 2.699, con `npm run build` limpio;
+- frontend: `npm test` 885 en 57 archivos, `tsc` sin errores nuevos;
+- `verificar-ayuda` OK.
+
+**Guion de prueba manual (segunda ronda):**
+8. Plantilla con "Convenios > Cuotas del convenio > Cantidad = 0": trae también a los casos sin convenios; "> 0" solo
+   a los que tienen alguna cuota.
+9. "Remesa omite desde hasta" de la plantilla #1 con solo "Desde": ejecuta (rango abierto), sin error.
+10. Filtro "Vence el 15/03" sobre `Fecha de vencimiento` del caso: trae los casos que vencen ese día (también los que
+    están guardados a las 00:00 UTC).
+11. `POST /api/reportes/preview` con la columna `comentarios.usuario.dni`: 400 «no se puede usar en un reporte».
+12. En el editor, agregar dos columnas fijas, borrar la primera y agregar otra: el nombre no se repite; "Orden de las
+    filas" no ofrece las columnas fijas.
+
+---
+
 ## [2026-10-19] — Asistente: busca en el texto completo de la wiki antes de decir que algo no está
 
 Arreglo de los dos 👎 que dejó el usuario probando la Fase A en prod. El detalle está en

@@ -1,0 +1,217 @@
+{
+ "completo": {
+  "where": {
+   "AND": [
+    {
+     "empresa": {
+      "nombre": {
+       "equals": "AYSA"
+      }
+     }
+    },
+    {
+     "remesa": {
+      "numeroRemesa": {
+       "gte": "10",
+       "lte": "20"
+      }
+     }
+    },
+    {
+     "remesa": {
+      "numeroRemesa": {
+       "not": {
+        "gte": "15",
+        "lte": "16"
+       }
+      }
+     }
+    },
+    {
+     "estadoGestion": {
+      "descripcion": {
+       "in": [
+        "Nuevo",
+        "En gestión"
+       ]
+      }
+     }
+    },
+    {
+     "estadoSituacion": {
+      "descripcion": {
+       "in": [
+        "Sin gestión"
+       ]
+      }
+     }
+    },
+    {
+     "contactos": {
+      "some": {
+       "tipo": {
+        "equals": "telefono"
+       }
+      }
+     }
+    },
+    {
+     "contactos": {
+      "some": {
+       "validado": {
+        "equals": true
+       }
+      }
+     }
+    }
+   ]
+  },
+  "include": {
+   "contactos": {
+    "where": {
+     "AND": [
+      {
+       "tipo": {
+        "equals": "telefono"
+       }
+      },
+      {
+       "validado": {
+        "equals": true
+       }
+      }
+     ]
+    }
+   },
+   "estadoSituacion": {},
+   "estadoGestion": {},
+   "empresa": {
+    "include": {
+     "remesa": true
+    }
+   },
+   "remesa": {}
+  },
+  "requiresPostProcessing": false,
+  "postProcessingFilters": []
+ },
+ "minimo": {
+  "where": {
+   "AND": [
+    {
+     "empresa": {
+      "nombre": {
+       "equals": "AYSA"
+      }
+     }
+    },
+    {
+     "remesa": {
+      "numeroRemesa": {
+       "gte": "10",
+       "lte": "20"
+      }
+     }
+    },
+    {
+     "contactos": {
+      "some": {
+       "tipo": {
+        "equals": "telefono"
+       }
+      }
+     }
+    },
+    {
+     "contactos": {
+      "some": {
+       "validado": {
+        "equals": true
+       }
+      }
+     }
+    }
+   ]
+  },
+  "include": {
+   "contactos": {
+    "where": {
+     "AND": [
+      {
+       "tipo": {
+        "equals": "telefono"
+       }
+      },
+      {
+       "validado": {
+        "equals": true
+       }
+      }
+     ]
+    }
+   },
+   "estadoSituacion": true,
+   "estadoGestion": true,
+   "empresa": {
+    "include": {
+     "remesa": true
+    }
+   },
+   "remesa": {}
+  },
+  "requiresPostProcessing": false,
+  "postProcessingFilters": []
+ },
+ "preview": {
+  "where": {
+   "AND": [
+    {
+     "contactos": {
+      "some": {
+       "tipo": {
+        "equals": "telefono"
+       }
+      }
+     }
+    },
+    {
+     "contactos": {
+      "some": {
+       "validado": {
+        "equals": true
+       }
+      }
+     }
+    }
+   ]
+  },
+  "include": {
+   "contactos": {
+    "where": {
+     "AND": [
+      {
+       "tipo": {
+        "equals": "telefono"
+       }
+      },
+      {
+       "validado": {
+        "equals": true
+       }
+      }
+     ]
+    }
+   },
+   "estadoSituacion": true,
+   "estadoGestion": true,
+   "empresa": {
+    "include": {
+     "remesa": true
+    }
+   },
+   "remesa": true
+  },
+  "requiresPostProcessing": false,
+  "postProcessingFilters": []
+ }
+}
