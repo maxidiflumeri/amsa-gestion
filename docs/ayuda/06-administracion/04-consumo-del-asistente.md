@@ -1,7 +1,7 @@
 <!--
 seccion: Administración
 resumen: Cuánto cuesta el asistente, cómo se controla el gasto por función y cómo usar las respuestas con 👎 para mejorar la Documentación.
-revisado: 2026-10-19
+revisado: 2026-10-20
 rutas: /asistente/consumo
 rutaPrincipal: /asistente/consumo
 -->
@@ -94,12 +94,55 @@ hay forma de pausarlo para una sola persona.
 - **Por función**: gasto, preguntas, un interruptor para activar o desactivar la función y sus tres valores
   editables —tope mensual, tope por pregunta y pedidos por persona y día—, cada uno con su botón para guardarlo.
   Los dos últimos son números: el tope por pregunta admite decimales y el de pedidos tiene que ser un entero.
+- **Tiempos por paso**: cuánto tarda cada parte de una respuesta (ver *Los tiempos de cada paso*, más abajo).
 - **Plantillas armadas con el asistente**: aparece siempre; sin uso, con ceros. Cuenta, por función:
   cuántas propuestas se **mostraron**, cuántas se **abrieron en el editor** y cuántas se **guardaron** (con el
   porcentaje de las mostradas), qué porcentaje de las guardadas **no se cambió** en el editor y cuánto salió cada
   **plantilla guardada** en promedio. Sirve para saber si el modo da resultado: si se muestran muchas y se guardan
   pocas, las propuestas no están convenciendo; si casi todas se guardan sin tocar, la propuesta ya sale bien.
 - **Por persona**: las 50 personas que más gastaron en el mes.
+
+## Los tiempos de cada paso
+
+La tarjeta **Tiempos por paso** responde a "¿por qué el asistente está lento?". Para cada función hay una tabla con
+una fila por paso de la respuesta (la preparación, la llamada al modelo, la espera del primer token, el
+razonamiento, la respuesta, cada herramienta, guardar) y, arriba de todo, el **total en el servidor** y el **total y
+el primer texto en el navegador** de la gente. Las columnas son:
+
+| Columna | Qué dice |
+|---|---|
+| **Paso** | Qué parte de la respuesta es. Las herramientas llevan su nombre: *Herramienta leer_pagina*. |
+| **Veces** | Cuántas veces se midió ese paso en el mes. Una respuesta puede tener más de una llamada o más de una herramienta, por eso este número no es el de respuestas |
+| **Mediana** | El tiempo típico: la mitad de las veces tardó menos que esto y la otra mitad, más |
+| **p95** | El tiempo de los días malos: el 95 % de las veces tardó esto o menos. Una de cada veinte tardó más |
+
+Un ejemplo: si **Total en el servidor** dice mediana 4,1 s y p95 9,8 s, una respuesta común tarda unos 4 segundos,
+pero una de cada veinte tarda más de casi 10. Si la mediana está bien y el p95 se disparó, el problema es de
+algunos casos (una herramienta lenta, una espera larga a veces), no de todos. Para ver cuál, bajá por las filas
+hasta encontrar el paso cuyo p95 se parece al del total.
+
+**Qué no cuenta.** Para que los tiempos reflejen el trabajo normal:
+
+- Una **respuesta que no terminó bien** **no suma en ningún «Total»**, ni el del servidor ni el del navegador. Son
+  las que la persona **detuvo**, las cortadas por un tope, las que fallaron o vencieron por tiempo, las **cortadas
+  por largo** y las que el asistente **se negó a contestar**.
+- Una **llamada al modelo que no terminó bien** no suma en **Llamada** ni en los pasos de adentro (espera,
+  razonamiento, respuesta y pedido): la detenida, la que no se hizo por un tope, la que venció por tiempo y la que
+  dio error. Una llamada **cortada por largo** sí cuenta: su tiempo es real.
+- Los pasos que **sí terminaron** (la preparación, las herramientas que no quedaron a medias y guardar) **cuentan
+  siempre**, aunque la respuesta haya salido mal.
+
+**De dónde salen.** Del detalle que se guarda con cada respuesta (ver
+[El asistente](/ayuda/primeros-pasos/el-asistente), sección *El detalle de cada respuesta*). Ese detalle se borra
+**a los 90 días**, junto con la conversación, así que la tabla de un mes viejo solo cuenta lo que no se borró. Si
+en el mes hay más de 5.000 respuestas, la tarjeta lo avisa y trabaja con las últimas 5.000.
+
+**Para qué sirve.** Para saber *qué* se volvió lento: una herramienta (por ejemplo, la prueba de una plantilla
+contra la base), la espera del primer token (el servicio que genera las respuestas anda lento) o el guardado.
+Los tiempos de una sola respuesta, paso por paso, se ven en su propio detalle.
+
+Esta tarjeta la ve quien tiene **Administrar el asistente**: son números agregados, sin el contenido de ninguna
+conversación.
 
 ## Respuestas con 👎: cómo mejorar la Documentación
 
@@ -110,6 +153,12 @@ apoyó.
 Al lado del título hay un contador: **No está en la documentación**. Cuenta las respuestas en las que el
 asistente dijo que el tema no está escrito. Es la lista de huecos de la Documentación: cada una es una página
 que falta o una que no se encuentra.
+
+Si además tenés el permiso **Ver el detalle de las respuestas del asistente**, al lado de **Ver completa** aparece el
+botón **Ver detalle**. Abre debajo el detalle de esa respuesta (los pasos que hizo, con su tiempo y su costo), para ver
+si salió lenta o cara. El botón pide **los dos permisos** —*Administrar el asistente* y *Ver el detalle de las
+respuestas del asistente*—; con uno solo no aparece. No depende del interruptor del panel del asistente. Si el
+permiso se perdió con la sesión abierta, un cartel lo avisa.
 
 Cómo usarlo: mirá los 👎 con regularidad, y por cada uno decidí si el problema es de la **Documentación**
 (falta, está desactualizada o es confusa) o del **asistente** (la página estaba bien y lo entendió mal). Lo
@@ -157,6 +206,14 @@ Documentación o el precio del modelo), es un problema técnico.
 **El gasto de acá no coincide con la factura de AWS.** Esta pantalla muestra lo que el sistema calcula con los
 precios de la tabla; la factura puede traer otros conceptos o tardar días en reflejar el mes. La diferencia
 normal es de centavos; si es grande, revisá que los precios cargados sean los vigentes.
+
+**La tabla de tiempos está vacía en un mes viejo.** Los tiempos salen del detalle de las respuestas, que se borra a los
+90 días con su conversación. Un mes de hace más de tres meses ya no tiene qué mostrar, aunque el **gasto** de ese mes
+sí se conserve. En el mes en curso, también puede estar vacía los primeros días: se llena a medida que se hacen
+preguntas.
+
+**Falla la tarjeta de tiempos y el resto de la pantalla anda.** La tarjeta se carga aparte. Apretá **Reintentar**
+dentro de ella; el consumo y el gasto no dependen de eso.
 
 **Alguien me dice que el asistente "no le responde".** Mirá el cartel de pausa, y mirá si esa persona llegó al
 límite de preguntas del día.

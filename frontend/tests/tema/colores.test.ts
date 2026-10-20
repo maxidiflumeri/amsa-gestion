@@ -36,6 +36,10 @@ const ARCHIVOS = [
     'components/asistente/PasosTurno.tsx',
     'components/asistente/TarjetaPropuesta.tsx',
     'types/asistente.ts',
+    // El detalle de la respuesta (docs/asistente-detalle-spec.md §14.2)
+    'components/asistente/DetalleRespuesta.tsx',
+    'components/asistente/formatoDetalle.ts',
+    'pages/asistente/TiemposAsistente.tsx',
     'pages/reportes/ReportesBuilder.tsx',
     'pages/reportes/ReportesHome.tsx',
     'pages/reportes/utils/fechaRelativa.ts',

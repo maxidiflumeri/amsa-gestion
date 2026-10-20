@@ -1,7 +1,7 @@
 <!--
 seccion: Administración
 resumen: Qué puede hacer cada persona en el sistema, y por qué un permiso nuevo no se ve hasta volver a entrar.
-revisado: 2026-10-19
+revisado: 2026-10-20
 rutas: /admin/roles
 rutaPrincipal: /admin/roles
 -->
@@ -90,7 +90,7 @@ Uno nuevo, de la sección **Convenios**:
 
 ## Los permisos del asistente
 
-Son tres, de la sección **Asistente**:
+Son cuatro, de la sección **Asistente**:
 
 - **Usar el asistente** — muestra el botón **Asistente** en la barra y deja hacerle preguntas. Ver
   [El asistente](/ayuda/primeros-pasos/el-asistente).
@@ -103,6 +103,12 @@ Son tres, de la sección **Asistente**:
   alguno de los cuatro, el selector de modo no aparece. Ver
   [Armar un reporte con el asistente](/ayuda/reportes/armar-con-el-asistente). Este modo cuesta bastante más que
   el de ayuda: conviene darlo solo a quien arma reportes.
+- **Ver el detalle de las respuestas del asistente** — muestra, debajo de cada respuesta, los pasos que hizo el
+  asistente, con cuánto tardó y cuánto costó cada uno. **No muestra contenido**: ni el razonamiento del modelo, ni la
+  pregunta o la respuesta, ni el texto completo que devolvió cada herramienta. De cada herramienta dice qué hizo, con
+  los mismos textos de los pasos: qué página u hoja leyó, de qué empresa buscó datos o cuántos casos trajo una prueba. Junto con **Administrar el asistente**, abre también el detalle de las
+  respuestas con 👎 en **Consumo del asistente**. Como todo permiso nuevo, la persona tiene que **cerrar sesión y
+  volver a entrar**. Ver [El asistente](/ayuda/primeros-pasos/el-asistente).
 
 El asistente le explica a cada persona lo que **su rol** puede hacer: si alguien le pregunta cómo hacer algo
 que no tiene habilitado, le dice qué permiso le falta y que se lo pida a quien administra los roles.

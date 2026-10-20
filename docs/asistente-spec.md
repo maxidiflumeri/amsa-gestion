@@ -7,6 +7,8 @@
 > Maqueta aprobada: https://claude.ai/artifact/YSqMEKNMaji5akfLfB5QTo, escena v1. La escena v2, el constructor de
 > reportes, es la Fase B.
 > Leyenda: **[V]** verificado (código leído, comando corrido o llamada real a Bedrock) · **[S]** suposición a confirmar.
+> **Detalle de las respuestas (20/10/2026):** los tiempos y el costo por paso de cada turno están en
+> [asistente-detalle-spec.md](asistente-detalle-spec.md).
 
 ---
 
@@ -343,6 +345,8 @@ Todo bajo `/api`. Autenticación: el `JwtAuthGuard` global de siempre. **El fron
 Cabeceras: `Content-Type: text/event-stream; charset=utf-8`, `Cache-Control: no-cache, no-transform`,
 `Connection: keep-alive`, `X-Accel-Buffering: no`, `res.flushHeaders()`. Formato `event: <nombre>\ndata: <json>\n\n`.
 Orden garantizado: `inicio` primero; `fin` o `error` último, y exactamente uno de los dos.
+Desde el 20/10/2026, `fin` y `error` suman `detalle?` solo para quien tiene `asistente.ver_detalle`
+([asistente-detalle-spec.md](asistente-detalle-spec.md) §6).
 
 | Evento | `data` |
 |---|---|

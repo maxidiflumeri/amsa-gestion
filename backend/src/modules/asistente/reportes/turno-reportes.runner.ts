@@ -4,11 +4,12 @@ import { ymdLocal } from '../../../common/utils/dia-local';
 import { NodoCatalogo } from '../../reportes/dto/catalogo.dto';
 import { PerfilConAvisos, filasDeDatos, normalizar } from '../adjuntos/perfil-ejemplo';
 import { hojaPorNombre, perfilATexto } from '../adjuntos/perfil-a-texto';
-import { EventoSse, Paso, TarjetaPropuesta } from '../dto/asistente.tipos';
+import { EventoSse, MotivoFin, Paso, TarjetaPropuesta } from '../dto/asistente.tipos';
 import { ClienteModelo } from '../modelo/cliente-modelo';
 import { resolverRuta, limpiarRuta } from '../rutas/rutas-catalogo';
 import { MENSAJE_MODELO_NO_DISPONIBLE, TopeError } from '../turno/errores';
-import { PuertoMedicion, PuertoTopes, ResultadoLlamada, llamarModelo } from '../turno/llamada-modelo';
+import { PuertoMedicion, PuertoTopes, ResultadoLlamada, claseDeError, llamarModelo } from '../turno/llamada-modelo';
+import { PuertoTraza, TRAZA_NULA, TrazaHerramienta } from '../turno/traza';
 import { ResultadoTurno, TEXTO_RECHAZO } from '../turno/turno-runner';
 import { Descriptor, describirOpciones } from './describir-propuesta';
 import { notaDeEmpresaExacta } from './empresas';
@@ -77,6 +78,8 @@ export interface PuertoPrueba {
         avisosValidador: string[];
         ids: { conversacionId: number | null; usuarioId: number | null; mensajeId: number | null };
         hoy: string;
+        /** La herramienta en curso del detalle: la prueba marca sus partes (`espera_base`, `muestra`, `conteo`). Opcional. */
+        traza?: TrazaHerramienta;
     }): Promise<ResultadoPrueba | { tipo: 'ocupada' } | { tipo: 'fallo'; mensaje: string } | { tipo: 'rechazada'; problemas: string[] }>;
 }
 
@@ -123,6 +126,8 @@ export interface EntradaTurnoReportes {
     signal: AbortSignal;
     /** `paso` y `propuesta` (y `texto` al final de la iteración que corresponde). */
     emitir: (evento: EventoSse) => void;
+    /** El medidor del detalle de la respuesta (docs/asistente-detalle-spec.md). Sin él, el turno corre exactamente igual. */
+    traza?: PuertoTraza;
 }
 
 export interface ResultadoTurnoReportes extends ResultadoTurno {
@@ -215,6 +220,7 @@ export class TurnoReportesRunner {
     async correr(e: EntradaTurnoReportes): Promise<ResultadoTurnoReportes> {
         const t0 = Date.now();
         const { cliente, topes, medicion, vocabularios, capacidades } = this.deps;
+        const traza = e.traza ?? TRAZA_NULA;
         const hoy = ymdLocal(e.ahora);
 
         await vocabularios.preparar();
@@ -256,9 +262,12 @@ export class TurnoReportesRunner {
         const hojaElegida = new Map<number, string>(hojasElegidasDesde(e.previos));
         // Los números largos que escribió la persona (DNI, CUIT, teléfono) no se repiten en lo que se le muestra.
         const numerosPersona = numerosDeLaPersona([e.pregunta, ...textosDeUsuario(e.previos)]);
+        // La herramienta que está corriendo: el texto de su último paso es su descripción en el detalle.
+        let herramientaActual: TrazaHerramienta | undefined;
         const emitirPaso = (p: Paso) => {
             pasos.push(p);
             e.emitir({ evento: 'paso', data: p });
+            herramientaActual?.describir({ texto: p.texto, estado: p.estado });
         };
 
         const resultado = (): ResultadoTurnoReportes => ({
@@ -283,6 +292,7 @@ export class TurnoReportesRunner {
         const estimado = Math.ceil((JSON.stringify(this.system).length + JSON.stringify(this.tools).length + JSON.stringify(messages).length) / 3);
         if (estimado > MAX_PROMPT_ESTIMADO) {
             this.logger.warn(`Turno de reportes cortado antes de llamar: el pedido estimado es de ${estimado} tokens (mensaje=${e.ids.mensajeId})`);
+            traza.motivo('prompt_demasiado_grande');
             estado = 'error';
             error = {
                 codigo: 'PROMPT_DEMASIADO_GRANDE',
@@ -358,6 +368,7 @@ export class TurnoReportesRunner {
                     hojaElegida,
                     esUltima: pruebas === MAX_PRUEBAS,
                     emitirPaso,
+                    traza: herramientaActual,
                 });
             }
 
@@ -381,6 +392,7 @@ export class TurnoReportesRunner {
         // --- Loop -----------------------------------------------------------------------------------------------------
         for (let iter = 0; iter < MAX_ITERACIONES_REPORTES; iter++) {
             let llamada: ResultadoLlamada;
+            const tl = traza.llamada(iter);
             try {
                 llamada = await llamarModelo(
                     { cliente, topes, medicion },
@@ -393,10 +405,12 @@ export class TurnoReportesRunner {
                         signal: e.signal,
                         costoTurno,
                         timeoutMs: this.deps.timeoutMs,
+                        traza: tl,
                     },
                 );
             } catch (err) {
                 if (!(err instanceof TopeError)) throw err;
+                traza.motivo(err.codigo.toLowerCase() as MotivoFin);
                 if (err.codigo === 'TOPE_TURNO') {
                     this.logger.warn(`Turno de reportes cortado por el tope de gasto del turno (mensaje=${e.ids.mensajeId})`);
                     if (iterMostrada !== null) {
@@ -417,6 +431,7 @@ export class TurnoReportesRunner {
             costoTurno += llamada.costo;
 
             if (llamada.tipo === 'abortada') {
+                traza.motivo('detenida');
                 // Una iteración sin `finalMessage` no entra al historial; se cierra con un mensaje del asistente.
                 estado = 'cortado';
                 textoVisible = [...textosIter, llamada.textoIter].map((t) => t.trim()).filter(Boolean).join('\n\n');
@@ -428,6 +443,7 @@ export class TurnoReportesRunner {
                     `Falló la llamada al modelo de reportes (mensaje=${e.ids.mensajeId}, iteracion=${iter}): ${llamada.error?.name}: ${llamada.error?.message}`,
                     llamada.error?.stack,
                 );
+                traza.motivo(claseDeError(llamada.error) === 'APIConnectionTimeoutError' ? 'timeout' : 'modelo_no_disponible');
                 estado = 'error';
                 error = { codigo: 'MODELO_NO_DISPONIBLE', mensaje: MENSAJE_MODELO_NO_DISPONIBLE };
                 return resultado();
@@ -445,12 +461,16 @@ export class TurnoReportesRunner {
                     content: hayContenido ? bloques : [...bloques, { type: 'text', text: TEXTO_VACIO }],
                 });
                 estado = 'ok';
-                if (!hayContenido) textosIter[textosIter.length - 1] = TEXTO_VACIO;
+                if (!hayContenido) {
+                    traza.motivo('respuesta_vacia');
+                    textosIter[textosIter.length - 1] = TEXTO_VACIO;
+                }
                 break;
             }
 
             if (msg.stop_reason === 'refusal') {
                 this.logger.warn(`El modelo de reportes se negó a responder (mensaje=${e.ids.mensajeId}, categoria=${msg.stop_details?.category ?? 'sin categoría'})`);
+                traza.motivo('rechazo');
                 estado = 'rechazado';
                 textoVisible = TEXTO_RECHAZO;
                 apiNuevos.length = 0;
@@ -460,6 +480,7 @@ export class TurnoReportesRunner {
             if (msg.stop_reason !== 'tool_use') {
                 // max_tokens, pause_turn…: un tool_use sin resultado rompería el historial, así que no se ejecuta ninguna.
                 this.logger.warn(`Respuesta de reportes cortada por ${msg.stop_reason} (mensaje=${e.ids.mensajeId}, herramientas pendientes=${usos.length})`);
+                traza.motivo(msg.stop_reason === 'max_tokens' ? 'max_tokens' : 'otro_corte');
                 estado = 'cortado';
                 const t = `${textoDe(msg.content)}${SUFIJO_CORTADA}`.trim();
                 textoVisible = [...textosIter.slice(0, -1), t].map((x) => x.trim()).filter(Boolean).join('\n\n');
@@ -472,7 +493,11 @@ export class TurnoReportesRunner {
             apiNuevos.push({ role: 'assistant', content: paraHistorial(msg.content) });
             const resultados: ToolResultBlockParam[] = [];
             for (const b of usos) {
+                const th = traza.herramienta(b.name);
+                herramientaActual = th;
                 const r = await ejecutar(b.name, b.input);
+                herramientaActual = undefined;
+                th.cerrar({ esError: r.esError, caracteresResultado: r.content.length });
                 resultados.push({ type: 'tool_result', tool_use_id: b.id, content: r.content, ...(r.esError ? { is_error: true } : {}) });
             }
             messages.push({ role: 'user', content: resultados });
@@ -480,11 +505,13 @@ export class TurnoReportesRunner {
 
             if (iterMostrada !== null) {
                 // La tarjeta ya está: no hace falta otra llamada.
+                traza.motivo('tarjeta');
                 apiNuevos.push({ role: 'assistant', content: [{ type: 'text', text: 'Listo.' }] });
                 estado = 'ok';
                 break;
             }
             if (iter === MAX_ITERACIONES_REPORTES - 1) {
+                traza.motivo('iteraciones');
                 estado = 'cortado';
                 textoVisible = TEXTO_SIN_TERMINAR;
                 apiNuevos.push({ role: 'assistant', content: [{ type: 'text', text: TEXTO_SIN_TERMINAR }] });
@@ -504,7 +531,7 @@ export class TurnoReportesRunner {
     private async probar(
         input: unknown,
         e: EntradaTurnoReportes,
-        o: { hoy: string; hojaElegida: Map<number, string>; esUltima: boolean; emitirPaso: (p: Paso) => void },
+        o: { hoy: string; hojaElegida: Map<number, string>; esUltima: boolean; emitirPaso: (p: Paso) => void; traza?: TrazaHerramienta },
     ): Promise<ResultadoHerramienta> {
         const forma = verificarFormaProbar(input);
         if (!forma.ok) {
@@ -531,16 +558,22 @@ export class TurnoReportesRunner {
             claves = r.ok ? r.claves : null;
         }
 
-        const v = validarPropuesta(entrada, {
-            catalogo: this.deps.catalogo,
-            vocabulario: (p) => vocabularios.vocabulario(p),
-            empresas: vocabularios.empresas(),
-            clavesAdicionales: claves,
-            ejemploPrincipal,
-            capacidades: this.deps.capacidades,
-            formatosTelefonoIds: new Set(vocabularios.formatosTelefono().keys()),
-            nombresPlantillas: vocabularios.nombresPlantillas(),
-        });
+        const finValidacion = o.traza?.parte('validacion');
+        let v: ReturnType<typeof validarPropuesta>;
+        try {
+            v = validarPropuesta(entrada, {
+                catalogo: this.deps.catalogo,
+                vocabulario: (p) => vocabularios.vocabulario(p),
+                empresas: vocabularios.empresas(),
+                clavesAdicionales: claves,
+                ejemploPrincipal,
+                capacidades: this.deps.capacidades,
+                formatosTelefonoIds: new Set(vocabularios.formatosTelefono().keys()),
+                nombresPlantillas: vocabularios.nombresPlantillas(),
+            });
+        } finally {
+            finValidacion?.();
+        }
 
         if (v.errores.length > 0 || !v.normalizada) {
             // Sin los textos de los errores: un valor de filtro puede ser un DNI que escribió la persona.
@@ -567,7 +600,15 @@ export class TurnoReportesRunner {
             filtros: this.descriptor.filtros(n, o.hoy),
             orden: this.descriptor.orden(n),
         };
-        const r = await this.deps.prueba.probar({ entrada, normalizada: n, tarjeta, avisosValidador: v.avisos, ids: e.ids, hoy: o.hoy });
+        const r = await this.deps.prueba.probar({
+            entrada,
+            normalizada: n,
+            tarjeta,
+            avisosValidador: v.avisos,
+            ids: e.ids,
+            hoy: o.hoy,
+            ...(o.traza ? { traza: o.traza } : {}),
+        });
         if (r.tipo === 'ocupada') {
             o.emitirPaso({ tipo: 'prueba', estado: 'error', texto: 'No pude probar la plantilla: la base está ocupada' });
             return {

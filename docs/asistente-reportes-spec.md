@@ -1,6 +1,8 @@
 # Asistente de IA — Fase B: armar plantillas de reportes en lenguaje natural — spec
 
 > **Estado:** diseño del 19/10/2026, sobre `4d25382`. Sin implementar.
+> **Detalle de las respuestas (20/10/2026):** los tiempos y el costo por paso de cada turno, también de esta función,
+> están en [asistente-detalle-spec.md](asistente-detalle-spec.md).
 > **Pedido del usuario (19/10/2026):** "poder generar plantillas de reportes pidiéndolo en lenguaje natural y pudiéndole
 > subir archivos .txt, .xls, .xlsx, .csv, etc. para pasarle como modelo de cómo uno quiere un formato de informe".
 > **Maqueta aprobada:** https://claude.ai/artifact/YSqMEKNMaji5akfLfB5QTo, escena "v2 · Constructor de reportes".

@@ -2,7 +2,7 @@ import React, { useCallback, useEffect, useLayoutEffect, useRef, useState } from
 import { useLocation, useNavigate } from 'react-router-dom';
 import {
     Alert, Box, Button, Chip, CircularProgress, Divider, Drawer, IconButton, ListItemText, ListSubheader, Menu, MenuItem,
-    Stack, TextField, ToggleButton, ToggleButtonGroup, Toolbar, Tooltip, Typography, alpha, useMediaQuery, useTheme,
+    Stack, Switch, TextField, ToggleButton, ToggleButtonGroup, Toolbar, Tooltip, Typography, alpha, useMediaQuery, useTheme,
 } from '@mui/material';
 import AttachFileIcon from '@mui/icons-material/AttachFile';
 import AutoAwesomeIcon from '@mui/icons-material/AutoAwesome';
@@ -190,6 +190,13 @@ const AsistentePanel: React.FC = () => {
 
             <Menu anchorEl={menuAncla} open={!!menuAncla} onClose={() => setMenuAncla(null)}>
                 <MenuItem onClick={() => { setMenuAncla(null); setVisorSlug(null); asistente.nuevaConversacion(); }}>Nueva conversación</MenuItem>
+                {asistente.verDetalle && (
+                    <MenuItem onClick={asistente.alternarDetalle} role="menuitemcheckbox" aria-checked={asistente.mostrarDetalle} sx={{ maxWidth: 'min(320px, 80vw)' }}>
+                        <ListItemText primary="Mostrar el detalle de las respuestas" primaryTypographyProps={{ sx: { whiteSpace: 'normal' } }} />
+                        {/* El clic lo atiende el ítem entero; el interruptor solo muestra el estado. */}
+                        <Switch edge="end" size="small" checked={asistente.mostrarDetalle} onChange={() => undefined} tabIndex={-1} inputProps={{ 'aria-hidden': true }} />
+                    </MenuItem>
+                )}
                 <Divider />
                 <ListSubheader sx={{ lineHeight: '32px' }}>Conversaciones anteriores</ListSubheader>
                 {conversaciones === null && <MenuItem disabled><CircularProgress size={16} sx={{ mr: 1 }} />Cargando…</MenuItem>}
@@ -250,6 +257,7 @@ const AsistentePanel: React.FC = () => {
                             onAbrirPropuesta={abrirPropuesta}
                             onAjustar={ajustar}
                             onSugerencia={(t) => void mandar(t)}
+                            mostrarDetalle={asistente.verDetalle && asistente.mostrarDetalle}
                         />
                     ))
                 )}

@@ -6,6 +6,166 @@
 
 ---
 
+## [2026-10-20] — Asistente de IA: el detalle de cada respuesta, con sus tiempos y su costo
+
+Debajo de cada respuesta del asistente, un desplegable **Ver detalle** muestra el camino que hizo el turno: la
+preparación, cada llamada al modelo (espera del primer token, razonamiento, respuesta, pedido de herramienta), cada
+herramienta, el guardado y el total, con el tiempo, los tokens y el costo de cada paso. Lo ve solo quien tiene el
+permiso nuevo **Ver el detalle de las respuestas del asistente**. Sirve para las dos funciones de hoy y la futura
+`cartera` se enchufa sin trabajo extra. El usuario lo pidió para monitorear tiempos y gasto, antes de seguir con el
+analista de cartera.
+
+- **Spec:** [docs/asistente-detalle-spec.md](docs/asistente-detalle-spec.md). Las respuestas del usuario están al
+  principio de §19, y lo medido y lo que cambió al auditar, en §20.
+- **El pedido al modelo no cambió ni un byte:** lo fija el snapshot de `params-ayuda`, también con el detalle encendido.
+
+**Estado: implementada y auditada, sin desplegar.**
+
+**Decisiones del usuario (20/10):**
+- las once de §19 con la recomendada (permiso `asistente.ver_detalle`, interruptor encendido por defecto, el detalle
+  al final de la burbuja, herramientas en tokens y sin USD, las respuestas viejas reconstruidas como "parcial");
+- el OK para medir contra Bedrock;
+- **sin entorno local:** el `db push` va con el deploy y la prueba de punta a punta se hace en prod, con el permiso
+  solo para ADMIN.
+
+### Qué hace
+- **"Ver detalle · N s · USD 0,00xx"** al final de cada respuesta terminada: la cascada de pasos con barras de duración.
+  - Lo estimado lleva "≈": el reparto del costo adentro de una llamada y los tokens que una herramienta le pasa a la
+    llamada siguiente.
+  - El costo de cada llamada es el mismo que factura Bedrock, y las filas suman la llamada.
+- **"En tu navegador":** desde que se aprieta Enviar hasta el primer texto y hasta el final.
+- **Interruptor** en el menú **⋮** del panel, recordado por navegador.
+- **Las respuestas anteriores** se reconstruyen desde las llamadas registradas y se marcan "Detalle parcial".
+- **Consumo del asistente:**
+  - la tabla **Tiempos por paso**, con la mediana y el p95 de cada paso por función, sobre las respuestas del mes;
+  - **Ver detalle** en las respuestas con 👎, que pide también el permiso nuevo.
+- **Nunca muestra contenido:** ni el razonamiento, ni el texto buscado, ni lo que devolvió una herramienta, ni la
+  pregunta o la respuesta. Sí dice qué página u hoja leyó, como los pasos de reportes.
+
+### Backend
+- **Medidor común** (`turno/traza.ts`, `turno/detalle.ts`), con reloj monotónico.
+  - `StreamModelo.onEvento?` pasa solo el tipo de bloque, su índice y el nombre de la herramienta.
+  - Todo lo que se cuelga del stream del SDK va en `try/catch`: un listener que lanza corta la llamada en
+    `MessageStream`.
+  - El medidor nunca lanza, y si falla guardar el detalle, la respuesta sale igual.
+- **Enganches** en los dos runners y en `probar_plantilla` (la espera de lugar, y la muestra y el conteo en paralelo),
+  sin cambiar ninguna decisión del loop. Los tests de antes no se modificaron.
+- **El servidor filtra el permiso:** sin `asistente.ver_detalle`, la clave `detalle` no existe en `fin`, en `error` ni en
+  `GET conversaciones/:id`.
+- **Endpoints nuevos:**
+  - `POST /asistente/mensajes/:id/tiempos`, el tiempo del navegador, que manda el panel de todos (solo el mensaje
+    propio);
+  - `GET /asistente/mensajes/:id/detalle`, que pide `asistente.administrar` y `asistente.ver_detalle`;
+  - `GET /asistente/consumo/tiempos?mes=`, que pide `asistente.administrar`.
+- **La tabla de tiempos** no cuenta en los totales las respuestas que no terminaron bien, ni en "Llamada" las llamadas
+  detenidas, cortadas por un tope, con timeout o con error.
+- **`asistente_llamada.error`** guarda la clase real del error del SDK (`claseDeError`). Antes era "Error" para todos, y
+  no se distinguía un timeout de un 429.
+- **Schema, aditivo:** `asistente_mensaje.traza` y `.tiemposNavegador`, dos columnas `Json?`.
+- **Permiso nuevo** en los dos catálogos. De paso, la pantalla de Roles deja de decir "Próximamente" en
+  "Asistente: armar reportes".
+
+### Frontend
+- `DetalleRespuesta.tsx`, `formatoDetalle.ts` y `TiemposAsistente.tsx`.
+- `AsistenteContext`, con el permiso, el interruptor y la medición del navegador.
+- `MensajeBurbuja`, el menú del panel y `AsistenteConsumo`.
+- **Wiki:**
+  - en "El asistente", la sección "El detalle de cada respuesta" y cinco entradas nuevas en "Qué puede salir mal";
+  - en "Consumo del asistente", "Los tiempos de cada paso";
+  - en "Roles y permisos", el cuarto permiso.
+
+### Medido contra Bedrock
+- **M-1** (`medir-eventos.ts`, USD 0,012):
+  - en Haiku, el razonamiento llega como un bloque propio desde el arranque, de 0,8 a 1,8 s, así que se mide aparte;
+  - Sonnet con effort `low` no razonó en un pedido simple: "sin razonamiento" es un caso normal.
+- **M-2, la regresión de la ayuda con el detalle encendido** (USD 0,19, 65 preguntas), cumple todos los umbrales:
+  - páginas A+B 39/39;
+  - p95 de 11,6 s, contra un umbral de 12 s;
+  - USD 0,0029 por pregunta.
+
+  Las tres FALLA son expectativas del set demasiado estrictas, con respuestas correctas (§20 del spec).
+- **Primeras medianas reales** (ayuda): respuesta 7,0 s (p95 11,6 s); por llamada, espera 1,9 s, razonamiento 0,8 s y
+  respuesta 2,2 s; preparación 3 ms; herramientas 0 a 1 ms. **El tiempo es del modelo:** 1,7 llamadas por pregunta. El
+  p95 subió frente a las Fases A y B (9,3 y 9,8 s), con el prompt máximo en 62 mil tokens: seguirlo en prod.
+- M-3 no se corrió, porque no hay entorno local: lo reemplaza el guion en prod.
+
+### Antes de cerrar
+- **Paquetes:** BE-1 (el medidor), BE-2 (los runners), BE-3 (servicio, datos y permiso) y FE, este último en paralelo
+  contra el servidor falso. Los tipos del detalle son idénticos en los dos lados.
+- **Auditoría: PASA CON OBSERVACIONES,** sin nada bloqueante ni de severidad alta. Se arregló, cada punto con su test:
+  - la tabla de tiempos mezclaba poblaciones: "Total en el navegador" contaba los timeouts y "Total en el servidor" no;
+  - después de Detener, el detalle se ve al reabrir la conversación, y ahora la wiki lo dice;
+  - la reconstrucción consultaba `asistente_llamada` sin índice: ahora filtra también por `conversacionId`;
+  - tres etiquetas engañosas: «detenida» en una llamada que falló por un error interno, «Cortada» en una respuesta
+    completa, y «Otros (sin medir)» en lo recortado;
+  - dos textos de la wiki: la privacidad y el orden de las tablas.
+- **Re-auditoría: PASA CON OBSERVACIONES.** Los ocho arreglos están bien, y las cuatro observaciones bajas que quedaron
+  se resolvieron al integrar, con sus tests:
+  - en un detalle parcial, el razonamiento apuntaba a una fila de espera que no existe;
+  - «quedó abierta» se decide por si la llamada quedó sin cierre, no por el motivo;
+  - la frase de privacidad de la wiki;
+  - la regla de la tabla en §7.11 del spec.
+- **Tests:**
+  - backend: 3.356, más `npm run build` limpio. La única falla es `reportes-f2.integration.spec.ts`, que pide
+    `DATABASE_URL` y no hay `.env` local;
+  - frontend: `npm test` da 1.079 en 64 archivos, y `tsc` sin errores nuevos;
+  - `verificar-ayuda` OK.
+
+### Deploy (en este orden)
+1. **Push.** Lleva el `db push` aditivo de las dos columnas, sin variables nuevas, sin IAM ni Terraform.
+2. **En Administración > Roles:** asignar **Ver el detalle de las respuestas del asistente** a ADMIN, y volver a entrar,
+   porque el permiso viaja en el JWT.
+3. **Verificar:**
+   - el arranque sin ERROR;
+   - `SHOW COLUMNS FROM asistente_mensaje LIKE 'traza'` y `LIKE 'tiemposNavegador'`;
+   - la primera pregunta, con "Ver detalle" y la línea `Turno asistente N terminado … (prep … · modelo … · herramientas
+     … · guardar …)` en CloudWatch;
+   - `tiemposNavegador` no nulo en ese mensaje, que es la prueba del filtro `DbNull` en MySQL;
+   - el costo del detalle = `SUM(costoUsd)` de sus llamadas;
+   - **Tiempos por paso** con "Veces ≥ 1";
+   - un OPERADOR sin "Ver detalle".
+4. **A las 24 h:** el tamaño medio de `traza` (M-4). **A la semana:** las medianas de cada función, como línea de base.
+
+### Guion de prueba manual (prod, con el permiso solo para ADMIN)
+1. **Antes de asignar el permiso:** no aparece "Ver detalle" ni el interruptor, y el `fin` no trae `detalle`.
+2. **En Roles:** el permiso nuevo aparece después de Administrar, y "Asistente: armar reportes" ya no dice
+   "Próximamente".
+3. **Una pregunta que lea una página:** "Ver detalle" muestra la preparación, las llamadas con su espera, la herramienta
+   con "≈ N tokens a la llamada 2", el guardado y "En tu navegador".
+4. **Detener a mitad:** no aparece el detalle hasta reabrir la conversación. Ahí dice «La detuviste a los …».
+5. **El interruptor:** apagado, desaparece de todas las burbujas y sigue apagado al recargar.
+6. **Una conversación de antes del deploy:** "Ver detalle (parcial)".
+7. **Consumo:** "Tiempos por paso", entre "Por función" y "Plantillas armadas", y "Ver detalle" en una 👎.
+8. **A 360 px y en oscuro:** sin scroll horizontal.
+
+---
+
+## [2026-10-20] — Analista de cartera: la Fase 1 partida en 1a (tablero) y 1b (el agente)
+
+Diseño, sin código de producción. La propuesta madre está en
+[docs/analista-cartera-spec.md](docs/analista-cartera-spec.md) y el spec ejecutable de la Fase 1, en
+[docs/analista-cartera-fase1-spec.md](docs/analista-cartera-fase1-spec.md).
+
+- **Decisiones del usuario (U-7 a U-12):**
+  - el tablero muestra "Casos contactados (titular o tercero)", que es la fórmula de hoy del "% CPC", y "Casos
+    contactados con el titular", nuevo;
+  - el contacto con el titular (RPC) cuenta los resultados que lo implican;
+  - sin actividad por operador en la Fase 1;
+  - **la Fase 1 se parte:** la 1a ahora (el módulo único de indicadores, el tablero sobre ese módulo y la curva de
+    recupero por remesa) y la 1b, el agente, cuando haya datos, mirado por empresa;
+  - las llamadas van a venir de los tickets de Neotel, con cron dos veces por día y botón manual;
+  - **sin migración del sistema anterior:** la plataforma arranca empresa por empresa con las asignaciones nuevas.
+- **Dos correcciones encontradas en el código:**
+  - hoy la plataforma no registra ninguna llamada: nada escribe en `llamada_neotel`, y no existen el handler de
+    `RINGING_AGENT` ni el `DispositionForm`;
+  - `comentario` no tiene código de gestión: el código está en `deudor.estadoGestionId` y en la auditoría.
+- **Hecho:** `dashboards.snapshot.regresion.spec.ts` (`5b55e79`), el test grabado con el tablero de hoy que protege la
+  extracción de las consultas.
+- **Lo que sigue:** la 1a, después del deploy del detalle. Antes, contestar D-22 (si las remesas de prod son reales o
+  de prueba) y dar el OK para las mediciones de solo lectura de §A16.
+
+---
+
 ## [2026-10-19] — Asistente de IA, Fase B: armar plantillas de reportes con lenguaje natural y archivos de ejemplo
 
 La persona pide un reporte con sus palabras y, si quiere, adjunta un archivo de ejemplo (.xlsx, .xls, .csv, .txt o .tsv)

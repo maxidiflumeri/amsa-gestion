@@ -17,6 +17,12 @@ import {
     elegirPrincipal,
     hojasElegidasDesde,
 } from './turno-reportes.runner';
+import { APIConnectionTimeoutError } from '@anthropic-ai/sdk';
+import { MotivoFin } from '../dto/asistente.tipos';
+import { MODELO_DORADO, PRECIO_DORADO, guionDorado } from '../turno/doble-stream-caso-dorado';
+import { ClienteConTiempos, RelojFalso, medicionConPrecio, topesConTiempo } from '../turno/doble-stream-con-tiempos';
+import { PuertoMedicion, PuertoTopes } from '../turno/llamada-modelo';
+import { TrazaTurno } from '../turno/traza';
 
 interface Paso {
     content: ContentBlock[];
@@ -524,5 +530,260 @@ describe('elegirPrincipal (§9.5)', () => {
 
     it('con el mismo puntaje gana el primero', () => {
         expect(elegirPrincipal(m('DNI', 'Cuenta'), [A, B], 1, new Map())?.id).toBe(1);
+    });
+});
+
+// ---- Detalle de la respuesta (docs/asistente-detalle-spec.md §9, §14.1): los enganches del runner de reportes -----------
+
+describe('TurnoReportesRunner con traza', () => {
+    beforeEach(() => {
+        jest.spyOn(Logger.prototype, 'log').mockImplementation();
+        jest.spyOn(Logger.prototype, 'warn').mockImplementation();
+        jest.spyOn(Logger.prototype, 'error').mockImplementation();
+    });
+    afterEach(() => jest.restoreAllMocks());
+
+    /** Lo de `armar`, pero con el cliente, la medición, los topes y la prueba a elección (para el reloj falso). */
+    function armarMedido(o: { cliente: ClienteModelo; medicion?: PuertoMedicion; topes?: PuertoTopes; prueba?: PuertoPrueba; modelo?: string }) {
+        const probadas: string[] = [];
+        const prueba: PuertoPrueba =
+            o.prueba ??
+            ({
+                probar: async (a) => {
+                    probadas.push(`p${probadas.length + 1}`);
+                    return { tipo: 'ok', id: `p${probadas.length}`, propuestaId: 100, casos: 8412, aproximado: false, columnasVacias: [], avisos: a.avisosValidador, textoParaModelo: 'Prueba: sin errores.' } as ResultadoPrueba;
+                },
+            } satisfies PuertoPrueba);
+        const runner = new TurnoReportesRunner({
+            cliente: o.cliente,
+            topes: o.topes ?? { verificarIteracion: async () => undefined },
+            medicion: o.medicion ?? { registrarLlamada: async () => 0.01 },
+            modelo: o.modelo ?? 'us.anthropic.claude-sonnet-5-5',
+            strict: true,
+            timeoutMs: 120_000,
+            catalogo,
+            catalogoTexto: catalogoCompacto(catalogo),
+            capacidades: CAPACIDADES_TODAS,
+            vocabularios: {
+                preparar: async () => undefined,
+                valores: async (campo) => (campo === 'empresa.nombre' ? { ok: true, texto: 'TOYOTA\nTELECOM' } : { ok: false, error: `«${campo}» es texto libre.` }),
+                vocabulario: (p) => VOCAB[p] ?? null,
+                empresas: () => EMPRESAS,
+                formatosTelefono: () => new Map([[1, '549{numero}']]),
+                nombresPlantillas: () => new Set<string>(),
+            },
+            datosAdicionales: { claves: async () => ({ ok: true, claves: ['MODELO', 'PATENTE'] }) },
+            prueba,
+            propuestas: {
+                mostrar: async ({ prueba: id, mensaje, sugerencias }) =>
+                    probadas.includes(id) ? ({ propuestaId: 100, prueba: id, version: 1, mensaje, sugerencias, estado: 'mostrada' } as unknown as TarjetaPropuesta) : null,
+            },
+        });
+        const eventos: EventoSse[] = [];
+        const entrada = (extra: Partial<EntradaTurnoReportes> = {}): EntradaTurnoReportes => ({
+            pregunta: 'Armame la cartera de Toyota con documento y saldo',
+            ruta: '/reportes',
+            persona: { nombre: 'Ana', rol: 'ADMIN' },
+            ahora: new Date('2026-10-19T17:05:00Z'),
+            previos: [],
+            esPrimerTurno: true,
+            adjuntosNuevos: [],
+            ejemplos: [],
+            principalId: null,
+            ultimaPropuesta: null,
+            ids: { usuarioId: 7, conversacionId: 3, mensajeId: 11 },
+            signal: new AbortController().signal,
+            emitir: (e) => eventos.push(e),
+            ...extra,
+        });
+        return { runner, eventos, entrada };
+    }
+
+    const nuevaTraza = () => new TrazaTurno({ funcion: 'reportes', modelo: 'us.anthropic.claude-sonnet-5-5' });
+    const hijo = (n: { hijos?: { tipo: string }[] }, tipo: string) => n.hijos!.find((h) => h.tipo === tipo) as any;
+
+    it('el caso dorado del lado del runner: los mismos números que el guion de la spec (§18.3)', async () => {
+        const reloj = new RelojFalso();
+        const traza = new TrazaTurno({ funcion: 'reportes', modelo: MODELO_DORADO, precio: PRECIO_DORADO, reloj: reloj.ahora });
+        const medicion = medicionConPrecio(PRECIO_DORADO);
+        // La prueba del servicio, con el reloj: la validación la hace el runner; el resto, la prueba.
+        const prueba: PuertoPrueba = {
+            probar: async (a) => {
+                a.traza!.parte('espera_base')();
+                const fm = a.traza!.parte('muestra');
+                const fc = a.traza!.parte('conteo');
+                reloj.avanzar(3100);
+                fm();
+                reloj.avanzar(1620);
+                fc();
+                reloj.avanzar(80);
+                return { tipo: 'ok', id: 'p1', propuestaId: 101, casos: 8412, aproximado: false, columnasVacias: [], avisos: [], textoParaModelo: 'x'.repeat(930) } as ResultadoPrueba;
+            },
+        };
+        const { runner, entrada } = armarMedido({
+            cliente: new ClienteConTiempos(reloj, guionDorado(propuesta())),
+            medicion,
+            topes: topesConTiempo(reloj, (n) => (n === 0 ? 2 : 0)),
+            prueba,
+            modelo: MODELO_DORADO,
+        });
+
+        let fin = traza.parte('topes');
+        reloj.avanzar(20);
+        fin();
+        fin = traza.parte('historial');
+        reloj.avanzar(100);
+        fin();
+        traza.parte('contexto');
+        reloj.avanzar(180);
+        const r = await runner.correr(entrada({ traza }));
+        const guardar = traza.parte('guardar');
+        reloj.avanzar(100);
+        guardar();
+        const d = traza.armar({ estado: r.estado });
+
+        expect(r.estado).toBe('ok');
+        expect(d.nodos.map((n) => n.tipo)).toEqual(['preparacion', 'llamada', 'herramienta', 'llamada', 'guardar']);
+        const [prep, l1, herr, l2] = d.nodos;
+        expect(prep).toMatchObject({ ms: 300 });
+        expect(l1).toMatchObject({ desdeMs: 300, ms: 6100 });
+        expect(l1.costoUsd).toBeCloseTo(0.016951, 6);
+        expect(hijo(l1, 'espera')).toMatchObject({ ms: 1200, msConexion: 400, msPrimerEvento: 1100, msTopes: 2 });
+        expect(hijo(l1, 'razonamiento')).toMatchObject({ ms: 3400, tokens: 412 });
+        expect(hijo(l1, 'pedido')).toMatchObject({ ms: 1500, tokens: 180, nombre: 'probar_plantilla' });
+        expect(herr).toMatchObject({ nombre: 'probar_plantilla', recurso: 'base', desdeMs: 6400, ms: 4800, tokensResultado: 310, descripcion: 'Probé la plantilla: 8.412 casos, sin errores' });
+        expect(herr.hijos!.map((h) => [h.tipo, h.ms])).toEqual([
+            ['validacion', 0],
+            ['espera_base', 0],
+            ['muestra', 3100],
+            ['conteo', 4720],
+        ]);
+        expect(l2).toMatchObject({ desdeMs: 11200, ms: 7000 });
+        expect(l2.costoUsd).toBeCloseTo(0.009559, 6);
+        expect(d.totalMs).toBe(18300);
+        expect(d.costoUsd).toBeCloseTo(0.02651, 6);
+        expect(d.costoUsd).toBeCloseTo(r.costoUsd, 6);
+        expect(d.nodos.some((n) => n.tipo === 'otros')).toBe(false);
+    });
+
+    it('la descripción de cada herramienta es el texto de su último paso, el mismo que ve la persona', async () => {
+        const cliente = new ClienteFalso([
+            { content: [usar('v1', 'valores_de_campo', { campo: 'empresa.nombre' }), usar('d1', 'datos_adicionales', { empresa: 'TOYOTA' })], stop_reason: 'tool_use' },
+            { content: [usar('t1', 'probar_plantilla', propuesta())], stop_reason: 'tool_use' },
+            { content: [usar('m1', 'mostrar_propuesta', { prueba: 'p1', mensaje: 'Listo.', sugerencias: [] })], stop_reason: 'tool_use' },
+        ]);
+        const { runner, entrada } = armarMedido({ cliente });
+        const traza = nuevaTraza();
+        const r = await runner.correr(entrada({ traza }));
+        const hs = traza.armar({ estado: r.estado }).nodos.filter((n) => n.tipo === 'herramienta');
+        expect(hs.map((h) => h.nombre)).toEqual(['valores_de_campo', 'datos_adicionales', 'probar_plantilla', 'mostrar_propuesta']);
+        expect(hs.map((h) => h.descripcion)).toEqual(r.pasos.map((p) => p.texto));
+        expect(hs.map((h) => h.recurso)).toEqual(['base', 'base', 'base', 'base']);
+    });
+
+    it('varios tool_use en una misma respuesta: herramientas en orden y sin solaparse', async () => {
+        const cliente = new ClienteFalso([
+            { content: [usar('v1', 'valores_de_campo', { campo: 'empresa.nombre' }), usar('d1', 'datos_adicionales', { empresa: 'TOYOTA' })], stop_reason: 'tool_use' },
+            { content: [texto('Listo.')], stop_reason: 'end_turn' },
+        ]);
+        const reloj = new RelojFalso();
+        const { runner, entrada } = armarMedido({ cliente });
+        const traza = new TrazaTurno({ funcion: 'reportes', modelo: 'm', reloj: () => (reloj.avanzar(7), reloj.t) });
+        const r = await runner.correr(entrada({ traza }));
+        const hs = traza.armar({ estado: r.estado }).nodos.filter((n) => n.tipo === 'herramienta');
+        expect(hs).toHaveLength(2);
+        expect(hs[0].desdeMs + hs[0].ms).toBeLessThanOrEqual(hs[1].desdeMs);
+    });
+
+    it('PROMPT_DEMASIADO_GRANDE: solo la preparación y su motivo', async () => {
+        const cliente = new ClienteFalso([{ content: [texto('no debería llamarse')], stop_reason: 'end_turn' }]);
+        const { runner, entrada } = armarMedido({ cliente });
+        const traza = nuevaTraza();
+        const historial = [{ role: 'user' as const, content: 'x'.repeat(400_000) }, { role: 'assistant' as const, content: [{ type: 'text' as const, text: 'ok' }] }];
+        const r = await runner.correr(entrada({ previos: historial, esPrimerTurno: false, traza }));
+        const d = traza.armar({ estado: r.estado });
+        expect(r.error?.codigo).toBe('PROMPT_DEMASIADO_GRANDE');
+        expect(d.motivo).toBe('prompt_demasiado_grande');
+        expect(d.nodos.map((n) => n.tipo)).toEqual(['preparacion']);
+        expect(d.llamadas).toBe(0);
+    });
+
+    it('con y sin traza: pasos, texto, apiAsistente, propuestas, params de cada llamada y el resto del resultado son iguales', async () => {
+        const guion = (): Paso[] => [
+            { content: [razonando(), usar('t1', 'probar_plantilla', propuesta())], stop_reason: 'tool_use' },
+            { content: [razonando(), texto('Te dejo la propuesta.'), usar('t2', 'mostrar_propuesta', { prueba: 'p1', mensaje: 'Revisala.', sugerencias: ['Agregá el teléfono'] })], stop_reason: 'tool_use' },
+        ];
+        const con = new ClienteFalso(guion());
+        const sin = new ClienteFalso(guion());
+        const a = armarMedido({ cliente: con });
+        const b = armarMedido({ cliente: sin });
+        const rCon = await a.runner.correr(a.entrada({ traza: nuevaTraza() }));
+        const rSin = await b.runner.correr(b.entrada());
+        expect({ ...rCon, ms: 0 }).toEqual({ ...rSin, ms: 0 });
+        expect(con.llamadas).toEqual(sin.llamadas);
+        expect(a.eventos).toEqual(b.eventos);
+    });
+
+    it('la prueba recibe la herramienta en curso; sin traza es la nula, que no hace nada', async () => {
+        const vistas: unknown[] = [];
+        const prueba: PuertoPrueba = {
+            probar: async (x) => {
+                vistas.push((x as { traza?: unknown }).traza);
+                return { tipo: 'ocupada' };
+            },
+        };
+        const guion = () => new ClienteFalso([{ content: [usar('t1', 'probar_plantilla', propuesta())], stop_reason: 'tool_use' }, { content: [texto('ok')], stop_reason: 'end_turn' }]);
+        const a = armarMedido({ cliente: guion(), prueba });
+        await a.runner.correr(a.entrada({ traza: nuevaTraza() }));
+        const b = armarMedido({ cliente: guion(), prueba });
+        await b.runner.correr(b.entrada());
+        expect(vistas[0]).toBeDefined();
+        const nula = vistas[1] as { parte(t: string): () => void };
+        expect(() => nula.parte('muestra')()).not.toThrow();
+    });
+
+    describe('el motivo de cada fin (§9)', () => {
+        async function motivoDe(guion: Paso[], o: { topes?: jest.Mock; signal?: AbortSignal } = {}): Promise<MotivoFin | null> {
+            const a = armarMedido({ cliente: new ClienteFalso(guion), topes: o.topes ? { verificarIteracion: o.topes } : undefined });
+            const traza = nuevaTraza();
+            const r = await a.runner.correr(a.entrada({ traza, ...(o.signal ? { signal: o.signal } : {}) }));
+            return traza.armar({ estado: r.estado }).motivo;
+        }
+        const probar1: Paso = { content: [razonando(), usar('t1', 'probar_plantilla', propuesta())], stop_reason: 'tool_use' };
+        const mostrar1: Paso = { content: [razonando(), usar('t2', 'mostrar_propuesta', { prueba: 'p1', mensaje: 'Listo.', sugerencias: [] })], stop_reason: 'tool_use' };
+
+        it('bien: sin nada que aclarar', async () => {
+            expect(await motivoDe([{ content: [texto('¿Cuál Toyota?')], stop_reason: 'end_turn' }])).toBeNull();
+        });
+        it('tarjeta', async () => {
+            expect(await motivoDe([probar1, mostrar1])).toBe('tarjeta');
+        });
+        it('respuesta_vacia', async () => {
+            expect(await motivoDe([{ content: [razonando()], stop_reason: 'end_turn' }])).toBe('respuesta_vacia');
+        });
+        it('detenida', async () => {
+            const ac = new AbortController();
+            ac.abort();
+            expect(await motivoDe([{ content: [texto('x')], stop_reason: 'end_turn' }], { signal: ac.signal })).toBe('detenida');
+        });
+        it('tope_turno (con y sin tarjeta), tope_mensual y tope_funcion', async () => {
+            for (const codigo of ['TOPE_TURNO', 'TOPE_MENSUAL', 'TOPE_FUNCION'] as const) {
+                const topes = jest.fn().mockResolvedValueOnce(undefined).mockRejectedValueOnce(new TopeError(codigo, 'x'));
+                expect(await motivoDe([probar1], { topes })).toBe(codigo.toLowerCase());
+            }
+        });
+        it('rechazo, max_tokens y otro_corte', async () => {
+            expect(await motivoDe([{ content: [], stop_reason: 'refusal', stop_details: { type: 'refusal', category: 'general_harms' } as never }])).toBe('rechazo');
+            expect(await motivoDe([{ content: [razonando(), texto('Armando…')], stop_reason: 'max_tokens' }])).toBe('max_tokens');
+            expect(await motivoDe([{ content: [razonando(), texto('Armando…')], stop_reason: 'pause_turn' }])).toBe('otro_corte');
+        });
+        it('iteraciones', async () => {
+            const f = (i: number): Paso => ({ content: [usar(`v${i}`, 'valores_de_campo', { campo: 'empresa.nombre', buscar: String(i) })], stop_reason: 'tool_use' });
+            expect(await motivoDe([f(1), f(2), f(3), f(4), f(5), f(6), f(7), f(8)])).toBe('iteraciones');
+        });
+        it('modelo_no_disponible y timeout', async () => {
+            expect(await motivoDe([{ content: [], stop_reason: 'end_turn', falla: Object.assign(new Error('x'), { name: 'AccessDeniedException' }) }])).toBe('modelo_no_disponible');
+            expect(await motivoDe([{ content: [], stop_reason: 'end_turn', falla: new APIConnectionTimeoutError() }])).toBe('timeout');
+        });
     });
 });

@@ -8,8 +8,8 @@ import AsistenteConsumo from '@fe/pages/asistente/AsistenteConsumo';
 import ReportesHome from '@fe/pages/reportes/ReportesHome';
 import { usePageMeta } from '@fe/context/PageMetaContext';
 import type {
-    AccionIrA, AdjuntoSubido, ConfigAsistente, ConsumoAsistente, ConversacionDetalle, ConversacionResumen, EstadoAsistente, FuenteAyuda,
-    FilaMapeo, Paso, TarjetaPropuesta, VistaPreviaPropuesta,
+    AccionIrA, AdjuntoSubido, ConfigAsistente, ConsumoAsistente, ConversacionDetalle, ConversacionResumen, DetalleRespuesta, EstadoAsistente, FuenteAyuda,
+    FilaMapeo, Paso, TarjetaPropuesta, TiemposAsistente, VistaPreviaPropuesta,
 } from '@fe/types/asistente';
 import { evento, multipart, ServidorFalso, type Pedido, type Respuesta } from './servidor-falso';
 import { fijarAncho } from './ancho';
@@ -19,12 +19,20 @@ export const PREGUNTAR = /^\/asistente\/preguntar$/;
 export const ESTADO = /^\/asistente\/estado$/;
 export const CALIFICACION = /^\/asistente\/mensajes\/(\d+)\/calificacion$/;
 export const ACCION = /^\/asistente\/mensajes\/(\d+)\/accion$/;
+/** Detalle de la respuesta (docs/asistente-detalle-spec.md §6.1). */
+export const TIEMPOS_MENSAJE = /^\/asistente\/mensajes\/(\d+)\/tiempos$/;
+export const DETALLE_MENSAJE = /^\/asistente\/mensajes\/(\d+)\/detalle$/;
+export const TIEMPOS_CONSUMO = /^\/asistente\/consumo\/tiempos(\?|$)/;
 export const PATCH_CONFIG = /^\/asistente\/config$/;
 export const PATCH_FUNCION = /^\/asistente\/funciones\/([^/]+)$/;
 
 /** Un usuario con el asistente y lo que hace falta para ver las sugerencias de Gestión. */
 export const PERMISOS_IA = ['asistente.usar', 'deudores.ver', 'promesas.crear', 'convenios.generar_cupon', 'reportes.ver', 'reportes.crear'];
 export const PERMISOS_ADMIN_IA = [...PERMISOS_IA, 'asistente.administrar'];
+/** Además puede ver el detalle de las respuestas (docs/asistente-detalle-spec.md D-1). */
+export const PERMISOS_DETALLE_IA = [...PERMISOS_IA, 'asistente.ver_detalle'];
+/** Administra y ve el detalle: el detalle de las 👎 de Consumo pide los dos (D-2). */
+export const PERMISOS_ADMIN_DETALLE_IA = [...PERMISOS_ADMIN_IA, 'asistente.ver_detalle'];
 /** Además puede armar reportes con el asistente (Fase B, D-2): `asistente.reportes` + `reportes.crear` + `reportes.ver`. */
 export const PERMISOS_REPORTES_IA = [...PERMISOS_IA, 'asistente.reportes'];
 export const ADJUNTOS = /^\/asistente\/adjuntos$/;
@@ -119,6 +127,71 @@ export function respuestaNormal(trozos: string[], fin: Record<string, unknown> =
     return respuestaSse([ev.inicio(), ...trozos.map(ev.texto), ev.fin(trozos.join(''), fin)], pausaMs);
 }
 
+// ─── El detalle de la respuesta: el caso dorado de docs/asistente-detalle-spec.md §18.3 ──────────────────
+const nodo = (tipo: string, desdeMs: number, ms: number, extra: Record<string, unknown> = {}) => ({ tipo, desdeMs, ms, ...extra });
+
+/** Una respuesta de reportes de 18,3 s y USD 0,02651: preparación, llamada 1, `probar_plantilla` (muestra y conteo en paralelo), llamada 2 y guardar. */
+export function detalleIA(over: Partial<DetalleRespuesta> = {}): DetalleRespuesta {
+    return {
+        version: 1, funcion: 'reportes', modelo: 'us.anthropic.claude-sonnet-5-5', estado: 'ok', motivo: null,
+        totalMs: 18_300, primerTextoMs: 15_400, costoUsd: 0.02651, llamadas: 2, parcial: false, incompleto: false, recortado: false, navegador: null,
+        nodos: [
+            nodo('preparacion', 0, 300, { hijos: [nodo('topes', 0, 20), nodo('historial', 20, 100), nodo('contexto', 120, 180)] }),
+            nodo('llamada', 300, 6_100, {
+                numero: 1, fin: 'tool_use', costoUsd: 0.016951,
+                uso: { entrada: 3_571, cacheLectura: 11_309, cacheEscritura: 0, salida: 592, razonamiento: 412 },
+                hijos: [
+                    nodo('espera', 300, 1_200, { tokens: 14_880, costoUsd: 0.010439, msConexion: 400, msPrimerEvento: 1_100, msTopes: 2 }),
+                    nodo('razonamiento', 1_500, 3_400, { tokens: 412, costoUsd: 0.004532 }),
+                    nodo('pedido', 4_900, 1_500, { nombre: 'probar_plantilla', tokens: 180, costoUsd: 0.00198 }),
+                ],
+            }),
+            nodo('herramienta', 6_400, 4_800, {
+                nombre: 'probar_plantilla', recurso: 'base', estado: 'ok', descripcion: 'Probé la plantilla: 8.412 casos, sin errores', tokensResultado: 310,
+                hijos: [nodo('validacion', 6_400, 20), nodo('espera_base', 6_420, 20), nodo('muestra', 6_440, 3_100), nodo('conteo', 6_440, 4_720)],
+            }),
+            nodo('llamada', 11_200, 7_000, {
+                numero: 2, fin: 'end_turn', costoUsd: 0.009559,
+                uso: { entrada: 455, cacheLectura: 14_717, cacheEscritura: 0, salida: 610, razonamiento: 230 },
+                hijos: [
+                    nodo('espera', 11_200, 900, { tokens: 15_172, costoUsd: 0.002849, msConexion: 300, msPrimerEvento: 800, msTopes: 2 }),
+                    nodo('razonamiento', 12_100, 3_200, { tokens: 230, costoUsd: 0.00253 }),
+                    nodo('respuesta', 15_300, 2_900, { tokens: 380, costoUsd: 0.00418 }),
+                ],
+            }),
+            nodo('guardar', 18_200, 100),
+        ],
+        ...over,
+    };
+}
+
+/** La tabla «Tiempos por paso» con una función de ayuda y una de reportes. */
+export function tiemposIA(over: Partial<TiemposAsistente> = {}): TiemposAsistente {
+    return {
+        mes: '2026-10', respuestas: 240, recortado: false,
+        porFuncion: [
+            {
+                funcion: 'ayuda', nombre: 'Ayuda y navegación',
+                filas: [
+                    { paso: 'total', herramienta: null, muestras: 200, medianaMs: 4_100, p95Ms: 9_800 },
+                    { paso: 'navegador_total', herramienta: null, muestras: 190, medianaMs: 4_300, p95Ms: 10_200 },
+                    { paso: 'espera', herramienta: null, muestras: 260, medianaMs: 900, p95Ms: 2_400 },
+                    { paso: 'herramienta', herramienta: 'leer_pagina', muestras: 120, medianaMs: 20, p95Ms: 60 },
+                    { paso: 'guardar', herramienta: null, muestras: 200, medianaMs: 90, p95Ms: 250 },
+                ],
+            },
+            {
+                funcion: 'reportes', nombre: 'Armar reportes',
+                filas: [
+                    { paso: 'total', herramienta: null, muestras: 40, medianaMs: 18_300, p95Ms: 61_000 },
+                    { paso: 'herramienta', herramienta: 'probar_plantilla', muestras: 55, medianaMs: 4_800, p95Ms: 15_100 },
+                ],
+            },
+        ],
+        ...over,
+    };
+}
+
 export function estadoIA(over: Partial<EstadoAsistente> = {}): EstadoAsistente {
     return { habilitado: true, pausa: null, limiteDiario: { usadas: 3, limite: 100 }, ...over };
 }
@@ -177,6 +250,12 @@ export interface BancoIA {
     vistaPrevia: (id: number) => Resp;
     /** Lo que contesta `GET /asistente/propuestas/:id/plantilla`. */
     plantillaDePropuesta: (id: number) => Resp;
+    /** Lo que contesta `POST /asistente/mensajes/:id/tiempos` (204 por defecto). */
+    tiempos: (id: number, cuerpo: Record<string, unknown>) => Resp;
+    /** Lo que contesta `GET /asistente/mensajes/:id/detalle` (el del caso dorado por defecto). */
+    detalleDeMensaje: (id: number) => Resp;
+    /** Lo que contesta `GET /asistente/consumo/tiempos`. */
+    tiemposConsumo: () => Resp;
     /** Cuerpos JSON de los pedidos que coinciden (en orden). */
     cuerpos: (metodo: string, patron: RegExp) => Array<Record<string, unknown>>;
     texto: () => string;
@@ -237,6 +316,9 @@ export async function armarIA(o: Opciones = {}): Promise<BancoIA> {
     b.parchearAdjunto = (id, cuerpo) => ({ body: adjuntoIA({ id, resumen: { ...adjuntoIA().resumen, conEncabezado: cuerpo.primeraFilaEsEncabezado === true } }) });
     b.vistaPrevia = () => ({ body: vistaPreviaIA() });
     b.plantillaDePropuesta = (id) => ({ status: 404, body: { message: `Propuesta ${id} no prevista por el arnés` } });
+    b.tiempos = () => ({ status: 204 });
+    b.detalleDeMensaje = () => ({ body: detalleIA() });
+    b.tiemposConsumo = () => ({ body: tiemposIA() });
     b.cuerpos = (metodo, patron) => srv.de(metodo, patron).map((p) => (p.cuerpo.length ? JSON.parse(p.cuerpo.toString('utf8')) : {}));
 
     srv.en('GET', ESTADO, () => ({ body: b.estado }));
@@ -258,6 +340,9 @@ export async function armarIA(o: Opciones = {}): Promise<BancoIA> {
     srv.en('GET', PLANTILLA_DE_PROPUESTA, (m) => b.plantillaDePropuesta(Number(m[1])));
     srv.en('POST', CALIFICACION, () => ({ status: 204 }));
     srv.en('POST', ACCION, () => ({ status: 204 }));
+    srv.en('POST', TIEMPOS_MENSAJE, (m, p) => b.tiempos(Number(m[1]), JSON.parse(p.cuerpo.toString('utf8'))));
+    srv.en('GET', DETALLE_MENSAJE, (m) => b.detalleDeMensaje(Number(m[1])));
+    srv.en('GET', TIEMPOS_CONSUMO, () => b.tiemposConsumo());
     srv.en('GET', /^\/asistente\/consumo$/, () => ({ body: b.consumo }));
     srv.en('GET', PATCH_CONFIG, () => ({ body: b.config }));
     srv.en('PATCH', PATCH_CONFIG, (_m, p) => { b.config = { ...b.config, ...JSON.parse(p.cuerpo.toString('utf8')) }; return { body: b.config }; });

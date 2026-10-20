@@ -2,7 +2,8 @@ import React, { createContext, useCallback, useContext, useEffect, useMemo, useR
 import { useLocation, useNavigate } from 'react-router-dom';
 import { asistenteApi, ErrorConexion, ErrorPregunta, preguntar } from '../api/asistente';
 import type {
-    AccionIrA, AdjuntoSubido, ConversacionResumen, EstadoAsistente, EventoAsistente, FuncionClave, MensajeAsistente, TarjetaPropuesta,
+    AccionIrA, AdjuntoSubido, ConversacionResumen, DetalleRespuesta, EstadoAsistente, EventoAsistente, FuncionClave, MensajeAsistente, TarjetaPropuesta,
+    TiemposNavegador,
 } from '../types/asistente';
 import { useAuth } from './AuthContext';
 import { useNotify } from '../hooks/useNotify';
@@ -52,6 +53,10 @@ export interface AdjuntoPendiente {
 export const MAX_ADJUNTOS = 3;
 export const MAX_BYTES_ADJUNTO = 5 * 1024 * 1024;
 const CLAVE_MODO = 'amsa_asistente_modo';
+/** El interruptor «Mostrar el detalle de las respuestas»: '0' apagado, cualquier otra cosa (o nada) encendido. */
+const CLAVE_DETALLE = 'amsa_asistente_detalle';
+/** El tope que acepta el servidor para un tiempo del navegador (docs/asistente-detalle-spec.md §6.1). */
+const MAX_TIEMPO_NAVEGADOR_MS = 900_000;
 /** El evento con el que el editor avisa que guardó la plantilla de una propuesta (la tarjeta pasa a «Guardada»). */
 export const EVENTO_PROPUESTA_GUARDADA = 'asistente:propuesta-guardada';
 /** El editor avisa que cargó la plantilla de una propuesta (detalle: `{ propuestaId }`). */
@@ -107,6 +112,11 @@ interface AsistenteContextValue {
     marcarPrimeraFila: (clave: string, esEncabezado: boolean) => Promise<void>;
     /** Abre la propuesta en el editor (`/reportes/nuevo?propuesta=ID`), o la plantilla ya guardada. */
     abrirPropuesta: (p: TarjetaPropuesta) => void;
+    /** Tiene `asistente.ver_detalle`: sin esto no hay desplegable en las respuestas ni interruptor en el menú (docs/asistente-detalle-spec.md §12). */
+    verDetalle: boolean;
+    /** El interruptor del menú del panel. Encendido por defecto; se recuerda en el navegador. Solo cuenta si `verDetalle`. */
+    mostrarDetalle: boolean;
+    alternarDetalle: () => void;
 }
 
 const AsistenteContext = createContext<AsistenteContextValue | null>(null);
@@ -151,6 +161,25 @@ function guardarModo(m: FuncionClave) {
     try { localStorage.setItem(CLAVE_MODO, m); } catch { /* sin almacenamiento: no se recuerda */ }
 }
 
+/** El interruptor del detalle que quedó de la última vez. `localStorage` puede tirar: se arranca encendido. */
+function leerDetalleGuardado(): boolean {
+    try { return localStorage.getItem(CLAVE_DETALLE) !== '0'; } catch { return true; }
+}
+function guardarDetalle(v: boolean) {
+    try { localStorage.setItem(CLAVE_DETALLE, v ? '1' : '0'); } catch { /* sin almacenamiento: no se recuerda */ }
+}
+
+/** Los tiempos que midió el navegador, en enteros y dentro de lo que acepta el servidor (0 ≤ señales ≤ total ≤ 900.000). */
+function tiemposDelNavegador(t0: number, primeraSenal: number | null, primerTexto: number | null, ahora: number): TiemposNavegador {
+    const ms = (t: number) => Math.min(MAX_TIEMPO_NAVEGADOR_MS, Math.max(0, Math.round(t - t0)));
+    const totalMs = ms(ahora);
+    return {
+        primeraSenalMs: primeraSenal === null ? null : Math.min(totalMs, ms(primeraSenal)),
+        primerTextoMs: primerTexto === null ? null : Math.min(totalMs, ms(primerTexto)),
+        totalMs,
+    };
+}
+
 export const AsistenteProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
     const { tienePermiso } = useAuth();
     const disponible = tienePermiso('asistente.usar');
@@ -162,6 +191,16 @@ export const AsistenteProvider: React.FC<{ children: React.ReactNode }> = ({ chi
     const modo: FuncionClave = puedeArmarReportes ? modoElegido : 'ayuda';
     const modoRef = useRef<FuncionClave>(modo);
     modoRef.current = modo;
+    const verDetalle = disponible && tienePermiso('asistente.ver_detalle');
+    const [mostrarDetalle, setMostrarDetalle] = useState<boolean>(leerDetalleGuardado);
+    const mostrarDetalleRef = useRef(mostrarDetalle);
+    mostrarDetalleRef.current = mostrarDetalle;
+    const alternarDetalle = useCallback(() => {
+        const nuevo = !mostrarDetalleRef.current;
+        mostrarDetalleRef.current = nuevo;
+        setMostrarDetalle(nuevo);
+        guardarDetalle(nuevo);
+    }, []);
     // Lo dice el 429 de la última pregunta, con el texto del backend. Sin él (el estado que pide el panel), el límite es el de la función del modo activo.
     const [limiteAlcanzado, setLimiteAlcanzado] = useState<{ mensaje: string; origen: OrigenLimite } | null>(null);
     const [adjuntos, setAdjuntos] = useState<AdjuntoPendiente[]>([]);
@@ -287,6 +326,10 @@ export const AsistenteProvider: React.FC<{ children: React.ReactNode }> = ({ chi
     const enviar = useCallback(async (texto: string, reenvio?: MensajeAsistente['adjuntos']): Promise<ResultadoEnvio> => {
         const pregunta = texto.trim();
         if (!pregunta || enviandoRef.current) return 'ignorado';
+        // El reloj de la persona: desde que apretó Enviar. Monotónico, no se ve afectado por un cambio de hora.
+        const t0 = performance.now();
+        let primeraSenal: number | null = null;
+        let primerTexto: number | null = null;
         const modoDelEnvio = modoRef.current;
         const reportes = modoDelEnvio === 'reportes';
         // Los ejemplos listos viajan con la pregunta; los que todavía suben o fallaron se quedan en el compositor.
@@ -319,8 +362,18 @@ export const AsistenteProvider: React.FC<{ children: React.ReactNode }> = ({ chi
         let accionesVivas: AccionIrA[] = [];
         let resultado: ResultadoEnvio = 'enviado';
 
+        /** Lo que midió el navegador, a más tardar ahora: se pega al detalle de la burbuja y se manda al servidor (para todos, D-6). */
+        const cerrarMedicion = (mensajeId: number | undefined): TiemposNavegador => {
+            const nav = tiemposDelNavegador(t0, primeraSenal, primerTexto, performance.now());
+            if (mensajeId && mensajeId > 0) asistenteApi.tiempos(mensajeId, nav).catch(() => undefined);
+            return nav;
+        };
+        const conNavegador = (d: DetalleRespuesta | undefined, nav: TiemposNavegador): { detalle?: DetalleRespuesta } => (d ? { detalle: { ...d, navegador: nav } } : {});
+
         const alEvento = (e: EventoAsistente) => {
             if (!montadoRef.current) return;
+            if (primeraSenal === null && ['texto', 'herramienta', 'paso', 'accion', 'propuesta'].includes(e.evento)) primeraSenal = performance.now();
+            if (primerTexto === null && e.evento === 'texto') primerTexto = performance.now();
             switch (e.evento) {
                 case 'inicio': {
                     fijarConversacion(e.data.conversacionId);
@@ -363,9 +416,10 @@ export const AsistenteProvider: React.FC<{ children: React.ReactNode }> = ({ chi
                     cancelarVolcado();
                     textoRef.current = e.data.texto;
                     const fin = e.data;
+                    const navFin = cerrarMedicion(fin.mensajeId);
                     actualizarAsistente((m) => ({
                         ...m, id: fin.mensajeId, texto: fin.texto, fuentes: fin.fuentes, acciones: fin.acciones ?? accionesVivas, estado: fin.estado, actividad: null,
-                        pasos: fin.pasos ?? m.pasos, propuestas: fin.propuestas ?? m.propuestas,
+                        pasos: fin.pasos ?? m.pasos, propuestas: fin.propuestas ?? m.propuestas, ...conNavegador(fin.detalle, navFin),
                     }));
                     idAsistenteRef.current = fin.mensajeId;
                     break;
@@ -375,7 +429,8 @@ export const AsistenteProvider: React.FC<{ children: React.ReactNode }> = ({ chi
                     const tope = e.data.codigo === 'TOPE_MENSUAL' || e.data.codigo === 'TOPE_FUNCION';
                     const parcial = textoRef.current;
                     const idError = e.data.mensajeId;
-                    actualizarAsistente((m) => ({ ...m, id: idError ?? m.id, texto: parcial, estado: 'error', actividad: null, errorTexto: e.data.mensaje, errorDeTope: tope }));
+                    const navError = cerrarMedicion(idError);
+                    actualizarAsistente((m) => ({ ...m, id: idError ?? m.id, texto: parcial, estado: 'error', actividad: null, errorTexto: e.data.mensaje, errorDeTope: tope, ...conNavegador(e.data.detalle, navError) }));
                     if (idError) idAsistenteRef.current = idError;
                     if (e.data.codigo === 'PROMPT_DEMASIADO_GRANDE') {
                         // El ejemplo es demasiado grande y el turno cortó antes de llamar al modelo: reintentar igual daría lo mismo.
@@ -714,9 +769,11 @@ export const AsistenteProvider: React.FC<{ children: React.ReactNode }> = ({ chi
         disponible, abierto, abrir, cerrar, alternar, mensajes, conversacionId, enviando, estado, bloqueo, aviso, enviar, detener,
         reintentar, nuevaConversacion, conversaciones, cargarConversaciones, abrirConversacion, actualizarConversacion, volverAProbar, calificar, responderAccion,
         modo, puedeArmarReportes, cambiarModo, adjuntos, subirArchivos, reintentarAdjunto, quitarAdjunto, marcarPrimeraFila, abrirPropuesta,
+        verDetalle, mostrarDetalle, alternarDetalle,
     }), [disponible, abierto, abrir, cerrar, alternar, mensajes, conversacionId, enviando, estado, bloqueo, aviso, enviar, detener,
         reintentar, nuevaConversacion, conversaciones, cargarConversaciones, abrirConversacion, actualizarConversacion, volverAProbar, calificar, responderAccion,
-        modo, puedeArmarReportes, cambiarModo, adjuntos, subirArchivos, reintentarAdjunto, quitarAdjunto, marcarPrimeraFila, abrirPropuesta]);
+        modo, puedeArmarReportes, cambiarModo, adjuntos, subirArchivos, reintentarAdjunto, quitarAdjunto, marcarPrimeraFila, abrirPropuesta,
+        verDetalle, mostrarDetalle, alternarDetalle]);
 
     return <AsistenteContext.Provider value={value}>{children}</AsistenteContext.Provider>;
 };

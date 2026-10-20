@@ -7,7 +7,8 @@ import { ConversacionesService } from './conversaciones.service';
 import { AccionDto } from './dto/accion.dto';
 import { CalificarDto } from './dto/calificar.dto';
 import { ConversacionesQueryDto, EstadoQueryDto } from './dto/conversaciones-query.dto';
-import { ConversacionDetalle, ConversacionResumen, EstadoAsistente, EventoSse } from './dto/asistente.tipos';
+import { ConversacionDetalle, ConversacionResumen, EstadoAsistente, EventoSse, PERMISO_VER_DETALLE } from './dto/asistente.tipos';
+import { TiemposNavegadorDto } from './dto/tiempos-navegador.dto';
 import { PreguntarDto } from './dto/preguntar.dto';
 import { TopesService } from './topes.service';
 
@@ -83,7 +84,21 @@ export class AsistenteController {
     @Get('conversaciones/:id')
     @Permisos('asistente.usar')
     detalle(@UsuarioActual() u: UsuarioJwt, @Param('id', ParseIntPipe) id: number): Promise<ConversacionDetalle> {
-        return this.conversaciones.detalle(usuarioValido(u).sub, id);
+        // El detalle de cada respuesta solo viaja con `asistente.ver_detalle`: sin el permiso la clave no existe.
+        const conDetalle = (usuarioValido(u).permisos ?? []).includes(PERMISO_VER_DETALLE);
+        return this.conversaciones.detalle(usuarioValido(u).sub, id, { conDetalle });
+    }
+
+    /** Lo que midió el navegador desde Enviar. Lo manda el panel de todos, tengan o no el permiso del detalle (D-6). */
+    @Post('mensajes/:id/tiempos')
+    @Permisos('asistente.usar')
+    @HttpCode(204)
+    async tiempos(
+        @UsuarioActual() u: UsuarioJwt,
+        @Param('id', ParseIntPipe) id: number,
+        @Body() dto: TiemposNavegadorDto,
+    ): Promise<void> {
+        await this.conversaciones.registrarTiemposNavegador(usuarioValido(u).sub, id, dto);
     }
 
     @Post('mensajes/:id/calificacion')

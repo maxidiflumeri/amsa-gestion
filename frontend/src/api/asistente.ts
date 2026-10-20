@@ -1,7 +1,8 @@
 import api from './axios';
 import type {
     AdjuntoSubido, ConfigAsistente, ConsumoAsistente, ConversacionDetalle, ConversacionResumen, EstadoAsistente, EventoAsistente,
-    FuncionAsistente, FuncionClave, PlantillaDesdeAsistente, PreguntarBody, VistaPreviaPropuesta,
+    DetalleRespuesta, FuncionAsistente, FuncionClave, PlantillaDesdeAsistente, PreguntarBody, TiemposAsistente, TiemposNavegador,
+    VistaPreviaPropuesta,
 } from '../types/asistente';
 
 const BASE = import.meta.env.VITE_API_URL || 'http://localhost:3001/api';
@@ -153,6 +154,21 @@ export const asistenteApi = {
     },
     consumo(mes?: string): Promise<ConsumoAsistente> {
         return api.get('/asistente/consumo', { params: mes ? { mes } : undefined }).then((r) => r.data);
+    },
+    /**
+     * Lo que midió el navegador de la persona (docs/asistente-detalle-spec.md §7.10). Va de fondo: si falla no pasa nada.
+     * El servidor guarda solo la primera vez y contesta 204 igual.
+     */
+    tiempos(mensajeId: number, t: TiemposNavegador): Promise<void> {
+        return api.post(`/asistente/mensajes/${mensajeId}/tiempos`, t, { silencioso: true }).then(() => undefined);
+    },
+    /** El detalle de una respuesta ajena (las 👎 de Consumo): pide `asistente.administrar` y `asistente.ver_detalle`. */
+    detalleDeMensaje(id: number): Promise<DetalleRespuesta> {
+        return api.get(`/asistente/mensajes/${id}/detalle`, { silencioso: true }).then((r) => r.data);
+    },
+    /** Mediana y p95 de cada paso, por función. Es de la tarjeta «Tiempos por paso»: pide `asistente.administrar`. */
+    tiemposConsumo(mes?: string): Promise<TiemposAsistente> {
+        return api.get('/asistente/consumo/tiempos', { params: mes ? { mes } : undefined, silencioso: true }).then((r) => r.data);
     },
     config(): Promise<ConfigAsistente> {
         return api.get('/asistente/config').then((r) => r.data);

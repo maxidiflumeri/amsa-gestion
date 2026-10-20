@@ -126,3 +126,87 @@ describe('FRASES_SIN_DOCUMENTAR', () => {
         expect(cuenta('Andá a **Reportes** y tocá **Nueva plantilla**.')).toBe(false);
     });
 });
+
+// ---- Tiempos por paso (docs/asistente-detalle-spec.md §7.11) --------------------------------------------------------------
+
+describe('MedicionService.tiempos', () => {
+    beforeEach(() => {
+        jest.spyOn(Logger.prototype, 'log').mockImplementation();
+        jest.spyOn(Logger.prototype, 'debug').mockImplementation();
+    });
+    afterEach(() => jest.restoreAllMocks());
+
+    const nodoLlamada = (ms: number, fin = 'end_turn') => ({ tipo: 'llamada', desdeMs: 0, ms, fin, hijos: [{ tipo: 'espera', desdeMs: 0, ms: ms / 2 }] });
+    const traza = (funcion: string, totalMs: number, extra: object = {}) => ({
+        version: 1, funcion, modelo: 'm', estado: 'ok', motivo: null, totalMs, primerTextoMs: null, costoUsd: 0, llamadas: 1, parcial: false, incompleto: false, recortado: false, navegador: null,
+        nodos: [{ tipo: 'preparacion', desdeMs: 0, ms: 100 }, nodoLlamada(totalMs - 100), { tipo: 'guardar', desdeMs: totalMs - 10, ms: 10 }], ...extra,
+    });
+    function armarTiempos(filas: unknown[]) {
+        const findMany = jest.fn().mockResolvedValue(filas);
+        const prisma: any = { asistente_mensaje: { findMany } };
+        const config: any = { funciones: jest.fn().mockResolvedValue([{ clave: 'ayuda', nombre: 'Ayuda' }, { clave: 'reportes', nombre: 'Armar reportes' }]) };
+        return { svc: new MedicionService(prisma, config), findMany };
+    }
+
+    it('tres trazas de dos funciones: filas, orden, mediana y p95 exactos, con el nombre legible de la función', async () => {
+        const { svc, findMany } = armarTiempos([
+            { traza: traza('ayuda', 1000), tiemposNavegador: { primeraSenalMs: 400, primerTextoMs: 500, totalMs: 1100 } },
+            { traza: traza('ayuda', 3000), tiemposNavegador: null },
+            { traza: traza('reportes', 20000), tiemposNavegador: null },
+        ]);
+        const t = await svc.tiempos('2026-10');
+        expect(t).toMatchObject({ mes: '2026-10', respuestas: 3, recortado: false });
+        expect(t.porFuncion.map((f) => [f.funcion, f.nombre])).toEqual([['ayuda', 'Ayuda'], ['reportes', 'Armar reportes']]);
+        const filasAyuda = t.porFuncion[0].filas.map((f) => [f.paso, f.muestras, f.medianaMs, f.p95Ms]);
+        expect(filasAyuda).toEqual([
+            ['total', 2, 1000, 3000],
+            ['navegador_total', 1, 1100, 1100],
+            ['navegador_primer_texto', 1, 500, 500],
+            ['preparacion', 2, 100, 100],
+            ['llamada', 2, 900, 2900],
+            ['espera', 2, 450, 1450],
+            ['guardar', 2, 10, 10],
+        ]);
+        // Filtra por rol y por el mes, y solo trae las que tienen traza.
+        const where = findMany.mock.calls[0][0].where;
+        expect(where).toMatchObject({ rol: 'asistente' });
+        expect(where.createdAt.gte).toEqual(new Date(2026, 9, 1));
+        expect(where.createdAt.lt).toEqual(new Date(2026, 10, 1));
+        expect(where.NOT).toBeDefined();
+    });
+
+    it('lo detenido o cortado no baja la mediana, y un JSON que no es un detalle se ignora', async () => {
+        const { svc } = armarTiempos([
+            { traza: traza('ayuda', 1000), tiemposNavegador: null },
+            { traza: traza('ayuda', 50, { estado: 'cortado', nodos: [nodoLlamada(40, 'abortada')] }), tiemposNavegador: null },
+            { traza: { cualquier: 'cosa' }, tiemposNavegador: null },
+        ]);
+        const t = await svc.tiempos('2026-10');
+        expect(t.respuestas).toBe(2);
+        const fila = (p: string) => t.porFuncion[0].filas.find((f) => f.paso === p)!;
+        expect(fila('total').muestras).toBe(1);
+        expect(fila('llamada').muestras).toBe(1);
+    });
+
+    it('5.001 filas: se usan 5.000 y va «recortado»', async () => {
+        const filas = Array.from({ length: 5001 }, () => ({ traza: traza('ayuda', 1000), tiemposNavegador: null }));
+        const { svc, findMany } = armarTiempos(filas);
+        const t = await svc.tiempos('2026-10');
+        expect(t).toMatchObject({ respuestas: 5000, recortado: true });
+        expect(findMany.mock.calls[0][0]).toMatchObject({ take: 5001, orderBy: { id: 'desc' } });
+    });
+
+    it('un mes inválido da 400; sin mes, el corriente; una función que no está en la base va con su clave', async () => {
+        const { svc } = armarTiempos([{ traza: traza('cartera', 500), tiemposNavegador: null }]);
+        await expect(svc.tiempos('2026-13')).rejects.toBeInstanceOf(BadRequestException);
+        const t = await svc.tiempos();
+        expect(t.mes).toBe(mesLocal());
+        expect(t.porFuncion[0]).toMatchObject({ funcion: 'cartera', nombre: 'cartera' });
+    });
+
+    it('precioDe delega en la configuración', async () => {
+        const { svc } = armarTiempos([]);
+        (svc as any).config.precioVigente = jest.fn().mockResolvedValue(PRECIO);
+        await expect(svc.precioDe('x')).resolves.toBe(PRECIO);
+    });
+});

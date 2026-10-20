@@ -9,9 +9,11 @@ import { asistenteApi } from '../../api/asistente';
 import { PageHeader, SectionCard } from '../../components/ui';
 import { useAuth } from '../../context/AuthContext';
 import { useNotify } from '../../hooks/useNotify';
-import type { ConfigAsistente, ConsumoAsistente } from '../../types/asistente';
+import type { ConfigAsistente, ConsumoAsistente, DetalleRespuesta as Detalle } from '../../types/asistente';
+import DetalleRespuesta from '../../components/asistente/DetalleRespuesta';
 import Markdown from '../ayuda/Markdown';
 import ConfiguracionAsistente, { aNumero } from './ConfiguracionAsistente';
+import TiemposAsistente from './TiemposAsistente';
 
 const usd = (n: number, decimales = 2) => `US$ ${n.toLocaleString('es-AR', { minimumFractionDigits: decimales, maximumFractionDigits: decimales })}`;
 const entero = (n: number) => n.toLocaleString('es-AR');
@@ -28,11 +30,11 @@ const mesLegible = (ym: string) => {
 
 const ERROR_CONSUMO = 'No se pudo cargar el consumo del asistente. Probá de nuevo en un rato.';
 /** El `mensaje` (o `message`) que mandó el backend; si no hay, o es el genérico en inglés de un 500, un texto en castellano. */
-const textoDeErrorConsumo = (e: unknown): string => {
+const textoDeErrorConsumo = (e: unknown, porDefecto = ERROR_CONSUMO): string => {
     const datos = (e as { response?: { data?: { mensaje?: string | string[]; message?: string | string[] } } }).response?.data;
     const crudo = datos?.mensaje ?? datos?.message;
     const msg = Array.isArray(crudo) ? crudo[0] : crudo;
-    if (typeof msg !== 'string' || msg.trim() === '' || /^internal server error$/i.test(msg.trim())) return ERROR_CONSUMO;
+    if (typeof msg !== 'string' || msg.trim() === '' || /^internal server error$/i.test(msg.trim())) return porDefecto;
     return msg;
 };
 
@@ -218,6 +220,8 @@ const AsistenteConsumo: React.FC = () => {
     notifyRef.current = notify;
     const { tienePermiso } = useAuth();
     const puede = tienePermiso('asistente.administrar');
+    // El detalle de una 👎 ajena pide los dos permisos (D-2): el de administrar ya lo tiene quien llega acá.
+    const puedeVerDetalle = tienePermiso('asistente.ver_detalle');
 
     const [mes, setMes] = useState('');
     const [consumo, setConsumo] = useState<ConsumoAsistente | null>(null);
@@ -225,6 +229,25 @@ const AsistenteConsumo: React.FC = () => {
     const [error, setError] = useState<string | null>(null);
     const [cargando, setCargando] = useState(true);
     const [respuestaAbierta, setRespuestaAbierta] = useState<number | null>(null);
+    // El detalle de cada 👎 que se pidió: el mensaje y, cuando llegó, su detalle. No depende del interruptor del panel.
+    const [detalles, setDetalles] = useState<Record<number, Detalle>>({});
+    const [pidiendoDetalle, setPidiendoDetalle] = useState<number | null>(null);
+
+    const alternarDetalle = async (mensajeId: number) => {
+        if (detalles[mensajeId]) {
+            setDetalles(({ [mensajeId]: _quitado, ...resto }) => resto);
+            return;
+        }
+        setPidiendoDetalle(mensajeId);
+        try {
+            const d = await asistenteApi.detalleDeMensaje(mensajeId);
+            setDetalles((prev) => ({ ...prev, [mensajeId]: d }));
+        } catch (e) {
+            notifyRef.current.error(textoDeErrorConsumo(e, 'No se pudo cargar el detalle de la respuesta. Probá de nuevo en un rato.'));
+        } finally {
+            setPidiendoDetalle(null);
+        }
+    };
 
     const cargarConsumo = useCallback(async (m: string) => {
         setCargando(true);
@@ -361,6 +384,8 @@ const AsistenteConsumo: React.FC = () => {
                             </TableContainer>
                         </SectionCard>
 
+                        <TiemposAsistente mes={consumo.mes} mesLegible={mesLegible(consumo.mes)} />
+
                         <PlantillasArmadas porFuncion={consumo.porFuncion} />
 
                         <SectionCard title="Por persona" subtitle="Las 50 que más gastaron en el mes">
@@ -408,7 +433,15 @@ const AsistenteConsumo: React.FC = () => {
                                                 <Box data-testid="respuesta-negativa" sx={{ color: 'text.secondary', overflowWrap: 'anywhere', ...(abierta ? {} : { display: '-webkit-box', WebkitLineClamp: 3, WebkitBoxOrient: 'vertical', overflow: 'hidden' }) }}>
                                                     <Markdown texto={n.respuesta} compacto />
                                                 </Box>
-                                                <Button size="small" onClick={() => setRespuestaAbierta(abierta ? null : n.mensajeId)}>{abierta ? 'Ver menos' : 'Ver completa'}</Button>
+                                                <Stack direction="row" useFlexGap flexWrap="wrap" spacing={1}>
+                                                    <Button size="small" onClick={() => setRespuestaAbierta(abierta ? null : n.mensajeId)}>{abierta ? 'Ver menos' : 'Ver completa'}</Button>
+                                                    {puedeVerDetalle && (
+                                                        <Button size="small" disabled={pidiendoDetalle === n.mensajeId} onClick={() => void alternarDetalle(n.mensajeId)}>
+                                                            {detalles[n.mensajeId] ? 'Ocultar detalle' : 'Ver detalle'}
+                                                        </Button>
+                                                    )}
+                                                </Stack>
+                                                {puedeVerDetalle && detalles[n.mensajeId] && <DetalleRespuesta detalle={detalles[n.mensajeId]} abiertoInicial />}
                                                 {n.comentario && (
                                                     <Typography variant="body2" sx={{ mt: 0.5, overflowWrap: 'anywhere' }}>
                                                         <strong>Qué faltó:</strong> {n.comentario}

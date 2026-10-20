@@ -3,7 +3,8 @@ import { act } from 'react';
 import { afterEach, describe, expect, it } from 'vitest';
 import { alertas, boton, clic, esperar, limpio, pasar, toasts } from '../lib/montar';
 import {
-    PATCH_CONFIG, PATCH_FUNCION, PERMISOS_ADMIN_IA, armarIA, bajarIA, configIA, consumoIA, rutaActual, type BancoIA,
+    DETALLE_MENSAJE, PATCH_CONFIG, PATCH_FUNCION, PERMISOS_ADMIN_DETALLE_IA, PERMISOS_ADMIN_IA, TIEMPOS_CONSUMO, armarIA, bajarIA, configIA,
+    consumoIA, rutaActual, tiemposIA, type BancoIA,
 } from '../lib/banco-ia';
 
 let b: BancoIA | null = null;
@@ -393,5 +394,121 @@ describe('Por función', () => {
         b = await armarIA({ permisos: PERMISOS_ADMIN_IA, ruta: '/asistente/consumo' });
         await cargada();
         expect(document.querySelector('table[aria-label="Plantillas armadas con el asistente"]')).toBeNull();
+    });
+});
+
+
+describe('Tiempos por paso (docs/asistente-detalle-spec.md §12.4)', () => {
+    const tarjetaDeTiempos = () => Array.from(document.querySelectorAll('.MuiCard-root')).find((c) => /Tiempos por paso/.test(c.textContent ?? ''));
+    const tiempos = () => limpio(tarjetaDeTiempos()?.textContent ?? '');
+    /** Las filas de las tablas, con las celdas separadas por un espacio. */
+    const filasDeTiempos = () => Array.from(tarjetaDeTiempos()?.querySelectorAll('tbody tr') ?? []).map((tr) => limpio(Array.from(tr.querySelectorAll('td')).map((td) => td.textContent ?? '').join(' ')));
+
+    it('muestra una tabla por función con la mediana y el p95 de cada paso, y el mes que se pidió', async () => {
+        b = await armarIA({ permisos: PERMISOS_ADMIN_IA, ruta: '/asistente/consumo' });
+        await cargada();
+        await esperar(() => /Total en el servidor/.test(tiempos()), { que: 'la tabla de tiempos' });
+        const t = tiempos();
+        expect(t).toContain('Mediana y p95 de cada paso, por función. Salen del detalle de las respuestas, que se borra a los 90 días con su conversación.');
+        expect(t).toContain('Ayuda y navegación');
+        expect(t).toContain('Armar reportes');
+        expect(filasDeTiempos()).toEqual([
+            'Total en el servidor 200 4,1 s 9,8 s',
+            'Total en el navegador (de todos) 190 4,3 s 10,2 s',
+            'Espera del primer token 260 0,9 s 2,4 s',
+            'Herramienta leer_pagina 120 < 0,1 s 0,1 s',
+            'Guardar 200 0,1 s 0,3 s',
+            'Total en el servidor 40 18,3 s 61,0 s',
+            'Herramienta probar_plantilla 55 4,8 s 15,1 s',
+        ]);
+        for (const tabla of Array.from(document.querySelectorAll('table[aria-label^="Tiempos por paso de"]'))) {
+            expect(tabla.closest('.MuiTableContainer-root')).not.toBeNull();
+            expect(Array.from(tabla.querySelectorAll('th')).map((h) => limpio(h.textContent ?? ''))).toEqual(['Paso', 'Veces', 'Mediana', 'p95']);
+        }
+        expect(b.srv.de('GET', TIEMPOS_CONSUMO).map((p) => p.ruta)).toEqual(['/asistente/consumo/tiempos?mes=2026-10']);
+        // No se vuelve a pedir solo ni cuando cambia otra cosa de la pantalla.
+        await pasar(400);
+        expect(b.srv.cuantos('GET', TIEMPOS_CONSUMO)).toBe(1);
+    });
+
+    it('al cambiar de mes pide los tiempos de ese mes', async () => {
+        b = await armarIA({ permisos: PERMISOS_ADMIN_IA, ruta: '/asistente/consumo' });
+        await cargada();
+        await esperar(() => /Total en el servidor/.test(tiempos()), { que: 'la tabla de tiempos' });
+        b.consumo = consumoIA({ mes: '2026-09' });
+        await escribirCampo(campo(/^Mes$/), '2026-09');
+        await esperar(() => b!.srv.de('GET', TIEMPOS_CONSUMO).some((p) => p.ruta.endsWith('mes=2026-09')), { que: 'los tiempos de septiembre' });
+    });
+
+    it('si falla no rompe el resto de la pantalla: queda un aviso con «Reintentar» dentro de la tarjeta', async () => {
+        b = await armarIA({ permisos: PERMISOS_ADMIN_IA, ruta: '/asistente/consumo', antes: (x) => { x.tiemposConsumo = () => ({ status: 500, body: { message: 'Internal server error' } }); } });
+        await cargada();
+        const tarjeta = () => tarjetaDeTiempos()!;
+        await esperar(() => tarjeta().querySelector('.MuiAlert-root'), { que: 'el aviso de error' });
+        expect(limpio(tarjeta().querySelector('.MuiAlert-message')!.textContent ?? '')).toBe('No se pudieron cargar los tiempos del asistente. Probá de nuevo en un rato.');
+        expect(pagina()).toContain('Gasto del mes');
+        expect(pagina()).toContain('Por función');
+        expect(alertas().filter((a) => a.severidad === 'error')).toHaveLength(1);
+
+        b.tiemposConsumo = () => ({ body: tiemposIA() });
+        await clic(boton('Reintentar', tarjeta()), 'Reintentar');
+        await esperar(() => /Total en el servidor/.test(tiempos()), { que: 'la tabla después de reintentar' });
+        expect(tarjeta().querySelector('.MuiAlert-root')).toBeNull();
+    });
+
+    it('sin respuestas medidas dice el mes; con más de 5.000 avisa que son las últimas', async () => {
+        b = await armarIA({ permisos: PERMISOS_ADMIN_IA, ruta: '/asistente/consumo', antes: (x) => { x.tiemposConsumo = () => ({ body: tiemposIA({ respuestas: 0, porFuncion: [] }) }); } });
+        await cargada();
+        await esperar(() => /Todavía no hay respuestas medidas/.test(tiempos()), { que: 'el texto de vacío' });
+        expect(tiempos()).toContain('Todavía no hay respuestas medidas en octubre de 2026.');
+        await bajarIA(b);
+
+        b = await armarIA({ permisos: PERMISOS_ADMIN_IA, ruta: '/asistente/consumo', antes: (x) => { x.tiemposConsumo = () => ({ body: tiemposIA({ recortado: true }) }); } });
+        await cargada();
+        await esperar(() => /Sobre las últimas 5\.000 respuestas del mes\./.test(tiempos()), { que: 'el aviso de recorte' });
+    });
+});
+
+describe('Ver detalle en las respuestas con 👎 (D-2)', () => {
+    const botonVerDetalle = () => boton(/^Ver detalle$/);
+
+    it('con los dos permisos pide «GET mensajes/55/detalle» y muestra el detalle abierto, aunque el interruptor del panel esté apagado', async () => {
+        localStorage.setItem('amsa_asistente_detalle', '0');
+        b = await armarIA({ permisos: PERMISOS_ADMIN_DETALLE_IA, ruta: '/asistente/consumo' });
+        await cargada();
+        expect(b.srv.cuantos('GET', DETALLE_MENSAJE)).toBe(0);
+        await clic(botonVerDetalle(), 'Ver detalle');
+        await esperar(() => /Total 18,3 s · USD 0,027 · Sonnet 5\.5 · terminó bien/.test(pagina()), { que: 'el detalle abierto' });
+        expect(b.srv.de('GET', DETALLE_MENSAJE).map((p) => p.ruta)).toEqual(['/asistente/mensajes/55/detalle']);
+        expect(document.querySelectorAll('[data-testid="detalle-respuesta"] li').length).toBeGreaterThan(5);
+        // Se puede volver a ocultar.
+        await clic(boton(/^Ocultar detalle$/), 'Ocultar detalle');
+        await esperar(() => !document.querySelector('[data-testid="detalle-respuesta"]'), { que: 'el detalle oculto' });
+    });
+
+    it('sin «asistente.ver_detalle» no hay botón ni se pide nada', async () => {
+        b = await armarIA({ permisos: PERMISOS_ADMIN_IA, ruta: '/asistente/consumo' });
+        await cargada();
+        expect(botonVerDetalle()).toBeNull();
+        expect(boton('Ver completa')).not.toBeNull();
+        expect(b.srv.cuantos('GET', DETALLE_MENSAJE)).toBe(0);
+    });
+
+    it('un 403 (le falta un permiso) se avisa con el texto del servidor y no abre nada', async () => {
+        b = await armarIA({ permisos: PERMISOS_ADMIN_DETALLE_IA, ruta: '/asistente/consumo' });
+        b.detalleDeMensaje = () => ({ status: 403, body: { codigo: 'SIN_PERMISO_DETALLE', mensaje: 'Para ver el detalle hace falta el permiso «Ver el detalle de las respuestas del asistente».' } });
+        await cargada();
+        await clic(botonVerDetalle(), 'Ver detalle');
+        await esperar(() => toasts().some((x) => x.variante === 'error' && /Para ver el detalle hace falta el permiso/.test(x.texto)), { que: 'el aviso' });
+        expect(document.querySelector('[data-testid="detalle-respuesta"]')).toBeNull();
+        expect(botonVerDetalle()).not.toBeNull();
+    });
+
+    it('un 500 también avisa, en castellano', async () => {
+        b = await armarIA({ permisos: PERMISOS_ADMIN_DETALLE_IA, ruta: '/asistente/consumo' });
+        b.detalleDeMensaje = () => ({ status: 500, body: { message: 'Internal server error' } });
+        await cargada();
+        await clic(botonVerDetalle(), 'Ver detalle');
+        await esperar(() => toasts().some((x) => x.variante === 'error' && /No se pudo cargar el detalle de la respuesta/.test(x.texto)), { que: 'el aviso' });
     });
 });

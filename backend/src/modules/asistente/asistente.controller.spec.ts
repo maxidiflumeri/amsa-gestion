@@ -3,6 +3,9 @@ import { ConflictException, HttpException } from '@nestjs/common';
 import { AsistenteController, PING_SSE_MS } from './asistente.controller';
 import { EventoSse } from './dto/asistente.tipos';
 import { TurnoPreparado } from './asistente.service';
+import { plainToInstance } from 'class-transformer';
+import { validate } from 'class-validator';
+import { TiemposNavegadorDto } from './dto/tiempos-navegador.dto';
 
 class ResFalsa extends EventEmitter {
     writableEnded = false;
@@ -129,5 +132,71 @@ describe('AsistenteController.preguntar (SSE)', () => {
         res.destroyed = true;
         await ctrl.preguntar(dto as any, usuario, res as any);
         expect(res.write).not.toHaveBeenCalled();
+    });
+});
+
+// ---- Detalle de la respuesta (docs/asistente-detalle-spec.md §6.1, §14.1) -----------------------------------------------
+
+describe('AsistenteController: el detalle de la respuesta', () => {
+    const detalle = { version: 1, funcion: 'ayuda', nodos: [] };
+
+    it('fin y error se escriben tal cual: con el detalle que arma el servicio, y sin la clave si el servicio no la puso', async () => {
+        const { ctrl } = armar({
+            correr: async (emitir) => {
+                emitir({ evento: 'fin', data: { mensajeId: 3, estado: 'ok', texto: 'x', fuentes: [], acciones: [], pasos: [], propuestas: [], ms: 5, detalle: detalle as never } });
+            },
+        });
+        const res = new ResFalsa();
+        await ctrl.preguntar(dto as any, usuario, res as any);
+        expect(res.escrito[1]).toContain('"detalle":{"version":1,"funcion":"ayuda","nodos":[]}');
+
+        const sin = armar({ correr: async (emitir) => emitir({ evento: 'error', data: { codigo: 'INTERNO', mensaje: 'x', mensajeId: 3 } }) });
+        const res2 = new ResFalsa();
+        await sin.ctrl.preguntar(dto as any, usuario, res2 as any);
+        expect(res2.escrito[1]).not.toContain('detalle');
+    });
+
+    function conServicios() {
+        const conversaciones: any = {
+            detalle: jest.fn().mockResolvedValue({ mensajes: [] }),
+            registrarTiemposNavegador: jest.fn().mockResolvedValue(undefined),
+        };
+        return { ctrl: new AsistenteController({} as any, conversaciones, {} as any), conversaciones };
+    }
+
+    it('GET conversaciones/:id pide el detalle solo si el JWT tiene asistente.ver_detalle', async () => {
+        const { ctrl, conversaciones } = conServicios();
+        await ctrl.detalle({ sub: 7, permisos: ['asistente.usar'] }, 9);
+        expect(conversaciones.detalle).toHaveBeenLastCalledWith(7, 9, { conDetalle: false });
+        await ctrl.detalle({ sub: 7, permisos: ['asistente.usar', 'asistente.ver_detalle'] }, 9);
+        expect(conversaciones.detalle).toHaveBeenLastCalledWith(7, 9, { conDetalle: true });
+        await ctrl.detalle({ sub: 7 }, 9);
+        expect(conversaciones.detalle).toHaveBeenLastCalledWith(7, 9, { conDetalle: false });
+    });
+
+    it('POST mensajes/:id/tiempos: pasa los tiempos de la persona logueada (responde 204)', async () => {
+        const { ctrl, conversaciones } = conServicios();
+        await expect(ctrl.tiempos({ sub: 7, permisos: ['asistente.usar'] }, 30, { primeraSenalMs: 1, primerTextoMs: 2, totalMs: 3 })).resolves.toBeUndefined();
+        expect(conversaciones.registrarTiemposNavegador).toHaveBeenCalledWith(7, 30, { primeraSenalMs: 1, primerTextoMs: 2, totalMs: 3 });
+        expect(Reflect.getMetadata('__httpCode__', AsistenteController.prototype.tiempos)).toBe(204);
+        expect(Reflect.getMetadata('permisos', AsistenteController.prototype.tiempos)).toEqual(['asistente.usar']);
+    });
+
+    describe('TiemposNavegadorDto', () => {
+        const errores = async (o: object) => (await validate(plainToInstance(TiemposNavegadorDto, o))).map((e) => e.property);
+        it('acepta enteros de 0 a 900.000 y los dos opcionales (también null)', async () => {
+            expect(await errores({ totalMs: 0 })).toEqual([]);
+            expect(await errores({ primeraSenalMs: 0, primerTextoMs: 900000, totalMs: 900000 })).toEqual([]);
+            expect(await errores({ primeraSenalMs: null, primerTextoMs: null, totalMs: 10 })).toEqual([]);
+        });
+        it('rechaza negativos, más de 900.000, no enteros y el total ausente', async () => {
+            expect(await errores({ totalMs: -1 })).toEqual(['totalMs']);
+            expect(await errores({ totalMs: 900001 })).toEqual(['totalMs']);
+            expect(await errores({ totalMs: 1.5 })).toEqual(['totalMs']);
+            expect(await errores({ totalMs: '10' })).toEqual(['totalMs']);
+            expect(await errores({ primeraSenalMs: -5, totalMs: 10 })).toEqual(['primeraSenalMs']);
+            expect(await errores({ primerTextoMs: 900001, totalMs: 10 })).toEqual(['primerTextoMs']);
+            expect(await errores({})).toEqual(['totalMs']);
+        });
     });
 });

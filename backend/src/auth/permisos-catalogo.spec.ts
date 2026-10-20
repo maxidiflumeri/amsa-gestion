@@ -14,7 +14,7 @@
  */
 import * as fs from 'fs';
 import * as path from 'path';
-import { TODAS_LAS_KEYS } from './permisos-catalogo';
+import { TODAS_LAS_KEYS, TODOS_LOS_PERMISOS } from './permisos-catalogo';
 
 const RUTA_FRONT = path.resolve(__dirname, '../../../frontend/src/utils/permisosCatalogo.ts');
 
@@ -44,11 +44,38 @@ describeSiHayFront('catálogo de permisos: backend y frontend en sincronía', ()
     });
 });
 
+/** Etiqueta y descripción de cada permiso `asistente.*` del front, leídas del texto sin importar el archivo. */
+function asistenteDelFrontend(): Map<string, { label: string; descripcion: string }> {
+    const src = fs.readFileSync(RUTA_FRONT, 'utf8');
+    const re = /key:\s*'(asistente\.[a-z_]+)'\s*,\s*label:\s*'([^']*)'\s*,\s*descripcion:\s*'([^']*)'/g;
+    return new Map([...src.matchAll(re)].map((m) => [m[1], { label: m[2], descripcion: m[3] }]));
+}
+
+describeSiHayFront('catálogo de permisos: el texto del asistente es el mismo en las dos copias', () => {
+    it('etiqueta y descripción de cada permiso de la sección Asistente (Roles muestra la del front)', () => {
+        const seccion = TODOS_LOS_PERMISOS.find((s) => s.seccion === 'Asistente')!;
+        const front = asistenteDelFrontend();
+        expect(front.size).toBe(seccion.permisos.length);
+        for (const p of seccion.permisos) {
+            expect({ key: p.key, ...front.get(p.key) }).toEqual({ key: p.key, label: p.label, descripcion: p.descripcion });
+        }
+    });
+
+    it('ninguna descripción del asistente dice «Próximamente»', () => {
+        for (const [, v] of asistenteDelFrontend()) expect(v.descripcion).not.toMatch(/Próximamente/);
+    });
+});
+
 describe('catálogo de permisos: asistente', () => {
-    it('declara los tres permisos del asistente (sin esto no aparecen en Roles y nadie los puede asignar)', () => {
+    it('declara los cuatro permisos del asistente (sin esto no aparecen en Roles y nadie los puede asignar)', () => {
         expect(TODAS_LAS_KEYS).toEqual(
-            expect.arrayContaining(['asistente.usar', 'asistente.reportes', 'asistente.administrar']),
+            expect.arrayContaining(['asistente.usar', 'asistente.reportes', 'asistente.administrar', 'asistente.ver_detalle']),
         );
+    });
+
+    it('ver_detalle va en la sección Asistente, después de Administrar', () => {
+        const claves = TODOS_LOS_PERMISOS.find((s) => s.seccion === 'Asistente')!.permisos.map((p) => p.key);
+        expect(claves.indexOf('asistente.ver_detalle')).toBe(claves.indexOf('asistente.administrar') + 1);
     });
 
     it('no repite claves', () => {

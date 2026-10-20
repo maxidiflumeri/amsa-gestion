@@ -1,4 +1,4 @@
-import { ConflictException, Injectable, Logger, NotFoundException, BadRequestException, OnModuleInit } from '@nestjs/common';
+import { ConflictException, Injectable, Logger, NotFoundException, BadRequestException, OnModuleInit, Optional } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import type { MessageParam } from '@anthropic-ai/sdk/resources/messages';
 import { PrismaService } from '../../prisma/prisma.service';
@@ -6,22 +6,30 @@ import {
     AccionIrA,
     ConversacionDetalle,
     ConversacionResumen,
+    DetalleRespuesta,
     EstadoMensaje,
     FuenteAyuda,
     FuncionClave,
     MensajeAsistente,
     Paso,
+    PrecioModelo,
+    TiemposNavegador,
 } from './dto/asistente.tipos';
 import { AdjuntosService } from './adjuntos/adjuntos.service';
 import { TurnoHistorial } from './prompt/armar-request';
 import { MAX_PROMPT_REPORTES, MAX_TURNOS_REPORTES, mensajeFuncionDistinta } from './reportes/funcion-reportes';
 import { PropuestasService } from './reportes/propuestas.service';
+import { MedicionService, esDetalle } from './medicion.service';
+import { detalleDesdeLlamadas } from './turno/detalle';
 import { ResultadoTurno } from './turno/turno-runner';
 
 /** Turnos máximos de una conversación: después hay que empezar otra. */
 export const MAX_TURNOS_CONVERSACION = 40;
 /** Un mensaje `en_curso` más viejo que esto es de un proceso que murió. */
 export const EN_CURSO_VENCIDO_MS = 5 * 60 * 1000;
+
+/** Pasado este tiempo desde que se escribió la respuesta, el navegador ya no puede cargar sus tiempos. */
+export const VENTANA_TIEMPOS_NAVEGADOR_MS = 30 * 60 * 1000;
 
 export const MENSAJE_CONVERSACION_LLENA_REPORTES =
     'Esta conversación ya es muy larga. Empezá una nueva: la última propuesta sigue disponible en su tarjeta.';
@@ -45,6 +53,8 @@ export class ConversacionesService implements OnModuleInit {
         private readonly prisma: PrismaService,
         private readonly adjuntos: AdjuntosService,
         private readonly propuestas: PropuestasService,
+        // Para el precio con el que se reparte el costo de una llamada vieja. Opcional: sin él, esos nodos van sin costo.
+        @Optional() private readonly medicion?: MedicionService,
     ) {}
 
     /** La función de una conversación propia, o null si no existe. */
@@ -246,7 +256,97 @@ export class ConversacionesService implements OnModuleInit {
         return filas.map((c) => this.resumen(c));
     }
 
-    async detalle(usuarioId: number, id: number): Promise<ConversacionDetalle> {
+    /**
+     * Guarda el detalle de una respuesta (docs/asistente-detalle-spec.md §7.7). Va en una escritura aparte de la respuesta:
+     * si falla, quien llama lo registra y la respuesta sigue.
+     */
+    async guardarTraza(mensajeId: number, detalle: DetalleRespuesta): Promise<void> {
+        await this.prisma.asistente_mensaje.update({
+            where: { id: mensajeId },
+            data: { traza: detalle as unknown as Prisma.InputJsonValue },
+        });
+    }
+
+    /**
+     * Lo que midió el navegador de la persona. La primera escritura gana. 404 si el mensaje es ajeno, no existe, es de la
+     * persona, sigue en curso o es de hace más de 30 minutos; 400 si los tiempos no son coherentes.
+     */
+    async registrarTiemposNavegador(usuarioId: number, mensajeId: number, t: { primeraSenalMs?: number | null; primerTextoMs?: number | null; totalMs: number }): Promise<void> {
+        const tiempos: TiemposNavegador = { primeraSenalMs: t.primeraSenalMs ?? null, primerTextoMs: t.primerTextoMs ?? null, totalMs: t.totalMs };
+        if ((tiempos.primeraSenalMs ?? 0) > tiempos.totalMs || (tiempos.primerTextoMs ?? 0) > tiempos.totalMs) {
+            this.logger.warn(`Tiempos del navegador incoherentes (mensaje=${mensajeId}, usuario=${usuarioId})`);
+            const mensaje = 'La primera señal y el primer texto no pueden pasar del total.';
+            throw new BadRequestException({ codigo: 'TIEMPOS_INVALIDOS', mensaje, message: mensaje });
+        }
+        const propio = {
+            id: mensajeId,
+            usuarioId,
+            rol: 'asistente',
+            estado: { not: 'en_curso' },
+            createdAt: { gte: new Date(Date.now() - VENTANA_TIEMPOS_NAVEGADOR_MS) },
+        };
+        const r = await this.prisma.asistente_mensaje.updateMany({
+            where: { ...propio, tiemposNavegador: { equals: Prisma.DbNull } },
+            data: { tiemposNavegador: tiempos as unknown as Prisma.InputJsonValue },
+        });
+        if (r.count > 0) {
+            this.logger.debug(`Tiempos del navegador guardados (mensaje=${mensajeId}): total=${tiempos.totalMs}ms`);
+            return;
+        }
+        // 0 filas: o ya estaban cargados (no pasa nada) o el mensaje no es de esta persona / no corresponde.
+        const existe = await this.prisma.asistente_mensaje.findFirst({ where: propio, select: { id: true } });
+        if (!existe) throw new NotFoundException('No encontramos ese mensaje.');
+    }
+
+    /** El detalle de la respuesta de cualquier persona (es para las 👎 de Consumo). 404 si no existe, es de la persona o no tiene nada que mostrar. */
+    async detalleDeMensaje(mensajeId: number): Promise<DetalleRespuesta> {
+        const m = await this.prisma.asistente_mensaje.findFirst({
+            where: { id: mensajeId, rol: 'asistente' },
+            include: { conversacion: { select: { funcion: true } } },
+        });
+        if (!m) throw new NotFoundException('No encontramos ese mensaje.');
+        const llamadas = esDetalle(m.traza) || m.estado === 'en_curso' ? [] : await this.llamadasDe(m.conversacionId, [m.id]);
+        const d = await this.detalleDe(m, m.conversacion.funcion, llamadas);
+        if (!d) throw new NotFoundException('Esa respuesta no tiene detalle.');
+        return d;
+    }
+
+    /** Las llamadas de varios mensajes con UNA consulta, en orden. */
+    private llamadasDe(conversacionId: number, mensajeIds: number[]) {
+        if (mensajeIds.length === 0) return Promise.resolve([]);
+        // `conversacionId` va para usar el índice de la FK: `asistente_llamada` no tiene uno por `mensajeId`.
+        return this.prisma.asistente_llamada.findMany({ where: { conversacionId, mensajeId: { in: mensajeIds } }, orderBy: { id: 'asc' } });
+    }
+
+    /** Su `traza` con lo del navegador o, si no tiene, el reconstruido desde las llamadas (D-7). `null` = nada para mostrar. */
+    private async detalleDe(
+        m: { id: number; estado: string; texto: string; ms: number | null; traza: unknown; tiemposNavegador: unknown },
+        funcion: string,
+        llamadas: Awaited<ReturnType<ConversacionesService['llamadasDe']>>,
+    ): Promise<DetalleRespuesta | null> {
+        if (m.estado === 'en_curso') return null;
+        const nav = m.tiemposNavegador as Partial<TiemposNavegador> | null;
+        const navegador: TiemposNavegador | null =
+            nav && typeof nav === 'object' && typeof nav.totalMs === 'number'
+                ? { primeraSenalMs: nav.primeraSenalMs ?? null, primerTextoMs: nav.primerTextoMs ?? null, totalMs: nav.totalMs }
+                : null;
+        if (esDetalle(m.traza)) return { ...m.traza, parcial: false, navegador };
+
+        const propias = llamadas.filter((l) => l.mensajeId === m.id);
+        if (propias.length === 0) return null;
+        const modelo = propias[0].modelo;
+        let precio: PrecioModelo | null = null;
+        try {
+            precio = (await this.medicion?.precioDe(modelo)) ?? null;
+        } catch (e: any) {
+            this.logger.warn(`No se pudo leer el precio de ${modelo} para reconstruir el detalle: ${e?.message}`);
+        }
+        const estado: DetalleRespuesta['estado'] = m.estado === 'cortado' || m.estado === 'rechazado' || m.estado === 'error' ? m.estado : 'ok';
+        const d = detalleDesdeLlamadas(propias, { funcion, modelo, precio, mensajeMs: m.ms, estado, textoVacio: m.texto.trim() === '' });
+        return d ? { ...d, navegador } : null;
+    }
+
+    async detalle(usuarioId: number, id: number, opciones: { conDetalle?: boolean } = {}): Promise<ConversacionDetalle> {
         const c = await this.prisma.asistente_conversacion.findFirst({
             where: { id, usuarioId },
             include: { mensajes: { orderBy: { id: 'asc' } } },
@@ -255,6 +355,23 @@ export class ConversacionesService implements OnModuleInit {
         const esReportes = c.funcion === 'reportes';
         const tarjetas = esReportes ? await this.propuestas.tarjetasDeConversacion(c.id) : new Map();
         const chips = esReportes ? await this.adjuntos.chipsDeConversacion(c.id) : new Map();
+
+        // El detalle solo se arma para quien tiene el permiso: sin él la clave ni existe. Las respuestas sin traza se
+        // reconstruyen desde sus llamadas con UNA consulta para toda la conversación.
+        const detalles = new Map<number, DetalleRespuesta | null>();
+        if (opciones.conDetalle) {
+            const sinTraza = c.mensajes.filter((m) => m.rol === 'asistente' && m.estado !== 'en_curso' && !esDetalle(m.traza));
+            const llamadas = await this.llamadasDe(c.id, sinTraza.map((m) => m.id));
+            for (const m of c.mensajes) {
+                if (m.rol !== 'asistente') continue;
+                try {
+                    detalles.set(m.id, await this.detalleDe(m, c.funcion, llamadas));
+                } catch (e: any) {
+                    this.logger.warn(`No se pudo armar el detalle del mensaje ${m.id}: ${e?.message}`);
+                    detalles.set(m.id, null);
+                }
+            }
+        }
         return {
             ...this.resumen(c),
             mensajes: c.mensajes.map((m) => ({
@@ -270,6 +387,7 @@ export class ConversacionesService implements OnModuleInit {
                 pasos: Array.isArray(m.pasos) ? (m.pasos as unknown as Paso[]) : [],
                 propuestas: tarjetas.get(m.id) ?? [],
                 adjuntos: chips.get(m.id) ?? [],
+                ...(opciones.conDetalle && m.rol !== 'usuario' ? { detalle: detalles.get(m.id) ?? null } : {}),
             })) satisfies MensajeAsistente[],
         };
     }

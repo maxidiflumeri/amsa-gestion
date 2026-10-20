@@ -1,10 +1,12 @@
 import { BadRequestException, Injectable, Logger, Optional } from '@nestjs/common';
+import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { RequestContextService } from '../../common/logger/request-context';
 import { ymdLocal } from '../../common/utils/dia-local';
 import { AsistenteConfigService } from './asistente-config.service';
-import { ConsumoAsistente, FuenteAyuda } from './dto/asistente.tipos';
+import { ConsumoAsistente, DetalleRespuesta, FuenteAyuda, PrecioModelo, TiemposAsistente } from './dto/asistente.tipos';
 import { calcularCosto } from './modelo/precios';
+import { MuestraTiempo, muestrasDeDetalle, tablaDeTiempos } from './turno/detalle';
 import { LlamadaRegistro, PuertoMedicion } from './turno/turno-runner';
 
 /** El gasto del mes se reutiliza 30 s y se suma en caliente después de cada llamada. */
@@ -25,6 +27,15 @@ export function mesLocal(d: Date = new Date()): string {
 export function rangoDelMes(mes: string): { desde: Date; hasta: Date } {
     const [a, m] = mes.split('-').map(Number);
     return { desde: new Date(a, m - 1, 1, 0, 0, 0, 0), hasta: new Date(a, m, 1, 0, 0, 0, 0) };
+}
+
+/** Respuestas con detalle que se leen para la tabla de tiempos (docs/asistente-detalle-spec.md §7.11). */
+export const MAX_RESPUESTAS_TIEMPOS = 5000;
+
+/** ¿Lo que hay en la columna `traza` tiene la forma de un detalle? (Es JSON: puede ser cualquier cosa.) */
+export function esDetalle(x: unknown): x is DetalleRespuesta {
+    const d = x as Partial<DetalleRespuesta> | null;
+    return !!d && typeof d === 'object' && d.version === 1 && Array.isArray(d.nodos) && typeof d.funcion === 'string';
 }
 
 const redondear6 = (n: number) => Number(n.toFixed(6));
@@ -97,6 +108,11 @@ export class MedicionService implements PuertoMedicion {
         return costo;
     }
 
+    /** El precio con el que se costea un modelo (el configurado o el de código), para repartir el costo en el detalle. */
+    precioDe(modelo: string): Promise<PrecioModelo | null> {
+        return this.config.precioVigente(modelo);
+    }
+
     private sumarEnCaliente(funcion: string, costo: number): void {
         const c = this.cache;
         if (!c || c.gasto.mes !== mesLocal()) return;
@@ -131,6 +147,55 @@ export class MedicionService implements PuertoMedicion {
         const gasto: GastoMes = { mes, total, porFuncion };
         this.cache = { gasto, ts: Date.now() };
         return gasto;
+    }
+
+    // --- Tiempos por paso -------------------------------------------------------------------------------------
+
+    /**
+     * La mediana y el p95 de cada paso, por función, del detalle de las respuestas del mes. Sale del JSON de
+     * `asistente_mensaje.traza`, que se borra a los 90 días con su conversación: no hay contenido, solo tiempos.
+     */
+    async tiempos(mesPedido?: string): Promise<TiemposAsistente> {
+        const mes = mesPedido ?? mesLocal();
+        if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(mes)) throw new BadRequestException('El mes tiene que tener el formato AAAA-MM.');
+        const { desde, hasta } = rangoDelMes(mes);
+        const t0 = Date.now();
+        const filas = await this.prisma.asistente_mensaje.findMany({
+            where: { rol: 'asistente', createdAt: { gte: desde, lt: hasta }, NOT: { traza: { equals: Prisma.DbNull } } },
+            select: { traza: true, tiemposNavegador: true },
+            orderBy: { id: 'desc' },
+            take: MAX_RESPUESTAS_TIEMPOS + 1,
+        });
+        const recortado = filas.length > MAX_RESPUESTAS_TIEMPOS;
+        const usadas = recortado ? filas.slice(0, MAX_RESPUESTAS_TIEMPOS) : filas;
+
+        const muestras: MuestraTiempo[] = [];
+        let respuestas = 0;
+        for (const f of usadas) {
+            const traza: unknown = f.traza;
+            if (!esDetalle(traza)) continue;
+            respuestas++;
+            const nav = f.tiemposNavegador as { primerTextoMs?: unknown; totalMs?: unknown; primeraSenalMs?: unknown } | null;
+            const navegador =
+                nav && typeof nav === 'object' && typeof nav.totalMs === 'number'
+                    ? {
+                          primeraSenalMs: typeof nav.primeraSenalMs === 'number' ? nav.primeraSenalMs : null,
+                          primerTextoMs: typeof nav.primerTextoMs === 'number' ? nav.primerTextoMs : null,
+                          totalMs: nav.totalMs,
+                      }
+                    : null;
+            muestras.push(...muestrasDeDetalle({ ...traza, navegador }));
+        }
+
+        const funciones = await this.config.funciones();
+        const nombres = new Map(funciones.map((f) => [f.clave, f.nombre]));
+        this.logger.debug(`Tiempos del asistente ${mes}: ${respuestas} respuestas en ${Date.now() - t0}ms`);
+        return {
+            mes,
+            respuestas,
+            recortado,
+            porFuncion: tablaDeTiempos(muestras).map((t) => ({ funcion: t.funcion, nombre: nombres.get(t.funcion) ?? t.funcion, filas: t.filas })),
+        };
     }
 
     // --- Pantalla de consumo ------------------------------------------------------------------------------------

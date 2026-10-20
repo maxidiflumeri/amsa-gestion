@@ -11,6 +11,7 @@ import type { AccionIrA, TarjetaPropuesta as Tarjeta } from '../../types/asisten
 import Markdown from '../../pages/ayuda/Markdown';
 import { buscarPagina } from '../../pages/ayuda/contenido';
 import AdjuntoChip, { etiquetaAdjunto } from './AdjuntoChip';
+import DetalleRespuesta from './DetalleRespuesta';
 import PasosTurno from './PasosTurno';
 import TarjetaIrA from './TarjetaIrA';
 import TarjetaPropuesta from './TarjetaPropuesta';
@@ -31,6 +32,8 @@ interface Props {
     onAbrirPropuesta?: (p: Tarjeta) => void;
     onAjustar?: () => void;
     onSugerencia?: (texto: string) => void;
+    /** Tiene el permiso y el interruptor del menú está encendido (docs/asistente-detalle-spec.md §12.1): sin esto no se dibuja nada del detalle. */
+    mostrarDetalle?: boolean;
 }
 
 /** `/ayuda/gestion/pagos-y-promesas#algo` → `gestion/pagos-y-promesas`, solo si esa página existe. */
@@ -42,7 +45,7 @@ function slugConocido(href: string): string | null {
 
 const MensajeBurbuja: React.FC<Props> = ({
     mensaje, panelQuedaAbierto, puedeReintentar, onAbrirAyuda, onResponderAccion, onCalificar, onReintentar, onActualizar,
-    ocupado = false, onAbrirPropuesta, onAjustar, onSugerencia,
+    ocupado = false, onAbrirPropuesta, onAjustar, onSugerencia, mostrarDetalle = false,
 }) => {
     const [pidiendoComentario, setPidiendoComentario] = useState(false);
     const [comentario, setComentario] = useState('');
@@ -246,6 +249,9 @@ const MensajeBurbuja: React.FC<Props> = ({
                     )}
                 </Box>
             )}
+
+            {/* Al final, después de 👍/👎 (D-10): no empuja la calificación y una respuesta en curso no lo tiene. */}
+            {mostrarDetalle && !escribiendo && mensaje.detalle && <DetalleRespuesta detalle={mensaje.detalle} />}
         </Box>
     );
 };

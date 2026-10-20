@@ -1,6 +1,6 @@
 import { Logger } from '@nestjs/common';
 import type { ContentBlock, ContentBlockParam, Message, MessageParam, ToolResultBlockParam } from '@anthropic-ai/sdk/resources/messages';
-import { AccionIrA, EventoSse, FuenteAyuda } from '../dto/asistente.tipos';
+import { AccionIrA, EventoSse, FuenteAyuda, MotivoFin } from '../dto/asistente.tipos';
 import { ClienteModelo } from '../modelo/cliente-modelo';
 import { UsoTokens } from '../modelo/precios';
 import { INSTRUCCIONES } from '../prompt/instrucciones';
@@ -28,7 +28,8 @@ import { PaginaWiki } from '../wiki/parsear-pagina';
 import { PuertoWiki } from '../wiki/wiki-indice';
 import { extraerCitas } from './citas';
 import { MENSAJE_MODELO_NO_DISPONIBLE, TopeError } from './errores';
-import { LlamadaRegistro, PuertoMedicion, PuertoTopes, ResultadoLlamada, llamarModelo, usoAbortado } from './llamada-modelo';
+import { LlamadaRegistro, PuertoMedicion, PuertoTopes, ResultadoLlamada, claseDeError, llamarModelo, usoAbortado } from './llamada-modelo';
+import { PuertoTraza, TRAZA_NULA } from './traza';
 
 // Lo que se extrajo a `llamada-modelo.ts` sigue saliendo de acá: lo importan el servicio, la medición y los tests.
 export { usoAbortado };
@@ -180,6 +181,8 @@ export interface EntradaTurno {
     signal: AbortSignal;
     /** Eventos que van al navegador mientras el turno corre: `texto`, `herramienta` y `accion`. */
     emitir: (evento: EventoSse) => void;
+    /** El medidor del detalle de la respuesta (docs/asistente-detalle-spec.md). Sin él, el turno corre exactamente igual. */
+    traza?: PuertoTraza;
 }
 
 export type EstadoTurno = 'ok' | 'cortado' | 'rechazado' | 'error';
@@ -203,6 +206,8 @@ export interface ResultadoTurno {
 interface ResultadoHerramienta {
     content: string;
     esError: boolean;
+    /** Lo que hizo, en palabras, para el detalle (§8.2). Lo arma el backend: nunca lleva lo que escribió la persona. */
+    descripcion?: string;
 }
 
 /** Los bloques de una respuesta, sin thinking y reducidos a los campos que acepta la API al reenviarlos. */
@@ -234,6 +239,7 @@ export class TurnoRunner {
     async correr(e: EntradaTurno): Promise<ResultadoTurno> {
         const t0 = Date.now();
         const { wiki, cliente, medicion, topes } = this.deps;
+        const traza = e.traza ?? TRAZA_NULA;
 
         // --- Armado del request ---------------------------------------------------------------------------------
         const actual = resolverRuta(e.ruta);
@@ -316,17 +322,17 @@ export class TurnoRunner {
             if (nombre === 'leer_pagina') {
                 const slug = typeof input.slug === 'string' ? input.slug : '';
                 const p = wiki.pagina(slug);
-                if (!p) return { content: 'No existe esa página.', esError: true };
+                if (!p) return { content: 'No existe esa página.', esError: true, descripcion: 'Pidió una página que no existe' };
                 if (presentes.has(slug)) {
-                    return { content: 'Esa página ya está más arriba en esta conversación.', esError: false };
+                    return { content: 'Esa página ya está más arriba en esta conversación.', esError: false, descripcion: 'Ya estaba en la conversación' };
                 }
                 if (lecturas >= MAX_LECTURAS) {
-                    return { content: 'Ya leíste tres páginas en esta respuesta.', esError: true };
+                    return { content: 'Ya leíste tres páginas en esta respuesta.', esError: true, descripcion: 'Ya había leído tres páginas' };
                 }
                 lecturas++;
                 presentes.add(slug);
                 e.emitir({ evento: 'herramienta', data: { nombre: 'leer_pagina', slug, titulo: p.titulo } });
-                return { content: p.cuerpo, esError: false };
+                return { content: p.cuerpo, esError: false, descripcion: `Leí «${p.titulo}»` };
             }
             if (nombre === 'buscar_en_wiki') {
                 const texto = (typeof input.texto === 'string' ? input.texto : '').trim().slice(0, 200);
@@ -337,27 +343,31 @@ export class TurnoRunner {
                 busquedas++;
                 // Sin el texto buscado: puede traer lo que escribió la persona.
                 e.emitir({ evento: 'herramienta', data: { nombre: 'buscar_en_wiki' } });
-                return { content: resultadoBusqueda(texto, wiki.buscar(texto, BUSQUEDA_HERRAMIENTA)), esError: false };
+                // La descripción nunca lleva el texto buscado, igual que el evento `herramienta`.
+                return { content: resultadoBusqueda(texto, wiki.buscar(texto, BUSQUEDA_HERRAMIENTA)), esError: false, descripcion: 'Busqué en la documentación' };
             }
             if (nombre === 'ofrecer_ir_a') {
                 const ruta = typeof input.ruta === 'string' ? input.ruta : '';
                 const motivo = (typeof input.motivo === 'string' ? input.motivo : '').trim().slice(0, 120);
                 const v = validarIrA(ruta, e.persona.permisos);
+                // Sin el motivo en la descripción: trae la ruta que pidió el modelo.
+                const noSeMostro = 'No se mostró la tarjeta';
                 if (!v.ok && v.motivo === 'NO_EXISTE') {
-                    return { content: 'Esa pantalla no existe en el mapa.', esError: true };
+                    return { content: 'Esa pantalla no existe en el mapa.', esError: true, descripcion: noSeMostro };
                 }
                 if (!v.ok) {
                     const pide = v.faltan.map(etiquetaPermiso).join(' o ');
                     return {
                         content: `No se mostró: el rol de la persona no puede abrir ${ruta} (pide ${pide}).`,
                         esError: true,
+                        descripcion: noSeMostro,
                     };
                 }
                 if (v.entrada.ruta === actual.canonica) {
-                    return { content: 'La persona ya está en esa pantalla.', esError: true };
+                    return { content: 'La persona ya está en esa pantalla.', esError: true, descripcion: noSeMostro };
                 }
                 if (ofertas >= 1) {
-                    return { content: 'Ya ofreciste ir a una pantalla en esta respuesta.', esError: true };
+                    return { content: 'Ya ofreciste ir a una pantalla en esta respuesta.', esError: true, descripcion: noSeMostro };
                 }
                 ofertas++;
                 const accion: AccionIrA = {
@@ -373,7 +383,7 @@ export class TurnoRunner {
                     evento: 'accion',
                     data: { id, tipo: 'ir_a', ruta: accion.ruta, etiqueta: accion.etiqueta, motivo },
                 });
-                return { content: 'Tarjeta mostrada. La persona todavía no eligió.', esError: false };
+                return { content: 'Tarjeta mostrada. La persona todavía no eligió.', esError: false, descripcion: `Ofrecí ir a «${accion.etiqueta}»` };
             }
             return { content: 'Esa herramienta no existe.', esError: true };
         };
@@ -382,6 +392,7 @@ export class TurnoRunner {
         for (let iter = 0; iter < MAX_ITERACIONES; iter++) {
             let primerTexto = true;
             let llamada: ResultadoLlamada;
+            const tl = traza.llamada(iter);
             try {
                 llamada = await llamarModelo(
                     { cliente, topes, medicion },
@@ -393,6 +404,7 @@ export class TurnoRunner {
                         params: paramsDeLlamada({ modelo: this.deps.modelo, system, tools, messages }),
                         signal: e.signal,
                         costoTurno,
+                        traza: tl,
                         onTexto: (d) => {
                             // Los textos de iteraciones distintas se pegan con un salto de párrafo.
                             let delta = d;
@@ -407,6 +419,7 @@ export class TurnoRunner {
                 );
             } catch (err) {
                 if (!(err instanceof TopeError)) throw err;
+                traza.motivo(err.codigo.toLowerCase() as MotivoFin);
                 if (err.codigo === 'TOPE_TURNO') {
                     this.logger.warn(`Turno cortado por el tope de gasto del turno (mensaje=${e.ids.mensajeId})`);
                     if (/^Fuente:/m.test(textoTurno)) {
@@ -429,6 +442,7 @@ export class TurnoRunner {
             const textoIter = llamada.textoIter;
 
             if (llamada.tipo === 'abortada') {
+                traza.motivo('detenida');
                 estado = 'cortado';
                 cerrarCortado(textoIter, textoIter ? '' : '(Respuesta interrumpida.)');
                 break;
@@ -439,6 +453,7 @@ export class TurnoRunner {
                     `Falló la llamada al modelo (mensaje=${e.ids.mensajeId}, iteracion=${iter}): ${llamada.error?.name}: ${llamada.error?.message}`,
                     llamada.error?.stack,
                 );
+                traza.motivo(claseDeError(llamada.error) === 'APIConnectionTimeoutError' ? 'timeout' : 'modelo_no_disponible');
                 estado = 'error';
                 return resultado({ error: { codigo: 'MODELO_NO_DISPONIBLE', mensaje: MENSAJE_MODELO_NO_DISPONIBLE } });
             }
@@ -462,6 +477,7 @@ export class TurnoRunner {
                 this.logger.warn(
                     `El modelo se negó a responder (mensaje=${e.ids.mensajeId}, categoria=${msg.stop_details?.category ?? 'sin categoría'})`,
                 );
+                traza.motivo('rechazo');
                 estado = 'rechazado';
                 textoTurno = TEXTO_RECHAZO;
                 apiNuevos.length = 0;
@@ -473,6 +489,7 @@ export class TurnoRunner {
                 this.logger.warn(
                     `Respuesta cortada por ${msg.stop_reason} (mensaje=${e.ids.mensajeId}, herramientas pendientes=${usos.length})`,
                 );
+                traza.motivo(msg.stop_reason === 'max_tokens' ? 'max_tokens' : 'otro_corte');
                 estado = 'cortado';
                 textoTurno += SUFIJO_CORTADA;
                 cerrarCortado(textoDe(msg.content), SUFIJO_CORTADA);
@@ -484,7 +501,10 @@ export class TurnoRunner {
             apiNuevos.push({ role: 'assistant', content: sinThinking(msg.content) });
             const ofertasAntes = acciones.length;
             const resultados: ToolResultBlockParam[] = usos.map((b) => {
+                const th = traza.herramienta(b.name);
                 const r = ejecutar(b.name, b.input, b.id);
+                if (r.descripcion) th.describir({ texto: r.descripcion, estado: r.esError ? 'error' : 'ok' });
+                th.cerrar({ esError: r.esError, caracteresResultado: r.content.length });
                 return {
                     type: 'tool_result',
                     tool_use_id: b.id,
@@ -499,12 +519,14 @@ export class TurnoRunner {
             // falta otra llamada. Con ella, el modelo a veces reescribía la respuesta entera o comentaba la tarjeta.
             const soloTarjetas = usos.every((b) => b.name === 'ofrecer_ir_a') && acciones.length - ofertasAntes === usos.length;
             if (soloTarjetas && /^Fuente:/m.test(textoTurno)) {
+                traza.motivo('tarjeta');
                 apiNuevos.push({ role: 'assistant', content: [{ type: 'text', text: 'Listo.' }] });
                 estado = 'ok';
                 break;
             }
 
             if (iter === MAX_ITERACIONES - 1) {
+                traza.motivo('iteraciones');
                 estado = 'cortado';
                 textoTurno += SUFIJO_SIN_TERMINAR;
                 cerrarCortado('', SUFIJO_SIN_TERMINAR);
@@ -526,7 +548,10 @@ export class TurnoRunner {
                 textoTurno = sinOferta;
             }
         }
-        if (estado === 'ok' && textoTurno.trim() === '') textoTurno = TEXTO_VACIO;
+        if (estado === 'ok' && textoTurno.trim() === '') {
+            traza.motivo('respuesta_vacia');
+            textoTurno = TEXTO_VACIO;
+        }
 
         let fuentes: FuenteAyuda[] = [];
         if (estado !== 'rechazado') {

@@ -758,9 +758,9 @@ En `AsistenteContext.enviar` [V `frontend/src/context/AsistenteContext.tsx:287`]
    | Paso | Cuenta | No cuenta |
    |---|---|---|
    | `total` | `totalMs` | respuestas que no terminaron `ok` |
-   | `navegador_total`, `navegador_primer_texto` | `tiemposNavegador` | `null` |
+   | `navegador_total`, `navegador_primer_texto` | `tiemposNavegador` | `null`, y respuestas que no terminaron `ok` (cambio de la auditoría, §20) |
    | `preparacion`, `guardar` | su nodo | — |
-   | `llamada` | cada llamada | `fin` `abortada` o `tope_*`, `cortado` |
+   | `llamada` | cada llamada; también `max_tokens`, `refusal` y `pause_turn` | `fin` `abortada`, `timeout`, `error` o `tope_*`, `cortado` (cambio de la auditoría, §20) |
    | `espera`, `razonamiento`, `respuesta`, `pedido` | cada tramo | `cortado`, `sinTiempoPropio` |
    | `herramienta` (por `nombre`) | cada herramienta | `cortado` |
 
@@ -1351,7 +1351,13 @@ Cierre: `npm test` en verde, `tsc` sin errores nuevos, `npm run verificar-ayuda`
 
 ## 19. Decisiones para el usuario
 
-Si no hay respuesta, se sigue con la recomendada.
+**Respondidas el 20/10/2026:**
+- D-1 a D-11: todas con la recomendada.
+- D-12: sí.
+- **No hay entorno local**, y el usuario eligió no armarlo:
+  - el `db push` de las dos columnas va con el deploy; en BE-3 alcanza con `prisma validate` y `generate`;
+  - la verificación con `curl` de BE-3 se reemplaza por los tests del controller;
+  - M-3 se reemplaza por la verificación en prod de §16, con el permiso solo para ADMIN.
 
 | # | Decisión | Opciones | Recomendada |
 |---|---|---|---|
@@ -1372,7 +1378,82 @@ Si no hay respuesta, se sigue con la recomendada.
 
 ## 20. Lo que cambió al auditar
 
-(Reservado: lo escribe quien integra.)
+**M-1, corrida el 20/10/2026** (`medir-eventos.ts --repeticiones=3`, perfil `amsa` de la cuenta 592943773890, `runtime`
+en `us-east-1`): **USD 0,0122.**
+- **Haiku 5.5:**
+  - el bloque `thinking` abre en el `message_start` y cierra antes del `tool_use`: dura de 766 a 1.794 ms con 148 a 299
+    tokens. **El razonamiento tiene tiempo propio**, y la regla de fusión de §7.3.5 casi nunca actúa. La wiki dice que
+    el razonamiento se mide aparte;
+  - el contenido llega en dos deltas al final del bloque (`thinking_delta` y `signature_delta`), por `display: omitted`:
+    lo que se mide es el bloque, no los deltas.
+- **Sonnet 5.5** (effort `low`): no abrió un bloque `thinking` en ninguna de las 3 llamadas (`thinking_tokens: 0`); fue
+  directo al `text` y al `tool_use`. Con el razonamiento adaptativo, en un turno real puede aparecer o no: "sin razonamiento"
+  es un caso normal, no un error.
+- **`connect` / `message_start`:** de 999 a 3.885 ms, y la más lenta fue la primera llamada. Es la fila "Espera del primer
+  token".
+- `usage.output_tokens_details.thinking_tokens` viene en los dos modelos, también en 0.
+
+**M-2, corrida el 20/10/2026** (`correr-eval.ts --tope-usd=0.5 --detalle`, perfil `amsa`, con la wiki y el permiso
+nuevos): **USD 0,19 en 65 preguntas** (USD 0,0029 de media). Cumple todos los umbrales:
+- páginas A+B 39/39 y G 15/15;
+- ninguna oferta escrita sin tarjeta;
+- 100 % en `noIrA` y `noDebe`;
+- p95 11,6 s (≤ 12 s);
+- prompt máximo 62.047 tokens.
+
+Tres preguntas con FALLA. Las tres respuestas son correctas; falla la expectativa del set:
+- **A01:** no ofreció la tarjeta a `/reportes/nuevo`. Variación del modelo.
+- **D01:** dijo "no lo puedo consultar". El patrón `/no (puedo|tengo)/` no admite el "lo" en el medio.
+- **E01:** dijo "solo responde sobre el uso del sistema". El patrón `/solo (puedo |puede )?ayud/` no lo toma.
+
+**Primeras medianas reales del detalle** (ayuda, Haiku 5.5, ms):
+
+| Paso | Muestras | Mediana | p95 |
+|---|---|---|---|
+| Total | 65 | 6.967 | 11.639 |
+| Preparación | 65 | 3 | 7 |
+| Llamada | 109 | 3.750 | 7.371 |
+| Espera del primer token | 109 | 1.882 | 2.508 |
+| Razonamiento | 78 | 821 | 3.355 |
+| Respuesta | 67 | 2.150 | 3.513 |
+| Pedido de herramienta | 56 | 151 | 309 |
+| `buscar_en_wiki` | 6 | 1 | 4 |
+| `leer_pagina` | 44 | 0 | 0 |
+| `ofrecer_ir_a` | 6 | 0 | 0 |
+
+**Lectura:** el tiempo es del modelo, no del backend. Hay 1,7 llamadas por pregunta, cada una con unos 1,9 s de espera
+hasta el primer token. Las herramientas no pesan. El p95 total (11,6 s) quedó cerca del umbral, contra 9,3 s en la Fase A
+y 9,8 s en la Fase B; el prompt máximo pasó de unos 50 mil a 62 mil tokens.
+
+M-3 no se corre: no hay entorno local (§19). Se reemplaza por la verificación en prod de §16.
+
+**Auditoría (20/10/2026): PASA CON OBSERVACIONES,** sin bloqueantes ni de severidad alta. Se arregló, cada punto con su
+test:
+- **[media] La tabla de tiempos mezclaba poblaciones.** Las filas del navegador contaban las respuestas con error o
+  timeout, y "Llamada" contaba las llamadas con timeout o error: un timeout de 180 s disparaba el p95 del navegador y no
+  el del servidor. Ahora:
+  - una respuesta que no terminó `ok` no suma en ningún total;
+  - una llamada `abortada`, `timeout`, `error` o `tope_*` no suma en "Llamada" ni en sus tramos;
+  - preparación, herramientas no cortadas y guardar cuentan siempre.
+
+  Es la tabla de §7.11, ya corregida.
+- **[media] Detener:** el detalle se ve al reabrir la conversación (§9). La wiki ahora lo dice.
+- **[baja] La reconstrucción** filtra también por `conversacionId`, porque `asistente_llamada` no tiene índice por
+  `mensajeId`.
+- **[baja] Etiquetas:**
+  - una llamada sin cierre se rotula «quedó abierta», y se decide por `cortado`, no por el motivo: una llamada detenida
+    sigue diciendo «detenida» aunque después falle algo interno;
+  - un tope con la respuesta completa dice «terminó bien; la última llamada no se hizo por el tope…»;
+  - el nodo `otros` recortado muestra su descripción.
+- **[baja] En un detalle parcial,** el razonamiento sin tiempo propio dice «Su tiempo está dentro de la llamada», porque
+  ahí no hay fila de espera.
+- **[baja] La wiki:**
+  - la privacidad: de cada herramienta se dice qué hizo, con los textos de los pasos;
+  - el orden de las tablas de Consumo.
+
+**Re-auditoría:** PASA CON OBSERVACIONES. Las cuatro observaciones que dejó, todas bajas (el razonamiento del detalle
+parcial, la frase de privacidad, «quedó abierta» por `cortado` y esta tabla), quedaron resueltas por quien integra,
+con sus tests.
 
 ---
 

@@ -2,6 +2,7 @@ import { Logger } from '@nestjs/common';
 import { PruebaPropuestaService, conteoAproximado, definicionParaPrueba } from './prueba-propuesta.service';
 import { SemaforoReportes } from './semaforo';
 import { EntradaProbar, PlantillaNormalizada } from './tipos-reportes';
+import { TrazaTurno } from '../turno/traza';
 
 const col = (label: string, path: string) => ({ id: label, label, path });
 const norm = (extra: Partial<PlantillaNormalizada['definicion']> = {}): PlantillaNormalizada => ({
@@ -220,5 +221,94 @@ describe('definicionParaPrueba y conteoAproximado', () => {
         expect(conteoAproximado(f('contactos[tipo=telefono][count]', 'gt', 0))).toBe(false);
         expect(conteoAproximado(f('contactos[tipo=telefono][count]', 'gt', 2))).toBe(true);
         expect(conteoAproximado(f('pagos[last].importe', 'gt', 100))).toBe(true);
+    });
+});
+
+// ---- Detalle de la respuesta (docs/asistente-detalle-spec.md §7.4): las partes de probar_plantilla ----------------------
+
+describe('PruebaPropuestaService con traza', () => {
+    beforeEach(() => {
+        jest.spyOn(Logger.prototype, 'log').mockImplementation();
+        jest.spyOn(Logger.prototype, 'warn').mockImplementation();
+        jest.spyOn(Logger.prototype, 'error').mockImplementation();
+    });
+    afterEach(() => {
+        jest.useRealTimers();
+        jest.restoreAllMocks();
+    });
+
+    const filas = [{ DNI: '1', Saldo: '2', Email: 'x', Fija: '' }];
+    /** Una prueba con tiempos controlados: la muestra y el conteo tardan lo que se diga (timers falsos). */
+    function conTiempos(o: { muestraMs: number; conteoMs: number | 'colgado'; semaforo?: SemaforoReportes }) {
+        const a = armar({ filas, semaforo: o.semaforo });
+        a.executor.execute.mockImplementation(() => new Promise((r) => setTimeout(() => r({ filas, totalFilas: 1, columnas: [] }), o.muestraMs)));
+        a.asyncExec.estimarFilas.mockImplementation(() => (o.conteoMs === 'colgado' ? new Promise<never>(() => undefined) : new Promise((r) => setTimeout(() => r(8412), o.conteoMs as number))));
+        const traza = new TrazaTurno({ funcion: 'reportes', modelo: 'm' });
+        const th = traza.herramienta('probar_plantilla');
+        const correr = async (avance: () => Promise<void>) => {
+            const p = a.svc.probar({ entrada: entrada(), normalizada: norm(), tarjeta, avisosValidador: [], ids, hoy: '2026-10-19', traza: th });
+            await avance();
+            const r = await p;
+            th.cerrar({ esError: false, caracteresResultado: 100 });
+            const nodo = traza.armar({ estado: 'ok' }).nodos.find((n) => n.tipo === 'herramienta')!;
+            return { r, partes: Object.fromEntries((nodo.hijos ?? []).map((h) => [h.tipo, h])) };
+        };
+        return { ...a, correr };
+    }
+
+    it('la muestra y el conteo corren a la vez: se solapan, cada una con lo suyo', async () => {
+        jest.useFakeTimers();
+        const t = conTiempos({ muestraMs: 3100, conteoMs: 4700 });
+        const { r, partes } = await t.correr(() => jest.advanceTimersByTimeAsync(5000));
+        expect(r.tipo).toBe('ok');
+        expect(partes.muestra.ms).toBe(3100);
+        expect(partes.conteo.ms).toBe(4700);
+        expect(partes.muestra.desdeMs).toBe(partes.conteo.desdeMs);
+        expect(partes.espera_base.ms).toBe(0);
+    });
+
+    it('la 3.ª prueba espera su lugar en el semáforo: eso es «espera_base»', async () => {
+        jest.useFakeTimers();
+        const semaforo = new SemaforoReportes(2);
+        const liberar1 = await semaforo.adquirir(1000);
+        const liberar2 = await semaforo.adquirir(1000);
+        expect(liberar1 && liberar2).toBeTruthy();
+        const t = conTiempos({ muestraMs: 10, conteoMs: 10, semaforo });
+        const { r, partes } = await t.correr(async () => {
+            await jest.advanceTimersByTimeAsync(7000);
+            liberar1!();
+            await jest.advanceTimersByTimeAsync(100);
+        });
+        expect(r.tipo).toBe('ok');
+        expect(partes.espera_base.ms).toBe(7000);
+        expect(partes.muestra.desdeMs).toBe(7000);
+    });
+
+    it('sin lugar a los 30 s: ocupada, con «espera_base» de 30 s y sin muestra ni conteo', async () => {
+        jest.useFakeTimers();
+        const semaforo = new SemaforoReportes(1);
+        await semaforo.adquirir(1000);
+        const t = conTiempos({ muestraMs: 10, conteoMs: 10, semaforo });
+        const { r, partes } = await t.correr(() => jest.advanceTimersByTimeAsync(30_001));
+        expect(r).toEqual({ tipo: 'ocupada' });
+        expect(partes.espera_base.ms).toBe(30_000);
+        expect(partes.muestra).toBeUndefined();
+        expect(partes.conteo).toBeUndefined();
+    });
+
+    it('el conteo vencido por timeout dura lo que esperó (15 s) y la muestra lo suyo', async () => {
+        jest.useFakeTimers();
+        const t = conTiempos({ muestraMs: 2000, conteoMs: 'colgado' });
+        const { r, partes } = await t.correr(() => jest.advanceTimersByTimeAsync(15_001));
+        expect(r).toMatchObject({ tipo: 'ok', casos: null });
+        expect(partes.muestra.ms).toBe(2000);
+        expect(partes.conteo.ms).toBe(15_000);
+    });
+
+    it('la prueba da lo mismo con y sin traza', async () => {
+        const sin = await probar(armar({ filas }).svc);
+        const traza = new TrazaTurno({ funcion: 'reportes', modelo: 'm' });
+        const con = await armar({ filas }).svc.probar({ entrada: entrada(), normalizada: norm(), tarjeta, avisosValidador: [], ids, hoy: '2026-10-19', traza: traza.herramienta('probar_plantilla') });
+        expect(con).toEqual(sin);
     });
 });

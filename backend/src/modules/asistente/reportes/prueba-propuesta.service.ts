@@ -43,6 +43,16 @@ async function conTimeout<T>(p: Promise<T>, ms: number): Promise<Medido<T>> {
     }
 }
 
+/** Termina una parte del detalle cuando la promesa se resuelve y deja pasar el resultado tal cual. Sin parte, no toca nada. */
+function terminando<T>(p: Promise<T>, fin?: () => void): Promise<T> {
+    return fin
+        ? p.then((r) => {
+              fin();
+              return r;
+          })
+        : p;
+}
+
 const parser = new PathParser();
 
 /** Los filtros variables sin valor por defecto no se aplican en la prueba: se sacan para que el conteo no los pida. */
@@ -96,7 +106,15 @@ export class PruebaPropuestaService implements PuertoPrueba {
         if (conversacionId === null || usuarioId === null || mensajeId === null) throw new Error('La prueba necesita la conversación, la persona y el mensaje.');
         const t0 = Date.now();
 
-        const liberar = await this.semaforo.adquirir(ESPERA_SEMAFORO_MS);
+        // Las partes del detalle (docs/asistente-detalle-spec.md §7.4): lo que tarda el semáforo, y la muestra y el conteo, que
+        // corren a la vez. Sin `a.traza` no se toca nada.
+        const finEspera = a.traza?.parte('espera_base');
+        let liberar: (() => void) | null;
+        try {
+            liberar = await this.semaforo.adquirir(ESPERA_SEMAFORO_MS);
+        } finally {
+            finEspera?.();
+        }
         if (!liberar) {
             this.logger.warn(`Prueba sin lugar en el semáforo (conversación ${conversacionId})`);
             return { tipo: 'ocupada' };
@@ -105,9 +123,11 @@ export class PruebaPropuestaService implements PuertoPrueba {
         let preview: Medido<Awaited<ReturnType<ExecutorService['execute']>>>;
         let conteo: Medido<number>;
         try {
+            const finMuestra = a.traza?.parte('muestra');
+            const finConteo = a.traza?.parte('conteo');
             [preview, conteo] = await Promise.all([
-                conTimeout(this.executor.execute(def, 'deudor', {}, true), TIMEOUT_PREVIEW_MS),
-                conTimeout(this.asyncExecutor.estimarFilas(def, 'deudor', {}), TIMEOUT_CONTEO_MS),
+                terminando(conTimeout(this.executor.execute(def, 'deudor', {}, true), TIMEOUT_PREVIEW_MS), finMuestra),
+                terminando(conTimeout(this.asyncExecutor.estimarFilas(def, 'deudor', {}), TIMEOUT_CONTEO_MS), finConteo),
             ]);
         } finally {
             liberar();

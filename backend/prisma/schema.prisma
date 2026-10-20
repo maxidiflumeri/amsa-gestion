@@ -1193,6 +1193,14 @@ model asistente_mensaje {
   acciones       Json?
   /// Paso[] del turno (Fase B): lo que hizo el asistente, para volver a mostrarlo al reabrir la conversación.
   pasos          Json?
+  /// Detalle de la respuesta (docs/asistente-detalle-spec.md §6.3): los pasos con sus tiempos, tokens y costo. Sin
+  /// contenido: nunca el razonamiento, los argumentos ni los resultados de las herramientas. Solo rol 'asistente'.
+  /// null = respuesta de antes de esta funcionalidad, o detalle que no se pudo guardar: se reconstruye desde
+  /// asistente_llamada al leerlo.
+  traza            Json?
+  /// Lo que midió el navegador de la persona, desde que apretó Enviar: { primeraSenalMs, primerTextoMs, totalMs }.
+  /// Lo manda el panel al terminar la respuesta; la primera escritura gana.
+  tiemposNavegador Json?
   /// 'en_curso' | 'ok' | 'cortado' | 'rechazado' | 'error'
   estado         String    @default("ok") @db.VarChar(12)
   /// 1 = 👍, -1 = 👎, null = sin calificar.

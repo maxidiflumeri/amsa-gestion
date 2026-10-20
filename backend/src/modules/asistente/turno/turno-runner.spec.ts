@@ -18,6 +18,9 @@ import { usoAbortado,
     resultadoBusqueda,
     sinRespuestasRepetidas,
 } from './turno-runner';
+import { APIConnectionTimeoutError } from '@anthropic-ai/sdk';
+import { MotivoFin } from '../dto/asistente.tipos';
+import { TrazaTurno } from './traza';
 
 const wiki = WikiIndice.desdeDirectorio(path.join(__dirname, '..', '__fixtures__', 'ayuda'));
 
@@ -660,5 +663,158 @@ describe('TurnoRunner', () => {
         const u = usoAbortado({ entrada: 10, salida: 3, thinking: 0, cacheLectura: 0, cacheEscritura5m: 0, cacheEscritura1h: 0 }, 'x'.repeat(900));
         expect(u.salida).toBe(300);
         expect(usoAbortado({ entrada: 10, salida: 500, thinking: 0, cacheLectura: 0, cacheEscritura5m: 0, cacheEscritura1h: 0 }, 'abc').salida).toBe(500);
+    });
+});
+
+// ---- Detalle de la respuesta (docs/asistente-detalle-spec.md §9, §14.1): los enganches del runner de la ayuda ----------
+
+describe('TurnoRunner con traza', () => {
+    beforeEach(() => {
+        jest.spyOn(Logger.prototype, 'log').mockImplementation();
+        jest.spyOn(Logger.prototype, 'warn').mockImplementation();
+        jest.spyOn(Logger.prototype, 'error').mockImplementation();
+    });
+    afterEach(() => jest.restoreAllMocks());
+
+    const nuevaTraza = () => new TrazaTurno({ funcion: 'ayuda', modelo: 'us.anthropic.claude-haiku-5-5' });
+    const CON_FUENTE = 'Andá a **Reportes**.\n\nFuente: [Armar un reporte](/ayuda/reportes/armar-un-reporte)';
+
+    it('leer_pagina y ofrecer_ir_a: cada herramienta con su recurso y su descripción', async () => {
+        const traza = nuevaTraza();
+        const { runner, entrada } = armar([
+            { content: [usoHerramienta('t1', 'leer_pagina', { slug: 'reportes/armar-un-reporte' }), usoHerramienta('t2', 'ofrecer_ir_a', { ruta: '/reportes/nuevo', motivo: 'crear' })], stop_reason: 'tool_use' },
+            { deltas: ['ok'], content: [texto('ok')], stop_reason: 'end_turn' },
+        ]);
+        const r = await runner.correr(entrada({ traza }));
+        const d = traza.armar({ estado: r.estado });
+        const herramientas = d.nodos.filter((n) => n.tipo === 'herramienta');
+        expect(herramientas.map((h) => [h.nombre, h.recurso, h.descripcion, h.estado])).toEqual([
+            ['leer_pagina', 'wiki', 'Leí «Armar un reporte»', 'ok'],
+            ['ofrecer_ir_a', 'memoria', 'Ofrecí ir a «Nueva plantilla de reportes»', 'ok'],
+        ]);
+        expect(herramientas[0].tokensResultado).toBeGreaterThan(0);
+        // Dos llamadas, y las herramientas van en orden entre ellas.
+        expect(d.nodos.map((n) => n.tipo)).toEqual(['preparacion', 'llamada', 'herramienta', 'herramienta', 'llamada']);
+        expect(d.llamadas).toBe(2);
+    });
+
+    it('buscar_en_wiki: «Busqué en la documentación», nunca el texto buscado', async () => {
+        const traza = nuevaTraza();
+        const { runner, entrada } = armar([
+            { content: [usoHerramienta('b1', 'buscar_en_wiki', { texto: 'DNI 30111222 permiso Crear reportes' })], stop_reason: 'tool_use' },
+            { deltas: ['ok'], content: [texto('ok')], stop_reason: 'end_turn' },
+        ]);
+        await runner.correr(entrada({ traza }));
+        const d = traza.armar({ estado: 'ok' });
+        expect(d.nodos.find((n) => n.tipo === 'herramienta')).toMatchObject({ nombre: 'buscar_en_wiki', descripcion: 'Busqué en la documentación' });
+        expect(JSON.stringify(d)).not.toMatch(/30111222|permiso Crear/);
+    });
+
+    it('los casos que no se pudieron resolver se describen sin lo que pidió el modelo', async () => {
+        const traza = nuevaTraza();
+        const { runner, entrada } = armar([
+            {
+                content: [
+                    usoHerramienta('t1', 'leer_pagina', { slug: 'no/existe' }),
+                    usoHerramienta('t2', 'ofrecer_ir_a', { ruta: '/ruta/que/no/existe', motivo: 'x' }),
+                    usoHerramienta('t3', 'herramienta_inventada', {}),
+                ],
+                stop_reason: 'tool_use',
+            },
+            { deltas: ['ok'], content: [texto('ok')], stop_reason: 'end_turn' },
+        ]);
+        await runner.correr(entrada({ traza }));
+        const hs = traza.armar({ estado: 'ok' }).nodos.filter((n) => n.tipo === 'herramienta');
+        expect(hs.map((h) => [h.nombre, h.descripcion, h.estado])).toEqual([
+            ['leer_pagina', 'Pidió una página que no existe', 'error'],
+            ['ofrecer_ir_a', 'No se mostró la tarjeta', 'error'],
+            ['otra', 'Le devolvió un error al modelo', 'error'],
+        ]);
+        expect(JSON.stringify(hs)).not.toContain('/ruta/que/no/existe');
+    });
+
+    describe('el motivo de cada fin (§9)', () => {
+        async function motivoDe(guion: PasoGuion[], preparar?: (a: ReturnType<typeof armar>) => void, extra: Partial<EntradaTurno> = {}): Promise<MotivoFin | null> {
+            const traza = nuevaTraza();
+            const a = armar(guion);
+            preparar?.(a);
+            const r = await a.runner.correr(a.entrada({ traza, ...extra }));
+            return traza.armar({ estado: r.estado }).motivo;
+        }
+
+        it('un turno que termina bien no tiene nada que aclarar', async () => {
+            expect(await motivoDe([{ deltas: ['Hola.'], content: [texto('Hola.')], stop_reason: 'end_turn' }])).toBeNull();
+        });
+        it('tarjeta: la respuesta completa con su fuente y solo la tarjeta, sin otra llamada', async () => {
+            expect(
+                await motivoDe([{ deltas: [CON_FUENTE], content: [texto(CON_FUENTE), usoHerramienta('o1', 'ofrecer_ir_a', { ruta: '/reportes/nuevo', motivo: 'x' })], stop_reason: 'tool_use' }]),
+            ).toBe('tarjeta');
+        });
+        it('respuesta_vacia', async () => {
+            expect(await motivoDe([{ content: [thinking()], stop_reason: 'end_turn' }])).toBe('respuesta_vacia');
+        });
+        it('detenida', async () => {
+            const ac = new AbortController();
+            ac.abort();
+            expect(await motivoDe([{ content: [texto('x')], stop_reason: 'end_turn' }], undefined, { signal: ac.signal })).toBe('detenida');
+        });
+        it('tope_turno, tope_mensual y tope_funcion', async () => {
+            const lectura: PasoGuion = { content: [usoHerramienta('t1', 'leer_pagina', { slug: 'primeros-pasos/inicio' })], stop_reason: 'tool_use' };
+            for (const codigo of ['TOPE_TURNO', 'TOPE_MENSUAL', 'TOPE_FUNCION'] as const) {
+                const m = await motivoDe([lectura], (a) => a.verificar.mockResolvedValueOnce(undefined).mockRejectedValueOnce(new TopeError(codigo, 'x')));
+                expect(m).toBe(codigo.toLowerCase());
+            }
+        });
+        it('tope_turno con la respuesta ya completa (ok) también lo dice', async () => {
+            const m = await motivoDe(
+                [{ deltas: [CON_FUENTE], content: [texto(CON_FUENTE), usoHerramienta('t1', 'leer_pagina', { slug: 'primeros-pasos/inicio' })], stop_reason: 'tool_use' }],
+                (a) => a.verificar.mockResolvedValueOnce(undefined).mockRejectedValueOnce(new TopeError('TOPE_TURNO', 'x')),
+            );
+            expect(m).toBe('tope_turno');
+        });
+        it('rechazo', async () => {
+            expect(await motivoDe([{ content: [texto('no')], stop_reason: 'refusal', stop_details: { type: 'refusal', category: 'general_harms', explanation: null } }])).toBe('rechazo');
+        });
+        it('max_tokens y otro_corte', async () => {
+            expect(await motivoDe([{ deltas: ['Voy'], content: [texto('Voy')], stop_reason: 'max_tokens' }])).toBe('max_tokens');
+            expect(await motivoDe([{ deltas: ['Voy'], content: [texto('Voy')], stop_reason: 'pause_turn' }])).toBe('otro_corte');
+        });
+        it('iteraciones', async () => {
+            const paso = (i: number): PasoGuion => ({ content: [usoHerramienta(`t${i}`, 'leer_pagina', { slug: 'primeros-pasos/inicio' })], stop_reason: 'tool_use' });
+            expect(await motivoDe([paso(0), paso(1), paso(2), paso(3), paso(4)])).toBe('iteraciones');
+        });
+        it('modelo_no_disponible y timeout', async () => {
+            expect(await motivoDe([{ falla: Object.assign(new Error('x'), { name: 'PermissionDeniedError' }), content: [], stop_reason: 'end_turn' }])).toBe('modelo_no_disponible');
+            expect(await motivoDe([{ falla: new APIConnectionTimeoutError(), content: [], stop_reason: 'end_turn' }])).toBe('timeout');
+        });
+    });
+
+    it('el resultado del turno es el mismo con y sin traza, salvo `ms`, y el pedido al modelo también', async () => {
+        const guion = (): PasoGuion[] => [
+            { content: [thinking(), usoHerramienta('t1', 'leer_pagina', { slug: 'reportes/armar-un-reporte' })], stop_reason: 'tool_use' },
+            { deltas: [CON_FUENTE], content: [texto(CON_FUENTE)], stop_reason: 'end_turn' },
+        ];
+        const con = armar(guion());
+        const sin = armar(guion());
+        const eventosCon: EventoSse[] = [];
+        const rCon = await con.runner.correr(con.entrada({ traza: nuevaTraza(), emitir: (e) => eventosCon.push(e) }));
+        const rSin = await sin.runner.correr(sin.entrada());
+        expect({ ...rCon, ms: 0 }).toEqual({ ...rSin, ms: 0 });
+        expect(con.cliente.llamadas).toEqual(sin.cliente.llamadas);
+        expect(con.registradas.map((x) => ({ ...x, ms: 0 }))).toEqual(sin.registradas.map((x) => ({ ...x, ms: 0 })));
+        expect(eventosCon).toEqual(sin.eventos);
+    });
+
+    it('un medidor que lanza en todo no cambia el resultado del turno', async () => {
+        const rota = new Proxy({}, { get: () => () => { throw new Error('medidor roto'); } }) as never;
+        const a = armar([
+            { content: [usoHerramienta('t1', 'leer_pagina', { slug: 'reportes/armar-un-reporte' })], stop_reason: 'tool_use' },
+            { deltas: ['ok'], content: [texto('ok')], stop_reason: 'end_turn' },
+        ]);
+        // El runner nunca debería depender de que el medidor ande: la traza que llega es la del servicio (que no lanza); esto
+        // prueba que `llamarModelo` aísla igual los enganches de llamada.
+        const r = await a.runner.correr(a.entrada({ traza: { llamada: () => rota, herramienta: new TrazaTurno({ funcion: 'ayuda', modelo: 'm' }).herramienta.bind(nuevaTraza()), motivo: () => undefined } }));
+        expect(r.estado).toBe('ok');
+        expect(r.llamadas).toBe(2);
     });
 });

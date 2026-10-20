@@ -213,3 +213,139 @@ describe('AsistenteService', () => {
         });
     });
 });
+
+// ---- Detalle de la respuesta (docs/asistente-detalle-spec.md §7.7, §14.1) -------------------------------------------------
+
+describe('AsistenteService: el detalle de la respuesta', () => {
+    beforeEach(() => {
+        jest.spyOn(Logger.prototype, 'log').mockImplementation();
+        jest.spyOn(Logger.prototype, 'warn').mockImplementation();
+        jest.spyOn(Logger.prototype, 'error').mockImplementation();
+        jest.spyOn(Logger.prototype, 'debug').mockImplementation();
+    });
+    afterEach(() => jest.restoreAllMocks());
+
+    const conPermiso = { sub: 7, permisos: ['asistente.usar', 'asistente.ver_detalle'] };
+    const sinPermiso = { sub: 7, permisos: ['asistente.usar'] };
+
+    function armarDetalle() {
+        const a = armar();
+        (a.conversaciones as any).guardarTraza = jest.fn().mockResolvedValue(undefined);
+        (a.svc as any).medicion = { precioDe: jest.fn().mockResolvedValue(null) };
+        return a;
+    }
+    const correrTurno = async (a: ReturnType<typeof armarDetalle>, usuario: typeof u) => {
+        const t = await a.svc.preparar(usuario, dto);
+        const eventos: EventoSse[] = [];
+        await t.correr((e) => eventos.push(e));
+        return eventos;
+    };
+
+    it('fin lleva el detalle SOLO con asistente.ver_detalle: sin el permiso la clave no existe', async () => {
+        const con = armarDetalle();
+        const [fin] = await correrTurno(con, conPermiso);
+        expect(fin.evento).toBe('fin');
+        expect('detalle' in fin.data).toBe(true);
+        expect((fin.data as any).detalle).toMatchObject({ version: 1, funcion: 'ayuda', estado: 'ok', parcial: false, navegador: null });
+        // Lo que se manda es lo mismo que se guardó.
+        expect((con.conversaciones as any).guardarTraza).toHaveBeenCalledWith(3, (fin.data as any).detalle);
+
+        const sin = armarDetalle();
+        const [finSin] = await correrTurno(sin, sinPermiso);
+        expect('detalle' in finSin.data).toBe(false);
+        // Pero el detalle se mide y se guarda igual: Consumo mide a todos.
+        expect((sin.conversaciones as any).guardarTraza).toHaveBeenCalledTimes(1);
+    });
+
+    it('error (por ejemplo un tope a mitad) también lleva el detalle, y solo con el permiso', async () => {
+        for (const [usuario, con] of [[conPermiso, true], [sinPermiso, false]] as const) {
+            const a = armarDetalle();
+            a.correr.mockImplementation(async (e: any) => {
+                e.traza.motivo('tope_mensual');
+                return { ...ok, estado: 'error', error: { codigo: 'TOPE_MENSUAL', mensaje: 'Tope.' } };
+            });
+            const [ev] = await correrTurno(a, usuario);
+            expect(ev.evento).toBe('error');
+            expect('detalle' in ev.data).toBe(con);
+            if (con) expect((ev.data as any).detalle).toMatchObject({ estado: 'error', motivo: 'tope_mensual' });
+        }
+    });
+
+    it('si guardar el detalle falla, fin sale igual (con el detalle) y se avisa con warn', async () => {
+        const a = armarDetalle();
+        (a.conversaciones as any).guardarTraza.mockRejectedValue(new Error('db caída'));
+        const [fin] = await correrTurno(a, conPermiso);
+        expect(fin.evento).toBe('fin');
+        expect((fin.data as any).detalle).toBeDefined();
+        const warns = (Logger.prototype.warn as jest.Mock).mock.calls.map((c) => c[0]).join('\n');
+        expect(warns).toContain('No se pudo guardar el detalle del mensaje 3: db caída');
+    });
+
+    it('si el runner lanza: error INTERNO con el detalle «interno», guardado igual', async () => {
+        const a = armarDetalle();
+        a.correr.mockRejectedValue(new Error('boom'));
+        const [ev] = await correrTurno(a, conPermiso);
+        expect(ev).toMatchObject({ evento: 'error', data: { codigo: 'INTERNO', mensajeId: 3 } });
+        expect((ev.data as any).detalle).toMatchObject({ estado: 'error', motivo: 'interno' });
+        expect((a.conversaciones as any).guardarTraza).toHaveBeenCalledWith(3, expect.objectContaining({ motivo: 'interno' }));
+
+        const sin = armarDetalle();
+        sin.correr.mockRejectedValue(new Error('boom'));
+        const [evSin] = await correrTurno(sin, sinPermiso);
+        expect('detalle' in evSin.data).toBe(false);
+    });
+
+    it('las partes del servicio salen en orden (topes, historial, contexto) y después guardar', async () => {
+        const a = armarDetalle();
+        const [fin] = await correrTurno(a, conPermiso);
+        const d = (fin.data as any).detalle;
+        expect(d.nodos.map((n: any) => n.tipo)).toEqual(['preparacion', 'guardar']);
+        expect(d.nodos[0].hijos.map((h: any) => h.tipo)).toEqual(['topes', 'historial', 'contexto']);
+    });
+
+    it('el runner de la ayuda y el de reportes reciben la traza', async () => {
+        const a = armarDetalle();
+        await correrTurno(a, conPermiso);
+        expect(a.correr.mock.calls[0][0].traza).toBeDefined();
+        const r = armarDetalle();
+        const t = await r.svc.preparar({ sub: 7, permisos: ['asistente.usar', 'asistente.reportes', 'reportes.ver', 'reportes.crear', 'asistente.ver_detalle'] }, { pregunta: 'x', ruta: '/reportes', funcion: 'reportes' } as any);
+        const eventos: EventoSse[] = [];
+        await t.correr((e) => eventos.push(e));
+        expect(r.correrReportes.mock.calls[0][0].traza).toBeDefined();
+        expect((eventos[0].data as any).detalle.funcion).toBe('reportes');
+    });
+
+    it('el primer texto que sale al navegador queda marcado', async () => {
+        const a = armarDetalle();
+        a.correr.mockImplementation(async (e: any) => {
+            e.emitir({ evento: 'texto', data: { delta: 'ho' } });
+            e.emitir({ evento: 'texto', data: { delta: 'la' } });
+            return ok;
+        });
+        const eventos = await correrTurno(a, conPermiso);
+        expect(eventos.map((e) => e.evento)).toEqual(['texto', 'texto', 'fin']);
+        expect(typeof (eventos[2].data as any).detalle.primerTextoMs).toBe('number');
+    });
+
+    it('el log de cierre lleva el desglose en milisegundos y ninguna descripción ni nombre de página', async () => {
+        const a = armarDetalle();
+        a.correr.mockImplementation(async (e: any) => {
+            const th = e.traza.herramienta('leer_pagina');
+            th.describir({ texto: 'Leí «Página con datos personales»', estado: 'ok' });
+            th.cerrar({ esError: false, caracteresResultado: 30 });
+            return ok;
+        });
+        await correrTurno(a, sinPermiso);
+        const todo = (Logger.prototype.log as jest.Mock).mock.calls.map((c) => c[0]).join('\n');
+        expect(todo).toMatch(/Turno asistente 3 terminado estado=ok llamadas=1 costo=\$0\.0020 en \d+ms \(prep \d+ · modelo \d+ · herramientas \d+ · guardar \d+\)/);
+        expect(todo).not.toContain('Página con datos');
+        expect(todo).not.toContain('leer_pagina');
+    });
+
+    it('un precio que no se puede leer no frena el turno', async () => {
+        const a = armarDetalle();
+        (a.svc as any).medicion = { precioDe: jest.fn().mockRejectedValue(new Error('config caída')) };
+        const [fin] = await correrTurno(a, conPermiso);
+        expect(fin.evento).toBe('fin');
+    });
+});

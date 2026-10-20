@@ -1,7 +1,7 @@
 <!--
 seccion: Primeros pasos
 resumen: Qué es el asistente, sus dos modos (ayuda y armar reportes), qué te puede explicar, qué no hace y cómo sacarle provecho.
-revisado: 2026-10-19
+revisado: 2026-10-20
 -->
 # El asistente
 
@@ -117,6 +117,71 @@ Debajo de cada respuesta terminada hay un 👍 y un 👎.
 
 Vale la pena usarlos: las respuestas con 👎 son la lista de lo que hay que mejorar en la Documentación.
 
+## El detalle de cada respuesta
+
+Si tenés el permiso **Ver el detalle de las respuestas del asistente**, debajo de cada respuesta terminada, después
+del 👍 y el 👎, aparece una línea como esta:
+
+```
+▸ Ver detalle · 18,3 s · USD 0,027
+```
+
+Dice **cuánto tardó** la respuesta y **cuánto costó**. Al tocarla se abre el camino que hizo el asistente, paso por
+paso, con el tiempo y el costo de cada uno. Sirve para entender por qué una respuesta tardó o salió cara.
+
+**Quién lo ve.** Solo quien tiene ese permiso; sin él no aparece nada (ni la línea, ni el interruptor de más
+abajo). Se pide a quien administre los roles (ver [Roles y permisos](/ayuda/administracion/roles-y-permisos)) y
+después hay que cerrar sesión y volver a entrar. Quien lo tiene puede **apagarlo y prenderlo** desde el menú **⋮** del
+panel, en **Mostrar el detalle de las respuestas**. Viene prendido, y el navegador se acuerda de lo que elegiste.
+
+**Qué es cada fila.** Arriba de todo hay un resumen: el total, el costo, el modelo y cómo terminó la respuesta
+(*terminó bien*, o por qué se cortó). Después, las filas:
+
+| Fila | Qué es |
+|---|---|
+| **Preparación** | Lo que se hace antes de llamar al modelo: controlar los topes y el límite del día, buscar la conversación y el historial, y armar el pedido. Viene cerrada; tocala para ver esas partes. |
+| **Llamada 1, 2, 3…** | Cada vez que el asistente le habla al modelo. Una respuesta puede necesitar más de una: por ejemplo, una para pedir leer una página y otra para escribir la respuesta. |
+| **Espera del primer token** | Desde que se manda el pedido hasta que el modelo empieza a contestar. Incluye leer todo lo que se le mandó: debajo dice cuántos tokens leyó y qué porcentaje salió de la caché (lo que ya tenía leído de antes y se cobra mucho más barato). |
+| **Razonamiento** | Lo que el modelo piensa antes de contestar. Muestra cuántos tokens usó, nunca lo que pensó. |
+| **Respuesta** | El texto que escribió. |
+| **Pide «herramienta»** | El momento en que, en vez de contestar, pide usar una herramienta: leer una página de la Documentación, buscar, probar una plantilla. |
+| **Herramienta …** | Lo que hizo el sistema con ese pedido. Entre paréntesis dice dónde corrió: *base* (de datos), *documentación* o *memoria*. Debajo, en letra chica, qué hizo en palabras. |
+| **Guardar** | Guardar la respuesta en la conversación. |
+| **Otros (sin medir)** | Un tiempo que ningún paso explica. Aparece solo cuando es de 0,1 s o más. |
+
+En la herramienta que prueba una plantilla de reportes se ven además sus partes: **Validación**, **Espera de lugar en la
+base**, **Muestra** y **Conteo de casos**. La muestra y el conteo corren a la vez, por eso dicen **en paralelo**: el
+tiempo de la herramienta es el del más lento, no la suma.
+
+Debajo de cada fila hay una **barra**. Muestra en qué momento de la respuesta empezó ese paso y qué parte del total
+ocupó. Es solo para mirar: el número es el que está escrito.
+
+**Qué es exacto y qué es «≈».** El **costo de cada llamada** es el que realmente se cobra. Lo que se ve *adentro* de
+una llamada (cuánto de ese costo fue leer, razonar o escribir) es un reparto, y cuando sale de un cálculo aproximado
+lleva **≈** adelante. Los tokens de lo que devuelve una herramienta también son aproximados.
+
+**Una herramienta no cobra mientras corre.** Leer una página o buscar no gasta nada del modelo. Lo que devuelve se
+paga después, como parte de la **llamada siguiente**, que tiene que leerlo. Por eso la herramienta muestra solo
+*≈ N tokens a la llamada 2* y no un costo: ese gasto ya está sumado en la espera de esa llamada.
+
+**En tu navegador.** Abajo de todo, el detalle puede traer una línea como *En tu navegador: primer texto a los
+18,5 s · completa a los 18,6 s*. Son los tiempos medidos en tu pantalla, desde que apretaste **Enviar**. Pueden ser
+un poco más largos que los del servidor porque incluyen el viaje de ida y vuelta.
+
+**Respuestas de antes.** Las respuestas viejas, de antes de que existiera el detalle, también lo tienen, pero
+**parcial**: solo se conocen las llamadas al modelo y lo que costó cada una, sin los pasos de adentro ni las
+herramientas. El botón dice *Ver detalle (parcial)* y dentro hay un aviso.
+
+**Si la respuesta se cortó.** El resumen de arriba dice por qué: que la detuviste (*La detuviste a los 6,2 s*), que
+llegó al tope de gasto de la respuesta, que el modelo no respondió a tiempo, etc. Una respuesta que todavía se está
+escribiendo no muestra el detalle: aparece cuando termina. Si la **detuviste** con **Detener**, el detalle se guarda,
+pero no aparece enseguida: lo ves al volver a abrir la conversación desde **⋮ → Conversaciones anteriores**.
+
+**Qué nunca muestra.** El razonamiento del modelo, tu pregunta ni su respuesta. Tampoco el texto completo que
+buscó o que le devolvió una herramienta. De cada herramienta dice qué hizo, con los mismos textos que ves en los pasos:
+qué página u hoja leyó (*Leí «Armar un reporte»*), de qué empresa buscó los datos adicionales o cuántos casos trajo la
+prueba (*Probé la plantilla: 8.412 casos, sin errores*). Fuera de eso, solo nombres de pasos, tiempos, tokens y costos.
+
 ## Límite por día
 
 Cada persona puede hacer **100 preguntas por día** en el modo Ayuda (quien administra el asistente puede cambiar
@@ -197,6 +262,28 @@ de nuevo en un rato; si sigue, avisá.
 
 **Dice "Ya tenés una pregunta en curso en otra pestaña".** Se puede hacer una pregunta por vez por persona.
 Esperá a que termine la otra, o cortala con **Detener** en esa pestaña.
+
+**La espera del primer token es muy larga.** Fijate en la letra chica de esa fila: si dice que la *conexión*
+llegó tarde, el servicio que genera las respuestas tardó en aceptar el pedido o hubo que reintentar (puede sumar
+varias veces el tiempo de espera normal). Si la conexión fue rápida y el *primer dato* tardó, fue el modelo el que
+tardó en procesar lo que se le mandó. Un pico suelto no es un problema; si pasa siempre, avisá a quien administre el
+sistema.
+
+**No aparece la fila Razonamiento.** Es normal. El modelo decide en cada llamada si razona antes de contestar, y en
+los pedidos simples muchas veces va directo a la respuesta. Pasa sobre todo en **Armar un reporte**.
+
+**El razonamiento tiene tokens pero no tiempo.** Pasa poco: el modelo avisó que razonaba recién al terminar. Su tiempo
+queda adentro de la **Espera del primer token (incluye el razonamiento)**, y la fila **Razonamiento** muestra **—** en
+vez de un tiempo. Los tokens y el costo se ven igual.
+
+**Dice «Detalle parcial».** Es una respuesta de antes de que se midieran los pasos, o una cuyo detalle no se pudo
+guardar. Las llamadas y sus costos son correctos; faltan los pasos de adentro. No se puede reconstruir.
+
+**No veo «Ver detalle».** Revisá cuatro cosas: que tengas el permiso *Ver el detalle de las respuestas del asistente*
+(y que hayas cerrado sesión y vuelto a entrar), que el interruptor **Mostrar el detalle de las respuestas** del menú
+**⋮** esté prendido, que la respuesta ya haya terminado (mientras se escribe no aparece) y que no la hayas
+**detenido** con **Detener**: en ese caso el detalle existe, pero recién se ve al volver a abrir la conversación
+desde **⋮ → Conversaciones anteriores**.
 
 **Me explicó algo que no coincide con lo que veo.** Marcá 👎 y contá qué viste. La Documentación puede estar
 desactualizada, o el asistente puede haberla entendido mal. Ante la duda, abrí la fuente y leé la página.

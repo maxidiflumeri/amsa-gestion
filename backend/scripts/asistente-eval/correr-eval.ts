@@ -6,10 +6,11 @@
  *
  *   cd backend
  *   AWS_PROFILE=amsa-gestion npx ts-node --transpile-only scripts/asistente-eval/correr-eval.ts \
- *       [--solo=A01,B03] [--repeticiones=1] [--tope-usd=1]
+ *       [--solo=A01,B03] [--repeticiones=1] [--tope-usd=1] [--detalle]
  *
  * Costo estimado de una corrida completa (50 preguntas): USD 0,10 a 0,20. `--tope-usd` corta la corrida si el costo
- * acumulado lo pasa (por defecto 1 USD). Escribe `resultados/<fecha>.json` (ignorado por git) y una tabla por consola.
+ * acumulado lo pasa (por defecto 1 USD). `--detalle` mide cada turno con la traza del detalle de la respuesta
+ * (docs/asistente-detalle-spec.md) e imprime la mediana y el p95 de cada paso; no cambia el pedido al modelo. Escribe `resultados/<fecha>.json` (ignorado por git) y una tabla por consola.
  */
 import * as fs from 'fs';
 import * as path from 'path';
@@ -18,6 +19,8 @@ import type { ContentBlockParam, MessageParam } from '@anthropic-ai/sdk/resource
 import { TODAS_LAS_KEYS } from '../../src/auth/permisos-catalogo';
 import { AsistenteModeloService } from '../../src/modules/asistente/modelo/asistente-modelo.service';
 import { calcularCosto, resolverPrecio, tokensPrompt } from '../../src/modules/asistente/modelo/precios';
+import { MuestraTiempo, muestrasDeDetalle, tablaDeTiempos } from '../../src/modules/asistente/turno/detalle';
+import { TrazaTurno } from '../../src/modules/asistente/turno/traza';
 import { TurnoRunner, LlamadaRegistro, ofreceEnTexto } from '../../src/modules/asistente/turno/turno-runner';
 import { WikiIndice, resolverDirectorioWiki } from '../../src/modules/asistente/wiki/wiki-indice';
 
@@ -112,6 +115,8 @@ async function main(): Promise<void> {
     const solo = argumento('solo')?.split(',').map((s) => s.trim().toUpperCase());
     const repeticiones = Math.max(1, Number(argumento('repeticiones') ?? 1));
     const topeUsd = Number(argumento('tope-usd') ?? 1);
+    const conDetalle = process.argv.includes('--detalle');
+    const muestrasTiempo: MuestraTiempo[] = [];
     const seleccion = solo ? todas.filter((q) => solo.includes(q.id)) : todas;
     if (seleccion.length === 0) throw new Error('Ninguna pregunta coincide con --solo');
 
@@ -144,6 +149,7 @@ async function main(): Promise<void> {
             }
             const desde = registradas.length;
             let busquedas = 0;
+            const traza = conDetalle ? new TrazaTurno({ funcion: 'ayuda', modelo: modelo.modelo, precio }) : undefined;
             const t0 = Date.now();
             const r = await runner.correr({
                 funcion: 'ayuda',
@@ -158,8 +164,10 @@ async function main(): Promise<void> {
                 emitir: (ev) => {
                     if (ev.evento === 'herramienta' && ev.data.nombre === 'buscar_en_wiki') busquedas++;
                 },
+                ...(traza ? { traza } : {}),
             });
             const ms = Date.now() - t0;
+            if (traza) muestrasTiempo.push(...muestrasDeDetalle(traza.armar({ estado: r.estado })));
             acumulado += r.costoUsd;
             const maxPrompt = Math.max(0, ...registradas.slice(desde).map((l) => tokensPrompt(l.uso)));
 
@@ -237,6 +245,17 @@ async function main(): Promise<void> {
     console.log(`  El modelo escribió la oferta sin tarjeta: ${resultados.filter((r) => r.ofertaEscritaDelModelo).length} de ${resultados.length} (la red del turno la saca)`);
     console.log('  Umbrales:');
     for (const [k, v] of Object.entries(umbrales)) console.log(`    ${v ? 'cumple ' : 'NO CUMPLE'}  ${k}`);
+
+    if (conDetalle) {
+        console.log('\n--- Tiempos por paso (mediana y p95, en ms) ---');
+        for (const t of tablaDeTiempos(muestrasTiempo)) {
+            console.log(`  ${t.funcion}`);
+            for (const f of t.filas) {
+                const paso = f.herramienta ? `herramienta ${f.herramienta}` : f.paso;
+                console.log(`    ${paso.padEnd(30)} x${String(f.muestras).padStart(4)}  mediana ${String(f.medianaMs).padStart(6)}  p95 ${String(f.p95Ms).padStart(6)}`);
+            }
+        }
+    }
 
     const dirSalida = path.join(__dirname, 'resultados');
     fs.mkdirSync(dirSalida, { recursive: true });
