@@ -1,0 +1,4843 @@
+{
+  "soloEmpresa": {
+    "llamadas": [
+      {
+        "metodo": "parametro.findMany",
+        "argumentos": {
+          "select": {
+            "categoria": true,
+            "clave": true,
+            "id": true
+          },
+          "where": {
+            "OR": [
+              {
+                "clave": {
+                  "in": [
+                    "SIT-011",
+                    "SIT-012",
+                    "SIT-020",
+                    "GES-030"
+                  ]
+                }
+              },
+              {
+                "categoria": {
+                  "in": [
+                    "INCOBRABLE",
+                    "LEGAL",
+                    "CONTACTADO",
+                    "PAGANDO",
+                    "CANCELADO"
+                  ]
+                },
+                "grupo": "situacion"
+              }
+            ]
+          }
+        }
+      },
+      {
+        "metodo": "deudor.count",
+        "argumentos": {
+          "where": {
+            "empresaId": 7
+          }
+        }
+      },
+      {
+        "metodo": "deudor.aggregate",
+        "argumentos": {
+          "_sum": {
+            "montoTotal": true
+          },
+          "where": {
+            "empresaId": 7
+          }
+        }
+      },
+      {
+        "metodo": "$queryRaw",
+        "argumentos": {
+          "strings": [
+            "\n                SELECT SUM(COALESCE(d.saldo, d.montoTotal)) AS saldo\n                FROM deudor d\n                WHERE 1 = 1 AND d.empresaId = ",
+            "\n            "
+          ],
+          "values": [
+            7
+          ]
+        }
+      },
+      {
+        "metodo": "pago.aggregate",
+        "argumentos": {
+          "_avg": {
+            "importe": true
+          },
+          "_count": true,
+          "_sum": {
+            "importe": true
+          },
+          "where": {
+            "deudor": {
+              "empresaId": 7
+            },
+            "fecha": {
+              "gte": "2026-07-01T03:00:00.000Z",
+              "lte": "2026-08-01T02:59:59.999Z"
+            }
+          }
+        }
+      },
+      {
+        "metodo": "pago.aggregate",
+        "argumentos": {
+          "_sum": {
+            "importe": true
+          },
+          "where": {
+            "deudor": {
+              "empresaId": 7
+            }
+          }
+        }
+      },
+      {
+        "metodo": "pago.groupBy",
+        "argumentos": {
+          "_count": {
+            "_all": true
+          },
+          "by": [
+            "deudorId"
+          ],
+          "where": {
+            "deudor": {
+              "empresaId": 7
+            },
+            "fecha": {
+              "gte": "2026-07-01T03:00:00.000Z",
+              "lte": "2026-08-01T02:59:59.999Z"
+            }
+          }
+        }
+      },
+      {
+        "metodo": "deudor.count",
+        "argumentos": {
+          "where": {
+            "empresaId": 7,
+            "estadoSituacionId": 20
+          }
+        }
+      },
+      {
+        "metodo": "deudor.count",
+        "argumentos": {
+          "where": {
+            "empresaId": 7,
+            "estadoSituacionId": {
+              "in": [
+                11,
+                12
+              ]
+            }
+          }
+        }
+      },
+      {
+        "metodo": "deudor.count",
+        "argumentos": {
+          "where": {
+            "comentarios": {
+              "none": {}
+            },
+            "empresaId": 7
+          }
+        }
+      },
+      {
+        "metodo": "deudor.count",
+        "argumentos": {
+          "where": {
+            "empresaId": 7,
+            "estadoSituacionId": {
+              "in": [
+                41
+              ]
+            }
+          }
+        }
+      },
+      {
+        "metodo": "deudor.count",
+        "argumentos": {
+          "where": {
+            "empresaId": 7,
+            "estadoSituacionId": {
+              "in": [
+                42
+              ]
+            }
+          }
+        }
+      },
+      {
+        "metodo": "deudor.groupBy",
+        "argumentos": {
+          "_count": {
+            "_all": true
+          },
+          "by": [
+            "estadoSituacionId"
+          ],
+          "where": {
+            "empresaId": 7
+          }
+        }
+      },
+      {
+        "metodo": "deudor.groupBy",
+        "argumentos": {
+          "_count": {
+            "_all": true
+          },
+          "by": [
+            "estadoGestionId"
+          ],
+          "where": {
+            "empresaId": 7
+          }
+        }
+      },
+      {
+        "metodo": "deudor.groupBy",
+        "argumentos": {
+          "_count": {
+            "_all": true
+          },
+          "by": [
+            "motivoNoPagoId"
+          ],
+          "where": {
+            "empresaId": 7
+          }
+        }
+      },
+      {
+        "metodo": "empresa.findUnique",
+        "argumentos": {
+          "select": {
+            "id": true,
+            "nombre": true
+          },
+          "where": {
+            "id": 7
+          }
+        }
+      },
+      {
+        "metodo": "$queryRaw",
+        "argumentos": {
+          "strings": [
+            "\n            SELECT\n              CASE\n                WHEN d.fechaVencimiento IS NULL THEN 'Sin fecha'\n                WHEN DATEDIFF(NOW(), d.fechaVencimiento) BETWEEN 0 AND 30 THEN '0-30'\n                WHEN DATEDIFF(NOW(), d.fechaVencimiento) BETWEEN 31 AND 60 THEN '31-60'\n                WHEN DATEDIFF(NOW(), d.fechaVencimiento) BETWEEN 61 AND 90 THEN '61-90'\n                WHEN DATEDIFF(NOW(), d.fechaVencimiento) BETWEEN 91 AND 180 THEN '91-180'\n                ELSE '180+'\n              END AS rango,\n              COUNT(*) AS cantidad\n            FROM deudor d\n            WHERE 1 = 1 AND d.empresaId = ",
+            "\n            GROUP BY rango\n        "
+          ],
+          "values": [
+            7
+          ]
+        }
+      },
+      {
+        "metodo": "$queryRaw",
+        "argumentos": {
+          "strings": [
+            "\n            SELECT\n              CASE\n                WHEN d.montoTotal IS NULL OR d.montoTotal < 10000 THEN '$0-10k'\n                WHEN d.montoTotal < 50000 THEN '$10k-50k'\n                WHEN d.montoTotal < 200000 THEN '$50k-200k'\n                WHEN d.montoTotal < 1000000 THEN '$200k-1M'\n                ELSE '$1M+'\n              END AS rango,\n              COUNT(*) AS cantidad,\n              SUM(d.montoTotal) AS suma\n            FROM deudor d\n            WHERE 1 = 1 AND d.empresaId = ",
+            "\n            GROUP BY rango\n        "
+          ],
+          "values": [
+            7
+          ]
+        }
+      },
+      {
+        "metodo": "$queryRaw",
+        "argumentos": {
+          "strings": [
+            "\n            SELECT\n              DATE_FORMAT(p.fecha, '%Y-%m-%d') AS fecha,\n              SUM(p.importe) AS importe,\n              COUNT(*) AS cantidad\n            FROM pago p\n            INNER JOIN deudor d ON d.id = p.deudorId\n            WHERE p.fecha BETWEEN ",
+            " AND ",
+            "\n              AND 1 = 1 AND d.empresaId = ",
+            "\n            GROUP BY fecha\n            ORDER BY fecha ASC\n        "
+          ],
+          "values": [
+            "2026-07-01T03:00:00.000Z",
+            "2026-08-01T02:59:59.999Z",
+            7
+          ]
+        }
+      },
+      {
+        "metodo": "$queryRaw",
+        "argumentos": {
+          "strings": [
+            "\n            SELECT\n              DATE_FORMAT(c.fecha, '%Y-%m-%d') AS fecha,\n              COUNT(*) AS cantidad\n            FROM comentario c\n            INNER JOIN deudor d ON d.id = c.deudorId\n            WHERE c.fecha BETWEEN ",
+            " AND ",
+            "\n              AND 1 = 1 AND d.empresaId = ",
+            "\n            GROUP BY fecha\n            ORDER BY fecha ASC\n        "
+          ],
+          "values": [
+            "2026-07-01T03:00:00.000Z",
+            "2026-08-01T02:59:59.999Z",
+            7
+          ]
+        }
+      },
+      {
+        "metodo": "$queryRaw",
+        "argumentos": {
+          "strings": [
+            "\n            SELECT AVG(DATEDIFF(NOW(), d.fechaVencimiento)) AS avgMora\n            FROM deudor d\n            WHERE 1 = 1 AND d.empresaId = ",
+            "\n              AND d.fechaVencimiento IS NOT NULL\n              AND COALESCE(d.saldo, d.montoTotal, 0) > 0\n        "
+          ],
+          "values": [
+            7
+          ]
+        }
+      },
+      {
+        "metodo": "deudor.count",
+        "argumentos": {
+          "where": {
+            "AND": [
+              {
+                "empresaId": 7
+              },
+              {
+                "OR": [
+                  {
+                    "estadoSituacionId": {
+                      "in": [
+                        11,
+                        12,
+                        43
+                      ]
+                    }
+                  },
+                  {
+                    "estadoSituacionId": {
+                      "in": [
+                        44,
+                        45
+                      ]
+                    }
+                  },
+                  {
+                    "pagos": {
+                      "some": {}
+                    }
+                  },
+                  {
+                    "OR": [
+                      {
+                        "promesas": {
+                          "some": {}
+                        }
+                      },
+                      {
+                        "estadoSituacionId": {
+                          "in": [
+                            20
+                          ]
+                        }
+                      },
+                      {
+                        "estadoGestionId": 30
+                      }
+                    ]
+                  }
+                ]
+              }
+            ]
+          }
+        }
+      },
+      {
+        "metodo": "deudor.count",
+        "argumentos": {
+          "where": {
+            "AND": [
+              {
+                "empresaId": 7
+              },
+              {
+                "OR": [
+                  {
+                    "promesas": {
+                      "some": {}
+                    }
+                  },
+                  {
+                    "estadoSituacionId": {
+                      "in": [
+                        20
+                      ]
+                    }
+                  },
+                  {
+                    "estadoGestionId": 30
+                  }
+                ]
+              }
+            ]
+          }
+        }
+      },
+      {
+        "metodo": "deudor.count",
+        "argumentos": {
+          "where": {
+            "AND": [
+              {
+                "empresaId": 7
+              },
+              {
+                "AND": [
+                  {
+                    "OR": [
+                      {
+                        "promesas": {
+                          "some": {}
+                        }
+                      },
+                      {
+                        "estadoSituacionId": {
+                          "in": [
+                            20
+                          ]
+                        }
+                      },
+                      {
+                        "estadoGestionId": 30
+                      }
+                    ]
+                  },
+                  {
+                    "pagos": {
+                      "some": {}
+                    }
+                  }
+                ]
+              }
+            ]
+          }
+        }
+      },
+      {
+        "metodo": "deudor.findMany",
+        "argumentos": {
+          "orderBy": {
+            "montoTotal": "desc"
+          },
+          "select": {
+            "apellido": true,
+            "documento": true,
+            "estadoGestion": {
+              "select": {
+                "descripcion": true
+              }
+            },
+            "estadoSituacion": {
+              "select": {
+                "descripcion": true
+              }
+            },
+            "id": true,
+            "montoTotal": true,
+            "nombre": true
+          },
+          "take": 10,
+          "where": {
+            "empresaId": 7
+          }
+        }
+      },
+      {
+        "metodo": "parametro.findMany",
+        "argumentos": {
+          "select": {
+            "categoria": true,
+            "clave": true,
+            "descripcion": true,
+            "id": true
+          },
+          "where": {
+            "id": {
+              "in": [
+                11,
+                12,
+                20,
+                41,
+                42,
+                43,
+                44,
+                45,
+                30,
+                31,
+                32,
+                61,
+                62,
+                63,
+                64,
+                65,
+                66,
+                67
+              ]
+            }
+          }
+        }
+      }
+    ],
+    "respuesta": {
+      "kpis": {
+        "cantidadCasos": 1480,
+        "deudaAsignada": 8017260.29,
+        "saldoPendiente": 2018207.39,
+        "recuperoAcumulado": 4.01,
+        "pagosPeriodo": 333011.86,
+        "casosConPago": 83,
+        "ticketPromedio": 18273.92,
+        "moraPromediaDias": 177.58,
+        "promesasVigentes": 108,
+        "porcentajeCpc": 324.73,
+        "casosSinGestion": 3336,
+        "casosIncobrables": 4617,
+        "casosLegales": 3611
+      },
+      "distribuciones": {
+        "porSituacion": [
+          {
+            "id": 42,
+            "clave": "SIT-080",
+            "label": "En instancia legal",
+            "categoria": "LEGAL",
+            "cantidad": 818,
+            "porcentaje": 27.69
+          },
+          {
+            "id": 11,
+            "clave": "SIT-011",
+            "label": "Contactado titular",
+            "categoria": "CONTACTADO",
+            "cantidad": 657,
+            "porcentaje": 22.24
+          },
+          {
+            "id": 20,
+            "clave": "SIT-020",
+            "label": "Promesa vigente",
+            "categoria": "PROMESA",
+            "cantidad": 440,
+            "porcentaje": 14.9
+          },
+          {
+            "id": 44,
+            "clave": "SIT-030",
+            "label": "Pagando en cuotas",
+            "categoria": "PAGANDO",
+            "cantidad": 404,
+            "porcentaje": 13.68
+          },
+          {
+            "id": 12,
+            "clave": "SIT-012",
+            "label": "Contactado tercero",
+            "categoria": "CONTACTADO",
+            "cantidad": 248,
+            "porcentaje": 8.4
+          },
+          {
+            "id": 41,
+            "clave": "SIT-090",
+            "label": "Incobrable",
+            "categoria": "INCOBRABLE",
+            "cantidad": 207,
+            "porcentaje": 7.01
+          },
+          {
+            "id": 43,
+            "clave": "SIT-013",
+            "label": "Contactado sin compromiso",
+            "categoria": "CONTACTADO",
+            "cantidad": 90,
+            "porcentaje": 3.05
+          },
+          {
+            "id": null,
+            "clave": null,
+            "label": "(Sin asignar)",
+            "categoria": null,
+            "cantidad": 45,
+            "porcentaje": 1.52
+          },
+          {
+            "id": 45,
+            "clave": "SIT-040",
+            "label": "Cancelado",
+            "categoria": "CANCELADO",
+            "cantidad": 45,
+            "porcentaje": 1.52
+          }
+        ],
+        "porGestion": [
+          {
+            "id": 32,
+            "clave": "GES-020",
+            "label": "Mensaje enviado",
+            "categoria": "GESTION",
+            "cantidad": 382,
+            "porcentaje": 40.3
+          },
+          {
+            "id": 31,
+            "clave": "GES-010",
+            "label": "Llamada sin respuesta",
+            "categoria": "GESTION",
+            "cantidad": 222,
+            "porcentaje": 23.42
+          },
+          {
+            "id": null,
+            "clave": null,
+            "label": "(Sin asignar)",
+            "categoria": null,
+            "cantidad": 187,
+            "porcentaje": 19.73
+          },
+          {
+            "id": 30,
+            "clave": "GES-030",
+            "label": "Promesa de pago",
+            "categoria": "GESTION",
+            "cantidad": 157,
+            "porcentaje": 16.56
+          }
+        ],
+        "porMotivo": [
+          {
+            "id": 66,
+            "clave": "MOT-06",
+            "label": "Motivo de no pago 6",
+            "categoria": "MOTIVO",
+            "cantidad": 903,
+            "porcentaje": 21.82
+          },
+          {
+            "id": 62,
+            "clave": "MOT-02",
+            "label": "Motivo de no pago 2",
+            "categoria": "MOTIVO",
+            "cantidad": 570,
+            "porcentaje": 13.77
+          },
+          {
+            "id": 63,
+            "clave": "MOT-03",
+            "label": "Motivo de no pago 3",
+            "categoria": "MOTIVO",
+            "cantidad": 562,
+            "porcentaje": 13.58
+          },
+          {
+            "id": 67,
+            "clave": "MOT-07",
+            "label": "Motivo de no pago 7",
+            "categoria": "MOTIVO",
+            "cantidad": 536,
+            "porcentaje": 12.95
+          },
+          {
+            "id": 64,
+            "clave": "MOT-04",
+            "label": "Motivo de no pago 4",
+            "categoria": "MOTIVO",
+            "cantidad": 518,
+            "porcentaje": 12.52
+          },
+          {
+            "id": 65,
+            "clave": "MOT-05",
+            "label": "Motivo de no pago 5",
+            "categoria": "MOTIVO",
+            "cantidad": 398,
+            "porcentaje": 9.62
+          },
+          {
+            "id": 61,
+            "clave": "MOT-01",
+            "label": "Motivo de no pago 1",
+            "categoria": "MOTIVO",
+            "cantidad": 396,
+            "porcentaje": 9.57
+          },
+          {
+            "id": null,
+            "clave": null,
+            "label": "(Sin asignar)",
+            "categoria": null,
+            "cantidad": 256,
+            "porcentaje": 6.19
+          }
+        ],
+        "porMora": [
+          {
+            "rango": "0-30",
+            "cantidad": 118,
+            "porcentaje": 7.97
+          },
+          {
+            "rango": "31-60",
+            "cantidad": 16,
+            "porcentaje": 1.08
+          },
+          {
+            "rango": "61-90",
+            "cantidad": 256,
+            "porcentaje": 17.3
+          },
+          {
+            "rango": "91-180",
+            "cantidad": 775,
+            "porcentaje": 52.36
+          },
+          {
+            "rango": "180+",
+            "cantidad": 215,
+            "porcentaje": 14.53
+          },
+          {
+            "rango": "Sin fecha",
+            "cantidad": 303,
+            "porcentaje": 20.47
+          }
+        ],
+        "porDeuda": [
+          {
+            "rango": "$0-10k",
+            "cantidad": 403,
+            "porcentaje": 27.23,
+            "suma": 59362.13
+          },
+          {
+            "rango": "$10k-50k",
+            "cantidad": 171,
+            "porcentaje": 11.55,
+            "suma": 189304.69
+          },
+          {
+            "rango": "$50k-200k",
+            "cantidad": 187,
+            "porcentaje": 12.64,
+            "suma": 205744.23
+          },
+          {
+            "rango": "$200k-1M",
+            "cantidad": 403,
+            "porcentaje": 27.23,
+            "suma": 59362.13
+          },
+          {
+            "rango": "$1M+",
+            "cantidad": 171,
+            "porcentaje": 11.55,
+            "suma": 189304.69
+          }
+        ]
+      },
+      "series": {
+        "granularidad": "dia",
+        "pagosPorPeriodo": [
+          {
+            "fecha": "2026-07-01",
+            "importe": 24622.94,
+            "cantidad": 19
+          },
+          {
+            "fecha": "2026-07-02",
+            "importe": 59945.73,
+            "cantidad": 28
+          },
+          {
+            "fecha": "2026-07-03",
+            "importe": 63974.17,
+            "cantidad": 18
+          },
+          {
+            "fecha": "2026-07-04",
+            "importe": 24622.94,
+            "cantidad": 19
+          },
+          {
+            "fecha": "2026-07-06",
+            "importe": 59945.73,
+            "cantidad": 28
+          },
+          {
+            "fecha": "2026-07-07",
+            "importe": 63974.17,
+            "cantidad": 18
+          },
+          {
+            "fecha": "2026-07-08",
+            "importe": 24622.94,
+            "cantidad": 19
+          },
+          {
+            "fecha": "2026-07-09",
+            "importe": 59945.73,
+            "cantidad": 28
+          },
+          {
+            "fecha": "2026-07-11",
+            "importe": 63974.17,
+            "cantidad": 18
+          },
+          {
+            "fecha": "2026-07-12",
+            "importe": 24622.94,
+            "cantidad": 19
+          },
+          {
+            "fecha": "2026-07-13",
+            "importe": 59945.73,
+            "cantidad": 28
+          },
+          {
+            "fecha": "2026-07-14",
+            "importe": 63974.17,
+            "cantidad": 18
+          },
+          {
+            "fecha": "2026-07-16",
+            "importe": 24622.94,
+            "cantidad": 19
+          },
+          {
+            "fecha": "2026-07-17",
+            "importe": 59945.73,
+            "cantidad": 28
+          },
+          {
+            "fecha": "2026-07-18",
+            "importe": 63974.17,
+            "cantidad": 18
+          },
+          {
+            "fecha": "2026-07-19",
+            "importe": 24622.94,
+            "cantidad": 19
+          },
+          {
+            "fecha": "2026-07-21",
+            "importe": 59945.73,
+            "cantidad": 28
+          },
+          {
+            "fecha": "2026-07-22",
+            "importe": 63974.17,
+            "cantidad": 18
+          },
+          {
+            "fecha": "2026-07-23",
+            "importe": 24622.94,
+            "cantidad": 19
+          },
+          {
+            "fecha": "2026-07-24",
+            "importe": 59945.73,
+            "cantidad": 28
+          },
+          {
+            "fecha": "2026-07-26",
+            "importe": 63974.17,
+            "cantidad": 18
+          },
+          {
+            "fecha": "2026-07-27",
+            "importe": 24622.94,
+            "cantidad": 19
+          },
+          {
+            "fecha": "2026-07-28",
+            "importe": 59945.73,
+            "cantidad": 28
+          },
+          {
+            "fecha": "2026-07-29",
+            "importe": 63974.17,
+            "cantidad": 18
+          },
+          {
+            "fecha": "2026-07-31",
+            "importe": 24622.94,
+            "cantidad": 19
+          }
+        ],
+        "gestionesPorPeriodo": [
+          {
+            "fecha": "2026-07-01",
+            "cantidad": 118
+          },
+          {
+            "fecha": "2026-07-02",
+            "cantidad": 63
+          },
+          {
+            "fecha": "2026-07-03",
+            "cantidad": 103
+          },
+          {
+            "fecha": "2026-07-04",
+            "cantidad": 105
+          },
+          {
+            "fecha": "2026-07-06",
+            "cantidad": 59
+          },
+          {
+            "fecha": "2026-07-07",
+            "cantidad": 100
+          },
+          {
+            "fecha": "2026-07-08",
+            "cantidad": 30
+          },
+          {
+            "fecha": "2026-07-09",
+            "cantidad": 105
+          },
+          {
+            "fecha": "2026-07-11",
+            "cantidad": 62
+          },
+          {
+            "fecha": "2026-07-12",
+            "cantidad": 118
+          },
+          {
+            "fecha": "2026-07-13",
+            "cantidad": 63
+          },
+          {
+            "fecha": "2026-07-14",
+            "cantidad": 103
+          },
+          {
+            "fecha": "2026-07-16",
+            "cantidad": 105
+          },
+          {
+            "fecha": "2026-07-17",
+            "cantidad": 59
+          },
+          {
+            "fecha": "2026-07-18",
+            "cantidad": 100
+          },
+          {
+            "fecha": "2026-07-19",
+            "cantidad": 30
+          },
+          {
+            "fecha": "2026-07-21",
+            "cantidad": 105
+          },
+          {
+            "fecha": "2026-07-22",
+            "cantidad": 62
+          },
+          {
+            "fecha": "2026-07-23",
+            "cantidad": 118
+          },
+          {
+            "fecha": "2026-07-24",
+            "cantidad": 63
+          },
+          {
+            "fecha": "2026-07-26",
+            "cantidad": 103
+          },
+          {
+            "fecha": "2026-07-27",
+            "cantidad": 105
+          },
+          {
+            "fecha": "2026-07-28",
+            "cantidad": 59
+          },
+          {
+            "fecha": "2026-07-29",
+            "cantidad": 100
+          },
+          {
+            "fecha": "2026-07-31",
+            "cantidad": 30
+          }
+        ]
+      },
+      "top": {
+        "deudores": [
+          {
+            "deudorId": 9505,
+            "nombreCompleto": "Apellido0 Nombre0",
+            "documento": "20038821",
+            "monto": 3929899.9,
+            "estadoGestion": "Gestión 0",
+            "estadoSituacion": "Situación 0"
+          },
+          {
+            "deudorId": 7014,
+            "nombreCompleto": "Apellido1 Nombre1",
+            "documento": "20007497",
+            "monto": 3878137.82,
+            "estadoGestion": "Gestión 1",
+            "estadoSituacion": "Situación 1"
+          },
+          {
+            "deudorId": 4523,
+            "nombreCompleto": "Apellido2 Nombre2",
+            "documento": "20026505",
+            "monto": 3771625.85,
+            "estadoGestion": "Gestión 2",
+            "estadoSituacion": "Situación 2"
+          },
+          {
+            "deudorId": 5011,
+            "nombreCompleto": "Apellido3 Nombre3",
+            "documento": "20015013",
+            "monto": 3682804.23,
+            "estadoGestion": null,
+            "estadoSituacion": "Situación 3"
+          },
+          {
+            "deudorId": 1601,
+            "nombreCompleto": "Apellido4 Nombre4",
+            "documento": "20039521",
+            "monto": 3625307.12,
+            "estadoGestion": "Gestión 4",
+            "estadoSituacion": "Situación 4"
+          },
+          {
+            "deudorId": 2767,
+            "nombreCompleto": "Apellido5 Nombre5",
+            "documento": "20049008",
+            "monto": 3548801.91,
+            "estadoGestion": "Gestión 5",
+            "estadoSituacion": "Situación 5"
+          },
+          {
+            "deudorId": 3517,
+            "nombreCompleto": "Apellido6 Nombre6",
+            "documento": "20027597",
+            "monto": 3483787.94,
+            "estadoGestion": "Gestión 6",
+            "estadoSituacion": "Situación 6"
+          },
+          {
+            "deudorId": 3828,
+            "nombreCompleto": "Apellido7 Nombre7",
+            "documento": "20001762",
+            "monto": 3394266.89,
+            "estadoGestion": null,
+            "estadoSituacion": "Situación 7"
+          },
+          {
+            "deudorId": 8505,
+            "nombreCompleto": "Apellido8 Nombre8",
+            "documento": "20056511",
+            "monto": 3295258.76,
+            "estadoGestion": "Gestión 8",
+            "estadoSituacion": "Situación 8"
+          },
+          {
+            "deudorId": 9514,
+            "nombreCompleto": "Apellido9 Nombre9",
+            "documento": "20038821",
+            "monto": 3217661.55,
+            "estadoGestion": "Gestión 9",
+            "estadoSituacion": "Situación 9"
+          }
+        ],
+        "motivos": [
+          {
+            "id": 66,
+            "clave": "MOT-06",
+            "label": "Motivo de no pago 6",
+            "cantidad": 903,
+            "porcentaje": 21.82
+          },
+          {
+            "id": 62,
+            "clave": "MOT-02",
+            "label": "Motivo de no pago 2",
+            "cantidad": 570,
+            "porcentaje": 13.77
+          },
+          {
+            "id": 63,
+            "clave": "MOT-03",
+            "label": "Motivo de no pago 3",
+            "cantidad": 562,
+            "porcentaje": 13.58
+          },
+          {
+            "id": 67,
+            "clave": "MOT-07",
+            "label": "Motivo de no pago 7",
+            "cantidad": 536,
+            "porcentaje": 12.95
+          },
+          {
+            "id": 64,
+            "clave": "MOT-04",
+            "label": "Motivo de no pago 4",
+            "cantidad": 518,
+            "porcentaje": 12.52
+          }
+        ]
+      },
+      "funnel": {
+        "asignados": 1480,
+        "contactados": 3282,
+        "conPromesa": 787,
+        "promesaCumplida": 141
+      },
+      "meta": {
+        "empresaId": 7,
+        "empresaNombre": "Empresa 7",
+        "remesaId": null,
+        "remesaNombre": null,
+        "desde": "2026-07-01T03:00:00.000Z",
+        "hasta": "2026-08-01T02:59:59.999Z",
+        "totalDeudoresFiltrados": 1480
+      }
+    }
+  },
+  "empresaYRemesa": {
+    "llamadas": [
+      {
+        "metodo": "remesa.findUnique",
+        "argumentos": {
+          "select": {
+            "empresaId": true,
+            "id": true,
+            "nombre": true
+          },
+          "where": {
+            "id": 15
+          }
+        }
+      },
+      {
+        "metodo": "parametro.findMany",
+        "argumentos": {
+          "select": {
+            "categoria": true,
+            "clave": true,
+            "id": true
+          },
+          "where": {
+            "OR": [
+              {
+                "clave": {
+                  "in": [
+                    "SIT-011",
+                    "SIT-012",
+                    "SIT-020",
+                    "GES-030"
+                  ]
+                }
+              },
+              {
+                "categoria": {
+                  "in": [
+                    "INCOBRABLE",
+                    "LEGAL",
+                    "CONTACTADO",
+                    "PAGANDO",
+                    "CANCELADO"
+                  ]
+                },
+                "grupo": "situacion"
+              }
+            ]
+          }
+        }
+      },
+      {
+        "metodo": "deudor.count",
+        "argumentos": {
+          "where": {
+            "empresaId": 7,
+            "remesaId": 15
+          }
+        }
+      },
+      {
+        "metodo": "deudor.aggregate",
+        "argumentos": {
+          "_sum": {
+            "montoTotal": true
+          },
+          "where": {
+            "empresaId": 7,
+            "remesaId": 15
+          }
+        }
+      },
+      {
+        "metodo": "$queryRaw",
+        "argumentos": {
+          "strings": [
+            "\n                SELECT SUM(COALESCE(d.saldo, d.montoTotal)) AS saldo\n                FROM deudor d\n                WHERE 1 = 1 AND d.empresaId = ",
+            " AND d.remesaId = ",
+            "\n            "
+          ],
+          "values": [
+            7,
+            15
+          ]
+        }
+      },
+      {
+        "metodo": "pago.aggregate",
+        "argumentos": {
+          "_avg": {
+            "importe": true
+          },
+          "_count": true,
+          "_sum": {
+            "importe": true
+          },
+          "where": {
+            "deudor": {
+              "empresaId": 7,
+              "remesaId": 15
+            },
+            "fecha": {
+              "gte": "2026-07-01T03:00:00.000Z",
+              "lte": "2026-08-01T02:59:59.999Z"
+            }
+          }
+        }
+      },
+      {
+        "metodo": "pago.aggregate",
+        "argumentos": {
+          "_sum": {
+            "importe": true
+          },
+          "where": {
+            "deudor": {
+              "empresaId": 7,
+              "remesaId": 15
+            }
+          }
+        }
+      },
+      {
+        "metodo": "pago.groupBy",
+        "argumentos": {
+          "_count": {
+            "_all": true
+          },
+          "by": [
+            "deudorId"
+          ],
+          "where": {
+            "deudor": {
+              "empresaId": 7,
+              "remesaId": 15
+            },
+            "fecha": {
+              "gte": "2026-07-01T03:00:00.000Z",
+              "lte": "2026-08-01T02:59:59.999Z"
+            }
+          }
+        }
+      },
+      {
+        "metodo": "deudor.count",
+        "argumentos": {
+          "where": {
+            "empresaId": 7,
+            "estadoSituacionId": 20,
+            "remesaId": 15
+          }
+        }
+      },
+      {
+        "metodo": "deudor.count",
+        "argumentos": {
+          "where": {
+            "empresaId": 7,
+            "estadoSituacionId": {
+              "in": [
+                11,
+                12
+              ]
+            },
+            "remesaId": 15
+          }
+        }
+      },
+      {
+        "metodo": "deudor.count",
+        "argumentos": {
+          "where": {
+            "comentarios": {
+              "none": {}
+            },
+            "empresaId": 7,
+            "remesaId": 15
+          }
+        }
+      },
+      {
+        "metodo": "deudor.count",
+        "argumentos": {
+          "where": {
+            "empresaId": 7,
+            "estadoSituacionId": {
+              "in": [
+                41
+              ]
+            },
+            "remesaId": 15
+          }
+        }
+      },
+      {
+        "metodo": "deudor.count",
+        "argumentos": {
+          "where": {
+            "empresaId": 7,
+            "estadoSituacionId": {
+              "in": [
+                42
+              ]
+            },
+            "remesaId": 15
+          }
+        }
+      },
+      {
+        "metodo": "deudor.groupBy",
+        "argumentos": {
+          "_count": {
+            "_all": true
+          },
+          "by": [
+            "estadoSituacionId"
+          ],
+          "where": {
+            "empresaId": 7,
+            "remesaId": 15
+          }
+        }
+      },
+      {
+        "metodo": "deudor.groupBy",
+        "argumentos": {
+          "_count": {
+            "_all": true
+          },
+          "by": [
+            "estadoGestionId"
+          ],
+          "where": {
+            "empresaId": 7,
+            "remesaId": 15
+          }
+        }
+      },
+      {
+        "metodo": "deudor.groupBy",
+        "argumentos": {
+          "_count": {
+            "_all": true
+          },
+          "by": [
+            "motivoNoPagoId"
+          ],
+          "where": {
+            "empresaId": 7,
+            "remesaId": 15
+          }
+        }
+      },
+      {
+        "metodo": "empresa.findUnique",
+        "argumentos": {
+          "select": {
+            "id": true,
+            "nombre": true
+          },
+          "where": {
+            "id": 7
+          }
+        }
+      },
+      {
+        "metodo": "remesa.findUnique",
+        "argumentos": {
+          "select": {
+            "id": true,
+            "nombre": true
+          },
+          "where": {
+            "id": 15
+          }
+        }
+      },
+      {
+        "metodo": "$queryRaw",
+        "argumentos": {
+          "strings": [
+            "\n            SELECT\n              CASE\n                WHEN d.fechaVencimiento IS NULL THEN 'Sin fecha'\n                WHEN DATEDIFF(NOW(), d.fechaVencimiento) BETWEEN 0 AND 30 THEN '0-30'\n                WHEN DATEDIFF(NOW(), d.fechaVencimiento) BETWEEN 31 AND 60 THEN '31-60'\n                WHEN DATEDIFF(NOW(), d.fechaVencimiento) BETWEEN 61 AND 90 THEN '61-90'\n                WHEN DATEDIFF(NOW(), d.fechaVencimiento) BETWEEN 91 AND 180 THEN '91-180'\n                ELSE '180+'\n              END AS rango,\n              COUNT(*) AS cantidad\n            FROM deudor d\n            WHERE 1 = 1 AND d.empresaId = ",
+            " AND d.remesaId = ",
+            "\n            GROUP BY rango\n        "
+          ],
+          "values": [
+            7,
+            15
+          ]
+        }
+      },
+      {
+        "metodo": "$queryRaw",
+        "argumentos": {
+          "strings": [
+            "\n            SELECT\n              CASE\n                WHEN d.montoTotal IS NULL OR d.montoTotal < 10000 THEN '$0-10k'\n                WHEN d.montoTotal < 50000 THEN '$10k-50k'\n                WHEN d.montoTotal < 200000 THEN '$50k-200k'\n                WHEN d.montoTotal < 1000000 THEN '$200k-1M'\n                ELSE '$1M+'\n              END AS rango,\n              COUNT(*) AS cantidad,\n              SUM(d.montoTotal) AS suma\n            FROM deudor d\n            WHERE 1 = 1 AND d.empresaId = ",
+            " AND d.remesaId = ",
+            "\n            GROUP BY rango\n        "
+          ],
+          "values": [
+            7,
+            15
+          ]
+        }
+      },
+      {
+        "metodo": "$queryRaw",
+        "argumentos": {
+          "strings": [
+            "\n            SELECT\n              DATE_FORMAT(p.fecha, '%Y-%m-%d') AS fecha,\n              SUM(p.importe) AS importe,\n              COUNT(*) AS cantidad\n            FROM pago p\n            INNER JOIN deudor d ON d.id = p.deudorId\n            WHERE p.fecha BETWEEN ",
+            " AND ",
+            "\n              AND 1 = 1 AND d.empresaId = ",
+            " AND d.remesaId = ",
+            "\n            GROUP BY fecha\n            ORDER BY fecha ASC\n        "
+          ],
+          "values": [
+            "2026-07-01T03:00:00.000Z",
+            "2026-08-01T02:59:59.999Z",
+            7,
+            15
+          ]
+        }
+      },
+      {
+        "metodo": "$queryRaw",
+        "argumentos": {
+          "strings": [
+            "\n            SELECT\n              DATE_FORMAT(c.fecha, '%Y-%m-%d') AS fecha,\n              COUNT(*) AS cantidad\n            FROM comentario c\n            INNER JOIN deudor d ON d.id = c.deudorId\n            WHERE c.fecha BETWEEN ",
+            " AND ",
+            "\n              AND 1 = 1 AND d.empresaId = ",
+            " AND d.remesaId = ",
+            "\n            GROUP BY fecha\n            ORDER BY fecha ASC\n        "
+          ],
+          "values": [
+            "2026-07-01T03:00:00.000Z",
+            "2026-08-01T02:59:59.999Z",
+            7,
+            15
+          ]
+        }
+      },
+      {
+        "metodo": "$queryRaw",
+        "argumentos": {
+          "strings": [
+            "\n            SELECT AVG(DATEDIFF(NOW(), d.fechaVencimiento)) AS avgMora\n            FROM deudor d\n            WHERE 1 = 1 AND d.empresaId = ",
+            " AND d.remesaId = ",
+            "\n              AND d.fechaVencimiento IS NOT NULL\n              AND COALESCE(d.saldo, d.montoTotal, 0) > 0\n        "
+          ],
+          "values": [
+            7,
+            15
+          ]
+        }
+      },
+      {
+        "metodo": "deudor.count",
+        "argumentos": {
+          "where": {
+            "AND": [
+              {
+                "empresaId": 7,
+                "remesaId": 15
+              },
+              {
+                "OR": [
+                  {
+                    "estadoSituacionId": {
+                      "in": [
+                        11,
+                        12,
+                        43
+                      ]
+                    }
+                  },
+                  {
+                    "estadoSituacionId": {
+                      "in": [
+                        44,
+                        45
+                      ]
+                    }
+                  },
+                  {
+                    "pagos": {
+                      "some": {}
+                    }
+                  },
+                  {
+                    "OR": [
+                      {
+                        "promesas": {
+                          "some": {}
+                        }
+                      },
+                      {
+                        "estadoSituacionId": {
+                          "in": [
+                            20
+                          ]
+                        }
+                      },
+                      {
+                        "estadoGestionId": 30
+                      }
+                    ]
+                  }
+                ]
+              }
+            ]
+          }
+        }
+      },
+      {
+        "metodo": "deudor.count",
+        "argumentos": {
+          "where": {
+            "AND": [
+              {
+                "empresaId": 7,
+                "remesaId": 15
+              },
+              {
+                "OR": [
+                  {
+                    "promesas": {
+                      "some": {}
+                    }
+                  },
+                  {
+                    "estadoSituacionId": {
+                      "in": [
+                        20
+                      ]
+                    }
+                  },
+                  {
+                    "estadoGestionId": 30
+                  }
+                ]
+              }
+            ]
+          }
+        }
+      },
+      {
+        "metodo": "deudor.count",
+        "argumentos": {
+          "where": {
+            "AND": [
+              {
+                "empresaId": 7,
+                "remesaId": 15
+              },
+              {
+                "AND": [
+                  {
+                    "OR": [
+                      {
+                        "promesas": {
+                          "some": {}
+                        }
+                      },
+                      {
+                        "estadoSituacionId": {
+                          "in": [
+                            20
+                          ]
+                        }
+                      },
+                      {
+                        "estadoGestionId": 30
+                      }
+                    ]
+                  },
+                  {
+                    "pagos": {
+                      "some": {}
+                    }
+                  }
+                ]
+              }
+            ]
+          }
+        }
+      },
+      {
+        "metodo": "deudor.findMany",
+        "argumentos": {
+          "orderBy": {
+            "montoTotal": "desc"
+          },
+          "select": {
+            "apellido": true,
+            "documento": true,
+            "estadoGestion": {
+              "select": {
+                "descripcion": true
+              }
+            },
+            "estadoSituacion": {
+              "select": {
+                "descripcion": true
+              }
+            },
+            "id": true,
+            "montoTotal": true,
+            "nombre": true
+          },
+          "take": 10,
+          "where": {
+            "empresaId": 7,
+            "remesaId": 15
+          }
+        }
+      },
+      {
+        "metodo": "parametro.findMany",
+        "argumentos": {
+          "select": {
+            "categoria": true,
+            "clave": true,
+            "descripcion": true,
+            "id": true
+          },
+          "where": {
+            "id": {
+              "in": [
+                11,
+                12,
+                20,
+                41,
+                42,
+                43,
+                44,
+                45,
+                30,
+                31,
+                32,
+                61,
+                62,
+                63,
+                64,
+                65,
+                66,
+                67
+              ]
+            }
+          }
+        }
+      }
+    ],
+    "respuesta": {
+      "kpis": {
+        "cantidadCasos": 1405,
+        "deudaAsignada": 8059197.29,
+        "saldoPendiente": 2012300.36,
+        "recuperoAcumulado": 4.06,
+        "pagosPeriodo": 302911.27,
+        "casosConPago": 175,
+        "ticketPromedio": 35304.93,
+        "moraPromediaDias": 240.17,
+        "promesasVigentes": 4183,
+        "porcentajeCpc": 35.59,
+        "casosSinGestion": 3377,
+        "casosIncobrables": 2661,
+        "casosLegales": 3019
+      },
+      "distribuciones": {
+        "porSituacion": [
+          {
+            "id": 42,
+            "clave": "SIT-080",
+            "label": "En instancia legal",
+            "categoria": "LEGAL",
+            "cantidad": 832,
+            "porcentaje": 19.92
+          },
+          {
+            "id": 44,
+            "clave": "SIT-030",
+            "label": "Pagando en cuotas",
+            "categoria": "PAGANDO",
+            "cantidad": 687,
+            "porcentaje": 16.45
+          },
+          {
+            "id": 12,
+            "clave": "SIT-012",
+            "label": "Contactado tercero",
+            "categoria": "CONTACTADO",
+            "cantidad": 628,
+            "porcentaje": 15.03
+          },
+          {
+            "id": 41,
+            "clave": "SIT-090",
+            "label": "Incobrable",
+            "categoria": "INCOBRABLE",
+            "cantidad": 612,
+            "porcentaje": 14.65
+          },
+          {
+            "id": 20,
+            "clave": "SIT-020",
+            "label": "Promesa vigente",
+            "categoria": "PROMESA",
+            "cantidad": 568,
+            "porcentaje": 13.6
+          },
+          {
+            "id": 43,
+            "clave": "SIT-013",
+            "label": "Contactado sin compromiso",
+            "categoria": "CONTACTADO",
+            "cantidad": 298,
+            "porcentaje": 7.13
+          },
+          {
+            "id": null,
+            "clave": null,
+            "label": "(Sin asignar)",
+            "categoria": null,
+            "cantidad": 259,
+            "porcentaje": 6.2
+          },
+          {
+            "id": 11,
+            "clave": "SIT-011",
+            "label": "Contactado titular",
+            "categoria": "CONTACTADO",
+            "cantidad": 148,
+            "porcentaje": 3.54
+          },
+          {
+            "id": 45,
+            "clave": "SIT-040",
+            "label": "Cancelado",
+            "categoria": "CANCELADO",
+            "cantidad": 145,
+            "porcentaje": 3.47
+          }
+        ],
+        "porGestion": [
+          {
+            "id": 30,
+            "clave": "GES-030",
+            "label": "Promesa de pago",
+            "categoria": "GESTION",
+            "cantidad": 714,
+            "porcentaje": 40.61
+          },
+          {
+            "id": 31,
+            "clave": "GES-010",
+            "label": "Llamada sin respuesta",
+            "categoria": "GESTION",
+            "cantidad": 571,
+            "porcentaje": 32.48
+          },
+          {
+            "id": null,
+            "clave": null,
+            "label": "(Sin asignar)",
+            "categoria": null,
+            "cantidad": 297,
+            "porcentaje": 16.89
+          },
+          {
+            "id": 32,
+            "clave": "GES-020",
+            "label": "Mensaje enviado",
+            "categoria": "GESTION",
+            "cantidad": 176,
+            "porcentaje": 10.01
+          }
+        ],
+        "porMotivo": [
+          {
+            "id": 61,
+            "clave": "MOT-01",
+            "label": "Motivo de no pago 1",
+            "categoria": "MOTIVO",
+            "cantidad": 779,
+            "porcentaje": 17.42
+          },
+          {
+            "id": 65,
+            "clave": "MOT-05",
+            "label": "Motivo de no pago 5",
+            "categoria": "MOTIVO",
+            "cantidad": 699,
+            "porcentaje": 15.63
+          },
+          {
+            "id": 63,
+            "clave": "MOT-03",
+            "label": "Motivo de no pago 3",
+            "categoria": "MOTIVO",
+            "cantidad": 689,
+            "porcentaje": 15.41
+          },
+          {
+            "id": 67,
+            "clave": "MOT-07",
+            "label": "Motivo de no pago 7",
+            "categoria": "MOTIVO",
+            "cantidad": 592,
+            "porcentaje": 13.24
+          },
+          {
+            "id": 62,
+            "clave": "MOT-02",
+            "label": "Motivo de no pago 2",
+            "categoria": "MOTIVO",
+            "cantidad": 561,
+            "porcentaje": 12.55
+          },
+          {
+            "id": null,
+            "clave": null,
+            "label": "(Sin asignar)",
+            "categoria": null,
+            "cantidad": 533,
+            "porcentaje": 11.92
+          },
+          {
+            "id": 64,
+            "clave": "MOT-04",
+            "label": "Motivo de no pago 4",
+            "categoria": "MOTIVO",
+            "cantidad": 467,
+            "porcentaje": 10.45
+          },
+          {
+            "id": 66,
+            "clave": "MOT-06",
+            "label": "Motivo de no pago 6",
+            "categoria": "MOTIVO",
+            "cantidad": 151,
+            "porcentaje": 3.38
+          }
+        ],
+        "porMora": [
+          {
+            "rango": "0-30",
+            "cantidad": 305,
+            "porcentaje": 21.71
+          },
+          {
+            "rango": "31-60",
+            "cantidad": 131,
+            "porcentaje": 9.32
+          },
+          {
+            "rango": "61-90",
+            "cantidad": 588,
+            "porcentaje": 41.85
+          },
+          {
+            "rango": "91-180",
+            "cantidad": 124,
+            "porcentaje": 8.83
+          },
+          {
+            "rango": "180+",
+            "cantidad": 483,
+            "porcentaje": 34.38
+          },
+          {
+            "rango": "Sin fecha",
+            "cantidad": 543,
+            "porcentaje": 38.65
+          }
+        ],
+        "porDeuda": [
+          {
+            "rango": "$0-10k",
+            "cantidad": 479,
+            "porcentaje": 34.09,
+            "suma": 178936.43
+          },
+          {
+            "rango": "$10k-50k",
+            "cantidad": 674,
+            "porcentaje": 47.97,
+            "suma": 85357.81
+          },
+          {
+            "rango": "$50k-200k",
+            "cantidad": 649,
+            "porcentaje": 46.19,
+            "suma": 20698.45
+          },
+          {
+            "rango": "$200k-1M",
+            "cantidad": 479,
+            "porcentaje": 34.09,
+            "suma": 178936.43
+          },
+          {
+            "rango": "$1M+",
+            "cantidad": 674,
+            "porcentaje": 47.97,
+            "suma": 85357.81
+          }
+        ]
+      },
+      "series": {
+        "granularidad": "dia",
+        "pagosPorPeriodo": [
+          {
+            "fecha": "2026-07-01",
+            "importe": 13542.26,
+            "cantidad": 40
+          },
+          {
+            "fecha": "2026-07-02",
+            "importe": 36385.73,
+            "cantidad": 13
+          },
+          {
+            "fecha": "2026-07-03",
+            "importe": 39638.18,
+            "cantidad": 3
+          },
+          {
+            "fecha": "2026-07-04",
+            "importe": 13542.26,
+            "cantidad": 40
+          },
+          {
+            "fecha": "2026-07-06",
+            "importe": 36385.73,
+            "cantidad": 13
+          },
+          {
+            "fecha": "2026-07-07",
+            "importe": 39638.18,
+            "cantidad": 3
+          },
+          {
+            "fecha": "2026-07-08",
+            "importe": 13542.26,
+            "cantidad": 40
+          },
+          {
+            "fecha": "2026-07-09",
+            "importe": 36385.73,
+            "cantidad": 13
+          },
+          {
+            "fecha": "2026-07-11",
+            "importe": 39638.18,
+            "cantidad": 3
+          },
+          {
+            "fecha": "2026-07-12",
+            "importe": 13542.26,
+            "cantidad": 40
+          },
+          {
+            "fecha": "2026-07-13",
+            "importe": 36385.73,
+            "cantidad": 13
+          },
+          {
+            "fecha": "2026-07-14",
+            "importe": 39638.18,
+            "cantidad": 3
+          },
+          {
+            "fecha": "2026-07-16",
+            "importe": 13542.26,
+            "cantidad": 40
+          },
+          {
+            "fecha": "2026-07-17",
+            "importe": 36385.73,
+            "cantidad": 13
+          },
+          {
+            "fecha": "2026-07-18",
+            "importe": 39638.18,
+            "cantidad": 3
+          },
+          {
+            "fecha": "2026-07-19",
+            "importe": 13542.26,
+            "cantidad": 40
+          },
+          {
+            "fecha": "2026-07-21",
+            "importe": 36385.73,
+            "cantidad": 13
+          },
+          {
+            "fecha": "2026-07-22",
+            "importe": 39638.18,
+            "cantidad": 3
+          },
+          {
+            "fecha": "2026-07-23",
+            "importe": 13542.26,
+            "cantidad": 40
+          },
+          {
+            "fecha": "2026-07-24",
+            "importe": 36385.73,
+            "cantidad": 13
+          },
+          {
+            "fecha": "2026-07-26",
+            "importe": 39638.18,
+            "cantidad": 3
+          },
+          {
+            "fecha": "2026-07-27",
+            "importe": 13542.26,
+            "cantidad": 40
+          },
+          {
+            "fecha": "2026-07-28",
+            "importe": 36385.73,
+            "cantidad": 13
+          },
+          {
+            "fecha": "2026-07-29",
+            "importe": 39638.18,
+            "cantidad": 3
+          },
+          {
+            "fecha": "2026-07-31",
+            "importe": 13542.26,
+            "cantidad": 40
+          }
+        ],
+        "gestionesPorPeriodo": [
+          {
+            "fecha": "2026-07-01",
+            "cantidad": 86
+          },
+          {
+            "fecha": "2026-07-02",
+            "cantidad": 42
+          },
+          {
+            "fecha": "2026-07-03",
+            "cantidad": 99
+          },
+          {
+            "fecha": "2026-07-04",
+            "cantidad": 73
+          },
+          {
+            "fecha": "2026-07-06",
+            "cantidad": 106
+          },
+          {
+            "fecha": "2026-07-07",
+            "cantidad": 11
+          },
+          {
+            "fecha": "2026-07-08",
+            "cantidad": 100
+          },
+          {
+            "fecha": "2026-07-09",
+            "cantidad": 4
+          },
+          {
+            "fecha": "2026-07-11",
+            "cantidad": 3
+          },
+          {
+            "fecha": "2026-07-12",
+            "cantidad": 86
+          },
+          {
+            "fecha": "2026-07-13",
+            "cantidad": 42
+          },
+          {
+            "fecha": "2026-07-14",
+            "cantidad": 99
+          },
+          {
+            "fecha": "2026-07-16",
+            "cantidad": 73
+          },
+          {
+            "fecha": "2026-07-17",
+            "cantidad": 106
+          },
+          {
+            "fecha": "2026-07-18",
+            "cantidad": 11
+          },
+          {
+            "fecha": "2026-07-19",
+            "cantidad": 100
+          },
+          {
+            "fecha": "2026-07-21",
+            "cantidad": 4
+          },
+          {
+            "fecha": "2026-07-22",
+            "cantidad": 3
+          },
+          {
+            "fecha": "2026-07-23",
+            "cantidad": 86
+          },
+          {
+            "fecha": "2026-07-24",
+            "cantidad": 42
+          },
+          {
+            "fecha": "2026-07-26",
+            "cantidad": 99
+          },
+          {
+            "fecha": "2026-07-27",
+            "cantidad": 73
+          },
+          {
+            "fecha": "2026-07-28",
+            "cantidad": 106
+          },
+          {
+            "fecha": "2026-07-29",
+            "cantidad": 11
+          },
+          {
+            "fecha": "2026-07-31",
+            "cantidad": 100
+          }
+        ]
+      },
+      "top": {
+        "deudores": [
+          {
+            "deudorId": 1760,
+            "nombreCompleto": "Apellido0 Nombre0",
+            "documento": "20029760",
+            "monto": 3899910.21,
+            "estadoGestion": "Gestión 0",
+            "estadoSituacion": "Situación 0"
+          },
+          {
+            "deudorId": 1323,
+            "nombreCompleto": "Apellido1 Nombre1",
+            "documento": "20014499",
+            "monto": 3830426.11,
+            "estadoGestion": "Gestión 1",
+            "estadoSituacion": "Situación 1"
+          },
+          {
+            "deudorId": 1724,
+            "nombreCompleto": "Apellido2 Nombre2",
+            "documento": "20045760",
+            "monto": 3726482.22,
+            "estadoGestion": "Gestión 2",
+            "estadoSituacion": "Situación 2"
+          },
+          {
+            "deudorId": 2013,
+            "nombreCompleto": "Apellido3 Nombre3",
+            "documento": "20063322",
+            "monto": 3646721.38,
+            "estadoGestion": null,
+            "estadoSituacion": "Situación 3"
+          },
+          {
+            "deudorId": 2593,
+            "nombreCompleto": "Apellido4 Nombre4",
+            "documento": "20009722",
+            "monto": 3582221.95,
+            "estadoGestion": "Gestión 4",
+            "estadoSituacion": "Situación 4"
+          },
+          {
+            "deudorId": 2489,
+            "nombreCompleto": "Apellido5 Nombre5",
+            "documento": "20064010",
+            "monto": 3486461.35,
+            "estadoGestion": "Gestión 5",
+            "estadoSituacion": "Situación 5"
+          },
+          {
+            "deudorId": 9949,
+            "nombreCompleto": "Apellido6 Nombre6",
+            "documento": "20064589",
+            "monto": 3373138.36,
+            "estadoGestion": "Gestión 6",
+            "estadoSituacion": "Situación 6"
+          },
+          {
+            "deudorId": 3767,
+            "nombreCompleto": "Apellido7 Nombre7",
+            "documento": "20019484",
+            "monto": 3313415.76,
+            "estadoGestion": null,
+            "estadoSituacion": "Situación 7"
+          },
+          {
+            "deudorId": 6507,
+            "nombreCompleto": "Apellido8 Nombre8",
+            "documento": "20053943",
+            "monto": 3199405.54,
+            "estadoGestion": "Gestión 8",
+            "estadoSituacion": "Situación 8"
+          },
+          {
+            "deudorId": 1769,
+            "nombreCompleto": "Apellido9 Nombre9",
+            "documento": "20029760",
+            "monto": 3084816.32,
+            "estadoGestion": "Gestión 9",
+            "estadoSituacion": "Situación 9"
+          }
+        ],
+        "motivos": [
+          {
+            "id": 61,
+            "clave": "MOT-01",
+            "label": "Motivo de no pago 1",
+            "cantidad": 779,
+            "porcentaje": 17.42
+          },
+          {
+            "id": 65,
+            "clave": "MOT-05",
+            "label": "Motivo de no pago 5",
+            "cantidad": 699,
+            "porcentaje": 15.63
+          },
+          {
+            "id": 63,
+            "clave": "MOT-03",
+            "label": "Motivo de no pago 3",
+            "cantidad": 689,
+            "porcentaje": 15.41
+          },
+          {
+            "id": 67,
+            "clave": "MOT-07",
+            "label": "Motivo de no pago 7",
+            "cantidad": 592,
+            "porcentaje": 13.24
+          },
+          {
+            "id": 62,
+            "clave": "MOT-02",
+            "label": "Motivo de no pago 2",
+            "cantidad": 561,
+            "porcentaje": 12.55
+          }
+        ]
+      },
+      "funnel": {
+        "asignados": 1405,
+        "contactados": 2320,
+        "conPromesa": 3904,
+        "promesaCumplida": 3699
+      },
+      "meta": {
+        "empresaId": 7,
+        "empresaNombre": "Empresa 7",
+        "remesaId": 15,
+        "remesaNombre": "Remesa 15",
+        "desde": "2026-07-01T03:00:00.000Z",
+        "hasta": "2026-08-01T02:59:59.999Z",
+        "totalDeudoresFiltrados": 1405
+      }
+    }
+  },
+  "conFiltros": {
+    "llamadas": [
+      {
+        "metodo": "parametro.findMany",
+        "argumentos": {
+          "select": {
+            "categoria": true,
+            "clave": true,
+            "id": true
+          },
+          "where": {
+            "OR": [
+              {
+                "clave": {
+                  "in": [
+                    "SIT-011",
+                    "SIT-012",
+                    "SIT-020",
+                    "GES-030"
+                  ]
+                }
+              },
+              {
+                "categoria": {
+                  "in": [
+                    "INCOBRABLE",
+                    "LEGAL",
+                    "CONTACTADO",
+                    "PAGANDO",
+                    "CANCELADO"
+                  ]
+                },
+                "grupo": "situacion"
+              }
+            ]
+          }
+        }
+      },
+      {
+        "metodo": "deudor.count",
+        "argumentos": {
+          "where": {
+            "empresaId": 7,
+            "estadoGestionId": {
+              "in": [
+                30,
+                31
+              ]
+            },
+            "estadoSituacionId": {
+              "in": [
+                11,
+                12,
+                20
+              ]
+            },
+            "motivoNoPagoId": {
+              "in": [
+                61,
+                62,
+                63
+              ]
+            }
+          }
+        }
+      },
+      {
+        "metodo": "deudor.aggregate",
+        "argumentos": {
+          "_sum": {
+            "montoTotal": true
+          },
+          "where": {
+            "empresaId": 7,
+            "estadoGestionId": {
+              "in": [
+                30,
+                31
+              ]
+            },
+            "estadoSituacionId": {
+              "in": [
+                11,
+                12,
+                20
+              ]
+            },
+            "motivoNoPagoId": {
+              "in": [
+                61,
+                62,
+                63
+              ]
+            }
+          }
+        }
+      },
+      {
+        "metodo": "$queryRaw",
+        "argumentos": {
+          "strings": [
+            "\n                SELECT SUM(COALESCE(d.saldo, d.montoTotal)) AS saldo\n                FROM deudor d\n                WHERE 1 = 1 AND d.empresaId = ",
+            " AND d.estadoSituacionId IN (",
+            ",",
+            ",",
+            ") AND d.estadoGestionId IN (",
+            ",",
+            ") AND d.motivoNoPagoId IN (",
+            ",",
+            ",",
+            ")\n            "
+          ],
+          "values": [
+            7,
+            11,
+            12,
+            20,
+            30,
+            31,
+            61,
+            62,
+            63
+          ]
+        }
+      },
+      {
+        "metodo": "pago.aggregate",
+        "argumentos": {
+          "_avg": {
+            "importe": true
+          },
+          "_count": true,
+          "_sum": {
+            "importe": true
+          },
+          "where": {
+            "deudor": {
+              "empresaId": 7,
+              "estadoGestionId": {
+                "in": [
+                  30,
+                  31
+                ]
+              },
+              "estadoSituacionId": {
+                "in": [
+                  11,
+                  12,
+                  20
+                ]
+              },
+              "motivoNoPagoId": {
+                "in": [
+                  61,
+                  62,
+                  63
+                ]
+              }
+            },
+            "fecha": {
+              "gte": "2026-07-01T03:00:00.000Z",
+              "lte": "2026-08-01T02:59:59.999Z"
+            }
+          }
+        }
+      },
+      {
+        "metodo": "pago.aggregate",
+        "argumentos": {
+          "_sum": {
+            "importe": true
+          },
+          "where": {
+            "deudor": {
+              "empresaId": 7,
+              "estadoGestionId": {
+                "in": [
+                  30,
+                  31
+                ]
+              },
+              "estadoSituacionId": {
+                "in": [
+                  11,
+                  12,
+                  20
+                ]
+              },
+              "motivoNoPagoId": {
+                "in": [
+                  61,
+                  62,
+                  63
+                ]
+              }
+            }
+          }
+        }
+      },
+      {
+        "metodo": "pago.groupBy",
+        "argumentos": {
+          "_count": {
+            "_all": true
+          },
+          "by": [
+            "deudorId"
+          ],
+          "where": {
+            "deudor": {
+              "empresaId": 7,
+              "estadoGestionId": {
+                "in": [
+                  30,
+                  31
+                ]
+              },
+              "estadoSituacionId": {
+                "in": [
+                  11,
+                  12,
+                  20
+                ]
+              },
+              "motivoNoPagoId": {
+                "in": [
+                  61,
+                  62,
+                  63
+                ]
+              }
+            },
+            "fecha": {
+              "gte": "2026-07-01T03:00:00.000Z",
+              "lte": "2026-08-01T02:59:59.999Z"
+            }
+          }
+        }
+      },
+      {
+        "metodo": "deudor.count",
+        "argumentos": {
+          "where": {
+            "empresaId": 7,
+            "estadoGestionId": {
+              "in": [
+                30,
+                31
+              ]
+            },
+            "estadoSituacionId": 20,
+            "motivoNoPagoId": {
+              "in": [
+                61,
+                62,
+                63
+              ]
+            }
+          }
+        }
+      },
+      {
+        "metodo": "deudor.count",
+        "argumentos": {
+          "where": {
+            "empresaId": 7,
+            "estadoGestionId": {
+              "in": [
+                30,
+                31
+              ]
+            },
+            "estadoSituacionId": {
+              "in": [
+                11,
+                12
+              ]
+            },
+            "motivoNoPagoId": {
+              "in": [
+                61,
+                62,
+                63
+              ]
+            }
+          }
+        }
+      },
+      {
+        "metodo": "deudor.count",
+        "argumentos": {
+          "where": {
+            "comentarios": {
+              "none": {}
+            },
+            "empresaId": 7,
+            "estadoGestionId": {
+              "in": [
+                30,
+                31
+              ]
+            },
+            "estadoSituacionId": {
+              "in": [
+                11,
+                12,
+                20
+              ]
+            },
+            "motivoNoPagoId": {
+              "in": [
+                61,
+                62,
+                63
+              ]
+            }
+          }
+        }
+      },
+      {
+        "metodo": "deudor.count",
+        "argumentos": {
+          "where": {
+            "empresaId": 7,
+            "estadoGestionId": {
+              "in": [
+                30,
+                31
+              ]
+            },
+            "estadoSituacionId": {
+              "in": [
+                41
+              ]
+            },
+            "motivoNoPagoId": {
+              "in": [
+                61,
+                62,
+                63
+              ]
+            }
+          }
+        }
+      },
+      {
+        "metodo": "deudor.count",
+        "argumentos": {
+          "where": {
+            "empresaId": 7,
+            "estadoGestionId": {
+              "in": [
+                30,
+                31
+              ]
+            },
+            "estadoSituacionId": {
+              "in": [
+                42
+              ]
+            },
+            "motivoNoPagoId": {
+              "in": [
+                61,
+                62,
+                63
+              ]
+            }
+          }
+        }
+      },
+      {
+        "metodo": "deudor.groupBy",
+        "argumentos": {
+          "_count": {
+            "_all": true
+          },
+          "by": [
+            "estadoSituacionId"
+          ],
+          "where": {
+            "empresaId": 7,
+            "estadoGestionId": {
+              "in": [
+                30,
+                31
+              ]
+            },
+            "estadoSituacionId": {
+              "in": [
+                11,
+                12,
+                20
+              ]
+            },
+            "motivoNoPagoId": {
+              "in": [
+                61,
+                62,
+                63
+              ]
+            }
+          }
+        }
+      },
+      {
+        "metodo": "deudor.groupBy",
+        "argumentos": {
+          "_count": {
+            "_all": true
+          },
+          "by": [
+            "estadoGestionId"
+          ],
+          "where": {
+            "empresaId": 7,
+            "estadoGestionId": {
+              "in": [
+                30,
+                31
+              ]
+            },
+            "estadoSituacionId": {
+              "in": [
+                11,
+                12,
+                20
+              ]
+            },
+            "motivoNoPagoId": {
+              "in": [
+                61,
+                62,
+                63
+              ]
+            }
+          }
+        }
+      },
+      {
+        "metodo": "deudor.groupBy",
+        "argumentos": {
+          "_count": {
+            "_all": true
+          },
+          "by": [
+            "motivoNoPagoId"
+          ],
+          "where": {
+            "empresaId": 7,
+            "estadoGestionId": {
+              "in": [
+                30,
+                31
+              ]
+            },
+            "estadoSituacionId": {
+              "in": [
+                11,
+                12,
+                20
+              ]
+            },
+            "motivoNoPagoId": {
+              "in": [
+                61,
+                62,
+                63
+              ]
+            }
+          }
+        }
+      },
+      {
+        "metodo": "empresa.findUnique",
+        "argumentos": {
+          "select": {
+            "id": true,
+            "nombre": true
+          },
+          "where": {
+            "id": 7
+          }
+        }
+      },
+      {
+        "metodo": "$queryRaw",
+        "argumentos": {
+          "strings": [
+            "\n            SELECT\n              CASE\n                WHEN d.fechaVencimiento IS NULL THEN 'Sin fecha'\n                WHEN DATEDIFF(NOW(), d.fechaVencimiento) BETWEEN 0 AND 30 THEN '0-30'\n                WHEN DATEDIFF(NOW(), d.fechaVencimiento) BETWEEN 31 AND 60 THEN '31-60'\n                WHEN DATEDIFF(NOW(), d.fechaVencimiento) BETWEEN 61 AND 90 THEN '61-90'\n                WHEN DATEDIFF(NOW(), d.fechaVencimiento) BETWEEN 91 AND 180 THEN '91-180'\n                ELSE '180+'\n              END AS rango,\n              COUNT(*) AS cantidad\n            FROM deudor d\n            WHERE 1 = 1 AND d.empresaId = ",
+            " AND d.estadoSituacionId IN (",
+            ",",
+            ",",
+            ") AND d.estadoGestionId IN (",
+            ",",
+            ") AND d.motivoNoPagoId IN (",
+            ",",
+            ",",
+            ")\n            GROUP BY rango\n        "
+          ],
+          "values": [
+            7,
+            11,
+            12,
+            20,
+            30,
+            31,
+            61,
+            62,
+            63
+          ]
+        }
+      },
+      {
+        "metodo": "$queryRaw",
+        "argumentos": {
+          "strings": [
+            "\n            SELECT\n              CASE\n                WHEN d.montoTotal IS NULL OR d.montoTotal < 10000 THEN '$0-10k'\n                WHEN d.montoTotal < 50000 THEN '$10k-50k'\n                WHEN d.montoTotal < 200000 THEN '$50k-200k'\n                WHEN d.montoTotal < 1000000 THEN '$200k-1M'\n                ELSE '$1M+'\n              END AS rango,\n              COUNT(*) AS cantidad,\n              SUM(d.montoTotal) AS suma\n            FROM deudor d\n            WHERE 1 = 1 AND d.empresaId = ",
+            " AND d.estadoSituacionId IN (",
+            ",",
+            ",",
+            ") AND d.estadoGestionId IN (",
+            ",",
+            ") AND d.motivoNoPagoId IN (",
+            ",",
+            ",",
+            ")\n            GROUP BY rango\n        "
+          ],
+          "values": [
+            7,
+            11,
+            12,
+            20,
+            30,
+            31,
+            61,
+            62,
+            63
+          ]
+        }
+      },
+      {
+        "metodo": "$queryRaw",
+        "argumentos": {
+          "strings": [
+            "\n            SELECT\n              DATE_FORMAT(p.fecha, '%Y-%m-%d') AS fecha,\n              SUM(p.importe) AS importe,\n              COUNT(*) AS cantidad\n            FROM pago p\n            INNER JOIN deudor d ON d.id = p.deudorId\n            WHERE p.fecha BETWEEN ",
+            " AND ",
+            "\n              AND 1 = 1 AND d.empresaId = ",
+            " AND d.estadoSituacionId IN (",
+            ",",
+            ",",
+            ") AND d.estadoGestionId IN (",
+            ",",
+            ") AND d.motivoNoPagoId IN (",
+            ",",
+            ",",
+            ")\n            GROUP BY fecha\n            ORDER BY fecha ASC\n        "
+          ],
+          "values": [
+            "2026-07-01T03:00:00.000Z",
+            "2026-08-01T02:59:59.999Z",
+            7,
+            11,
+            12,
+            20,
+            30,
+            31,
+            61,
+            62,
+            63
+          ]
+        }
+      },
+      {
+        "metodo": "$queryRaw",
+        "argumentos": {
+          "strings": [
+            "\n            SELECT\n              DATE_FORMAT(c.fecha, '%Y-%m-%d') AS fecha,\n              COUNT(*) AS cantidad\n            FROM comentario c\n            INNER JOIN deudor d ON d.id = c.deudorId\n            WHERE c.fecha BETWEEN ",
+            " AND ",
+            "\n              AND 1 = 1 AND d.empresaId = ",
+            " AND d.estadoSituacionId IN (",
+            ",",
+            ",",
+            ") AND d.estadoGestionId IN (",
+            ",",
+            ") AND d.motivoNoPagoId IN (",
+            ",",
+            ",",
+            ")\n            GROUP BY fecha\n            ORDER BY fecha ASC\n        "
+          ],
+          "values": [
+            "2026-07-01T03:00:00.000Z",
+            "2026-08-01T02:59:59.999Z",
+            7,
+            11,
+            12,
+            20,
+            30,
+            31,
+            61,
+            62,
+            63
+          ]
+        }
+      },
+      {
+        "metodo": "$queryRaw",
+        "argumentos": {
+          "strings": [
+            "\n            SELECT AVG(DATEDIFF(NOW(), d.fechaVencimiento)) AS avgMora\n            FROM deudor d\n            WHERE 1 = 1 AND d.empresaId = ",
+            " AND d.estadoSituacionId IN (",
+            ",",
+            ",",
+            ") AND d.estadoGestionId IN (",
+            ",",
+            ") AND d.motivoNoPagoId IN (",
+            ",",
+            ",",
+            ")\n              AND d.fechaVencimiento IS NOT NULL\n              AND COALESCE(d.saldo, d.montoTotal, 0) > 0\n        "
+          ],
+          "values": [
+            7,
+            11,
+            12,
+            20,
+            30,
+            31,
+            61,
+            62,
+            63
+          ]
+        }
+      },
+      {
+        "metodo": "deudor.count",
+        "argumentos": {
+          "where": {
+            "AND": [
+              {
+                "empresaId": 7,
+                "estadoGestionId": {
+                  "in": [
+                    30,
+                    31
+                  ]
+                },
+                "estadoSituacionId": {
+                  "in": [
+                    11,
+                    12,
+                    20
+                  ]
+                },
+                "motivoNoPagoId": {
+                  "in": [
+                    61,
+                    62,
+                    63
+                  ]
+                }
+              },
+              {
+                "OR": [
+                  {
+                    "estadoSituacionId": {
+                      "in": [
+                        11,
+                        12,
+                        43
+                      ]
+                    }
+                  },
+                  {
+                    "estadoSituacionId": {
+                      "in": [
+                        44,
+                        45
+                      ]
+                    }
+                  },
+                  {
+                    "pagos": {
+                      "some": {}
+                    }
+                  },
+                  {
+                    "OR": [
+                      {
+                        "promesas": {
+                          "some": {}
+                        }
+                      },
+                      {
+                        "estadoSituacionId": {
+                          "in": [
+                            20
+                          ]
+                        }
+                      },
+                      {
+                        "estadoGestionId": 30
+                      }
+                    ]
+                  }
+                ]
+              }
+            ]
+          }
+        }
+      },
+      {
+        "metodo": "deudor.count",
+        "argumentos": {
+          "where": {
+            "AND": [
+              {
+                "empresaId": 7,
+                "estadoGestionId": {
+                  "in": [
+                    30,
+                    31
+                  ]
+                },
+                "estadoSituacionId": {
+                  "in": [
+                    11,
+                    12,
+                    20
+                  ]
+                },
+                "motivoNoPagoId": {
+                  "in": [
+                    61,
+                    62,
+                    63
+                  ]
+                }
+              },
+              {
+                "OR": [
+                  {
+                    "promesas": {
+                      "some": {}
+                    }
+                  },
+                  {
+                    "estadoSituacionId": {
+                      "in": [
+                        20
+                      ]
+                    }
+                  },
+                  {
+                    "estadoGestionId": 30
+                  }
+                ]
+              }
+            ]
+          }
+        }
+      },
+      {
+        "metodo": "deudor.count",
+        "argumentos": {
+          "where": {
+            "AND": [
+              {
+                "empresaId": 7,
+                "estadoGestionId": {
+                  "in": [
+                    30,
+                    31
+                  ]
+                },
+                "estadoSituacionId": {
+                  "in": [
+                    11,
+                    12,
+                    20
+                  ]
+                },
+                "motivoNoPagoId": {
+                  "in": [
+                    61,
+                    62,
+                    63
+                  ]
+                }
+              },
+              {
+                "AND": [
+                  {
+                    "OR": [
+                      {
+                        "promesas": {
+                          "some": {}
+                        }
+                      },
+                      {
+                        "estadoSituacionId": {
+                          "in": [
+                            20
+                          ]
+                        }
+                      },
+                      {
+                        "estadoGestionId": 30
+                      }
+                    ]
+                  },
+                  {
+                    "pagos": {
+                      "some": {}
+                    }
+                  }
+                ]
+              }
+            ]
+          }
+        }
+      },
+      {
+        "metodo": "deudor.findMany",
+        "argumentos": {
+          "orderBy": {
+            "montoTotal": "desc"
+          },
+          "select": {
+            "apellido": true,
+            "documento": true,
+            "estadoGestion": {
+              "select": {
+                "descripcion": true
+              }
+            },
+            "estadoSituacion": {
+              "select": {
+                "descripcion": true
+              }
+            },
+            "id": true,
+            "montoTotal": true,
+            "nombre": true
+          },
+          "take": 10,
+          "where": {
+            "empresaId": 7,
+            "estadoGestionId": {
+              "in": [
+                30,
+                31
+              ]
+            },
+            "estadoSituacionId": {
+              "in": [
+                11,
+                12,
+                20
+              ]
+            },
+            "motivoNoPagoId": {
+              "in": [
+                61,
+                62,
+                63
+              ]
+            }
+          }
+        }
+      },
+      {
+        "metodo": "parametro.findMany",
+        "argumentos": {
+          "select": {
+            "categoria": true,
+            "clave": true,
+            "descripcion": true,
+            "id": true
+          },
+          "where": {
+            "id": {
+              "in": [
+                11,
+                12,
+                20,
+                41,
+                42,
+                43,
+                44,
+                45,
+                30,
+                31,
+                32,
+                61,
+                62,
+                63,
+                64,
+                65,
+                66,
+                67
+              ]
+            }
+          }
+        }
+      }
+    ],
+    "respuesta": {
+      "kpis": {
+        "cantidadCasos": 1225,
+        "deudaAsignada": 8056786.56,
+        "saldoPendiente": 2028120.76,
+        "recuperoAcumulado": 4.18,
+        "pagosPeriodo": 347500.83,
+        "casosConPago": 102,
+        "ticketPromedio": 39874.37,
+        "moraPromediaDias": 293.35,
+        "promesasVigentes": 951,
+        "porcentajeCpc": 388,
+        "casosSinGestion": 2278,
+        "casosIncobrables": 2194,
+        "casosLegales": 1223
+      },
+      "distribuciones": {
+        "porSituacion": [
+          {
+            "id": 44,
+            "clave": "SIT-030",
+            "label": "Pagando en cuotas",
+            "categoria": "PAGANDO",
+            "cantidad": 834,
+            "porcentaje": 19.24
+          },
+          {
+            "id": 11,
+            "clave": "SIT-011",
+            "label": "Contactado titular",
+            "categoria": "CONTACTADO",
+            "cantidad": 776,
+            "porcentaje": 17.9
+          },
+          {
+            "id": 43,
+            "clave": "SIT-013",
+            "label": "Contactado sin compromiso",
+            "categoria": "CONTACTADO",
+            "cantidad": 700,
+            "porcentaje": 16.15
+          },
+          {
+            "id": 12,
+            "clave": "SIT-012",
+            "label": "Contactado tercero",
+            "categoria": "CONTACTADO",
+            "cantidad": 576,
+            "porcentaje": 13.29
+          },
+          {
+            "id": 20,
+            "clave": "SIT-020",
+            "label": "Promesa vigente",
+            "categoria": "PROMESA",
+            "cantidad": 572,
+            "porcentaje": 13.2
+          },
+          {
+            "id": 42,
+            "clave": "SIT-080",
+            "label": "En instancia legal",
+            "categoria": "LEGAL",
+            "cantidad": 522,
+            "porcentaje": 12.04
+          },
+          {
+            "id": null,
+            "clave": null,
+            "label": "(Sin asignar)",
+            "categoria": null,
+            "cantidad": 153,
+            "porcentaje": 3.53
+          },
+          {
+            "id": 45,
+            "clave": "SIT-040",
+            "label": "Cancelado",
+            "categoria": "CANCELADO",
+            "cantidad": 151,
+            "porcentaje": 3.48
+          },
+          {
+            "id": 41,
+            "clave": "SIT-090",
+            "label": "Incobrable",
+            "categoria": "INCOBRABLE",
+            "cantidad": 50,
+            "porcentaje": 1.15
+          }
+        ],
+        "porGestion": [
+          {
+            "id": null,
+            "clave": null,
+            "label": "(Sin asignar)",
+            "categoria": null,
+            "cantidad": 693,
+            "porcentaje": 39.8
+          },
+          {
+            "id": 30,
+            "clave": "GES-030",
+            "label": "Promesa de pago",
+            "categoria": "GESTION",
+            "cantidad": 602,
+            "porcentaje": 34.58
+          },
+          {
+            "id": 31,
+            "clave": "GES-010",
+            "label": "Llamada sin respuesta",
+            "categoria": "GESTION",
+            "cantidad": 257,
+            "porcentaje": 14.76
+          },
+          {
+            "id": 32,
+            "clave": "GES-020",
+            "label": "Mensaje enviado",
+            "categoria": "GESTION",
+            "cantidad": 189,
+            "porcentaje": 10.86
+          }
+        ],
+        "porMotivo": [
+          {
+            "id": 67,
+            "clave": "MOT-07",
+            "label": "Motivo de no pago 7",
+            "categoria": "MOTIVO",
+            "cantidad": 817,
+            "porcentaje": 18.94
+          },
+          {
+            "id": 66,
+            "clave": "MOT-06",
+            "label": "Motivo de no pago 6",
+            "categoria": "MOTIVO",
+            "cantidad": 781,
+            "porcentaje": 18.11
+          },
+          {
+            "id": 61,
+            "clave": "MOT-01",
+            "label": "Motivo de no pago 1",
+            "categoria": "MOTIVO",
+            "cantidad": 674,
+            "porcentaje": 15.63
+          },
+          {
+            "id": null,
+            "clave": null,
+            "label": "(Sin asignar)",
+            "categoria": null,
+            "cantidad": 578,
+            "porcentaje": 13.4
+          },
+          {
+            "id": 65,
+            "clave": "MOT-05",
+            "label": "Motivo de no pago 5",
+            "categoria": "MOTIVO",
+            "cantidad": 574,
+            "porcentaje": 13.31
+          },
+          {
+            "id": 64,
+            "clave": "MOT-04",
+            "label": "Motivo de no pago 4",
+            "categoria": "MOTIVO",
+            "cantidad": 493,
+            "porcentaje": 11.43
+          },
+          {
+            "id": 62,
+            "clave": "MOT-02",
+            "label": "Motivo de no pago 2",
+            "categoria": "MOTIVO",
+            "cantidad": 209,
+            "porcentaje": 4.85
+          },
+          {
+            "id": 63,
+            "clave": "MOT-03",
+            "label": "Motivo de no pago 3",
+            "categoria": "MOTIVO",
+            "cantidad": 187,
+            "porcentaje": 4.34
+          }
+        ],
+        "porMora": [
+          {
+            "rango": "0-30",
+            "cantidad": 757,
+            "porcentaje": 61.8
+          },
+          {
+            "rango": "31-60",
+            "cantidad": 714,
+            "porcentaje": 58.29
+          },
+          {
+            "rango": "61-90",
+            "cantidad": 434,
+            "porcentaje": 35.43
+          },
+          {
+            "rango": "91-180",
+            "cantidad": 236,
+            "porcentaje": 19.27
+          },
+          {
+            "rango": "180+",
+            "cantidad": 761,
+            "porcentaje": 62.12
+          },
+          {
+            "rango": "Sin fecha",
+            "cantidad": 240,
+            "porcentaje": 19.59
+          }
+        ],
+        "porDeuda": [
+          {
+            "rango": "$0-10k",
+            "cantidad": 510,
+            "porcentaje": 41.63,
+            "suma": 13141.94
+          },
+          {
+            "rango": "$10k-50k",
+            "cantidad": 292,
+            "porcentaje": 23.84,
+            "suma": 190474.82
+          },
+          {
+            "rango": "$50k-200k",
+            "cantidad": 137,
+            "porcentaje": 11.18,
+            "suma": 10546.74
+          },
+          {
+            "rango": "$200k-1M",
+            "cantidad": 510,
+            "porcentaje": 41.63,
+            "suma": 13141.94
+          },
+          {
+            "rango": "$1M+",
+            "cantidad": 292,
+            "porcentaje": 23.84,
+            "suma": 190474.82
+          }
+        ]
+      },
+      "series": {
+        "granularidad": "dia",
+        "pagosPorPeriodo": [
+          {
+            "fecha": "2026-07-01",
+            "importe": 43049.39,
+            "cantidad": 4
+          },
+          {
+            "fecha": "2026-07-02",
+            "importe": 38246.22,
+            "cantidad": 18
+          },
+          {
+            "fecha": "2026-07-03",
+            "importe": 47684.56,
+            "cantidad": 39
+          },
+          {
+            "fecha": "2026-07-04",
+            "importe": 43049.39,
+            "cantidad": 4
+          },
+          {
+            "fecha": "2026-07-06",
+            "importe": 38246.22,
+            "cantidad": 18
+          },
+          {
+            "fecha": "2026-07-07",
+            "importe": 47684.56,
+            "cantidad": 39
+          },
+          {
+            "fecha": "2026-07-08",
+            "importe": 43049.39,
+            "cantidad": 4
+          },
+          {
+            "fecha": "2026-07-09",
+            "importe": 38246.22,
+            "cantidad": 18
+          },
+          {
+            "fecha": "2026-07-11",
+            "importe": 47684.56,
+            "cantidad": 39
+          },
+          {
+            "fecha": "2026-07-12",
+            "importe": 43049.39,
+            "cantidad": 4
+          },
+          {
+            "fecha": "2026-07-13",
+            "importe": 38246.22,
+            "cantidad": 18
+          },
+          {
+            "fecha": "2026-07-14",
+            "importe": 47684.56,
+            "cantidad": 39
+          },
+          {
+            "fecha": "2026-07-16",
+            "importe": 43049.39,
+            "cantidad": 4
+          },
+          {
+            "fecha": "2026-07-17",
+            "importe": 38246.22,
+            "cantidad": 18
+          },
+          {
+            "fecha": "2026-07-18",
+            "importe": 47684.56,
+            "cantidad": 39
+          },
+          {
+            "fecha": "2026-07-19",
+            "importe": 43049.39,
+            "cantidad": 4
+          },
+          {
+            "fecha": "2026-07-21",
+            "importe": 38246.22,
+            "cantidad": 18
+          },
+          {
+            "fecha": "2026-07-22",
+            "importe": 47684.56,
+            "cantidad": 39
+          },
+          {
+            "fecha": "2026-07-23",
+            "importe": 43049.39,
+            "cantidad": 4
+          },
+          {
+            "fecha": "2026-07-24",
+            "importe": 38246.22,
+            "cantidad": 18
+          },
+          {
+            "fecha": "2026-07-26",
+            "importe": 47684.56,
+            "cantidad": 39
+          },
+          {
+            "fecha": "2026-07-27",
+            "importe": 43049.39,
+            "cantidad": 4
+          },
+          {
+            "fecha": "2026-07-28",
+            "importe": 38246.22,
+            "cantidad": 18
+          },
+          {
+            "fecha": "2026-07-29",
+            "importe": 47684.56,
+            "cantidad": 39
+          },
+          {
+            "fecha": "2026-07-31",
+            "importe": 43049.39,
+            "cantidad": 4
+          }
+        ],
+        "gestionesPorPeriodo": [
+          {
+            "fecha": "2026-07-01",
+            "cantidad": 29
+          },
+          {
+            "fecha": "2026-07-02",
+            "cantidad": 92
+          },
+          {
+            "fecha": "2026-07-03",
+            "cantidad": 107
+          },
+          {
+            "fecha": "2026-07-04",
+            "cantidad": 95
+          },
+          {
+            "fecha": "2026-07-06",
+            "cantidad": 50
+          },
+          {
+            "fecha": "2026-07-07",
+            "cantidad": 3
+          },
+          {
+            "fecha": "2026-07-08",
+            "cantidad": 59
+          },
+          {
+            "fecha": "2026-07-09",
+            "cantidad": 72
+          },
+          {
+            "fecha": "2026-07-11",
+            "cantidad": 98
+          },
+          {
+            "fecha": "2026-07-12",
+            "cantidad": 29
+          },
+          {
+            "fecha": "2026-07-13",
+            "cantidad": 92
+          },
+          {
+            "fecha": "2026-07-14",
+            "cantidad": 107
+          },
+          {
+            "fecha": "2026-07-16",
+            "cantidad": 95
+          },
+          {
+            "fecha": "2026-07-17",
+            "cantidad": 50
+          },
+          {
+            "fecha": "2026-07-18",
+            "cantidad": 3
+          },
+          {
+            "fecha": "2026-07-19",
+            "cantidad": 59
+          },
+          {
+            "fecha": "2026-07-21",
+            "cantidad": 72
+          },
+          {
+            "fecha": "2026-07-22",
+            "cantidad": 98
+          },
+          {
+            "fecha": "2026-07-23",
+            "cantidad": 29
+          },
+          {
+            "fecha": "2026-07-24",
+            "cantidad": 92
+          },
+          {
+            "fecha": "2026-07-26",
+            "cantidad": 107
+          },
+          {
+            "fecha": "2026-07-27",
+            "cantidad": 95
+          },
+          {
+            "fecha": "2026-07-28",
+            "cantidad": 50
+          },
+          {
+            "fecha": "2026-07-29",
+            "cantidad": 3
+          },
+          {
+            "fecha": "2026-07-31",
+            "cantidad": 59
+          }
+        ]
+      },
+      "top": {
+        "deudores": [
+          {
+            "deudorId": 5168,
+            "nombreCompleto": "Apellido0 Nombre0",
+            "documento": "20055588",
+            "monto": 4000627.53,
+            "estadoGestion": "Gestión 0",
+            "estadoSituacion": "Situación 0"
+          },
+          {
+            "deudorId": 9998,
+            "nombreCompleto": "Apellido1 Nombre1",
+            "documento": "20055567",
+            "monto": 3938090.01,
+            "estadoGestion": "Gestión 1",
+            "estadoSituacion": "Situación 1"
+          },
+          {
+            "deudorId": 5253,
+            "nombreCompleto": "Apellido2 Nombre2",
+            "documento": "20058168",
+            "monto": 3864785.62,
+            "estadoGestion": "Gestión 2",
+            "estadoSituacion": "Situación 2"
+          },
+          {
+            "deudorId": 4255,
+            "nombreCompleto": "Apellido3 Nombre3",
+            "documento": "20026997",
+            "monto": 3759197.25,
+            "estadoGestion": null,
+            "estadoSituacion": "Situación 3"
+          },
+          {
+            "deudorId": 5943,
+            "nombreCompleto": "Apellido4 Nombre4",
+            "documento": "20058251",
+            "monto": 3653630.21,
+            "estadoGestion": "Gestión 4",
+            "estadoSituacion": "Situación 4"
+          },
+          {
+            "deudorId": 4542,
+            "nombreCompleto": "Apellido5 Nombre5",
+            "documento": "20048252",
+            "monto": 3545461.33,
+            "estadoGestion": "Gestión 5",
+            "estadoSituacion": "Situación 5"
+          },
+          {
+            "deudorId": 6310,
+            "nombreCompleto": "Apellido6 Nombre6",
+            "documento": "20004939",
+            "monto": 3468463.66,
+            "estadoGestion": "Gestión 6",
+            "estadoSituacion": "Situación 6"
+          },
+          {
+            "deudorId": 2595,
+            "nombreCompleto": "Apellido7 Nombre7",
+            "documento": "20012537",
+            "monto": 3360211.98,
+            "estadoGestion": null,
+            "estadoSituacion": "Situación 7"
+          },
+          {
+            "deudorId": 2575,
+            "nombreCompleto": "Apellido8 Nombre8",
+            "documento": "20023304",
+            "monto": 3261959.01,
+            "estadoGestion": "Gestión 8",
+            "estadoSituacion": "Situación 8"
+          },
+          {
+            "deudorId": 5177,
+            "nombreCompleto": "Apellido9 Nombre9",
+            "documento": "20055588",
+            "monto": 3207019.5,
+            "estadoGestion": "Gestión 9",
+            "estadoSituacion": "Situación 9"
+          }
+        ],
+        "motivos": [
+          {
+            "id": 67,
+            "clave": "MOT-07",
+            "label": "Motivo de no pago 7",
+            "cantidad": 817,
+            "porcentaje": 18.94
+          },
+          {
+            "id": 66,
+            "clave": "MOT-06",
+            "label": "Motivo de no pago 6",
+            "cantidad": 781,
+            "porcentaje": 18.11
+          },
+          {
+            "id": 61,
+            "clave": "MOT-01",
+            "label": "Motivo de no pago 1",
+            "cantidad": 674,
+            "porcentaje": 15.63
+          },
+          {
+            "id": 65,
+            "clave": "MOT-05",
+            "label": "Motivo de no pago 5",
+            "cantidad": 574,
+            "porcentaje": 13.31
+          },
+          {
+            "id": 64,
+            "clave": "MOT-04",
+            "label": "Motivo de no pago 4",
+            "cantidad": 493,
+            "porcentaje": 11.43
+          }
+        ]
+      },
+      "funnel": {
+        "asignados": 1225,
+        "contactados": 2535,
+        "conPromesa": 4167,
+        "promesaCumplida": 4499
+      },
+      "meta": {
+        "empresaId": 7,
+        "empresaNombre": "Empresa 7",
+        "remesaId": null,
+        "remesaNombre": null,
+        "desde": "2026-07-01T03:00:00.000Z",
+        "hasta": "2026-08-01T02:59:59.999Z",
+        "totalDeudoresFiltrados": 1225
+      }
+    }
+  },
+  "rango90Semana": {
+    "llamadas": [
+      {
+        "metodo": "parametro.findMany",
+        "argumentos": {
+          "select": {
+            "categoria": true,
+            "clave": true,
+            "id": true
+          },
+          "where": {
+            "OR": [
+              {
+                "clave": {
+                  "in": [
+                    "SIT-011",
+                    "SIT-012",
+                    "SIT-020",
+                    "GES-030"
+                  ]
+                }
+              },
+              {
+                "categoria": {
+                  "in": [
+                    "INCOBRABLE",
+                    "LEGAL",
+                    "CONTACTADO",
+                    "PAGANDO",
+                    "CANCELADO"
+                  ]
+                },
+                "grupo": "situacion"
+              }
+            ]
+          }
+        }
+      },
+      {
+        "metodo": "deudor.count",
+        "argumentos": {
+          "where": {
+            "empresaId": 7
+          }
+        }
+      },
+      {
+        "metodo": "deudor.aggregate",
+        "argumentos": {
+          "_sum": {
+            "montoTotal": true
+          },
+          "where": {
+            "empresaId": 7
+          }
+        }
+      },
+      {
+        "metodo": "$queryRaw",
+        "argumentos": {
+          "strings": [
+            "\n                SELECT SUM(COALESCE(d.saldo, d.montoTotal)) AS saldo\n                FROM deudor d\n                WHERE 1 = 1 AND d.empresaId = ",
+            "\n            "
+          ],
+          "values": [
+            7
+          ]
+        }
+      },
+      {
+        "metodo": "pago.aggregate",
+        "argumentos": {
+          "_avg": {
+            "importe": true
+          },
+          "_count": true,
+          "_sum": {
+            "importe": true
+          },
+          "where": {
+            "deudor": {
+              "empresaId": 7
+            },
+            "fecha": {
+              "gte": "2026-05-01T03:00:00.000Z",
+              "lte": "2026-07-30T02:59:59.999Z"
+            }
+          }
+        }
+      },
+      {
+        "metodo": "pago.aggregate",
+        "argumentos": {
+          "_sum": {
+            "importe": true
+          },
+          "where": {
+            "deudor": {
+              "empresaId": 7
+            }
+          }
+        }
+      },
+      {
+        "metodo": "pago.groupBy",
+        "argumentos": {
+          "_count": {
+            "_all": true
+          },
+          "by": [
+            "deudorId"
+          ],
+          "where": {
+            "deudor": {
+              "empresaId": 7
+            },
+            "fecha": {
+              "gte": "2026-05-01T03:00:00.000Z",
+              "lte": "2026-07-30T02:59:59.999Z"
+            }
+          }
+        }
+      },
+      {
+        "metodo": "deudor.count",
+        "argumentos": {
+          "where": {
+            "empresaId": 7,
+            "estadoSituacionId": 20
+          }
+        }
+      },
+      {
+        "metodo": "deudor.count",
+        "argumentos": {
+          "where": {
+            "empresaId": 7,
+            "estadoSituacionId": {
+              "in": [
+                11,
+                12
+              ]
+            }
+          }
+        }
+      },
+      {
+        "metodo": "deudor.count",
+        "argumentos": {
+          "where": {
+            "comentarios": {
+              "none": {}
+            },
+            "empresaId": 7
+          }
+        }
+      },
+      {
+        "metodo": "deudor.count",
+        "argumentos": {
+          "where": {
+            "empresaId": 7,
+            "estadoSituacionId": {
+              "in": [
+                41
+              ]
+            }
+          }
+        }
+      },
+      {
+        "metodo": "deudor.count",
+        "argumentos": {
+          "where": {
+            "empresaId": 7,
+            "estadoSituacionId": {
+              "in": [
+                42
+              ]
+            }
+          }
+        }
+      },
+      {
+        "metodo": "deudor.groupBy",
+        "argumentos": {
+          "_count": {
+            "_all": true
+          },
+          "by": [
+            "estadoSituacionId"
+          ],
+          "where": {
+            "empresaId": 7
+          }
+        }
+      },
+      {
+        "metodo": "deudor.groupBy",
+        "argumentos": {
+          "_count": {
+            "_all": true
+          },
+          "by": [
+            "estadoGestionId"
+          ],
+          "where": {
+            "empresaId": 7
+          }
+        }
+      },
+      {
+        "metodo": "deudor.groupBy",
+        "argumentos": {
+          "_count": {
+            "_all": true
+          },
+          "by": [
+            "motivoNoPagoId"
+          ],
+          "where": {
+            "empresaId": 7
+          }
+        }
+      },
+      {
+        "metodo": "empresa.findUnique",
+        "argumentos": {
+          "select": {
+            "id": true,
+            "nombre": true
+          },
+          "where": {
+            "id": 7
+          }
+        }
+      },
+      {
+        "metodo": "$queryRaw",
+        "argumentos": {
+          "strings": [
+            "\n            SELECT\n              CASE\n                WHEN d.fechaVencimiento IS NULL THEN 'Sin fecha'\n                WHEN DATEDIFF(NOW(), d.fechaVencimiento) BETWEEN 0 AND 30 THEN '0-30'\n                WHEN DATEDIFF(NOW(), d.fechaVencimiento) BETWEEN 31 AND 60 THEN '31-60'\n                WHEN DATEDIFF(NOW(), d.fechaVencimiento) BETWEEN 61 AND 90 THEN '61-90'\n                WHEN DATEDIFF(NOW(), d.fechaVencimiento) BETWEEN 91 AND 180 THEN '91-180'\n                ELSE '180+'\n              END AS rango,\n              COUNT(*) AS cantidad\n            FROM deudor d\n            WHERE 1 = 1 AND d.empresaId = ",
+            "\n            GROUP BY rango\n        "
+          ],
+          "values": [
+            7
+          ]
+        }
+      },
+      {
+        "metodo": "$queryRaw",
+        "argumentos": {
+          "strings": [
+            "\n            SELECT\n              CASE\n                WHEN d.montoTotal IS NULL OR d.montoTotal < 10000 THEN '$0-10k'\n                WHEN d.montoTotal < 50000 THEN '$10k-50k'\n                WHEN d.montoTotal < 200000 THEN '$50k-200k'\n                WHEN d.montoTotal < 1000000 THEN '$200k-1M'\n                ELSE '$1M+'\n              END AS rango,\n              COUNT(*) AS cantidad,\n              SUM(d.montoTotal) AS suma\n            FROM deudor d\n            WHERE 1 = 1 AND d.empresaId = ",
+            "\n            GROUP BY rango\n        "
+          ],
+          "values": [
+            7
+          ]
+        }
+      },
+      {
+        "metodo": "$queryRaw",
+        "argumentos": {
+          "strings": [
+            "\n            SELECT\n              DATE_FORMAT(DATE_SUB(p.fecha, INTERVAL WEEKDAY(p.fecha) DAY), '%Y-%m-%d') AS fecha,\n              SUM(p.importe) AS importe,\n              COUNT(*) AS cantidad\n            FROM pago p\n            INNER JOIN deudor d ON d.id = p.deudorId\n            WHERE p.fecha BETWEEN ",
+            " AND ",
+            "\n              AND 1 = 1 AND d.empresaId = ",
+            "\n            GROUP BY fecha\n            ORDER BY fecha ASC\n        "
+          ],
+          "values": [
+            "2026-05-01T03:00:00.000Z",
+            "2026-07-30T02:59:59.999Z",
+            7
+          ]
+        }
+      },
+      {
+        "metodo": "$queryRaw",
+        "argumentos": {
+          "strings": [
+            "\n            SELECT\n              DATE_FORMAT(DATE_SUB(c.fecha, INTERVAL WEEKDAY(c.fecha) DAY), '%Y-%m-%d') AS fecha,\n              COUNT(*) AS cantidad\n            FROM comentario c\n            INNER JOIN deudor d ON d.id = c.deudorId\n            WHERE c.fecha BETWEEN ",
+            " AND ",
+            "\n              AND 1 = 1 AND d.empresaId = ",
+            "\n            GROUP BY fecha\n            ORDER BY fecha ASC\n        "
+          ],
+          "values": [
+            "2026-05-01T03:00:00.000Z",
+            "2026-07-30T02:59:59.999Z",
+            7
+          ]
+        }
+      },
+      {
+        "metodo": "$queryRaw",
+        "argumentos": {
+          "strings": [
+            "\n            SELECT AVG(DATEDIFF(NOW(), d.fechaVencimiento)) AS avgMora\n            FROM deudor d\n            WHERE 1 = 1 AND d.empresaId = ",
+            "\n              AND d.fechaVencimiento IS NOT NULL\n              AND COALESCE(d.saldo, d.montoTotal, 0) > 0\n        "
+          ],
+          "values": [
+            7
+          ]
+        }
+      },
+      {
+        "metodo": "deudor.count",
+        "argumentos": {
+          "where": {
+            "AND": [
+              {
+                "empresaId": 7
+              },
+              {
+                "OR": [
+                  {
+                    "estadoSituacionId": {
+                      "in": [
+                        11,
+                        12,
+                        43
+                      ]
+                    }
+                  },
+                  {
+                    "estadoSituacionId": {
+                      "in": [
+                        44,
+                        45
+                      ]
+                    }
+                  },
+                  {
+                    "pagos": {
+                      "some": {}
+                    }
+                  },
+                  {
+                    "OR": [
+                      {
+                        "promesas": {
+                          "some": {}
+                        }
+                      },
+                      {
+                        "estadoSituacionId": {
+                          "in": [
+                            20
+                          ]
+                        }
+                      },
+                      {
+                        "estadoGestionId": 30
+                      }
+                    ]
+                  }
+                ]
+              }
+            ]
+          }
+        }
+      },
+      {
+        "metodo": "deudor.count",
+        "argumentos": {
+          "where": {
+            "AND": [
+              {
+                "empresaId": 7
+              },
+              {
+                "OR": [
+                  {
+                    "promesas": {
+                      "some": {}
+                    }
+                  },
+                  {
+                    "estadoSituacionId": {
+                      "in": [
+                        20
+                      ]
+                    }
+                  },
+                  {
+                    "estadoGestionId": 30
+                  }
+                ]
+              }
+            ]
+          }
+        }
+      },
+      {
+        "metodo": "deudor.count",
+        "argumentos": {
+          "where": {
+            "AND": [
+              {
+                "empresaId": 7
+              },
+              {
+                "AND": [
+                  {
+                    "OR": [
+                      {
+                        "promesas": {
+                          "some": {}
+                        }
+                      },
+                      {
+                        "estadoSituacionId": {
+                          "in": [
+                            20
+                          ]
+                        }
+                      },
+                      {
+                        "estadoGestionId": 30
+                      }
+                    ]
+                  },
+                  {
+                    "pagos": {
+                      "some": {}
+                    }
+                  }
+                ]
+              }
+            ]
+          }
+        }
+      },
+      {
+        "metodo": "deudor.findMany",
+        "argumentos": {
+          "orderBy": {
+            "montoTotal": "desc"
+          },
+          "select": {
+            "apellido": true,
+            "documento": true,
+            "estadoGestion": {
+              "select": {
+                "descripcion": true
+              }
+            },
+            "estadoSituacion": {
+              "select": {
+                "descripcion": true
+              }
+            },
+            "id": true,
+            "montoTotal": true,
+            "nombre": true
+          },
+          "take": 10,
+          "where": {
+            "empresaId": 7
+          }
+        }
+      },
+      {
+        "metodo": "parametro.findMany",
+        "argumentos": {
+          "select": {
+            "categoria": true,
+            "clave": true,
+            "descripcion": true,
+            "id": true
+          },
+          "where": {
+            "id": {
+              "in": [
+                11,
+                12,
+                20,
+                41,
+                42,
+                43,
+                44,
+                45,
+                30,
+                31,
+                32,
+                61,
+                62,
+                63,
+                64,
+                65,
+                66,
+                67
+              ]
+            }
+          }
+        }
+      }
+    ],
+    "respuesta": {
+      "kpis": {
+        "cantidadCasos": 1480,
+        "deudaAsignada": 8017260.29,
+        "saldoPendiente": 2018207.39,
+        "recuperoAcumulado": 4.01,
+        "pagosPeriodo": 315130.89,
+        "casosConPago": 417,
+        "ticketPromedio": 19040.1,
+        "moraPromediaDias": 177.58,
+        "promesasVigentes": 108,
+        "porcentajeCpc": 324.73,
+        "casosSinGestion": 3336,
+        "casosIncobrables": 4617,
+        "casosLegales": 3611
+      },
+      "distribuciones": {
+        "porSituacion": [
+          {
+            "id": 42,
+            "clave": "SIT-080",
+            "label": "En instancia legal",
+            "categoria": "LEGAL",
+            "cantidad": 818,
+            "porcentaje": 27.69
+          },
+          {
+            "id": 11,
+            "clave": "SIT-011",
+            "label": "Contactado titular",
+            "categoria": "CONTACTADO",
+            "cantidad": 657,
+            "porcentaje": 22.24
+          },
+          {
+            "id": 20,
+            "clave": "SIT-020",
+            "label": "Promesa vigente",
+            "categoria": "PROMESA",
+            "cantidad": 440,
+            "porcentaje": 14.9
+          },
+          {
+            "id": 44,
+            "clave": "SIT-030",
+            "label": "Pagando en cuotas",
+            "categoria": "PAGANDO",
+            "cantidad": 404,
+            "porcentaje": 13.68
+          },
+          {
+            "id": 12,
+            "clave": "SIT-012",
+            "label": "Contactado tercero",
+            "categoria": "CONTACTADO",
+            "cantidad": 248,
+            "porcentaje": 8.4
+          },
+          {
+            "id": 41,
+            "clave": "SIT-090",
+            "label": "Incobrable",
+            "categoria": "INCOBRABLE",
+            "cantidad": 207,
+            "porcentaje": 7.01
+          },
+          {
+            "id": 43,
+            "clave": "SIT-013",
+            "label": "Contactado sin compromiso",
+            "categoria": "CONTACTADO",
+            "cantidad": 90,
+            "porcentaje": 3.05
+          },
+          {
+            "id": null,
+            "clave": null,
+            "label": "(Sin asignar)",
+            "categoria": null,
+            "cantidad": 45,
+            "porcentaje": 1.52
+          },
+          {
+            "id": 45,
+            "clave": "SIT-040",
+            "label": "Cancelado",
+            "categoria": "CANCELADO",
+            "cantidad": 45,
+            "porcentaje": 1.52
+          }
+        ],
+        "porGestion": [
+          {
+            "id": 32,
+            "clave": "GES-020",
+            "label": "Mensaje enviado",
+            "categoria": "GESTION",
+            "cantidad": 382,
+            "porcentaje": 40.3
+          },
+          {
+            "id": 31,
+            "clave": "GES-010",
+            "label": "Llamada sin respuesta",
+            "categoria": "GESTION",
+            "cantidad": 222,
+            "porcentaje": 23.42
+          },
+          {
+            "id": null,
+            "clave": null,
+            "label": "(Sin asignar)",
+            "categoria": null,
+            "cantidad": 187,
+            "porcentaje": 19.73
+          },
+          {
+            "id": 30,
+            "clave": "GES-030",
+            "label": "Promesa de pago",
+            "categoria": "GESTION",
+            "cantidad": 157,
+            "porcentaje": 16.56
+          }
+        ],
+        "porMotivo": [
+          {
+            "id": 66,
+            "clave": "MOT-06",
+            "label": "Motivo de no pago 6",
+            "categoria": "MOTIVO",
+            "cantidad": 903,
+            "porcentaje": 21.82
+          },
+          {
+            "id": 62,
+            "clave": "MOT-02",
+            "label": "Motivo de no pago 2",
+            "categoria": "MOTIVO",
+            "cantidad": 570,
+            "porcentaje": 13.77
+          },
+          {
+            "id": 63,
+            "clave": "MOT-03",
+            "label": "Motivo de no pago 3",
+            "categoria": "MOTIVO",
+            "cantidad": 562,
+            "porcentaje": 13.58
+          },
+          {
+            "id": 67,
+            "clave": "MOT-07",
+            "label": "Motivo de no pago 7",
+            "categoria": "MOTIVO",
+            "cantidad": 536,
+            "porcentaje": 12.95
+          },
+          {
+            "id": 64,
+            "clave": "MOT-04",
+            "label": "Motivo de no pago 4",
+            "categoria": "MOTIVO",
+            "cantidad": 518,
+            "porcentaje": 12.52
+          },
+          {
+            "id": 65,
+            "clave": "MOT-05",
+            "label": "Motivo de no pago 5",
+            "categoria": "MOTIVO",
+            "cantidad": 398,
+            "porcentaje": 9.62
+          },
+          {
+            "id": 61,
+            "clave": "MOT-01",
+            "label": "Motivo de no pago 1",
+            "categoria": "MOTIVO",
+            "cantidad": 396,
+            "porcentaje": 9.57
+          },
+          {
+            "id": null,
+            "clave": null,
+            "label": "(Sin asignar)",
+            "categoria": null,
+            "cantidad": 256,
+            "porcentaje": 6.19
+          }
+        ],
+        "porMora": [
+          {
+            "rango": "0-30",
+            "cantidad": 118,
+            "porcentaje": 7.97
+          },
+          {
+            "rango": "31-60",
+            "cantidad": 16,
+            "porcentaje": 1.08
+          },
+          {
+            "rango": "61-90",
+            "cantidad": 256,
+            "porcentaje": 17.3
+          },
+          {
+            "rango": "91-180",
+            "cantidad": 775,
+            "porcentaje": 52.36
+          },
+          {
+            "rango": "180+",
+            "cantidad": 215,
+            "porcentaje": 14.53
+          },
+          {
+            "rango": "Sin fecha",
+            "cantidad": 303,
+            "porcentaje": 20.47
+          }
+        ],
+        "porDeuda": [
+          {
+            "rango": "$0-10k",
+            "cantidad": 403,
+            "porcentaje": 27.23,
+            "suma": 59362.13
+          },
+          {
+            "rango": "$10k-50k",
+            "cantidad": 171,
+            "porcentaje": 11.55,
+            "suma": 189304.69
+          },
+          {
+            "rango": "$50k-200k",
+            "cantidad": 187,
+            "porcentaje": 12.64,
+            "suma": 205744.23
+          },
+          {
+            "rango": "$200k-1M",
+            "cantidad": 403,
+            "porcentaje": 27.23,
+            "suma": 59362.13
+          },
+          {
+            "rango": "$1M+",
+            "cantidad": 171,
+            "porcentaje": 11.55,
+            "suma": 189304.69
+          }
+        ]
+      },
+      "series": {
+        "granularidad": "semana",
+        "pagosPorPeriodo": [
+          {
+            "fecha": "2026-04-27",
+            "importe": 36788.91,
+            "cantidad": 3
+          },
+          {
+            "fecha": "2026-05-04",
+            "importe": 26447.28,
+            "cantidad": 9
+          },
+          {
+            "fecha": "2026-05-11",
+            "importe": 65359.58,
+            "cantidad": 18
+          },
+          {
+            "fecha": "2026-05-18",
+            "importe": 36788.91,
+            "cantidad": 3
+          },
+          {
+            "fecha": "2026-06-01",
+            "importe": 26447.28,
+            "cantidad": 9
+          },
+          {
+            "fecha": "2026-06-08",
+            "importe": 65359.58,
+            "cantidad": 18
+          },
+          {
+            "fecha": "2026-06-15",
+            "importe": 36788.91,
+            "cantidad": 3
+          },
+          {
+            "fecha": "2026-06-22",
+            "importe": 26447.28,
+            "cantidad": 9
+          },
+          {
+            "fecha": "2026-07-06",
+            "importe": 65359.58,
+            "cantidad": 18
+          },
+          {
+            "fecha": "2026-07-13",
+            "importe": 36788.91,
+            "cantidad": 3
+          },
+          {
+            "fecha": "2026-07-20",
+            "importe": 26447.28,
+            "cantidad": 9
+          },
+          {
+            "fecha": "2026-07-27",
+            "importe": 65359.58,
+            "cantidad": 18
+          }
+        ],
+        "gestionesPorPeriodo": [
+          {
+            "fecha": "2026-04-27",
+            "cantidad": 62
+          },
+          {
+            "fecha": "2026-05-04",
+            "cantidad": 101
+          },
+          {
+            "fecha": "2026-05-11",
+            "cantidad": 52
+          },
+          {
+            "fecha": "2026-05-18",
+            "cantidad": 87
+          },
+          {
+            "fecha": "2026-06-01",
+            "cantidad": 21
+          },
+          {
+            "fecha": "2026-06-08",
+            "cantidad": 90
+          },
+          {
+            "fecha": "2026-06-15",
+            "cantidad": 87
+          },
+          {
+            "fecha": "2026-06-22",
+            "cantidad": 65
+          },
+          {
+            "fecha": "2026-07-06",
+            "cantidad": 6
+          },
+          {
+            "fecha": "2026-07-13",
+            "cantidad": 62
+          },
+          {
+            "fecha": "2026-07-20",
+            "cantidad": 101
+          },
+          {
+            "fecha": "2026-07-27",
+            "cantidad": 52
+          }
+        ]
+      },
+      "top": {
+        "deudores": [
+          {
+            "deudorId": 9505,
+            "nombreCompleto": "Apellido0 Nombre0",
+            "documento": "20038821",
+            "monto": 3929899.9,
+            "estadoGestion": "Gestión 0",
+            "estadoSituacion": "Situación 0"
+          },
+          {
+            "deudorId": 7014,
+            "nombreCompleto": "Apellido1 Nombre1",
+            "documento": "20007497",
+            "monto": 3878137.82,
+            "estadoGestion": "Gestión 1",
+            "estadoSituacion": "Situación 1"
+          },
+          {
+            "deudorId": 4523,
+            "nombreCompleto": "Apellido2 Nombre2",
+            "documento": "20026505",
+            "monto": 3771625.85,
+            "estadoGestion": "Gestión 2",
+            "estadoSituacion": "Situación 2"
+          },
+          {
+            "deudorId": 5011,
+            "nombreCompleto": "Apellido3 Nombre3",
+            "documento": "20015013",
+            "monto": 3682804.23,
+            "estadoGestion": null,
+            "estadoSituacion": "Situación 3"
+          },
+          {
+            "deudorId": 1601,
+            "nombreCompleto": "Apellido4 Nombre4",
+            "documento": "20039521",
+            "monto": 3625307.12,
+            "estadoGestion": "Gestión 4",
+            "estadoSituacion": "Situación 4"
+          },
+          {
+            "deudorId": 2767,
+            "nombreCompleto": "Apellido5 Nombre5",
+            "documento": "20049008",
+            "monto": 3548801.91,
+            "estadoGestion": "Gestión 5",
+            "estadoSituacion": "Situación 5"
+          },
+          {
+            "deudorId": 3517,
+            "nombreCompleto": "Apellido6 Nombre6",
+            "documento": "20027597",
+            "monto": 3483787.94,
+            "estadoGestion": "Gestión 6",
+            "estadoSituacion": "Situación 6"
+          },
+          {
+            "deudorId": 3828,
+            "nombreCompleto": "Apellido7 Nombre7",
+            "documento": "20001762",
+            "monto": 3394266.89,
+            "estadoGestion": null,
+            "estadoSituacion": "Situación 7"
+          },
+          {
+            "deudorId": 8505,
+            "nombreCompleto": "Apellido8 Nombre8",
+            "documento": "20056511",
+            "monto": 3295258.76,
+            "estadoGestion": "Gestión 8",
+            "estadoSituacion": "Situación 8"
+          },
+          {
+            "deudorId": 9514,
+            "nombreCompleto": "Apellido9 Nombre9",
+            "documento": "20038821",
+            "monto": 3217661.55,
+            "estadoGestion": "Gestión 9",
+            "estadoSituacion": "Situación 9"
+          }
+        ],
+        "motivos": [
+          {
+            "id": 66,
+            "clave": "MOT-06",
+            "label": "Motivo de no pago 6",
+            "cantidad": 903,
+            "porcentaje": 21.82
+          },
+          {
+            "id": 62,
+            "clave": "MOT-02",
+            "label": "Motivo de no pago 2",
+            "cantidad": 570,
+            "porcentaje": 13.77
+          },
+          {
+            "id": 63,
+            "clave": "MOT-03",
+            "label": "Motivo de no pago 3",
+            "cantidad": 562,
+            "porcentaje": 13.58
+          },
+          {
+            "id": 67,
+            "clave": "MOT-07",
+            "label": "Motivo de no pago 7",
+            "cantidad": 536,
+            "porcentaje": 12.95
+          },
+          {
+            "id": 64,
+            "clave": "MOT-04",
+            "label": "Motivo de no pago 4",
+            "cantidad": 518,
+            "porcentaje": 12.52
+          }
+        ]
+      },
+      "funnel": {
+        "asignados": 1480,
+        "contactados": 3282,
+        "conPromesa": 787,
+        "promesaCumplida": 141
+      },
+      "meta": {
+        "empresaId": 7,
+        "empresaNombre": "Empresa 7",
+        "remesaId": null,
+        "remesaNombre": null,
+        "desde": "2026-05-01T03:00:00.000Z",
+        "hasta": "2026-07-30T02:59:59.999Z",
+        "totalDeudoresFiltrados": 1480
+      }
+    }
+  }
+}
