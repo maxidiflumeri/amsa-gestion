@@ -2,6 +2,9 @@
 
 > **Estado:** propuesta y definiciones, sin implementar. Se escribió el 19/10/2026 para retomar en otra sesión. La
 > propuesta visual que vio el usuario está en https://claude.ai/artifact/7C9vrB1JbE1xtpVBLFdqP8.
+> **20/10/2026:** la Fase 1 se partió en **1a** (métricas y tablero, ahora) y **1b** (el agente, cuando haya datos:
+> condición en §12). Spec ejecutable: `docs/analista-cartera-fase1-spec.md`. Hoy la plataforma no registra ninguna
+> llamada (§3.2).
 > **Cómo usarlo:** cada fase se convierte en un spec ejecutable con el agente `architect`, partiendo de este
 > documento, y se implementa y audita como las Fases A y B (`docs/asistente-spec.md`,
 > `docs/asistente-reportes-spec.md`). Lo marcado como **[DECIDIDO]** lo definió el usuario. Lo marcado como
@@ -42,7 +45,7 @@ Preguntas que tiene que poder contestar (las pidió el usuario el 19/10):
 
 ---
 
-## 2. Decisiones del usuario (19/10/2026)
+## 2. Decisiones del usuario (19 y 20/10/2026)
 
 | # | Tema | Decisión |
 |---|---|---|
@@ -52,6 +55,12 @@ Preguntas que tiene que poder contestar (las pidió el usuario el 19/10):
 | U-4 | Duplicados | **[DECIDIDO]** Siempre validar que no se dupliquen los tickets ya traídos, se ejecute por el cron o a mano |
 | U-5 | Tipificación | **[DECIDIDO]** Se usan los **códigos de gestión y de situación** que ya existen (`prisma/seed-codigos-curados.ts`). Ya están normalizados; no se inventa otra taxonomía (§4) |
 | U-6 | Copiloto elegido | **[DECIDIDO]** El analista de cartera, antes que el de plantillas de importación |
+| U-7 | "% CPC" del tablero (§4.3) | **[DECIDIDO, 20/10]** Se muestran los dos: "Casos contactados (titular o tercero)", que es la fórmula de hoy (SIT-011 + SIT-012) con otro nombre, y "Casos contactados con el titular" (SIT-011), que es nuevo |
+| U-8 | Contacto con el titular, RPC (§4.1) | **[DECIDIDO, 20/10]** GES-002 más los resultados que implican haber hablado con el titular (GES-030 y 031, 050 a 052, 060 a 064, 070 a 073), en una gestión de canal llamada. Se usa desde la Fase 2 |
+| U-9 | Actividad por operador (§7.1) | **[DECIDIDO, 20/10]** Afuera de la Fase 1: ninguna herramienta agrupa ni filtra por operador. Se retoma con el permiso de equipo de Inicio (`inicio.ver_equipo`, Fase 2 de `docs/inicio-spec.md`) |
+| U-10 | Cuándo se arma el agente (§12) | **[DECIDIDO, 20/10]** La Fase 1 se parte. **1a, ahora:** el módulo único de indicadores, el tablero sobre ese módulo (U-7) y la curva de recupero en el tablero. **1b, el agente:** cuando se cumpla la condición de §12, con umbrales medidos y preguntas reales. Con pocos datos, el agente casi solo diría "no hay datos suficientes" |
+| U-11 | Fuente de las llamadas (§6.1) | **[DECIDIDO, 20/10]** Los tickets de Neotel, con el sync de U-3: cron dos veces por día y botón manual para no esperar al próximo corte. Se diseña cuando Neotel diga cómo integrarse (U-2) |
+| U-12 | Sin migración del sistema anterior | **[DECIDIDO, 20/10]** No se migran casos ni historia. La plataforma arranca **empresa por empresa, solo con las asignaciones nuevas**. Las dos plataformas conviven hasta que la anterior se vacía sola, cuando ya no recibe casos y terminan los últimos en gestión. Consecuencias: **(a)** no se traen llamadas hacia atrás; el backfill de §6.1 es solo para los días en que falló el sync; **(b)** la historia de cada cedente empieza con su primera remesa en la plataforma, así que las comparaciones contra las remesas anteriores tardan en tener datos, empresa por empresa; **(c)** la condición de la 1b (§12) se mira por empresa |
 
 ---
 
@@ -71,7 +80,7 @@ Preguntas que tiene que poder contestar (las pidió el usuario el 19/10):
 | Cambios de estado (`transaccion`, entidad Deudor) | 253 de GESTION y 57 de IMPORT | Empieza | Secuencia de códigos por caso |
 | Promesas | 0 | Empieza | PTP y promesas cumplidas |
 | Mails enviados | 1 | Empieza | Canal digital |
-| `llamada_neotel` | **no existe en prod** | Por activar | Llamadas con agente y su tipificación |
+| `llamada_neotel` | **no existe en prod, y ningún código la escribe** (§3.2) | Por construir | Llamadas y su resultado |
 
 Hay remesas con números de 5 dígitos (`30155`) y de 13 dígitos (`1784036980243`), y `numeroRemesa` es texto: los
 rangos comparan como texto (memoria "fechas-negocio-prod"). Las fechas de negocio conviven a 00:00Z y a 03:00Z: usar
@@ -79,10 +88,26 @@ la clasificación de `reportes/validador/fechas-negocio.ts`.
 
 ### 3.2 Lo que falta: todos los intentos del discador
 
-Hoy `llamada_neotel` (cuando exista en prod) **registra solo las llamadas que el predictivo le pasa a un agente**:
-nace del evento `RINGING_AGENT` (`docs/neotel-spec.md` §5.3). Los intentos que no atendieron, dieron ocupado, cayeron
-en contestador o fueron a un número inválido los resuelve Neotel solo y no llegan a la plataforma.
-`neotel-http.client.ts` no tiene ningún endpoint de historial ni de reportes.
+**Corrección del 20/10/2026: hoy la plataforma no registra ninguna llamada.** `docs/neotel-spec.md` §5.3 diseña que
+`llamada_neotel` nazca del evento `RINGING_AGENT` y que el agente tipifique en un `DispositionForm`, pero eso no está
+implementado:
+- ningún código del backend crea ni actualiza filas de `llamada_neotel`; solo se leen, en
+  `asistente/reportes/vocabularios.service.ts` y en `imports.service.ts`;
+- no hay ningún handler de `RINGING_AGENT` ni un `DispositionForm`, ni en el backend ni en el frontend.
+
+Aunque estuviera, solo registraría las llamadas que el predictivo le pasa a un agente. Los intentos que no
+atendieron, dieron ocupado, cayeron en contestador o fueron a un número inválido los resuelve Neotel solo y no llegan
+a la plataforma. `neotel-http.client.ts` no tiene ningún endpoint de historial ni de reportes.
+
+**Por eso la fuente de las llamadas van a ser los tickets de Neotel (U-11),** y no el CTI. Mientras tanto, lo único que
+queda del trabajo de los operadores es:
+- el cambio del **estado de gestión del caso** (`deudor.estadoGestionId`, un código GES), con su registro en la
+  auditoría (`transaccion`);
+- el **comentario libre** (`comentario`), que **no tiene código**: solo `texto` y `origen`.
+
+No existe un registro de "gestión" con su código, canal, hora y operador. El código de una gestión sale de la
+auditoría del cambio de estado. **[PROPUESTA]** Evaluar en la Fase 0 un registro de gestión propio: sin él, las tasas
+por resultado de las gestiones de los operadores dependen de leer la auditoría.
 
 **Sin esos intentos no hay denominador:** no se pueden medir la tasa de contacto por franja, la intensidad ni el
 abandono, ni recomendar un horario por cliente. Por eso existe la **Fase 0** (§6) y por eso el usuario está gestionando
@@ -104,7 +129,7 @@ promesa → pago**. La de AMSA se arma con los códigos curados; no se crea otra
 | Conexión sin persona | GES-004 Mensaje en contestador | Cuenta como conexión, no como contacto vivo |
 | Contacto vivo, no titular | GES-003 Contacto con tercero | Contacto vivo, **no es RPC**. La Ley 6171 de CABA prohíbe gestionar la deuda con terceros |
 | Dato incorrecto | GES-014 Teléfono equivocado · GES-020 Datos incorrectos · GES-021 Domicilio incorrecto · GES-022 Inubicable | GES-014 marca el teléfono como no llamable para ese caso |
-| **Contacto con el titular (RPC)** | GES-002 Contacto con titular, más todo resultado que **implica** haber hablado con el titular: GES-030 y GES-031 (promesa), GES-050 a GES-052 (convenio), GES-060 a GES-064 (negativa), GES-070 a GES-073 (reclamo) | Definición de RPC = **[PROPUESTA]**: cualquiera de estos códigos en una gestión de canal llamada |
+| **Contacto con el titular (RPC)** | GES-002 Contacto con titular, más todo resultado que **implica** haber hablado con el titular: GES-030 y GES-031 (promesa), GES-050 a GES-052 (convenio), GES-060 a GES-064 (negativa), GES-070 a GES-073 (reclamo) | Definición de RPC = **[DECIDIDO, U-8]**: cualquiera de estos códigos en una gestión de canal llamada |
 | Promesa (PTP) | GES-030 Promesa de pago · GES-031 Compromiso parcial, más el registro en `promesa_pago` | Lo que cuenta es la `promesa_pago`; el código es el resultado de la gestión |
 | Convenio | GES-050 Acordado · GES-052 Solicitado · GES-051 Solicita refinanciación | |
 | Negativa | GES-060 a GES-064 | Baja la prioridad, sin excluir |
@@ -131,17 +156,25 @@ casos con situación SIT-011 o SIT-012 ÷ casos**.
   un autorizado.
 - **Es una foto del stock** (qué parte de los casos está hoy en esa situación), no una tasa por intento.
 
-**[PROPUESTA]** Renombrarlo en el tablero a **"Casos contactados (titular o tercero)"** y dejar "contacto con el
-titular" para la tasa por intento de §5. Si se cambia la fórmula, el número del tablero cambia: decidirlo con el
-usuario.
+**[DECIDIDO, U-7]** El tablero muestra los dos:
+- **"Casos contactados (titular o tercero)"**: SIT-011 + SIT-012, la fórmula de hoy con otro nombre. El número no
+  cambia;
+- **"Casos contactados con el titular"**: SIT-011, nuevo.
+
+Los dos son fotos del stock. "Contacto con el titular por intento" (RPC-I, §5.2) es otra cosa: la tasa de la Fase 2.
+Las dos definiciones viven en el módulo único de indicadores (§5) y las usan el tablero y el asistente.
 
 ### 4.4 Mapeo de los resultados de Neotel
 
 **[PENDIENTE]** Cuando lleguen los tickets (U-2), cada resultado del discador (no atendió, ocupado, contestador,
 inválido, abandonada, atendida por un agente) se mapea a un código GES con una tabla de configuración
-(`parametro` u otra tabla nueva). Las llamadas atendidas por un agente traen además la tipificación que eligió el
-agente en el `DispositionForm`, que es un código GES (U-5): `llamada_neotel.subcategoriaId` ya es una FK a
-`parametro`.
+(`parametro` u otra tabla nueva). La tipificación de una llamada atendida es un código GES (U-5);
+`llamada_neotel.subcategoriaId` ya es una FK a `parametro`.
+
+**[PENDIENTE] De dónde sale la tipificación del agente:** el `DispositionForm` no existe (§3.2). Puede venir del ticket,
+si Neotel guarda la tipificación que el agente marca en su consola, o de la gestión que el operador carga en la ficha.
+En el segundo caso hay que unir el ticket con la gestión, por caso, teléfono y hora. Se decide con la documentación
+de Neotel.
 
 ---
 
@@ -212,7 +245,8 @@ asistente.
    - **cron** a las **12:00 y a las 20:30**, hora de Argentina (`America/Argentina/Buenos_Aires`, U-3);
    - **botón manual** **"Traer las llamadas de hoy"** (U-3), con el estado del último sync (cuándo, cuántos nuevos,
      cuántos ya estaban) y el progreso en vivo por el socket `/rt`, como las importaciones;
-   - **backfill** por rango de fechas, solo para quien administra la telefonía, para recuperar días que fallaron.
+   - **backfill** por rango de fechas, solo para quien administra la telefonía, para recuperar días que fallaron. No
+     trae historia anterior a la plataforma (U-12).
 3. **Idempotencia, sin duplicados (U-4):**
    - el **identificador del ticket de Neotel** es la clave: columna `ticketIdNeotel` única en `llamada_neotel`;
    - se inserta con `createMany({ skipDuplicates: true })` o con `upsert` por esa clave;
@@ -222,8 +256,9 @@ asistente.
      decidirlo con la documentación.
 4. **Un solo sync a la vez:** lock en Redis, como el lock de consolidación. Si se aprieta el botón mientras corre el
    cron, se responde "ya hay una sincronización en curso" con su progreso.
-5. **Conciliación con las llamadas del CTI:** una llamada atendida por un agente ya puede existir en `llamada_neotel`
-   (creada por el evento `RINGING_AGENT`), sin ticket. El sync la **completa** (le pone el `ticketIdNeotel` y los
+5. **Conciliación con las llamadas del CTI:** hoy no aplica, porque el CTI no registra llamadas (§3.2). Queda para
+   cuando las registre. Entonces, una llamada atendida por un agente ya puede existir en `llamada_neotel` (creada por
+   el evento `RINGING_AGENT`), sin ticket. El sync la **completa** (le pone el `ticketIdNeotel` y los
    tiempos) en vez de crear otra. El match se hace por contacto o base, teléfono y hora, con una tolerancia de
    segundos a fijar con la documentación.
 6. **Resolución del caso:** por base y contacto de Neotel (`baseNeotel` + `idContactoNeotel`), igual que el CTI. Si
@@ -295,9 +330,9 @@ Se puede construir ya: no depende de los tickets.
   evaluación muestra que alcanza.
 - **`MetricasCarteraService`:** consultas deterministas, una por indicador de §5, con tests contra fixtures de
   números conocidos. Lo usan el asistente, los tableros y la wiki: **una sola implementación por indicador**.
-- **Permisos [PROPUESTA]:** `asistente.cartera` (nuevo, asignable) + `dashboards.ver`. Las preguntas sobre la
-  actividad de los operadores, además, piden `inicio.ver_equipo` (planeado para la Fase 2 de Inicio en `docs/inicio-spec.md`, todavía no existe) o un
-  permiso de supervisor.
+- **Permisos [PROPUESTA]:** `asistente.cartera` (nuevo, asignable) + `dashboards.ver`.
+- **[DECIDIDO, U-9] Sin actividad por operador en la Fase 1:** ninguna herramienta agrupa ni filtra por operador. Se
+  retoma con `inicio.ver_equipo` (planeado para la Fase 2 de Inicio en `docs/inicio-spec.md`, todavía no existe).
 
 ### 7.2 Herramientas del modelo (todas devuelven solo agregados)
 
@@ -307,7 +342,7 @@ Se puede construir ya: no depende de los tickets.
 | `resumen_remesa` | `remesaId` | CARGA + MIX + deuda asignada + REC a la fecha + CANC + pagos (cantidad y monto) |
 | `curva_recupero` | `empresaId`, `remesaIds?`, `dias` | REC-N por día desde la carga, para cada remesa y para la mediana del cedente |
 | `comparar` | indicador, dos conjuntos (remesas, cedentes o períodos) | los valores con sus intervalos y la diferencia |
-| `distribucion` | dimensión (situación, gestión, tramo de mora, saldo, operador), filtro | conteos y porcentajes |
+| `distribucion` | dimensión (situación, gestión, tramo de mora, saldo), filtro. Sin operador en la Fase 1 (U-9) | conteos y porcentajes |
 | `promesas` | filtro | cantidad, montos, KEPT-C y KEPT-M |
 | `explicar_indicador` | id | la definición de §5, tal cual |
 | `ofrecer_ir_a` | (la de la Fase A) | tarjeta para abrir el tablero o el reporte |
@@ -507,7 +542,9 @@ Los topes van en la configuración (Ajustes), no en el código. Se aplican **ant
 | El optimizador hostiga | Topes duros antes de optimizar (§9.3) y monitoreo de la intensidad |
 | Tickets duplicados o perdidos | Clave única por ticket, registro de corridas, retomar desde el último guardado y revisar el día anterior a las 12:00 (§6.1) |
 | Datos personales al modelo | Solo agregados y agrupaciones de 5 o más casos (§7.2) |
-| La tabla `llamada_neotel` no está en prod | Averiguar por qué antes de la Fase 0 (§6.1) |
+| La tabla `llamada_neotel` no está en prod y nada la escribe | Averiguar por qué no está antes de la Fase 0. La fuente de las llamadas va a ser el sync de tickets (§3.2, §6.1) |
+| Una empresa arranca con discador antes de que exista el sync, y esos días quedan sin llamadas | Tener el sync antes de esa primera empresa, o cubrir esos días con el backfill si Neotel guarda algunas semanas (§6.1). No es historia del sistema anterior: esa no se trae (U-12) |
+| Las gestiones y promesas no quedan registradas | Que cada gestión cambie el estado de gestión del caso (código GES) y que cada promesa se cargue en `promesa_pago`, desde el primer día de cada empresa |
 
 ---
 
@@ -522,21 +559,31 @@ Los topes van en la configuración (Ajustes), no en el código. Se aplican **ant
    - si se puede cargar una base por API.
 2. **Sábados:** ¿se trabaja? Si sí, de 9 a 12 por la ley de CABA.
 3. **Topes de §9.3:** ¿se aceptan los propuestos?
-4. **"% CPC" del tablero (§4.3):** ¿renombrar o redefinir?
-5. **RPC (§4.1):** ¿cuentan como contacto con el titular los resultados que lo implican (promesa, convenio, negativa,
-   reclamo) aunque el agente no haya marcado GES-002?
+4. ~~**"% CPC" del tablero (§4.3):** ¿renombrar o redefinir?~~ Resuelta: U-7, se muestran los dos.
+5. ~~**RPC (§4.1):** ¿cuentan como contacto con el titular los resultados que lo implican?~~ Resuelta: U-8, sí.
 6. **Atribución de pagos a contactos para $RPC (§5.2):** ¿30 días?
-7. **Permisos (§7.1):** ¿quién ve la actividad por operador?
+7. ~~**Permisos (§7.1):** ¿quién ve la actividad por operador?~~ Resuelta: U-9, queda afuera de la Fase 1.
 8. **Cortes:** ¿solo archivo con aprobación, o también carga directa en Neotel cuando la API lo permita?
 
 ---
 
 ## 12. Plan para retomar
 
-1. **Fase 1 ya:**
-   - pedirle al `architect` el spec ejecutable de la Fase 1 (función `cartera`, `MetricasCarteraService`, herramientas
-     de §7.2, gráficos, set de evaluación), partiendo de este documento y del patrón de la Fase B;
-   - resolver antes con el usuario las preguntas 4, 5 y 7.
+1. **Fase 1a, ahora (U-10):** el módulo único de indicadores, el tablero sobre ese módulo con U-7 y la curva de recupero
+   por remesa en el tablero. Spec ejecutable: `docs/analista-cartera-fase1-spec.md`. Las preguntas 4, 5 y 7 ya están
+   resueltas (U-7 a U-9).
+   - **Mientras tanto, del lado de la operación:** que cada gestión cambie el estado de gestión del caso (código GES) y cada promesa se cargue en
+     `promesa_pago`, no solo en un comentario. Sin eso no hay indicadores de promesas.
+   - **Juntar preguntas reales** para el set de evaluación de la 1b: las que ya le hacen al asistente de ayuda sobre la
+     cartera y las que anote quien supervisa.
+2. **Fase 1b, el agente (función `cartera`, herramientas de §7.2, gráficos en el panel, set de evaluación),** cuando se
+   cumpla esta condición **[PROPUESTA]**, mirada **por empresa** desde que arranca en la plataforma (U-12):
+   - las empresas principales tienen 3 remesas o más en la plataforma, con 60 días o más de antigüedad y pagos;
+   - hay de 4 a 6 semanas de gestiones tipificadas (cambios del estado de gestión hechos por operadores, en
+     `transaccion`), o los tickets de Neotel ya están entrando.
+
+   Entonces se corren las mediciones de prod del spec ejecutable, se fijan los umbrales con las distribuciones reales y
+   el set de evaluación se arma con las preguntas reales.
 2. **Fase 0 cuando llegue la documentación de Neotel:**
    - el spec de la integración de tickets (§6.1): sync con cron a las 12:00 y 20:30, botón manual, backfill,
      idempotencia y conciliación con el CTI;
