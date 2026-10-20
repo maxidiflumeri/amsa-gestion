@@ -6,6 +6,38 @@
 
 ---
 
+## [2026-10-20] — Asistente: el panel ya no se desplaza entero en «Armar un reporte», y se puede cambiar su ancho
+
+Dos pedidos del usuario después de probar el detalle en prod.
+
+### El panel se iba para arriba en el modo reportes
+- **Lo que se veía:** en una conversación larga de **Armar un reporte**, al seguir desplazando el chat se movía el panel
+  entero. El compositor quedaba arriba, con un espacio en blanco debajo. En la ayuda no pasaba.
+- **La causa:** los pasos del turno ("✓ Leí el ejemplo…") tienen un texto oculto para el lector de pantalla, en
+  `position: absolute` (`PasosTurno.tsx`). El área del chat que se desplaza no estaba posicionada, así que ese texto se
+  ubicaba respecto del panel entero, a la altura del paso dentro de la conversación, y lo estiraba hacia abajo. Un paso
+  a 1.500 px del principio dejaba el panel de 1.581 px en una ventana de 800: medido en Chrome con la misma estructura.
+  Con el chat posicionado mide 800.
+- **El arreglo:** el chat lleva `position: relative`, y también `overscrollBehavior: 'contain'`, para que al llegar al
+  final no desplace lo de afuera. Cubre también cualquier otro texto oculto dentro de un mensaje, como los del
+  detalle.
+
+### El ancho del panel se puede cambiar
+- **En la computadora:** un borde a la izquierda del panel, que se arrastra (con el cursor ↔), o que se ajusta con las
+  flechas cuando tiene el foco, de a 20 px. El doble clic vuelve a 420 px.
+- **Límites:** entre 360 y 760 px, y nunca más del 60 % de la ventana.
+- **Se recuerda en el navegador** (`amsa_asistente_ancho`, con el `localStorage` protegido). Desde 1536 px, la pantalla
+  se corre con el ancho elegido.
+- **En el celular** el panel sigue ocupando toda la pantalla, sin borde.
+- **Accesible:** es un `separator` con `aria-valuenow`, `aria-valuemin` y `aria-valuemax`.
+- **Wiki:** «El asistente» explica cómo cambiar el ancho.
+
+**Tests:** cuatro nuevos en `asistente-panel.test.tsx`: el chat posicionado, las flechas, el doble clic, que se
+recuerde, el tope del 60 % y que en el celular no haya borde. El arrastre con el mouse no se puede probar en jsdom: se
+prueba en prod.
+
+---
+
 ## [2026-10-20] — Asistente de IA: el detalle de cada respuesta, con sus tiempos y su costo
 
 Debajo de cada respuesta del asistente, un desplegable **Ver detalle** muestra el camino que hizo el turno: la
@@ -19,7 +51,23 @@ analista de cartera.
   principio de §19, y lo medido y lo que cambió al auditar, en §20.
 - **El pedido al modelo no cambió ni un byte:** lo fija el snapshot de `params-ayuda`, también con el detalle encendido.
 
-**Estado: implementada y auditada, sin desplegar.**
+**Estado: desplegada el 20/10/2026** (frontend a las 17:11 UTC y backend a las 17:36 UTC, imagen `746fc21`). El `db push`
+quedó "in sync" en 154 ms. Verificado en prod, por SSM y de solo lectura:
+- el arranque sin ERROR, con el asistente listo y la wiki con 42 páginas;
+- las columnas `traza` y `tiemposNavegador`, JSON y nulables;
+- las primeras respuestas guardaron su traza (5 nodos, unos 1,7 KB) y el tiempo del navegador, lo que prueba el filtro
+  `DbNull` en MySQL;
+- el costo del detalle es igual a `SUM(costoUsd)` de sus llamadas (0,00339 y 0,005695);
+- con el permiso asignado a ADMIN, "Ver detalle" aparece en el chat.
+
+El primer intento de asignar el permiso no quedó guardado. Lo más probable es que se haya guardado cuando el frontend ya
+estaba nuevo y el backend todavía no, y el backend viejo lo rechazó por no conocerlo: hay que asignarlo después de que
+termine el deploy del backend.
+
+**Pendiente:**
+- el resto del guion: Detener, el interruptor, una conversación vieja, Consumo y un OPERADOR;
+- M-4 a las 24 h;
+- las medianas de la primera semana, como línea de base.
 
 **Decisiones del usuario (20/10):**
 - las once de §19 con la recomendada (permiso `asistente.ver_detalle`, interruptor encendido por defecto, el detalle

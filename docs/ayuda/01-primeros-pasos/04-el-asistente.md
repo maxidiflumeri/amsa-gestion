@@ -63,6 +63,10 @@ En pantallas muy grandes (de **1536 px** de ancho o más) el panel **empuja** la
 que podés seguir los pasos mientras los leés. En las más chicas, la tapa. En cualquiera de las dos, cerrarlo no pierde la
 conversación: al volver a abrirlo está todo como lo dejaste.
 
+**Para cambiar el ancho del panel** en la computadora, arrastrá su borde izquierdo. También podés hacer clic en el borde
+y usar las flechas del teclado, o hacer **doble clic** para volver al ancho de siempre. El ancho se recuerda en ese
+navegador. En el celular el panel ocupa toda la pantalla, así que no hay borde para arrastrar.
+
 > Una respuesta que se está escribiendo **sigue su curso aunque cierres el panel**. Si querés cortarla, usá
 > **Detener**.
 

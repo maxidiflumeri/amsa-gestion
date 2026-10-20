@@ -1,4 +1,5 @@
 // Asistente de IA, Fase A: el panel, el streaming y todo lo que puede contestar el servidor (docs/asistente-spec.md §6, §9, §12.2 y §16.2).
+import { act } from 'react';
 import { afterEach, describe, expect, it } from 'vitest';
 import { alertas, boton, chips, clic, esperar, limpio, pasar } from '../lib/montar';
 import {
@@ -579,3 +580,51 @@ async function escribirEn(area: HTMLTextAreaElement, valor: string) {
         area.dispatchEvent(new Event('input', { bubbles: true }));
     });
 }
+
+describe('El tamaño del panel', () => {
+    const chat = () => document.querySelector<HTMLElement>('[data-testid="chat-asistente"]');
+    const borde = () => document.querySelector<HTMLElement>('[role="separator"][aria-label="Cambiar el ancho del asistente"]');
+    const papel = () => panel()!.closest<HTMLElement>('.MuiDrawer-paper')!;
+    const tecla = async (key: string) => {
+        await act(async () => { borde()!.dispatchEvent(new KeyboardEvent('keydown', { key, bubbles: true, cancelable: true })); });
+    };
+
+    it('el chat es el que se desplaza: lo que va en posición absoluta dentro de un mensaje no estira el panel', async () => {
+        // Sin `position: relative`, el texto oculto de los pasos de reportes se ubicaba respecto del panel y lo estiraba hacia abajo.
+        b = await armarIA();
+        await abrirPanel();
+        expect(getComputedStyle(chat()!).position).toBe('relative');
+    });
+
+    it('en la computadora, el borde cambia el ancho con las flechas, lo recuerda, y el doble clic vuelve al de siempre', async () => {
+        b = await armarIA();
+        await abrirPanel();
+        expect(borde()!.getAttribute('aria-valuenow')).toBe('420');
+        await tecla('ArrowLeft');
+        await tecla('ArrowLeft');
+        expect(borde()!.getAttribute('aria-valuenow')).toBe('460');
+        expect(getComputedStyle(papel()).width).toBe('460px');
+        expect(localStorage.getItem('amsa_asistente_ancho')).toBe('460');
+        await tecla('ArrowRight');
+        expect(borde()!.getAttribute('aria-valuenow')).toBe('440');
+        await act(async () => { borde()!.dispatchEvent(new MouseEvent('dblclick', { bubbles: true, cancelable: true })); });
+        expect(borde()!.getAttribute('aria-valuenow')).toBe('420');
+        expect(localStorage.getItem('amsa_asistente_ancho')).toBe('420');
+    });
+
+    it('un ancho guardado se respeta, sin pasar del 60 % de la ventana', async () => {
+        localStorage.setItem('amsa_asistente_ancho', '5000');
+        b = await armarIA();
+        await abrirPanel();
+        const maximo = Math.max(360, Math.min(760, Math.round(window.innerWidth * 0.6)));
+        expect(borde()!.getAttribute('aria-valuenow')).toBe(String(maximo));
+        expect(getComputedStyle(papel()).width).toBe(`${maximo}px`);
+    });
+
+    it('en el celular ocupa toda la pantalla y no hay borde para cambiar el ancho', async () => {
+        b = await armarIA({ ancho: 360 });
+        await abrirPanel();
+        expect(borde()).toBeNull();
+        expect(getComputedStyle(papel()).width).toBe('100%');
+    });
+});

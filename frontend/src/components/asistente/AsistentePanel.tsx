@@ -22,12 +22,35 @@ import { SUGERENCIAS_REPORTES, sugerenciasPara } from './sugerencias';
 /**
  * Ancho del panel en escritorio. A partir de `xl` (1536 px) empuja la pantalla (no la tapa); por debajo, la tapa con un fondo:
  * con menos de 1536 px, al contenido le quedarían menos de ~1100 px y las pantallas eligen su diseño por el ancho de la ventana.
+ * La persona lo agranda o lo achica arrastrando el borde izquierdo (o con las flechas), y el ancho se recuerda en el navegador.
  */
 const ANCHO = 420;
+const ANCHO_MIN = 360;
+const ANCHO_MAX = 760;
+/** Lo que mueve cada flecha sobre el borde. */
+const PASO_ANCHO = 20;
+const CLAVE_ANCHO = 'amsa_asistente_ancho';
 const MAX_CARACTERES = 2000;
 const CONTADOR_DESDE = 1800;
 /** Lo que acepta el selector de archivos; el tipo real lo decide el servidor por los primeros bytes. */
 const ACEPTA = '.xlsx,.xls,.csv,.txt,.tsv';
+
+/** El panel nunca pasa del 60 % de la ventana: a la pantalla le tiene que quedar lugar. */
+const anchoMaximo = () => Math.max(ANCHO_MIN, Math.min(ANCHO_MAX, Math.round(window.innerWidth * 0.6)));
+const acotarAncho = (n: number) => Math.min(anchoMaximo(), Math.max(ANCHO_MIN, Math.round(n)));
+
+/** El ancho que quedó de la última vez. `localStorage` puede tirar (ventana privada, datos bloqueados): se arranca con el de siempre. */
+function leerAnchoGuardado(): number {
+    try {
+        const v = Number(localStorage.getItem(CLAVE_ANCHO));
+        return Number.isFinite(v) && v > 0 ? acotarAncho(v) : ANCHO;
+    } catch {
+        return ANCHO;
+    }
+}
+function guardarAncho(n: number) {
+    try { localStorage.setItem(CLAVE_ANCHO, String(n)); } catch { /* sin almacenamiento: no se recuerda */ }
+}
 
 const AsistentePanel: React.FC = () => {
     const theme = useTheme();
@@ -55,6 +78,9 @@ const AsistentePanel: React.FC = () => {
     // Un archivo soltado en la ayuda: se ofrece pasar al modo reportes en vez de descartarlo en silencio.
     const [soltados, setSoltados] = useState<File[] | null>(null);
     const subiendo = adjuntos.some((a) => a.estado === 'subiendo');
+    const [ancho, setAncho] = useState(leerAnchoGuardado);
+    // Mientras se arrastra el borde: sin la transición del lugar reservado, que si no va atrás del puntero.
+    const [cambiandoAncho, setCambiandoAncho] = useState(false);
 
     useEffect(() => { setAjustando(false); setSoltados(null); }, [modo]);
 
@@ -141,6 +167,37 @@ const AsistentePanel: React.FC = () => {
         void asistente.cargarConversaciones();
     };
 
+    const anchoPanel = Math.min(ancho, anchoMaximo());
+    const alApretarBorde = (e: React.PointerEvent<HTMLElement>) => {
+        if (e.button !== 0) return;
+        e.preventDefault();
+        e.currentTarget.setPointerCapture?.(e.pointerId);
+        setCambiandoAncho(true);
+    };
+    // El panel está pegado a la derecha: su ancho es lo que queda entre el puntero y el borde de la ventana.
+    const alMoverBorde = (e: React.PointerEvent<HTMLElement>) => {
+        if (cambiandoAncho) setAncho(acotarAncho(window.innerWidth - e.clientX));
+    };
+    // Se guarda al soltar, no en cada movimiento del arrastre.
+    const alSoltarBorde = (e: React.PointerEvent<HTMLElement>) => {
+        if (!cambiandoAncho) return;
+        e.currentTarget.releasePointerCapture?.(e.pointerId);
+        setCambiandoAncho(false);
+        guardarAncho(ancho);
+    };
+    const alTeclaBorde = (e: React.KeyboardEvent<HTMLElement>) => {
+        const delta = e.key === 'ArrowLeft' ? PASO_ANCHO : e.key === 'ArrowRight' ? -PASO_ANCHO : 0;
+        if (delta === 0) return;
+        e.preventDefault();
+        const nuevo = acotarAncho(anchoPanel + delta);
+        setAncho(nuevo);
+        guardarAncho(nuevo);
+    };
+    const volverAlAnchoDeSiempre = () => {
+        setAncho(ANCHO);
+        guardarAncho(ANCHO);
+    };
+
     const contenido = (
         <Box
             sx={{ display: 'flex', flexDirection: 'column', flex: 1, minHeight: 0, minWidth: 0, bgcolor: 'background.paper' }}
@@ -223,7 +280,10 @@ const AsistentePanel: React.FC = () => {
                 // Región viva fija: el lector de pantalla anuncia la respuesta cuando termina (la burbuja que se escribe va en aria-busy).
                 aria-live="polite"
                 data-testid="chat-asistente"
-                sx={{ display: visorSlug ? 'none' : 'flex', flexDirection: 'column', gap: 1.5, flex: 1, minHeight: 0, minWidth: 0, overflowY: 'auto', overflowX: 'hidden', p: 2 }}
+                // `position: relative`: lo que va en posición absoluta adentro de un mensaje (el texto oculto de los pasos, para el
+                // lector de pantalla) se ubica dentro del chat y se desplaza con él. Sin esto se ubicaba respecto del panel entero,
+                // lo estiraba hacia abajo y al seguir desplazando se iba todo para arriba.
+                sx={{ display: visorSlug ? 'none' : 'flex', flexDirection: 'column', gap: 1.5, flex: 1, minHeight: 0, minWidth: 0, overflowY: 'auto', overflowX: 'hidden', overscrollBehavior: 'contain', position: 'relative', p: 2 }}
             >
                 {mensajes.length === 0 ? (
                     <Stack spacing={1.5}>
@@ -376,8 +436,8 @@ const AsistentePanel: React.FC = () => {
                     aria-hidden
                     sx={{
                         flex: 'none',
-                        width: abierto ? ANCHO : 0,
-                        transition: theme.transitions.create('width', { duration: theme.transitions.duration.shorter }),
+                        width: abierto ? anchoPanel : 0,
+                        transition: cambiandoAncho ? 'none' : theme.transitions.create('width', { duration: theme.transitions.duration.shorter }),
                     }}
                 />
             )}
@@ -387,8 +447,32 @@ const AsistentePanel: React.FC = () => {
                 open={abierto}
                 onClose={cerrar}
                 ModalProps={{ keepMounted: true }}
-                PaperProps={{ sx: { width: celular ? '100%' : ANCHO, maxWidth: '100%', borderLeft: '1px solid', borderColor: 'divider', backgroundImage: 'none' } }}
+                PaperProps={{ sx: { width: celular ? '100%' : anchoPanel, maxWidth: '100%', borderLeft: '1px solid', borderColor: 'divider', backgroundImage: 'none' } }}
             >
+                {/* En el celular ocupa toda la pantalla: no hay ancho que cambiar. */}
+                {!celular && (
+                    <Box
+                        role="separator"
+                        aria-orientation="vertical"
+                        aria-label="Cambiar el ancho del asistente"
+                        aria-valuenow={anchoPanel}
+                        aria-valuemin={ANCHO_MIN}
+                        aria-valuemax={anchoMaximo()}
+                        tabIndex={0}
+                        title="Arrastrá para cambiar el ancho. Doble clic: el ancho de siempre."
+                        data-activo={cambiandoAncho || undefined}
+                        onPointerDown={alApretarBorde}
+                        onPointerMove={alMoverBorde}
+                        onPointerUp={alSoltarBorde}
+                        onPointerCancel={alSoltarBorde}
+                        onKeyDown={alTeclaBorde}
+                        onDoubleClick={volverAlAnchoDeSiempre}
+                        sx={{
+                            position: 'absolute', top: 0, bottom: 0, left: 0, width: 6, zIndex: 1, cursor: 'col-resize', touchAction: 'none',
+                            '&:hover, &:focus-visible, &[data-activo]': { bgcolor: alpha(theme.palette.secondary.main, 0.35), outline: 'none' },
+                        }}
+                    />
+                )}
                 {/* El panel fijo queda debajo de la barra superior; el modal la tapa y no la necesita. */}
                 {empuja && <Toolbar />}
                 {contenido}
