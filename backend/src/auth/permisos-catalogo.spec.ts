@@ -52,8 +52,8 @@ function asistenteDelFrontend(): Map<string, { label: string; descripcion: strin
 }
 
 describeSiHayFront('catálogo de permisos: el texto del asistente es el mismo en las dos copias', () => {
-    it('etiqueta y descripción de cada permiso de la sección Asistente (Roles muestra la del front)', () => {
-        const seccion = TODOS_LOS_PERMISOS.find((s) => s.seccion === 'Asistente')!;
+    it('etiqueta y descripción de cada permiso de la sección amaIA (Roles muestra la del front)', () => {
+        const seccion = TODOS_LOS_PERMISOS.find((s) => s.seccion === 'amaIA')!;
         const front = asistenteDelFrontend();
         expect(front.size).toBe(seccion.permisos.length);
         for (const p of seccion.permisos) {
@@ -73,8 +73,8 @@ describe('catálogo de permisos: asistente', () => {
         );
     });
 
-    it('ver_detalle va en la sección Asistente, después de Administrar', () => {
-        const claves = TODOS_LOS_PERMISOS.find((s) => s.seccion === 'Asistente')!.permisos.map((p) => p.key);
+    it('ver_detalle va en la sección amaIA, después de Administrar', () => {
+        const claves = TODOS_LOS_PERMISOS.find((s) => s.seccion === 'amaIA')!.permisos.map((p) => p.key);
         expect(claves.indexOf('asistente.ver_detalle')).toBe(claves.indexOf('asistente.administrar') + 1);
     });
 

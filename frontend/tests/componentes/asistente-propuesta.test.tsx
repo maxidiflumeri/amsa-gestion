@@ -343,13 +343,13 @@ describe('Errores del turno', () => {
     });
 });
 
-describe('«Armar con el asistente» en Reportes', () => {
+describe('«Armar con amaIA» en Reportes', () => {
     it('se deshabilita mientras hay una respuesta escribiéndose (cambiar de modo la cortaría) y vuelve al terminar', async () => {
         b = await armarIA({ permisos: PERMISOS_REPORTES_IA, ancho: 1600, ruta: '/reportes-real' });
         b.srv.en('GET', /^\/reportes\/plantillas$/, () => ({ body: [] }));
         b.srv.en('GET', /^\/empresas$/, () => ({ body: [] }));
         b.preguntar = () => respuestaSse([ev.inicio(), ev.texto('Escribiendo…')], 30, { cerrar: false });
-        const boton1 = () => Array.from(document.querySelectorAll('main button')).find((x) => /Armar con el asistente/.test(x.textContent ?? '')) as HTMLButtonElement | undefined;
+        const boton1 = () => Array.from(document.querySelectorAll('main button')).find((x) => /Armar con amaIA/.test(x.textContent ?? '')) as HTMLButtonElement | undefined;
         await esperar(() => boton1(), { que: 'el botón de Reportes' });
         expect(boton1()!.disabled).toBe(false);
         await abrirPanel();

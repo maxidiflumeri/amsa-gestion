@@ -158,12 +158,12 @@ export const TODOS_LOS_PERMISOS: PermisoSeccion[] = [
         ],
     },
     {
-        seccion: 'Asistente',
+        seccion: 'amaIA',
         permisos: [
-            { key: 'asistente.usar', label: 'Usar el asistente', descripcion: 'Abre el asistente de ayuda y navegación desde la barra superior' },
-            { key: 'asistente.reportes', label: 'Asistente: armar reportes', descripcion: 'El asistente arma plantillas de reportes a partir de un pedido o de un archivo de ejemplo. No guarda: la plantilla la guarda la persona. Necesita también Crear reportes.' },
-            { key: 'asistente.administrar', label: 'Administrar el asistente', descripcion: 'Ve el consumo, configura los topes y pausa el asistente' },
-            { key: 'asistente.ver_detalle', label: 'Ver el detalle de las respuestas del asistente', descripcion: 'Debajo de cada respuesta, los pasos que hizo el asistente, con cuánto tardó y cuánto costó cada uno. No muestra el razonamiento del modelo ni los datos que consultó. Con «Administrar el asistente», también el de las respuestas con 👎.' },
+            { key: 'asistente.usar', label: 'Usar amaIA', descripcion: 'Abre amaIA, la asistente de ayuda y navegación desde la barra superior' },
+            { key: 'asistente.reportes', label: 'amaIA: armar reportes', descripcion: 'amaIA arma plantillas de reportes a partir de un pedido o de un archivo de ejemplo. No guarda: la plantilla la guarda la persona. Necesita también Crear reportes.' },
+            { key: 'asistente.administrar', label: 'Administrar amaIA', descripcion: 'Ve el consumo, configura los topes y pausa a amaIA' },
+            { key: 'asistente.ver_detalle', label: 'Ver el detalle de las respuestas de amaIA', descripcion: 'Debajo de cada respuesta, los pasos que hizo amaIA, con cuánto tardó y cuánto costó cada uno. No muestra el razonamiento del modelo ni los datos que consultó. Con «Administrar amaIA», también el de las respuestas con 👎.' },
         ],
     },
 ];

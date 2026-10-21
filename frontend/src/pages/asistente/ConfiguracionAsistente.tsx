@@ -112,7 +112,7 @@ const ConfiguracionAsistente: React.FC<Props> = ({ config, onGuardada }) => {
         setGuardando(true);
         try {
             const nueva = await asistenteApi.actualizarConfig(cambios);
-            notify.success('Configuración del asistente guardada');
+            notify.success('Configuración de amaIA guardada');
             onGuardada(nueva);
         } catch (e) {
             notify.error(e as Error);
@@ -157,11 +157,11 @@ const ConfiguracionAsistente: React.FC<Props> = ({ config, onGuardada }) => {
             <Stack spacing={2.5}>
                 <FormControlLabel
                     control={<Switch checked={habilitado} onChange={(e) => setHabilitado(e.target.checked)} />}
-                    label={habilitado ? 'El asistente está activo para todos' : 'El asistente está pausado para todos'}
+                    label={habilitado ? 'amaIA está activa para todos' : 'amaIA está pausada para todos'}
                 />
                 <Box sx={{ display: 'grid', gap: 2, gridTemplateColumns: { xs: '1fr', sm: 'repeat(2, minmax(0, 1fr))' } }}>
-                    {campo('Tope mensual', tope, setTope, 'tope', 'Al llegar, el asistente se pausa para todos hasta el mes siguiente.', 'USD')}
-                    {campo('Avisar al llegar a', aviso, setAviso, 'aviso', 'Porcentaje del tope en que se avisa a quienes administran el asistente.', '%')}
+                    {campo('Tope mensual', tope, setTope, 'tope', 'Al llegar, amaIA se pausa para todos hasta el mes siguiente.', 'USD')}
+                    {campo('Avisar al llegar a', aviso, setAviso, 'aviso', 'Porcentaje del tope en que se avisa a quienes administran amaIA.', '%')}
                     {campo('Preguntas por persona por día', limite, setLimite, 'limite', 'Protege de bucles; no es un cupo para repartir.', '')}
                     {campo('Tope por pregunta', turno, setTurno, 'turno', 'Gasto máximo de una sola respuesta. Corta las que se descontrolan.', 'USD')}
                 </Box>

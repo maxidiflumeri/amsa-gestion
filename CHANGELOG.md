@@ -6,6 +6,32 @@
 
 ---
 
+## [2026-10-21] — El asistente de IA pasa a llamarse amaIA
+
+Cambio de nombre visible, sin tocar los nombres internos (módulo `asistente`, rutas, claves de permiso, tablas, `localStorage`, eventos).
+Se escribe siempre **amaIA**, en femenino ("amaIA está pausada", "Consumo de amaIA").
+
+### Backend
+- **Prompts de sistema** (ayuda y reportes): se presenta como amaIA, la asistente de IA de AMSA Gestión, y si le preguntan quién es,
+  responde eso. El snapshot `params-ayuda.spec.ts.snap` cambia solo en el nombre.
+- **Mensajes al usuario:** topes, pausa, modelo no disponible, falta de permisos, adjuntos, y las notificaciones de gasto a administradores.
+- **`permisos-catalogo.ts`:** la sección pasa a «amaIA» y cambian los labels y descripciones (las claves no).
+- **Auditoría:** el resumen de los cambios de configuración dice "de amaIA".
+
+### Frontend
+- Botón de la barra, título y aria-labels del panel, saludo ("Hola, soy amaIA. ¿En qué te ayudo?"), pausa y errores, «Armar con amaIA»,
+  aviso de propuesta en el editor, menú «Consumo de amaIA», pantallas de consumo y configuración, catálogo de permisos.
+- El **asistente de importación** (wizard) conserva su nombre.
+
+### Docs
+- Wiki de ayuda: «amaIA» (antes «El asistente»), «Armar un reporte con amaIA», «Consumo de amaIA» y los permisos en Roles y permisos. Los
+  archivos y enlaces (`/ayuda/primeros-pasos/el-asistente`) no cambian. El índice de la wiki se arma al arrancar: no hay nada que regenerar.
+- `docs/asistente-spec.md`: nota de una línea sobre el nombre.
+
+**Tests:** actualizados los textos en jest (topes, errores, catálogo, snapshot) y en vitest (panel, botón, consumo, editor de reportes).
+
+---
+
 ## [2026-10-20] — Asistente: el panel ya no se desplaza entero en «Armar un reporte», y se puede cambiar su ancho
 
 Dos pedidos del usuario después de probar el detalle en prod.

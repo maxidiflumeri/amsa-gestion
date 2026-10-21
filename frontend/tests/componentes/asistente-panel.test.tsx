@@ -172,7 +172,7 @@ describe('Tarjetas «Sí, llevarme» / «No, gracias»', () => {
         await esperarTerminada();
         const tarjeta = document.querySelector('[data-testid="tarjeta-ir-a"]')!;
         expect(limpio(tarjeta.textContent ?? '')).toContain('¿Querés que te lleve a «Nueva plantilla de reportes»?');
-        expect(limpio(tarjeta.textContent ?? '')).toContain('Se abre en esta pestaña; el asistente queda abierto.');
+        expect(limpio(tarjeta.textContent ?? '')).toContain('Se abre en esta pestaña; amaIA queda abierta.');
         expect(rutaActual()).toBe('/gestion');
         await clic(boton('Sí, llevarme'), 'Sí, llevarme');
         await esperar(() => rutaActual() === '/reportes/nuevo', { que: 'la navegación' });
@@ -298,7 +298,7 @@ describe('Enlaces de la respuesta: solo la Documentación que existe', () => {
 describe('Lo que contesta el servidor antes de abrir el stream', () => {
     it('503 TOPE_MENSUAL: alerta amarilla con el mensaje, compositor deshabilitado, y lo que escribió no se pierde', async () => {
         b = await armarIA();
-        const mensaje = 'El asistente llegó al tope de gasto de este mes y se pausó para todos. Vuelve el 1.º o cuando un administrador suba el tope.';
+        const mensaje = 'amaIA llegó al tope de gasto de este mes y se pausó para todos. Vuelve el 1.º o cuando un administrador suba el tope.';
         b.preguntar = () => ({ status: 503, body: { codigo: 'TOPE_MENSUAL', mensaje } });
         await abrirPanel();
         await preguntarAlAsistente('Mi pregunta');
@@ -312,9 +312,9 @@ describe('Lo que contesta el servidor antes de abrir el stream', () => {
     });
 
     it('si el estado ya trae una pausa, el panel nace bloqueado sin necesidad de preguntar', async () => {
-        b = await armarIA({ estado: estadoIA({ habilitado: false, pausa: { codigo: 'PAUSADO', mensaje: 'El asistente está pausado por un administrador.' } }) });
+        b = await armarIA({ estado: estadoIA({ habilitado: false, pausa: { codigo: 'PAUSADO', mensaje: 'amaIA está pausada por un administrador.' } }) });
         await abrirPanel();
-        await esperar(() => alertasDelPanel().includes('El asistente está pausado por un administrador.'), { que: 'la alerta de pausa' });
+        await esperar(() => alertasDelPanel().includes('amaIA está pausada por un administrador.'), { que: 'la alerta de pausa' });
         expect(entrada()!.disabled).toBe(true);
         expect(sugerencias().length).toBeGreaterThan(0);
         expect(Array.from(document.querySelectorAll('[data-testid="sugerencias"] .MuiChip-root')).every((c) => c.classList.contains('Mui-disabled'))).toBe(true);
@@ -377,7 +377,7 @@ describe('Cuando algo falla a mitad de la respuesta', () => {
         await preguntarAlAsistente('¿Cómo hago algo?');
         await esperar(() => botonPorNombre('x') === null && boton('Reintentar'), { que: 'Reintentar' });
         expect(ultimaBurbuja()).toContain('Primero se entra a');
-        expect(ultimaBurbuja()).toContain('El asistente no está disponible en este momento. Probá en un rato.');
+        expect(ultimaBurbuja()).toContain('amaIA no está disponible en este momento. Probá en un rato.');
         expect(botonEnviar()).not.toBeNull();
         await clic(boton('Reintentar'), 'Reintentar');
         await esperar(() => b!.preguntas === 2, { que: 'la segunda pregunta' });
@@ -387,9 +387,9 @@ describe('Cuando algo falla a mitad de la respuesta', () => {
         expect(boton('Reintentar')).toBeNull();
     });
 
-    it('un `error` de tope no ofrece reintentar y deja el asistente pausado', async () => {
+    it('un `error` de tope no ofrece reintentar y deja a amaIA pausada', async () => {
         b = await armarIA();
-        const mensaje = 'El asistente llegó al tope de gasto de este mes y se pausó para todos.';
+        const mensaje = 'amaIA llegó al tope de gasto de este mes y se pausó para todos.';
         b.preguntar = () => respuestaSse([ev.inicio(), ev.texto('Parte'), ev.error({ codigo: 'TOPE_MENSUAL', mensaje })], 30);
         await abrirPanel();
         await preguntarAlAsistente('x');
@@ -467,7 +467,7 @@ describe('Detener', () => {
         await abrirPanel();
         await preguntarAlAsistente('x');
         await esperar(() => botonDetener(), { que: 'Detener' });
-        await clic(document.querySelector('button[aria-label="Cerrar el asistente"]'), 'cerrar');
+        await clic(document.querySelector('button[aria-label="Cerrar amaIA"]'), 'cerrar');
         await esperar(() => !panelAbierto(), { que: 'el panel cerrado' });
         await pasar(900);
         expect(b.srv.streamsCortadosPorElCliente).toBe(0);
@@ -583,7 +583,7 @@ async function escribirEn(area: HTMLTextAreaElement, valor: string) {
 
 describe('El tamaño del panel', () => {
     const chat = () => document.querySelector<HTMLElement>('[data-testid="chat-asistente"]');
-    const borde = () => document.querySelector<HTMLElement>('[role="separator"][aria-label="Cambiar el ancho del asistente"]');
+    const borde = () => document.querySelector<HTMLElement>('[role="separator"][aria-label="Cambiar el ancho del panel de amaIA"]');
     const papel = () => panel()!.closest<HTMLElement>('.MuiDrawer-paper')!;
     const tecla = async (key: string) => {
         await act(async () => { borde()!.dispatchEvent(new KeyboardEvent('keydown', { key, bubbles: true, cancelable: true })); });

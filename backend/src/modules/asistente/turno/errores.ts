@@ -12,9 +12,9 @@ export class TopeError extends Error {
 }
 
 export const MENSAJE_TOPE_MENSUAL =
-    'El asistente llegó al tope de gasto de este mes y se pausó para todos. Vuelve el 1.º o cuando un administrador suba el tope.';
+    'amaIA llegó al tope de gasto de este mes y se pausó para todos. Vuelve el 1.º o cuando un administrador suba el tope.';
 export const MENSAJE_TOPE_FUNCION =
-    'Esta función del asistente llegó al tope de gasto de este mes y se pausó. Vuelve el 1.º o cuando un administrador suba el tope.';
-export const MENSAJE_PAUSADO = 'El asistente está pausado por un administrador.';
-export const MENSAJE_MODELO_NO_DISPONIBLE = 'El asistente no está disponible en este momento. Probá en un rato.';
-export const MENSAJE_INTERNO = 'El asistente tuvo un problema. Probá de nuevo en un rato.';
+    'Esta función de amaIA llegó al tope de gasto de este mes y se pausó. Vuelve el 1.º o cuando un administrador suba el tope.';
+export const MENSAJE_PAUSADO = 'amaIA está pausada por un administrador.';
+export const MENSAJE_MODELO_NO_DISPONIBLE = 'amaIA no está disponible en este momento. Probá en un rato.';
+export const MENSAJE_INTERNO = 'amaIA tuvo un problema. Probá de nuevo en un rato.';

@@ -43,7 +43,7 @@ export function leerTimeoutReportes(env: NodeJS.ProcessEnv = process.env): numbe
 }
 
 export const MENSAJE_SIN_PERMISO_FUNCION =
-    'Para armar reportes con el asistente hacen falta los permisos «Asistente: armar reportes», «Ver reportes» y «Crear reportes». Pedíselos a un administrador.';
+    'Para armar reportes con amaIA hacen falta los permisos «amaIA: armar reportes», «Ver reportes» y «Crear reportes». Pedíselos a un administrador.';
 
 /** Cada función es de una sola conversación: el mensaje dice de cuál es la que se intentó cruzar. */
 export function mensajeFuncionDistinta(deLaConversacion: string): string {

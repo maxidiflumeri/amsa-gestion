@@ -1,14 +1,14 @@
 <!--
 seccion: Primeros pasos
-resumen: Qué es el asistente, sus dos modos (ayuda y armar reportes), qué te puede explicar, qué no hace y cómo sacarle provecho.
+resumen: Qué es amaIA, sus dos modos (ayuda y armar reportes), qué te puede explicar, qué no hace y cómo sacarle provecho.
 revisado: 2026-10-20
 -->
-# El asistente
+# amaIA
 
 ## Para qué sirve
 
-El asistente es un chat que te explica **cómo usar AMSA Gestión**: cómo se hace algo, dónde está cada cosa
-y qué significa lo que ves en pantalla. Está en la barra de arriba, con el botón **Asistente** (en el celular, el
+amaIA es la asistente de IA de AMSA Gestión. Es un chat que te explica **cómo usar la plataforma**: cómo se hace
+algo, dónde está cada cosa y qué significa lo que ves en pantalla. Está en la barra de arriba, con el botón **amaIA** (en el celular, el
 botón es solo un ícono, sin la palabra).
 
 Responde **solo con la Documentación** de esta misma plataforma (la que ves en el menú, en Documentación).
@@ -17,15 +17,15 @@ ahí no está, te lo dice: *"Eso no está en la documentación"*, en vez de inve
 
 Tiene **dos modos**, y los dos viven en el mismo panel (ver *Los dos modos*, más abajo): **Ayuda**, que explica
 cómo se usa la plataforma, y **Armar un reporte**, que arma plantillas de reportes. Esta página habla sobre todo del
-primero; el segundo tiene la suya: [Armar un reporte con el asistente](/ayuda/reportes/armar-con-el-asistente).
+primero; el segundo tiene la suya: [Armar un reporte con amaIA](/ayuda/reportes/armar-con-el-asistente).
 
 ## Antes de empezar
 
-El permiso **Usar el asistente**. Si no ves el botón **Asistente** en la barra, es porque no lo tenés. Se
+El permiso **Usar amaIA**. Si no ves el botón **amaIA** en la barra, es porque no lo tenés. Se
 pide a quien administre los roles (ver [Roles y permisos](/ayuda/administracion/roles-y-permisos)); y después
 hay que cerrar sesión y volver a entrar.
 
-Para el modo **Armar un reporte** hacen falta además *Asistente: armar reportes*, *Ver reportes* y *Crear
+Para el modo **Armar un reporte** hacen falta además *amaIA: armar reportes*, *Ver reportes* y *Crear
 reportes*. Sin los tres, el panel es solo el de ayuda.
 
 ## Los dos modos
@@ -35,20 +35,20 @@ Si tenés los permisos de reportes, arriba del panel hay un selector con dos bot
 | Modo | Para qué | Qué modelo usa |
 |---|---|---|
 | **Ayuda** | Preguntar cómo se hace algo o dónde está. Responde con la Documentación | El de siempre |
-| **Armar un reporte** | Pedir una plantilla de reportes, con o sin un archivo de ejemplo. Ver [Armar un reporte con el asistente](/ayuda/reportes/armar-con-el-asistente) | Otro, más potente: **cada pedido cuesta bastante más** |
+| **Armar un reporte** | Pedir una plantilla de reportes, con o sin un archivo de ejemplo. Ver [Armar un reporte con amaIA](/ayuda/reportes/armar-con-el-asistente) | Otro, más potente: **cada pedido cuesta bastante más** |
 
-- **El cambio es explícito**: el asistente no pasa solo de un modo al otro. Al elegir **Armar un reporte**, el
+- **El cambio es explícito**: amaIA no pasa solo de un modo al otro. Al elegir **Armar un reporte**, el
   panel te recuerda que ese modo cuesta más.
 - **Cada conversación es de un solo modo.** Al cambiar, empieza una conversación nueva, y el menú **Conversaciones
   anteriores** muestra las del modo en el que estás.
 - **El panel se acuerda del modo** con el que lo dejaste. Si no tenés los permisos, siempre arranca en **Ayuda**.
-- Si estás en **Reportes**, el botón **Armar con el asistente** lo abre directamente en el segundo modo.
+- Si estás en **Reportes**, el botón **Armar con amaIA** lo abre directamente en el segundo modo.
 
 ## Cómo se usa
 
-1. Hacé clic en **Asistente** (en el celular, en el ícono). Se abre un panel a la derecha. En el celular ocupa
+1. Hacé clic en **amaIA** (en el celular, en el ícono). Se abre un panel a la derecha. En el celular ocupa
    toda la pantalla.
-2. Arriba dice **Estás en: …** con el nombre de la pantalla donde estás: el asistente lo tiene en cuenta
+2. Arriba dice **Estás en: …** con el nombre de la pantalla donde estás: amaIA lo tiene en cuenta
    para responderte. Si preguntás "¿qué puedo hacer acá?", habla de esa pantalla.
 3. Escribí tu pregunta y apretá **Enter**. Para escribir un salto de línea, **Shift + Enter**. Entran hasta
    2000 caracteres.
@@ -101,7 +101,7 @@ Documentación y avisá con el 👎.
 
 ## Las tarjetas "Sí, llevarme"
 
-A veces el asistente se da cuenta de que lo que querés hacer está en otra pantalla. En ese caso te muestra una
+A veces amaIA se da cuenta de que lo que querés hacer está en otra pantalla. En ese caso te muestra una
 tarjeta: **¿Querés que te lleve a «…»?** con dos botones.
 
 - **Sí, llevarme** te abre esa pantalla en la misma pestaña. Después la tarjeta dice *"Te llevé a …"*.
@@ -109,7 +109,7 @@ tarjeta: **¿Querés que te lleve a «…»?** con dos botones.
 
 Nunca te lleva solo, y nunca te ofrece una pantalla que tu rol no puede abrir. En el celular, o cuando el panel
 tapa la pantalla, al llevarte el panel se cierra para que veas la pantalla nueva; lo volvés a abrir con el
-botón **Asistente**.
+botón **amaIA**.
 
 ## Avisar si una respuesta sirvió
 
@@ -123,14 +123,14 @@ Vale la pena usarlos: las respuestas con 👎 son la lista de lo que hay que mej
 
 ## El detalle de cada respuesta
 
-Si tenés el permiso **Ver el detalle de las respuestas del asistente**, debajo de cada respuesta terminada, después
+Si tenés el permiso **Ver el detalle de las respuestas de amaIA**, debajo de cada respuesta terminada, después
 del 👍 y el 👎, aparece una línea como esta:
 
 ```
 ▸ Ver detalle · 18,3 s · USD 0,027
 ```
 
-Dice **cuánto tardó** la respuesta y **cuánto costó**. Al tocarla se abre el camino que hizo el asistente, paso por
+Dice **cuánto tardó** la respuesta y **cuánto costó**. Al tocarla se abre el camino que hizo amaIA, paso por
 paso, con el tiempo y el costo de cada uno. Sirve para entender por qué una respuesta tardó o salió cara.
 
 **Quién lo ve.** Solo quien tiene ese permiso; sin él no aparece nada (ni la línea, ni el interruptor de más
@@ -144,7 +144,7 @@ panel, en **Mostrar el detalle de las respuestas**. Viene prendido, y el navegad
 | Fila | Qué es |
 |---|---|
 | **Preparación** | Lo que se hace antes de llamar al modelo: controlar los topes y el límite del día, buscar la conversación y el historial, y armar el pedido. Viene cerrada; tocala para ver esas partes. |
-| **Llamada 1, 2, 3…** | Cada vez que el asistente le habla al modelo. Una respuesta puede necesitar más de una: por ejemplo, una para pedir leer una página y otra para escribir la respuesta. |
+| **Llamada 1, 2, 3…** | Cada vez que amaIA le habla al modelo. Una respuesta puede necesitar más de una: por ejemplo, una para pedir leer una página y otra para escribir la respuesta. |
 | **Espera del primer token** | Desde que se manda el pedido hasta que el modelo empieza a contestar. Incluye leer todo lo que se le mandó: debajo dice cuántos tokens leyó y qué porcentaje salió de la caché (lo que ya tenía leído de antes y se cobra mucho más barato). |
 | **Razonamiento** | Lo que el modelo piensa antes de contestar. Muestra cuántos tokens usó, nunca lo que pensó. |
 | **Respuesta** | El texto que escribió. |
@@ -188,7 +188,7 @@ prueba (*Probé la plantilla: 8.412 casos, sin errores*). Fuera de eso, solo nom
 
 ## Límite por día
 
-Cada persona puede hacer **100 preguntas por día** en el modo Ayuda (quien administra el asistente puede cambiar
+Cada persona puede hacer **100 preguntas por día** en el modo Ayuda (quien administra amaIA puede cambiar
 ese número). El modo **Armar un reporte** tiene además su propio límite, más bajo: **40 pedidos por día**, que
 también cuentan dentro de las 100.
 Es un tope contra errores, no un cupo para repartir. Al llegar, el panel dice *"Llegaste al límite de … preguntas
@@ -197,17 +197,17 @@ de hoy. Mañana se renueva."* y el cuadro de texto queda deshabilitado. Lo que e
 Además, una conversación tiene un máximo de 40 preguntas (en el modo Armar un reporte, unos 12 pedidos). Cuando se llena, el panel te lo avisa y te ofrece
 empezar una nueva.
 
-## Cuando el asistente está pausado
+## Cuando amaIA está pausada
 
 Un cartel naranja arriba del cuadro de texto dice por qué no podés preguntar. Hay varios motivos:
 
-- **Lo pausó un administrador.** El cartel dice *"El asistente está pausado por un administrador."* Vuelve cuando
-  lo reactive. Lo mismo ve cualquiera si apagaron la función que usa el asistente.
+- **La pausó un administrador.** El cartel dice *"amaIA está pausada por un administrador."* Vuelve cuando
+  la reactive. Lo mismo ve cualquiera si apagaron la función que usa amaIA.
 - **Llegó al tope de gasto del mes.** Se pausa para todos y vuelve el día 1.º del mes siguiente, o antes si un
-  administrador sube el tope. El cartel dice *"El asistente llegó al tope de gasto de este mes y se pausó para
+  administrador sube el tope. El cartel dice *"amaIA llegó al tope de gasto de este mes y se pausó para
   todos. Vuelve el 1.º o cuando un administrador suba el tope."*
 - **La función llegó a su propio tope.** Cada función tiene un tope aparte. El cartel dice *"Esta función del
-  asistente llegó al tope de gasto de este mes y se pausó. Vuelve el 1.º o cuando un administrador suba el
+  amaIA llegó al tope de gasto de este mes y se pausó. Vuelve el 1.º o cuando un administrador suba el
   tope."*
 - **Falta algo de configuración del servidor.** Es un problema técnico: avisá a quien administre el sistema.
 
@@ -223,45 +223,45 @@ Mientras tanto, la Documentación sigue disponible desde el menú y desde el bot
   conversación queda el **resumen** del archivo de ejemplo (sin los datos); el archivo en sí **no se guarda**.
 - Desde el menú **⋮** del panel podés empezar una **Nueva conversación** o volver a abrir una de las últimas 10
   en **Conversaciones anteriores**.
-- **Quien administra el asistente puede leer las respuestas que marcaste con 👎**, con tu pregunta, la respuesta
+- **Quien administra amaIA puede leer las respuestas que marcaste con 👎**, con tu pregunta, la respuesta
   y lo que escribiste en "¿Qué faltó?". Es para mejorar la Documentación. Además ve, de cada persona, **su nombre,
   cuántas preguntas hizo y cuánto gastó** en el mes. Por eso, **no escribas datos de
-  personas ni de casos** en las preguntas: el asistente no los necesita para explicarte cómo se hace algo.
+  personas ni de casos** en las preguntas: amaIA no los necesita para explicarte cómo se hace algo.
 
 ## Qué puede salir mal
 
-**No veo el botón Asistente.** Te falta el permiso *Usar el asistente*, o te lo dieron y no cerraste sesión.
+**No veo el botón amaIA.** Te falta el permiso *Usar amaIA*, o te lo dieron y no cerraste sesión.
 
-**Me dice "Eso no está en la documentación".** Antes de decirlo, el asistente busca el tema en todo el texto de
+**Me dice "Eso no está en la documentación".** Antes de decirlo, amaIA busca el tema en todo el texto de
 la Documentación, así que casi siempre es cierto: ese tema no está escrito. Esas preguntas quedan contadas, para
 que se escriba la página que falta. Si sabés que sí está (por ejemplo, lo leíste en una página), marcá 👎 y contá
-en **¿Qué faltó?** dónde lo viste: es un error del asistente y así se corrige. Mientras tanto, probá preguntarlo
+en **¿Qué faltó?** dónde lo viste: es un error de amaIA y así se corrige. Mientras tanto, probá preguntarlo
 con las palabras que usa la pantalla.
 
 **La respuesta quedó cortada.** Pasa cuando es muy larga: termina con *"La respuesta quedó cortada"*. Pedile
 que continúe, o preguntá algo más concreto.
 
-**Termina con "(No llegué a terminar: probá preguntar más concreto.)".** El asistente no consiguió cerrar la
+**Termina con "(No llegué a terminar: probá preguntar más concreto.)".** amaIA no consiguió cerrar la
 respuesta con lo que tenía. Preguntá algo más concreto o dividí la pregunta en partes.
 
-**Dice "El asistente tuvo un problema. Probá de nuevo en un rato."** Falló algo interno al armar la respuesta.
+**Dice "amaIA tuvo un problema. Probá de nuevo en un rato."** Falló algo interno al armar la respuesta.
 Probá de nuevo; si sigue, avisá a quien administre el sistema.
 
-**Dice "Esta función del asistente llegó al tope de gasto de este mes y se pausó…".** La función que usa el
-asistente llegó a su tope propio. Vuelve el 1.º o cuando un administrador suba el tope (ver *Cuando el asistente
-está pausado*).
+**Dice "Esta función de amaIA llegó al tope de gasto de este mes y se pausó…".** La función que usa
+amaIA llegó a su tope propio. Vuelve el 1.º o cuando un administrador suba el tope (ver *Cuando amaIA
+está pausada*).
 
 **Dice "Esta respuesta todavía se está escribiendo".** Abriste una conversación cuya última respuesta el servidor
 no terminó (por ejemplo, la estás pidiendo desde otra pestaña). El panel la vuelve a leer solo cada 3 segundos
 durante 30; si querés, apretá **Actualizar**.
 
-**Dice "No puedo responder eso".** El asistente se negó a contestar esa pregunta. Reformulala o buscá en
+**Dice "No puedo responder eso".** amaIA se negó a contestar esa pregunta. Reformulala o buscá en
 Documentación.
 
 **Dice "No hay conexión con el servidor" o "Se cortó la conexión".** La respuesta se interrumpió. Aparece un
 botón **Reintentar**, que vuelve a mandar la misma pregunta.
 
-**Dice "El asistente no está disponible en este momento".** El servicio que genera las respuestas falló. Probá
+**Dice "amaIA no está disponible en este momento".** El servicio que genera las respuestas falló. Probá
 de nuevo en un rato; si sigue, avisá.
 
 **Dice "Ya tenés una pregunta en curso en otra pestaña".** Se puede hacer una pregunta por vez por persona.
@@ -283,14 +283,14 @@ vez de un tiempo. Los tokens y el costo se ven igual.
 **Dice «Detalle parcial».** Es una respuesta de antes de que se midieran los pasos, o una cuyo detalle no se pudo
 guardar. Las llamadas y sus costos son correctos; faltan los pasos de adentro. No se puede reconstruir.
 
-**No veo «Ver detalle».** Revisá cuatro cosas: que tengas el permiso *Ver el detalle de las respuestas del asistente*
+**No veo «Ver detalle».** Revisá cuatro cosas: que tengas el permiso *Ver el detalle de las respuestas de amaIA*
 (y que hayas cerrado sesión y vuelto a entrar), que el interruptor **Mostrar el detalle de las respuestas** del menú
 **⋮** esté prendido, que la respuesta ya haya terminado (mientras se escribe no aparece) y que no la hayas
 **detenido** con **Detener**: en ese caso el detalle existe, pero recién se ve al volver a abrir la conversación
 desde **⋮ → Conversaciones anteriores**.
 
 **Me explicó algo que no coincide con lo que veo.** Marcá 👎 y contá qué viste. La Documentación puede estar
-desactualizada, o el asistente puede haberla entendido mal. Ante la duda, abrí la fuente y leé la página.
+desactualizada, o amaIA puede haberla entendido mal. Ante la duda, abrí la fuente y leé la página.
 
 ## Preguntas frecuentes
 
@@ -307,7 +307,7 @@ Si le decís que tenés otro rol o más permisos, no le cree: va por lo que dice
 
 **¿Me puede armar un reporte?**
 Sí, en el modo **Armar un reporte**, si tenés los permisos. Te muestra una propuesta que abrís en el editor para
-revisarla y guardarla vos. Ver [Armar un reporte con el asistente](/ayuda/reportes/armar-con-el-asistente).
+revisarla y guardarla vos. Ver [Armar un reporte con amaIA](/ayuda/reportes/armar-con-el-asistente).
 
 **¿Puedo borrar una conversación?**
 No hay botón para eso. Se borran solas a los 90 días.

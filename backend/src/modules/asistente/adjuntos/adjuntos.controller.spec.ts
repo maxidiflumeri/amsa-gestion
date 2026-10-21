@@ -81,7 +81,7 @@ describe('errores de multer en castellano y con código', () => {
             e = x as ForbiddenException;
         }
         const m = (e!.getResponse() as { mensaje: string }).mensaje;
-        expect(m).toContain('«Asistente: armar reportes»');
+        expect(m).toContain('«amaIA: armar reportes»');
         expect(m).toContain('«Ver reportes»');
         expect(m).toContain('«Crear reportes»');
     });

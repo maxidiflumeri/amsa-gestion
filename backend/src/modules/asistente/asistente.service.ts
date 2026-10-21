@@ -100,7 +100,7 @@ export class AsistenteService {
         if (!this.runnerReportes) {
             const p = (async () => {
                 if (!this.catalogo || !this.vocabularios || !this.datosAdicionales || !this.prueba || !this.propuestas) {
-                    throw new Error('La función de reportes del asistente no está configurada.');
+                    throw new Error('La función de reportes de amaIA no está configurada.');
                 }
                 const catalogo = await this.catalogo.getCatalogo('deudor', 3);
                 const texto = catalogoCompacto(catalogo);

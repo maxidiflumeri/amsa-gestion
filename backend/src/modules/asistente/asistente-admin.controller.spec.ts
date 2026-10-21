@@ -20,7 +20,7 @@ describe('AsistenteAdminController: detalle y tiempos', () => {
         expect(e).toBeInstanceOf(ForbiddenException);
         expect(e.getResponse()).toMatchObject({
             codigo: 'SIN_PERMISO_DETALLE',
-            mensaje: 'Para ver el detalle hace falta el permiso «Ver el detalle de las respuestas del asistente».',
+            mensaje: 'Para ver el detalle hace falta el permiso «Ver el detalle de las respuestas de amaIA».',
         });
         expect(conversaciones.detalleDeMensaje).not.toHaveBeenCalled();
         expect(Logger.prototype.warn).toHaveBeenCalled();

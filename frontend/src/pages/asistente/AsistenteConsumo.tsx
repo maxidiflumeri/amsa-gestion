@@ -28,7 +28,7 @@ const mesLegible = (ym: string) => {
     return nombre ? `${nombre} de ${ym.slice(0, 4)}` : ym;
 };
 
-const ERROR_CONSUMO = 'No se pudo cargar el consumo del asistente. Probá de nuevo en un rato.';
+const ERROR_CONSUMO = 'No se pudo cargar el consumo de amaIA. Probá de nuevo en un rato.';
 /** El `mensaje` (o `message`) que mandó el backend; si no hay, o es el genérico en inglés de un 500, un texto en castellano. */
 const textoDeErrorConsumo = (e: unknown, porDefecto = ERROR_CONSUMO): string => {
     const datos = (e as { response?: { data?: { mensaje?: string | string[]; message?: string | string[] } } }).response?.data;
@@ -178,9 +178,9 @@ const PlantillasArmadas: React.FC<{ porFuncion: ConsumoAsistente['porFuncion'] }
     const filas = porFuncion.filter((f) => f.plantillas);
     if (filas.length === 0) return null;
     return (
-        <SectionCard title="Plantillas armadas con el asistente" subtitle="De las que mostró, cuántas se abrieron en el editor y cuántas se guardaron">
+        <SectionCard title="Plantillas armadas con amaIA" subtitle="De las que mostró, cuántas se abrieron en el editor y cuántas se guardaron">
             <TableContainer>
-                <Table size="small" aria-label="Plantillas armadas con el asistente">
+                <Table size="small" aria-label="Plantillas armadas con amaIA">
                     <TableHead>
                         <TableRow>
                             <TableCell>Función</TableCell>
@@ -282,8 +282,8 @@ const AsistenteConsumo: React.FC = () => {
     if (!puede) {
         return (
             <>
-                <PageHeader title="Consumo del asistente" />
-                <Alert severity="error">No tenés permiso para ver el consumo del asistente.</Alert>
+                <PageHeader title="Consumo de amaIA" />
+                <Alert severity="error">No tenés permiso para ver el consumo de amaIA.</Alert>
             </>
         );
     }
@@ -296,7 +296,7 @@ const AsistenteConsumo: React.FC = () => {
 
     return (
         <>
-            <PageHeader title="Consumo del asistente" subtitle="Cuánto se gasta en el asistente, quién lo usa y qué respuestas no sirvieron." />
+            <PageHeader title="Consumo de amaIA" subtitle="Cuánto se gasta en amaIA, quién lo usa y qué respuestas no sirvieron." />
 
             <Stack spacing={2.5}>
                 <Stack direction="row" spacing={2} alignItems="center">
@@ -316,7 +316,7 @@ const AsistenteConsumo: React.FC = () => {
                 )}
                 {consumo?.pausa && <Alert severity="warning">{consumo.pausa.mensaje}</Alert>}
                 {config?.sinAdministradores && (
-                    <Alert severity="warning">Nadie tiene el permiso Administrar el asistente: los avisos de consumo no le llegan a nadie.</Alert>
+                    <Alert severity="warning">Nadie tiene el permiso Administrar amaIA: los avisos de consumo no le llegan a nadie.</Alert>
                 )}
 
                 {consumo && (
@@ -390,7 +390,7 @@ const AsistenteConsumo: React.FC = () => {
 
                         <SectionCard title="Por persona" subtitle="Las 50 que más gastaron en el mes">
                             {consumo.porUsuario.length === 0 ? (
-                                <Typography variant="body2" color="text.secondary">Nadie usó el asistente este mes.</Typography>
+                                <Typography variant="body2" color="text.secondary">Nadie usó amaIA este mes.</Typography>
                             ) : (
                                 <TableContainer>
                                     <Table size="small" aria-label="Consumo por persona">

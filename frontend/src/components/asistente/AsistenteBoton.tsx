@@ -13,8 +13,8 @@ const AsistenteBoton: React.FC = () => {
 
     if (!conTexto) {
         return (
-            <Tooltip title="Asistente">
-                <IconButton color="secondary" onClick={alternar} aria-label="Asistente" aria-pressed={abierto}>
+            <Tooltip title="amaIA">
+                <IconButton color="secondary" onClick={alternar} aria-label="amaIA" aria-pressed={abierto}>
                     <AutoAwesomeIcon />
                 </IconButton>
             </Tooltip>
@@ -30,7 +30,7 @@ const AsistenteBoton: React.FC = () => {
             aria-pressed={abierto}
             sx={{ borderRadius: 999, flex: 'none' }}
         >
-            Asistente
+            amaIA
         </Button>
     );
 };

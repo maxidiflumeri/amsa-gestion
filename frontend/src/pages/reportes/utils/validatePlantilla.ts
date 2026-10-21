@@ -118,7 +118,7 @@ export const validatePlantilla = (plantilla: Partial<Plantilla>): ValidationErro
     if (txt.anchoFijo.length !== n) {
       errors.push({
         type: 'error',
-        message: `El ancho fijo tiene ${txt.anchoFijo.length} ${txt.anchoFijo.length === 1 ? 'ancho' : 'anchos'} y hay ${n} ${n === 1 ? 'columna' : 'columnas'}. Quitá el ancho fijo (en «Opciones que no se editan acá») o pedile otra plantilla al asistente`,
+        message: `El ancho fijo tiene ${txt.anchoFijo.length} ${txt.anchoFijo.length === 1 ? 'ancho' : 'anchos'} y hay ${n} ${n === 1 ? 'columna' : 'columnas'}. Quitá el ancho fijo (en «Opciones que no se editan acá») o pedile otra plantilla a amaIA`,
       })
     }
     for (const [campo, valores] of [['alineación', txt.alineacion], ['relleno', txt.relleno]] as const) {

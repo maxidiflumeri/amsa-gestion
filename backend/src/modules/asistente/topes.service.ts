@@ -37,7 +37,7 @@ export class TopesService implements PuertoTopes {
     /** El motivo por el que el asistente no puede responder ahora, o null. */
     async pausa(funcion: string): Promise<Pausa | null> {
         if (!this.wiki.disponible) {
-            return { codigo: 'SIN_WIKI', mensaje: 'El asistente no tiene la documentación cargada. Avisale a un administrador.' };
+            return { codigo: 'SIN_WIKI', mensaje: 'amaIA no tiene la documentación cargada. Avisale a un administrador.' };
         }
         const cfg = await this.config.leer();
         if (!cfg.habilitado) return { codigo: 'PAUSADO', mensaje: MENSAJE_PAUSADO };
@@ -46,7 +46,7 @@ export class TopesService implements PuertoTopes {
         const modeloFuncion = this.modelo.modeloPara(funcion);
         if (!(await this.config.precioVigente(modeloFuncion))) {
             this.logger.error(`No hay precio configurado para el modelo ${modeloFuncion} (función ${funcion}): queda en pausa SIN_PRECIO`);
-            return { codigo: 'SIN_PRECIO', mensaje: 'El asistente no tiene el precio del modelo cargado. Avisale a un administrador.' };
+            return { codigo: 'SIN_PRECIO', mensaje: 'amaIA no tiene el precio del modelo cargado. Avisale a un administrador.' };
         }
         const gasto = await this.medicion.gastoDelMes();
         if (gasto.total >= cfg.topeMensualUsd) return { codigo: 'TOPE_MENSUAL', mensaje: MENSAJE_TOPE_MENSUAL };
@@ -178,7 +178,7 @@ export class TopesService implements PuertoTopes {
             this.avisosResueltos.add(`${mes}:parcial`);
             if (r.count === 1) {
                 await this.notificar(
-                    `El asistente usó el ${cfg.avisoPorcentaje} % del tope del mes`,
+                    `amaIA usó el ${cfg.avisoPorcentaje} % del tope del mes`,
                     `Gastó USD ${gasto.total.toFixed(2)} de USD ${cfg.topeMensualUsd.toFixed(2)}. Al llegar al tope se pausa para todos.`,
                     cfg.avisoPorcentaje,
                 );
@@ -192,7 +192,7 @@ export class TopesService implements PuertoTopes {
             this.avisosResueltos.add(`${mes}:tope`);
             if (r.count === 1) {
                 await this.notificar(
-                    'El asistente llegó al tope del mes y se pausó',
+                    'amaIA llegó al tope del mes y se pausó',
                     `Gastó USD ${gasto.total.toFixed(2)} y el tope es USD ${cfg.topeMensualUsd.toFixed(2)}. Vuelve el 1.º o cuando subas el tope.`,
                     100,
                 );

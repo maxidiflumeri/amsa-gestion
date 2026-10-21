@@ -13,7 +13,7 @@ import { evento } from '../lib/servidor-falso';
 let b: BancoIA | null = null;
 afterEach(async () => { vi.useRealTimers(); await bajarIA(b); b = null; });
 
-const PAUSA = estadoIA({ habilitado: false, pausa: { codigo: 'PAUSADO', mensaje: 'El asistente está pausado por un administrador.' } });
+const PAUSA = estadoIA({ habilitado: false, pausa: { codigo: 'PAUSADO', mensaje: 'amaIA está pausada por un administrador.' } });
 const enModal = () => !!panel()!.closest('.MuiModal-root');
 const enfocarVentana = () => act(async () => { window.dispatchEvent(new Event('focus')); });
 const pedidosDeEstado = () => b!.srv.cuantos('GET', ESTADO);
@@ -45,7 +45,7 @@ describe('El cartel de pausa o de límite se va solo', () => {
     it('pausado → se reactiva → al enfocar la ventana el cartel desaparece sin cerrar el panel', async () => {
         b = await armarIA({ estado: PAUSA });
         await abrirPanel();
-        await esperar(() => alertasDelPanel().includes('El asistente está pausado por un administrador.'), { que: 'el cartel' });
+        await esperar(() => alertasDelPanel().includes('amaIA está pausada por un administrador.'), { que: 'el cartel' });
         expect(entrada()!.disabled).toBe(true);
         b.estado = estadoIA();
         await enfocarVentana();
@@ -87,7 +87,7 @@ describe('El cartel de pausa o de límite se va solo', () => {
         b = await armarIA({ estado: PAUSA });
         await abrirPanel();
         await esperar(() => alertasDelPanel().length === 1, { que: 'el cartel' });
-        await clic(document.querySelector('button[aria-label="Cerrar el asistente"]'), 'cerrar');
+        await clic(document.querySelector('button[aria-label="Cerrar amaIA"]'), 'cerrar');
         await pasar(300);
         const n = pedidosDeEstado();
         await enfocarVentana();
@@ -100,7 +100,7 @@ describe('El cartel de pausa o de límite se va solo', () => {
         await abrirPanel();
         await esperar(() => alertasDelPanel().length === 1, { que: 'el cartel' });
         // El intervalo se arma al abrir el panel: se cierra y se vuelve a abrir con el reloj de intervalos falso.
-        await clic(document.querySelector('button[aria-label="Cerrar el asistente"]'), 'cerrar');
+        await clic(document.querySelector('button[aria-label="Cerrar amaIA"]'), 'cerrar');
         await pasar(300);
         vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] });
         await abrirPanel();
@@ -113,11 +113,11 @@ describe('El cartel de pausa o de límite se va solo', () => {
     });
 
     it.each([
-        ['429 PAUSADO', 429, 'PAUSADO', 'El asistente está pausado por un administrador.'],
-        ['429 TOPE_MENSUAL', 429, 'TOPE_MENSUAL', 'El asistente llegó al tope de gasto de este mes y se pausó para todos.'],
+        ['429 PAUSADO', 429, 'PAUSADO', 'amaIA está pausada por un administrador.'],
+        ['429 TOPE_MENSUAL', 429, 'TOPE_MENSUAL', 'amaIA llegó al tope de gasto de este mes y se pausó para todos.'],
         ['429 TOPE_FUNCION', 429, 'TOPE_FUNCION', 'Esta función llegó a su tope del mes.'],
-        ['503 PAUSADO (backend viejo)', 503, 'PAUSADO', 'El asistente está pausado por un administrador.'],
-        ['503 TOPE_MENSUAL (backend viejo)', 503, 'TOPE_MENSUAL', 'El asistente llegó al tope de gasto de este mes y se pausó para todos.'],
+        ['503 PAUSADO (backend viejo)', 503, 'PAUSADO', 'amaIA está pausada por un administrador.'],
+        ['503 TOPE_MENSUAL (backend viejo)', 503, 'TOPE_MENSUAL', 'amaIA llegó al tope de gasto de este mes y se pausó para todos.'],
     ])('%s: cartel de pausa (no el del límite), compositor bloqueado y lo escrito no se pierde', async (_n, status, codigo, mensaje) => {
         b = await armarIA();
         b.preguntar = () => ({ status, body: { codigo, mensaje } });
@@ -145,13 +145,13 @@ describe('El cartel de pausa o de límite se va solo', () => {
         b.preguntar = () => ({ status: 503, body: {} });
         await abrirPanel();
         await preguntarAlAsistente('dos');
-        await esperar(() => alertasDelPanel().includes('El asistente no está disponible en este momento. Probá en un rato.'), { que: 'no disponible' });
+        await esperar(() => alertasDelPanel().includes('amaIA no está disponible en este momento. Probá en un rato.'), { que: 'no disponible' });
         await bajarIA(b);
         b = await armarIA();
-        b.preguntar = () => ({ status: 503, body: { codigo: 'SIN_WIKI', mensaje: 'El asistente no está disponible: falta la Documentación.' } });
+        b.preguntar = () => ({ status: 503, body: { codigo: 'SIN_WIKI', mensaje: 'amaIA no está disponible: falta la Documentación.' } });
         await abrirPanel();
         await preguntarAlAsistente('tres');
-        await esperar(() => alertasDelPanel().includes('El asistente no está disponible: falta la Documentación.'), { que: 'SIN_WIKI' });
+        await esperar(() => alertasDelPanel().includes('amaIA no está disponible: falta la Documentación.'), { que: 'SIN_WIKI' });
     });
 });
 

@@ -6,7 +6,7 @@ import { armarIA, abrirPanel, bajarIA, botonAsistente, panel, panelAbierto, PERM
 let b: BancoIA | null = null;
 afterEach(async () => { await bajarIA(b); b = null; });
 
-describe('El botón «Asistente» de la barra', () => {
+describe('El botón «amaIA» de la barra', () => {
     it('sin asistente.usar no hay botón, ni panel, ni se le pide nada al servidor', async () => {
         b = await armarIA({ permisos: PERMISOS_IA.filter((p) => p !== 'asistente.usar') });
         expect(botonAsistente()).toBeNull();
@@ -18,7 +18,7 @@ describe('El botón «Asistente» de la barra', () => {
         b = await armarIA();
         const btn = botonAsistente();
         expect(btn).not.toBeNull();
-        expect(limpio(btn!.textContent ?? '')).toBe('Asistente');
+        expect(limpio(btn!.textContent ?? '')).toBe('amaIA');
         expect(panelAbierto()).toBe(false);
         await abrirPanel();
         expect(panelAbierto()).toBe(true);
@@ -26,11 +26,11 @@ describe('El botón «Asistente» de la barra', () => {
         expect(limpio(panel()!.textContent ?? '')).toContain('Estás en: Gestión');
     });
 
-    it('en un celular es un botón de solo ícono, con el nombre accesible «Asistente»', async () => {
+    it('en un celular es un botón de solo ícono, con el nombre accesible «amaIA»', async () => {
         b = await armarIA({ ancho: 360 });
         const btn = botonAsistente();
         expect(btn).not.toBeNull();
-        expect(btn!.getAttribute('aria-label')).toBe('Asistente');
+        expect(btn!.getAttribute('aria-label')).toBe('amaIA');
         expect(limpio(btn!.textContent ?? '')).toBe('');
         await abrirPanel();
         expect(panelAbierto()).toBe(true);

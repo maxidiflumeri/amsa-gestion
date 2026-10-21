@@ -145,7 +145,7 @@ Está desarrollado en [Formatos de salida](/ayuda/reportes/formatos).
 
 ### Opciones que no se editan acá
 
-Si la plantilla tiene opciones del formato que esta pantalla no sabe cambiar —las arma el asistente o vienen de
+Si la plantilla tiene opciones del formato que esta pantalla no sabe cambiar —las arma amaIA o vienen de
 antes—, debajo del formato aparece un recuadro **Opciones que no se editan acá**, con lo que hay:
 
 - **Ancho fijo**: cuántas columnas, con qué anchos, y cuántas están alineadas a la derecha o rellenas con ceros.
@@ -153,7 +153,7 @@ antes—, debajo del formato aparece un recuadro **Opciones que no se editan ac�
 - **Sin BOM**.
 - **Fin de línea `\n`**.
 
-Se **conservan al guardar**. Del ancho fijo, los anchos, la alineación y el relleno **siguen a cada columna**: si agregás una, entra con 10 caracteres, a la izquierda y con espacios (lo ves en el recuadro; para cambiarlo, quitá el ancho fijo o armá la plantilla de nuevo con el asistente: sale una plantilla nueva); si la quitás o la movés, su ancho se va o se mueve con ella. Si por algún motivo la cantidad de anchos no coincide con la de columnas, la pantalla avisa y no deja guardar. Cada una tiene un botón **Quitar**, que vuelve al
+Se **conservan al guardar**. Del ancho fijo, los anchos, la alineación y el relleno **siguen a cada columna**: si agregás una, entra con 10 caracteres, a la izquierda y con espacios (lo ves en el recuadro; para cambiarlo, quitá el ancho fijo o armá la plantilla de nuevo con amaIA: sale una plantilla nueva); si la quitás o la movés, su ancho se va o se mueve con ella. Si por algún motivo la cantidad de anchos no coincide con la de columnas, la pantalla avisa y no deja guardar. Cada una tiene un botón **Quitar**, que vuelve al
 comportamiento de siempre de ese formato (para el ancho fijo, el archivo pasa a salir con separador). Si el
 recuadro no aparece, la plantilla no tiene ninguna para el formato elegido.
 
@@ -211,13 +211,13 @@ Para no perder tiempo buscándolo:
 | **Pedir solo los teléfonos** | Los contactos vienen todos juntos |
 | **El segundo teléfono, o el de cierto tipo** | El explorador ofrece el campo de los contactos, no un elemento puntual |
 
-Con **el asistente** (ver [Armar un reporte con el asistente](/ayuda/reportes/armar-con-el-asistente)) sí se
+Con amaIA (ver [Armar un reporte con amaIA](/ayuda/reportes/armar-con-el-asistente)) sí se
 arman estas tres: columnas con una cuenta, el teléfono que se pide por tipo y el segundo teléfono. El campo que
-arma el asistente con una expresión así lo sigue mostrando el panel de propiedades, con un cartel que explica que
+arma amaIA con una expresión así lo sigue mostrando el panel de propiedades, con un cartel que explica que
 el explorador no la ofrece; se puede **renombrar o borrar**, y para cambiarle el campo hay que borrarla y agregar
 otra.
 
-Lo mismo con el **TXT de ancho fijo**: se arma con el asistente, y el editor lo muestra y lo conserva (ver
+Lo mismo con el **TXT de ancho fijo**: se arma con amaIA, y el editor lo muestra y lo conserva (ver
 *Opciones que no se editan acá*), pero no tiene dónde configurarlo.
 
 ---

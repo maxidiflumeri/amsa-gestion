@@ -53,9 +53,9 @@ TXT.
 
 > **El CSV lleva una marca invisible al principio del archivo** (se llama BOM) que algunos sistemas
 > viejos no entienden y hace que la primera columna llegue con basura adelante. **Desde esta pantalla no se
-> puede sacar.** Sí la puede sacar el [asistente](/ayuda/reportes/armar-con-el-asistente) al armar la plantilla:
+> puede sacar.** Sí la puede sacar [amaIA](/ayuda/reportes/armar-con-el-asistente) al armar la plantilla:
 > en ese caso el editor lo muestra como **Sin BOM**, en el recuadro *Opciones que no se editan acá*, y lo
-> conserva al guardar. Si el destino rechaza el archivo y la plantilla no la armó el asistente, pedí ayuda a
+> conserva al guardar. Si el destino rechaza el archivo y la plantilla no la armó amaIA, pedí ayuda a
 > sistemas.
 
 Dos opciones más del CSV y del TXT que se pueden tener y no se cambian en esta pantalla: la **codificación
@@ -75,9 +75,9 @@ la derecha, pierde los **primeros**. En un número, eso quiere decir **perder lo
 conviene dejar siempre un ancho que alcance. El encabezado, si lo lleva, se alinea igual que los datos y siempre se
 completa con espacios.
 
-**Esta pantalla no tiene un editor del ancho fijo**: lo arma el asistente, y el recuadro *Opciones que no se
+**Esta pantalla no tiene un editor del ancho fijo**: lo arma amaIA, y el recuadro *Opciones que no se
 editan acá* lo muestra (cuántas columnas, con qué anchos y cuántas alineadas a la derecha o con ceros) y lo
-conserva al guardar. Los anchos, la alineación y el relleno siguen a cada columna: una columna nueva entra con 10 caracteres, a la izquierda y con espacios (para cambiarlo, quitá el ancho fijo o armá la plantilla de nuevo con el asistente), y si la cantidad de anchos no coincide con la de columnas el editor avisa y no deja guardar. **Quitar** lo saca y el archivo pasa a salir con separador.
+conserva al guardar. Los anchos, la alineación y el relleno siguen a cada columna: una columna nueva entra con 10 caracteres, a la izquierda y con espacios (para cambiarlo, quitá el ancho fijo o armá la plantilla de nuevo con amaIA), y si la cantidad de anchos no coincide con la de columnas el editor avisa y no deja guardar. **Quitar** lo saca y el archivo pasa a salir con separador.
 
 > Si el destino es un sistema, **preguntá qué separador espera antes de armar el reporte**.
 

@@ -399,7 +399,7 @@ export class ConversacionesService implements OnModuleInit {
     async calificar(usuarioId: number, mensajeId: number, valor: 1 | -1 | 0, comentario?: string): Promise<void> {
         const m = await this.prisma.asistente_mensaje.findFirst({ where: { id: mensajeId, usuarioId } });
         if (!m) throw new NotFoundException('No encontramos ese mensaje.');
-        if (m.rol !== 'asistente') throw new BadRequestException('Solo se pueden calificar las respuestas del asistente.');
+        if (m.rol !== 'asistente') throw new BadRequestException('Solo se pueden calificar las respuestas de amaIA.');
         await this.prisma.asistente_mensaje.update({
             where: { id: mensajeId },
             data: {

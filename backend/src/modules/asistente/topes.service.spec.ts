@@ -99,7 +99,7 @@ describe('TopesService', () => {
             const { svc } = armar({ habilitado: false });
             const r = await codigoDe(svc.verificarInicio(7, 'ayuda'));
             expect(r.status).toBe(429);
-            expect(r.body).toMatchObject({ codigo: 'PAUSADO', mensaje: 'El asistente está pausado por un administrador.' });
+            expect(r.body).toMatchObject({ codigo: 'PAUSADO', mensaje: 'amaIA está pausada por un administrador.' });
         });
 
         it('función apagada: 429 PAUSADO', async () => {
@@ -192,7 +192,7 @@ describe('TopesService', () => {
             expect(notificaciones.crear.mock.calls[0][0]).toMatchObject({
                 tipo: TipoNotificacion.SISTEMA,
                 rutaAccion: '/asistente/consumo',
-                titulo: 'El asistente usó el 80 % del tope del mes',
+                titulo: 'amaIA usó el 80 % del tope del mes',
             });
             // Sin incluirUsuariosConPermiso: las copias no generan el aviso emergente.
             expect(notificaciones.crear.mock.calls[0][0].incluirUsuariosConPermiso).toBeUndefined();
@@ -218,8 +218,8 @@ describe('TopesService', () => {
             await svc.evaluarAvisos();
             expect(updateMany).toHaveBeenCalledTimes(2);
             expect(notificaciones.crear.mock.calls.map((c: any[]) => c[0].titulo)).toEqual([
-                'El asistente usó el 80 % del tope del mes',
-                'El asistente llegó al tope del mes y se pausó',
+                'amaIA usó el 80 % del tope del mes',
+                'amaIA llegó al tope del mes y se pausó',
             ]);
         });
 

@@ -29,30 +29,30 @@ const cargada = (que = '/Gasto del mes/') => esperar(() => /Gasto del mes/.test(
 const barra = () => document.querySelector('[role="progressbar"][aria-label="Gasto del mes sobre el tope"]');
 
 describe('El menú', () => {
-    it('«Consumo del asistente» está en Administración solo con asistente.administrar', async () => {
+    it('«Consumo de amaIA» está en Administración solo con asistente.administrar', async () => {
         b = await armarIA({ permisos: [...PERMISOS_ADMIN_IA, 'auditoria.ver'] });
         await clic(boton(/^Administración$/) ?? Array.from(document.querySelectorAll('[role="button"], button')).find((x) => limpio(x.textContent ?? '') === 'Administración') ?? null, 'Administración');
-        await esperar(() => /Consumo del asistente/.test(menu()), { que: 'el ítem del menú' });
+        await esperar(() => /Consumo de amaIA/.test(menu()), { que: 'el ítem del menú' });
         await bajarIA(b);
 
         b = await armarIA({ permisos: ['asistente.usar', 'auditoria.ver'] });
         await clic(Array.from(document.querySelectorAll('[role="button"], button')).find((x) => limpio(x.textContent ?? '') === 'Administración') ?? null, 'Administración');
         await esperar(() => /Auditoría/.test(menu()), { que: 'Administración abierto' });
-        expect(menu()).not.toContain('Consumo del asistente');
+        expect(menu()).not.toContain('Consumo de amaIA');
     });
 
     it('con solo asistente.administrar el grupo Administración aparece (antes quedaba escondido) y el ítem lleva a la pantalla', async () => {
         b = await armarIA({ permisos: ['asistente.administrar'] });
         await clic(Array.from(document.querySelectorAll('[role="button"], button')).find((x) => limpio(x.textContent ?? '') === 'Administración') ?? null, 'Administración');
-        const item = await esperar(() => Array.from(document.querySelectorAll('[role="button"], button')).find((x) => limpio(x.textContent ?? '') === 'Consumo del asistente'), { que: 'el ítem' });
-        await clic(item, 'Consumo del asistente');
+        const item = await esperar(() => Array.from(document.querySelectorAll('[role="button"], button')).find((x) => limpio(x.textContent ?? '') === 'Consumo de amaIA'), { que: 'el ítem' });
+        await clic(item, 'Consumo de amaIA');
         await esperar(() => rutaActual() === '/asistente/consumo', { que: 'la ruta' });
         await cargada();
     });
 
     it('sin el permiso, entrar a la ruta a mano muestra que no hay permiso y no le pide nada al servidor', async () => {
         b = await armarIA({ permisos: ['asistente.usar'], ruta: '/asistente/consumo' });
-        await esperar(() => /No tenés permiso para ver el consumo del asistente/.test(pagina()), { que: 'el aviso' });
+        await esperar(() => /No tenés permiso para ver el consumo de amaIA/.test(pagina()), { que: 'el aviso' });
         expect(b.srv.cuantos('GET', /^\/asistente\/(consumo|config)/)).toBe(0);
     });
 });
@@ -116,7 +116,7 @@ describe('Indicadores y tablas', () => {
         await cargada();
         expect(pagina()).toContain('Sin votos');
         expect(pagina()).toContain('Todavía no hay preguntas este mes.');
-        expect(pagina()).toContain('Nadie usó el asistente este mes.');
+        expect(pagina()).toContain('Nadie usó amaIA este mes.');
         expect(pagina()).toContain('Ninguna respuesta con 👎 en octubre de 2026.');
     });
 
@@ -163,7 +163,7 @@ describe('Respuestas con 👎 y errores', () => {
         await cargada();
         b.srv.en('GET', /^\/asistente\/consumo$/, () => ({ status: 500, body: { statusCode: 500, message: 'Internal server error' } }));
         await escribirCampo(campo(/^Mes$/), '2026-08');
-        await esperar(() => alertas().some((a) => a.severidad === 'error' && a.texto.includes('No se pudo cargar el consumo del asistente. Probá de nuevo en un rato.')), { que: 'el error en castellano' });
+        await esperar(() => alertas().some((a) => a.severidad === 'error' && a.texto.includes('No se pudo cargar el consumo de amaIA. Probá de nuevo en un rato.')), { que: 'el error en castellano' });
         expect(alertas().some((a) => /Internal server error/i.test(a.texto))).toBe(false);
 
         b.srv.en('GET', /^\/asistente\/consumo$/, () => ({ status: 500, body: { statusCode: 500, mensaje: 'La base no responde.' } }));
@@ -176,14 +176,14 @@ describe('Alertas', () => {
     it('una pausa del servidor y «nadie tiene el permiso» se avisan', async () => {
         b = await armarIA({
             permisos: PERMISOS_ADMIN_IA, ruta: '/asistente/consumo',
-            consumo: consumoIA({ pausa: { codigo: 'TOPE_MENSUAL', mensaje: 'El asistente llegó al tope de gasto de este mes y se pausó para todos.' } }),
+            consumo: consumoIA({ pausa: { codigo: 'TOPE_MENSUAL', mensaje: 'amaIA llegó al tope de gasto de este mes y se pausó para todos.' } }),
             config: configIA({ sinAdministradores: true }),
         });
         await cargada();
         await esperar(() => alertas().length === 2, { que: 'las dos alertas' });
         const textos = alertas().map((a) => a.texto);
-        expect(textos).toContain('El asistente llegó al tope de gasto de este mes y se pausó para todos.');
-        expect(textos).toContain('Nadie tiene el permiso Administrar el asistente: los avisos de consumo no le llegan a nadie.');
+        expect(textos).toContain('amaIA llegó al tope de gasto de este mes y se pausó para todos.');
+        expect(textos).toContain('Nadie tiene el permiso Administrar amaIA: los avisos de consumo no le llegan a nadie.');
         expect(alertas().every((a) => a.severidad === 'warning')).toBe(true);
     });
 
@@ -208,7 +208,7 @@ describe('Configuración', () => {
         await clic(guardar(), 'Guardar');
         await esperar(() => b!.srv.cuantos('PATCH', PATCH_CONFIG) === 1, { que: 'el PATCH' });
         expect(b.cuerpos('PATCH', PATCH_CONFIG)[0]).toEqual({ topeMensualUsd: 150 });
-        await esperar(() => toasts().some((x) => x.variante === 'success' && /Configuración del asistente guardada/.test(x.texto)), { que: 'el aviso de éxito' });
+        await esperar(() => toasts().some((x) => x.variante === 'success' && /Configuración de amaIA guardada/.test(x.texto)), { que: 'el aviso de éxito' });
         await esperar(() => b!.srv.cuantos('GET', /^\/asistente\/consumo$/) > antes, { que: 'el consumo actualizado' });
         expect(guardar()!.disabled).toBe(true);
     });
@@ -217,7 +217,7 @@ describe('Configuración', () => {
         b = await armarIA({ permisos: PERMISOS_ADMIN_IA, ruta: '/asistente/consumo' });
         await cargada();
         await esperar(() => document.querySelector('input[type="checkbox"][class*="MuiSwitch"]'), { que: 'los interruptores' });
-        const general = Array.from(document.querySelectorAll<HTMLInputElement>('input[type="checkbox"]')).find((i) => /activo para todos/.test(limpio(i.closest('label')?.textContent ?? '')));
+        const general = Array.from(document.querySelectorAll<HTMLInputElement>('input[type="checkbox"]')).find((i) => /activa para todos/.test(limpio(i.closest('label')?.textContent ?? '')));
         expect(general).toBeTruthy();
         await clic(general!, 'el interruptor general');
         await escribirCampo(campo(/Avisar al llegar a/), '90');
@@ -372,7 +372,7 @@ describe('Por función', () => {
     it('muestra las métricas de las plantillas: mostradas, abiertas, guardadas, % sin cambios y costo por guardada', async () => {
         b = await armarIA({ permisos: PERMISOS_ADMIN_IA, ruta: '/asistente/consumo', ...conReportes() });
         await cargada();
-        const tabla = await esperar(() => document.querySelector('table[aria-label="Plantillas armadas con el asistente"]'), { que: 'la tabla de plantillas' });
+        const tabla = await esperar(() => document.querySelector('table[aria-label="Plantillas armadas con amaIA"]'), { que: 'la tabla de plantillas' });
         const fila = limpio(tabla.querySelector('tbody tr')!.textContent ?? '');
         expect(fila).toContain('Constructor de reportes');
         expect(fila).toContain('40');             // mostradas
@@ -387,13 +387,13 @@ describe('Por función', () => {
         base.consumo.porFuncion[1].plantillas = { mostradas: 3, abiertas: 1, guardadas: 0, guardadasSinCambios: 0, costoPorGuardada: null };
         b = await armarIA({ permisos: PERMISOS_ADMIN_IA, ruta: '/asistente/consumo', ...base });
         await cargada();
-        const tabla = await esperar(() => document.querySelector('table[aria-label="Plantillas armadas con el asistente"]'), { que: 'la tabla' });
+        const tabla = await esperar(() => document.querySelector('table[aria-label="Plantillas armadas con amaIA"]'), { que: 'la tabla' });
         const celdas = Array.from(tabla.querySelectorAll('tbody tr td')).map((c) => limpio(c.textContent ?? ''));
         expect(celdas.slice(-2)).toEqual(['—', '—']);
         await bajarIA(b);
         b = await armarIA({ permisos: PERMISOS_ADMIN_IA, ruta: '/asistente/consumo' });
         await cargada();
-        expect(document.querySelector('table[aria-label="Plantillas armadas con el asistente"]')).toBeNull();
+        expect(document.querySelector('table[aria-label="Plantillas armadas con amaIA"]')).toBeNull();
     });
 });
 
@@ -445,7 +445,7 @@ describe('Tiempos por paso (docs/asistente-detalle-spec.md §12.4)', () => {
         await cargada();
         const tarjeta = () => tarjetaDeTiempos()!;
         await esperar(() => tarjeta().querySelector('.MuiAlert-root'), { que: 'el aviso de error' });
-        expect(limpio(tarjeta().querySelector('.MuiAlert-message')!.textContent ?? '')).toBe('No se pudieron cargar los tiempos del asistente. Probá de nuevo en un rato.');
+        expect(limpio(tarjeta().querySelector('.MuiAlert-message')!.textContent ?? '')).toBe('No se pudieron cargar los tiempos de amaIA. Probá de nuevo en un rato.');
         expect(pagina()).toContain('Gasto del mes');
         expect(pagina()).toContain('Por función');
         expect(alertas().filter((a) => a.severidad === 'error')).toHaveLength(1);
@@ -496,7 +496,7 @@ describe('Ver detalle en las respuestas con 👎 (D-2)', () => {
 
     it('un 403 (le falta un permiso) se avisa con el texto del servidor y no abre nada', async () => {
         b = await armarIA({ permisos: PERMISOS_ADMIN_DETALLE_IA, ruta: '/asistente/consumo' });
-        b.detalleDeMensaje = () => ({ status: 403, body: { codigo: 'SIN_PERMISO_DETALLE', mensaje: 'Para ver el detalle hace falta el permiso «Ver el detalle de las respuestas del asistente».' } });
+        b.detalleDeMensaje = () => ({ status: 403, body: { codigo: 'SIN_PERMISO_DETALLE', mensaje: 'Para ver el detalle hace falta el permiso «Ver el detalle de las respuestas de amaIA».' } });
         await cargada();
         await clic(botonVerDetalle(), 'Ver detalle');
         await esperar(() => toasts().some((x) => x.variante === 'error' && /Para ver el detalle hace falta el permiso/.test(x.texto)), { que: 'el aviso' });

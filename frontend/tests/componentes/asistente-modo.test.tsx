@@ -10,7 +10,7 @@ import {
 let b: BancoIA | null = null;
 afterEach(async () => { vi.restoreAllMocks(); await bajarIA(b); b = null; });
 
-const selector = () => document.querySelector<HTMLElement>('[role="group"][aria-label="Modo del asistente"]');
+const selector = () => document.querySelector<HTMLElement>('[role="group"][aria-label="Modo de amaIA"]');
 const botonModo = (nombre: string) => selector()?.querySelector<HTMLButtonElement>(`button[aria-label="${nombre}"]`) ?? null;
 const esperarTerminada = () => esperar(() => botonEnviar() && !botonDetener(), { que: 'la respuesta terminada' });
 const modoDelPanel = () => panel()?.getAttribute('data-modo');
@@ -190,12 +190,12 @@ describe('Soltar un archivo', () => {
 describe('Si le sacan el permiso con la sesión abierta', () => {
     it('403 SIN_PERMISO_FUNCION: el selector desaparece, queda el mensaje del servidor y la conversación se descarta', async () => {
         b = await armarIA({ permisos: PERMISOS_REPORTES_IA });
-        b.preguntar = () => ({ status: 403, body: { codigo: 'SIN_PERMISO_FUNCION', mensaje: 'Para armar reportes con el asistente hacen falta los permisos «Asistente: armar reportes» y «Crear reportes». Pedíselos a un administrador.', message: 'x' } });
+        b.preguntar = () => ({ status: 403, body: { codigo: 'SIN_PERMISO_FUNCION', mensaje: 'Para armar reportes con amaIA hacen falta los permisos «amaIA: armar reportes» y «Crear reportes». Pedíselos a un administrador.', message: 'x' } });
         await abrirPanel();
         await clic(botonModo('Armar un reporte'), 'Armar un reporte');
         await preguntarAlAsistente('Un listado');
         await esperar(() => selector() === null, { que: 'el selector fuera' });
-        await esperar(() => alertas().some((a) => a.texto.includes('hacen falta los permisos «Asistente: armar reportes» y «Crear reportes»')), { que: 'el mensaje' });
+        await esperar(() => alertas().some((a) => a.texto.includes('hacen falta los permisos «amaIA: armar reportes» y «Crear reportes»')), { que: 'el mensaje' });
         expect(modoDelPanel()).toBe('ayuda');
         expect(document.querySelectorAll('[data-testid="burbuja-asistente"]').length).toBe(0);
         expect(entrada()!.value).toBe('Un listado');
@@ -301,7 +301,7 @@ describe('Conversaciones anteriores y permisos', () => {
 
     it('un 403 SIN_PERMISO_FUNCION al subir un ejemplo también saca el selector de modo', async () => {
         b = await armarIA({ permisos: PERMISOS_REPORTES_IA });
-        b.subirAdjunto = () => ({ status: 403, body: { codigo: 'SIN_PERMISO_FUNCION', mensaje: 'Para armar reportes con el asistente hacen falta permisos que no tenés.', message: 'x' } });
+        b.subirAdjunto = () => ({ status: 403, body: { codigo: 'SIN_PERMISO_FUNCION', mensaje: 'Para armar reportes con amaIA hacen falta permisos que no tenés.', message: 'x' } });
         await abrirPanel();
         await clic(botonModo('Armar un reporte'), 'Armar un reporte');
         await elegirArchivos(document.querySelector('[data-testid="entrada-archivos"]'), [new File(['x'], 'a.csv')]);

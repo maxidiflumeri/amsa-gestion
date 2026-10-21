@@ -365,7 +365,7 @@ describe('TurnoRunner', () => {
         const r = await runner.correr(entrada());
         expect(r.estado).toBe('error');
         expect(r.error?.codigo).toBe('MODELO_NO_DISPONIBLE');
-        expect(r.error?.mensaje).toBe('El asistente no está disponible en este momento. Probá en un rato.');
+        expect(r.error?.mensaje).toBe('amaIA no está disponible en este momento. Probá en un rato.');
         expect(registradas[0]).toMatchObject({ error: 'PermissionDeniedError' });
         expect(Logger.prototype.error).toHaveBeenCalledWith(expect.stringContaining('PermissionDeniedError'), expect.any(String));
     });

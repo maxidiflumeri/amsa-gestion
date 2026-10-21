@@ -5,7 +5,7 @@ import { SectionCard } from '../../components/ui';
 import { etiquetaPaso, formatearEntero, formatearMs } from '../../components/asistente/formatoDetalle';
 import type { TiemposAsistente as Tiempos } from '../../types/asistente';
 
-const ERROR_TIEMPOS = 'No se pudieron cargar los tiempos del asistente. Probá de nuevo en un rato.';
+const ERROR_TIEMPOS = 'No se pudieron cargar los tiempos de amaIA. Probá de nuevo en un rato.';
 
 /** El `mensaje` (o `message`) que mandó el backend; si no hay, o es el genérico en inglés de un 500, un texto en castellano. */
 function textoDeError(e: unknown): string {

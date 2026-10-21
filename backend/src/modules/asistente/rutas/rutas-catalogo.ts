@@ -32,7 +32,7 @@ export const RUTAS_CATALOGO: RutaCatalogo[] = [
     { ruta: '/admin/roles', nombre: 'Roles', permisos: ['admin.gestionar_roles'] },
     { ruta: '/admin/usuarios', nombre: 'Usuarios', permisos: ['admin.gestionar_usuarios'] },
     { ruta: '/auditoria', nombre: 'Auditoría', permisos: ['auditoria.ver'] },
-    { ruta: '/asistente/consumo', nombre: 'Consumo del asistente', permisos: ['asistente.administrar'] },
+    { ruta: '/asistente/consumo', nombre: 'Consumo de amaIA', permisos: ['asistente.administrar'] },
 ];
 
 /** Pantallas del frontend que están a propósito fuera del catálogo (las usa el test de alineación). */

@@ -250,7 +250,7 @@ Si una plantilla pide **los casos sin teléfono** (Cantidad = 0 de los contactos
 reporte traía los casos sin **ningún** contacto, así que se perdían los que tenían un mail pero no un
 teléfono. Ya está corregido: ahora cuenta solo los teléfonos. Ese filtro **no se puede armar desde la pantalla**
 (el camino de la rama no se escribe a mano): lo arma el
-[asistente](/ayuda/reportes/armar-con-el-asistente) cuando le pedís "los casos sin teléfono". En la pantalla,
+[amaIA](/ayuda/reportes/armar-con-el-asistente) cuando le pedís "los casos sin teléfono". En la pantalla,
 **Cantidad** cuenta todos los contactos juntos.
 
 ### Filtré por un dato adicional y no trae lo que espero

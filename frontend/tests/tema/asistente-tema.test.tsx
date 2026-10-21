@@ -32,7 +32,7 @@ describe('Tema claro y oscuro', () => {
             expect(getComputedStyle(tarjeta).borderColor).toBe(secundario);
             const llevarme = Array.from(tarjeta.querySelectorAll('button')).find((x) => /Sí, llevarme/.test(x.textContent ?? ''))!;
             expect(llevarme.className).toContain('MuiButton-containedSecondary');
-            expect(limpio(panel()!.textContent ?? '')).toContain('Asistente');
+            expect(limpio(panel()!.textContent ?? '')).toContain('amaIA');
             expect(burbujas().length).toBe(1);
             expect(primario).not.toBe(secundario);
         });

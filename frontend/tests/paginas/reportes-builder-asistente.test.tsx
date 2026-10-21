@@ -128,7 +128,7 @@ describe('?propuesta= en «Nueva plantilla»', () => {
         await esperar(() => campo(/Nombre de la plantilla/).value === 'Cartera Toyota +90', { que: 'la plantilla cargada' });
         expect(b.propuestas).toEqual([31]);
         const aviso = document.querySelector('[data-testid="aviso-asistente"]')!;
-        expect(limpio(aviso.textContent ?? '')).toBe('Esta plantilla la armó el asistente y todavía no existe. Revisala y tocá Guardar.');
+        expect(limpio(aviso.textContent ?? '')).toBe('Esta plantilla la armó amaIA y todavía no existe. Revisala y tocá Guardar.');
         expect(aviso.querySelectorAll('strong')).toHaveLength(2);
         expect(pantalla()).toContain('Nueva plantilla');
         // Sin guardar: el aviso del navegador al salir funciona, y Cancelar pregunta.
@@ -323,7 +323,7 @@ describe('PropertiesPanel: días desde la fecha y decimales', () => {
     it('un campo con una expresión que el explorador no ofrece (el 2.º teléfono) trae su ayuda; uno común no', async () => {
         const v = await montar(<Arnes inicial={col({ label: 'Teléfono 2', path: 'contactos[tipo=telefono][1].valor', tipo: 'texto' })} registro={[]} />);
         const ayuda = document.querySelector('[data-testid="ayuda-expresion"]')!;
-        expect(limpio(ayuda.textContent ?? '')).toBe('Este campo lo armó el asistente con una expresión que el explorador no ofrece (por ejemplo, el 2.º teléfono). Podés renombrarlo o borrarlo; para cambiarle el campo, borrala y agregá otra.');
+        expect(limpio(ayuda.textContent ?? '')).toBe('Este campo lo armó amaIA con una expresión que el explorador no ofrece (por ejemplo, el 2.º teléfono). Podés renombrarlo o borrarlo; para cambiarle el campo, borrala y agregá otra.');
         await v.desmontar();
         const v2 = await montar(<Arnes inicial={col({ label: 'DNI', path: 'documento' })} registro={[]} />);
         expect(document.querySelector('[data-testid="ayuda-expresion"]')).toBeNull();

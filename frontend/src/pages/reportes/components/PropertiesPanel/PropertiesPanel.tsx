@@ -116,7 +116,7 @@ const PropertiesPanel = ({ columna, onColumnChange, catalogo = [] }: PropertiesP
 
           {conExpresion && (
             <Alert severity="info" data-testid="ayuda-expresion">
-              Este campo lo armó el asistente con una expresión que el explorador no ofrece (por ejemplo, el 2.º teléfono).
+              Este campo lo armó amaIA con una expresión que el explorador no ofrece (por ejemplo, el 2.º teléfono).
               Podés renombrarlo o borrarlo; para cambiarle el campo, borrala y agregá otra.
             </Alert>
           )}

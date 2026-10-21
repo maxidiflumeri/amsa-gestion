@@ -15,7 +15,7 @@ No es una herramienta de BI ni reemplaza a Power BI: está pensada para el traba
 cobranzas — sacar la cartera de un cedente, el listado de promesas de la semana, los casos sin
 contacto.
 
-> **También se puede pedir con palabras.** Si tenés los permisos, el [asistente](/ayuda/reportes/armar-con-el-asistente)
+> **También se puede pedir con palabras.** Si tenés los permisos, [amaIA](/ayuda/reportes/armar-con-el-asistente)
 > arma la plantilla a partir de lo que le contás o de un archivo de ejemplo (el Excel que te pidió el cedente).
 > Te la muestra para que la revises, la abrís en el editor y la guardás vos: lo que se explica en esta
 > sección vale igual para lo que arma.

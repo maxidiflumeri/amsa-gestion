@@ -1,3 +1,5 @@
+> Nota: el nombre visible del asistente es **amaIA** desde el 21/10/2026; los nombres internos (módulo, rutas, permisos, tablas) siguen siendo `asistente`.
+
 # Asistente de IA — Fase A (base común + v1 "ayuda y navegación") — spec
 
 > **Estado:** implementada y auditada el 17/10/2026, en prod desde ese día. El diseño se hizo sobre `f547838`. Lo que

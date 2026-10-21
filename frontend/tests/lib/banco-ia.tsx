@@ -33,7 +33,7 @@ export const PERMISOS_ADMIN_IA = [...PERMISOS_IA, 'asistente.administrar'];
 export const PERMISOS_DETALLE_IA = [...PERMISOS_IA, 'asistente.ver_detalle'];
 /** Administra y ve el detalle: el detalle de las 👎 de Consumo pide los dos (D-2). */
 export const PERMISOS_ADMIN_DETALLE_IA = [...PERMISOS_ADMIN_IA, 'asistente.ver_detalle'];
-/** Además puede armar reportes con el asistente (Fase B, D-2): `asistente.reportes` + `reportes.crear` + `reportes.ver`. */
+/** Además puede armar reportes con amaIA (Fase B, D-2): `asistente.reportes` + `reportes.crear` + `reportes.ver`. */
 export const PERMISOS_REPORTES_IA = [...PERMISOS_IA, 'asistente.reportes'];
 export const ADJUNTOS = /^\/asistente\/adjuntos$/;
 export const ADJUNTO = /^\/asistente\/adjuntos\/(\d+)$/;
@@ -72,7 +72,7 @@ export const ev = {
     fin: (texto: string, over: Record<string, unknown> = {}): EventoSse => ['fin', { mensajeId: 102, estado: 'ok', texto, fuentes: [], acciones: [], ms: 900, ...over }],
     paso: (tipo: Paso['tipo'], texto: string, estado: Paso['estado'] = 'ok'): EventoSse => ['paso', { tipo, estado, texto }],
     propuesta: (over: Partial<TarjetaPropuesta> = {}): EventoSse => ['propuesta', tarjeta(over)],
-    error: (over: Record<string, unknown> = {}): EventoSse => ['error', { codigo: 'MODELO_NO_DISPONIBLE', mensaje: 'El asistente no está disponible en este momento. Probá en un rato.', ...over }],
+    error: (over: Record<string, unknown> = {}): EventoSse => ['error', { codigo: 'MODELO_NO_DISPONIBLE', mensaje: 'amaIA no está disponible en este momento. Probá en un rato.', ...over }],
 };
 export const accionIrA = (over: Partial<AccionIrA> = {}): AccionIrA => ({ id: 'toolu_1', tipo: 'ir_a', ruta: '/reportes/nuevo', etiqueta: 'Nueva plantilla de reportes', motivo: 'crear una plantilla de reportes', resultado: null, ...over });
 export const fuente = (slug = 'reportes/armar-un-reporte', titulo = 'Armar un reporte'): FuenteAyuda => ({ slug, titulo });
@@ -386,8 +386,8 @@ export async function bajarIA(b: BancoIA | null) {
 export const rutaActual = () => document.querySelector('[data-testid="ruta"]')?.textContent ?? '';
 /** El botón de la barra, sea el de texto (escritorio) o el de solo ícono (celular). */
 export const botonAsistente = () => Array.from(document.querySelectorAll<HTMLButtonElement>('.MuiAppBar-root button'))
-    .find((x) => x.getAttribute('aria-label') === 'Asistente' || limpio(x.textContent ?? '') === 'Asistente') ?? null;
-export const panel = () => document.querySelector<HTMLElement>('[role="complementary"][aria-label="Asistente"]');
+    .find((x) => x.getAttribute('aria-label') === 'amaIA' || limpio(x.textContent ?? '') === 'amaIA') ?? null;
+export const panel = () => document.querySelector<HTMLElement>('[role="complementary"][aria-label="amaIA"]');
 export const entrada = () => document.querySelector<HTMLTextAreaElement>('textarea[aria-label="Tu pregunta"]');
 export const botonEnviar = () => document.querySelector<HTMLButtonElement>('button[aria-label="Enviar"]');
 /** El panel está abierto: el modal (pantallas chicas) o el panel fijo (grandes) lo ocultan con `visibility: hidden` al cerrarlo. */
@@ -401,7 +401,7 @@ export function panelAbierto(): boolean {
     return getComputedStyle(paper).visibility !== 'hidden';
 }
 export async function abrirPanel() {
-    await clic(botonAsistente(), 'el botón Asistente');
+    await clic(botonAsistente(), 'el botón amaIA');
     await esperar(() => panelAbierto(), { que: 'el panel abierto' });
     await pasar(200);
 }

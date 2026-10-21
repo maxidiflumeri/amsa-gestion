@@ -12,7 +12,7 @@ interface Props {
 }
 
 /**
- * «¿Querés que te lleve a …?» Es la única forma en que el asistente mueve a alguien de pantalla, y siempre pregunta:
+ * «¿Querés que te lleve a …?» Es la única forma en que amaIA mueve a alguien de pantalla, y siempre pregunta:
  * no navega solo (docs/asistente-spec.md §12.2).
  */
 const TarjetaIrA: React.FC<Props> = ({ accion, panelQuedaAbierto, onAceptar, onRechazar }) => {
@@ -33,7 +33,7 @@ const TarjetaIrA: React.FC<Props> = ({ accion, panelQuedaAbierto, onAceptar, onR
                 <Box>
                     <Typography variant="body2" fontWeight={600}>¿Querés que te lleve a {etiqueta}?</Typography>
                     <Typography variant="caption" color="text.secondary">
-                        {panelQuedaAbierto ? 'Se abre en esta pestaña; el asistente queda abierto.' : 'Se abre en esta pestaña.'}
+                        {panelQuedaAbierto ? 'Se abre en esta pestaña; amaIA queda abierta.' : 'Se abre en esta pestaña.'}
                     </Typography>
                 </Box>
                 <Stack direction="row" spacing={1} useFlexGap flexWrap="wrap">

@@ -206,7 +206,7 @@ const AsistentePanel: React.FC = () => {
             onDragLeave={(e) => { if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setArrastrando(false); }}
             onDrop={alSoltar}
             role="complementary"
-            aria-label="Asistente"
+            aria-label="amaIA"
             data-modo={modo}
             data-arrastrando={arrastrando || undefined}
             style={arrastrando ? { outline: `2px dashed ${theme.palette.secondary.main}`, outlineOffset: -4 } : undefined}
@@ -216,18 +216,18 @@ const AsistentePanel: React.FC = () => {
                     <AutoAwesomeIcon fontSize="small" />
                 </Box>
                 <Box sx={{ minWidth: 0, flex: 1 }}>
-                    <Typography variant="subtitle1" fontWeight={700} lineHeight={1.2} noWrap>Asistente</Typography>
+                    <Typography variant="subtitle1" fontWeight={700} lineHeight={1.2} noWrap>amaIA</Typography>
                     <Typography variant="caption" color="text.secondary" noWrap sx={{ display: 'block' }}>{reportes ? 'Constructor de reportes' : 'Ayuda de uso de la plataforma'}</Typography>
                 </Box>
                 <Tooltip title="Más opciones">
                     <IconButton size="small" onClick={abrirMenu} aria-label="Más opciones"><MoreVertIcon fontSize="small" /></IconButton>
                 </Tooltip>
-                <IconButton size="small" onClick={cerrar} aria-label="Cerrar el asistente"><CloseIcon fontSize="small" /></IconButton>
+                <IconButton size="small" onClick={cerrar} aria-label="Cerrar amaIA"><CloseIcon fontSize="small" /></IconButton>
             </Stack>
 
             {puedeArmarReportes && (
                 <Box sx={{ px: 2, py: 1, borderBottom: '1px solid', borderColor: 'divider' }}>
-                    <ToggleButtonGroup exclusive fullWidth size="small" color="secondary" value={modo} onChange={elegirModo} disabled={enviando} aria-label="Modo del asistente">
+                    <ToggleButtonGroup exclusive fullWidth size="small" color="secondary" value={modo} onChange={elegirModo} disabled={enviando} aria-label="Modo de amaIA">
                         <ToggleButton value="ayuda" aria-label="Ayuda">Ayuda</ToggleButton>
                         <ToggleButton value="reportes" aria-label="Armar un reporte">Armar un reporte</ToggleButton>
                     </ToggleButtonGroup>
@@ -287,7 +287,7 @@ const AsistentePanel: React.FC = () => {
             >
                 {mensajes.length === 0 ? (
                     <Stack spacing={1.5}>
-                        <Typography variant="body1" fontWeight={600}>{reportes ? 'Contame qué reporte necesitás.' : 'Hola, ¿en qué te ayudo?'}</Typography>
+                        <Typography variant="body1" fontWeight={600}>{reportes ? 'Contame qué reporte necesitás.' : 'Hola, soy amaIA. ¿En qué te ayudo?'}</Typography>
                         <Typography variant="body2" color="text.secondary">
                             {reportes
                                 ? 'Describilo con tus palabras o adjuntá un ejemplo (Excel, CSV o TXT) y te armo la plantilla con los campos del sistema. Después la revisás en el editor y la guardás vos.'
@@ -454,7 +454,7 @@ const AsistentePanel: React.FC = () => {
                     <Box
                         role="separator"
                         aria-orientation="vertical"
-                        aria-label="Cambiar el ancho del asistente"
+                        aria-label="Cambiar el ancho del panel de amaIA"
                         aria-valuenow={anchoPanel}
                         aria-valuemin={ANCHO_MIN}
                         aria-valuemax={anchoMaximo()}

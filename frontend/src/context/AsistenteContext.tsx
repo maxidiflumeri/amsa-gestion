@@ -146,7 +146,7 @@ export type OrigenLimite = 'general' | 'funcion';
 const bloqueoDe = (e: EstadoAsistente | null, origen: OrigenLimite): Bloqueo | null => {
     if (!e) return null;
     if (e.pausa) return { tipo: 'pausa', mensaje: e.pausa.mensaje };
-    if (!e.habilitado) return { tipo: 'pausa', mensaje: 'El asistente está pausado por un administrador.' };
+    if (!e.habilitado) return { tipo: 'pausa', mensaje: 'amaIA está pausada por un administrador.' };
     if (e.limiteDiario.limite > 0 && e.limiteDiario.usadas >= e.limiteDiario.limite) {
         return { tipo: 'limite', mensaje: origen === 'funcion' ? MENSAJE_LIMITE_REPORTES(e.limiteDiario.limite) : MENSAJE_LIMITE(e.limiteDiario.limite) };
     }
@@ -468,7 +468,7 @@ export const AsistenteProvider: React.FC<{ children: React.ReactNode }> = ({ chi
                 if (codigoPausa || (e.status === 503 && e.codigo !== 'LIMITE_DIARIO')) {
                     quitarPar();
                     const codigo = codigoPausa ?? (e.codigo === 'SIN_WIKI' || e.codigo === 'SIN_PRECIO' ? e.codigo : 'PAUSADO');
-                    const mensaje = !codigoPausa && e.message === MENSAJE_SIN_DATOS ? 'El asistente no está disponible en este momento. Probá en un rato.' : e.message;
+                    const mensaje = !codigoPausa && e.message === MENSAJE_SIN_DATOS ? 'amaIA no está disponible en este momento. Probá en un rato.' : e.message;
                     setEstado((s) => ({ habilitado: false, limiteDiario: s?.limiteDiario ?? { usadas: 0, limite: 0 }, pausa: { codigo, mensaje } }));
                 } else if (e.status === 429) {
                     quitarPar();
@@ -686,7 +686,7 @@ export const AsistenteProvider: React.FC<{ children: React.ReactNode }> = ({ chi
                     const datos = respuesta?.data;
                     if (respuesta?.status === 403 && datos?.codigo === 'SIN_PERMISO_FUNCION') {
                         const m = datos.mensaje ?? datos.message;
-                        negarFuncion(typeof m === 'string' ? m : Array.isArray(m) && m[0] ? m[0] : 'No tenés permiso para armar reportes con el asistente.');
+                        negarFuncion(typeof m === 'string' ? m : Array.isArray(m) && m[0] ? m[0] : 'No tenés permiso para armar reportes con amaIA.');
                         return;
                     }
                     const crudo = datos?.mensaje ?? datos?.message;

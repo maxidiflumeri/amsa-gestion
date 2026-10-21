@@ -42,7 +42,7 @@ export class AsistenteAdminController {
     async detalleDeMensaje(@UsuarioActual() u: { sub: number; permisos?: string[] }, @Param('id', ParseIntPipe) id: number): Promise<DetalleRespuesta> {
         if (!(u?.permisos ?? []).includes(PERMISO_VER_DETALLE)) {
             this.logger.warn(`Detalle de la respuesta ${id} denegado: falta ${PERMISO_VER_DETALLE} (usuario=${u?.sub})`);
-            const mensaje = 'Para ver el detalle hace falta el permiso «Ver el detalle de las respuestas del asistente».';
+            const mensaje = 'Para ver el detalle hace falta el permiso «Ver el detalle de las respuestas de amaIA».';
             throw new ForbiddenException({ codigo: 'SIN_PERMISO_DETALLE', mensaje, message: mensaje });
         }
         return this.conversaciones.detalleDeMensaje(id);

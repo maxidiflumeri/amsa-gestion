@@ -1,19 +1,19 @@
 <!--
 seccion: Reportes
-resumen: Armar una plantilla de reportes pidiéndosela al asistente, con o sin un archivo de ejemplo: qué hace, cómo se revisa y cómo se guarda.
+resumen: Armar una plantilla de reportes pidiéndosela a amaIA, con o sin un archivo de ejemplo: qué hace, cómo se revisa y cómo se guarda.
 revisado: 2026-10-19
 rutas: /reportes
 -->
-# Armar un reporte con el asistente
+# Armar un reporte con amaIA
 
 ## Para qué sirve
 
-En vez de armar la plantilla columna por columna, se la pedís al asistente: le **describís el reporte** o le
+En vez de armar la plantilla columna por columna, se la pedís a amaIA: le **describís el reporte** o le
 **adjuntás un archivo de ejemplo** (el Excel o el TXT que te pidió el cedente) y te arma una plantilla con los
 campos del sistema. Después la abrís en el editor de reportes, la revisás y la guardás vos.
 
-Es un modo aparte del asistente de ayuda. El de ayuda te explica cómo se usa la plataforma (ver
-[El asistente](/ayuda/primeros-pasos/el-asistente)); este **arma plantillas**.
+Es un modo aparte de amaIA. El modo de ayuda te explica cómo se usa la plataforma (ver
+[amaIA](/ayuda/primeros-pasos/el-asistente)); este **arma plantillas**.
 
 **Lo que no hace:**
 
@@ -25,7 +25,7 @@ Es un modo aparte del asistente de ayuda. El de ayuda te explica cómo se usa la
 
 ## Antes de empezar
 
-Hacen falta **cuatro permisos**: *Usar el asistente*, *Asistente: armar reportes*, *Ver reportes* y *Crear
+Hacen falta **cuatro permisos**: *Usar amaIA*, *amaIA: armar reportes*, *Ver reportes* y *Crear
 reportes*. Si falta alguno, no aparece el selector de modo en el panel. Se piden a quien administre los roles (ver
 [Roles y permisos](/ayuda/administracion/roles-y-permisos)); después hay que cerrar sesión y volver a entrar.
 
@@ -34,7 +34,7 @@ reportes*. Si falta alguno, no aparece el selector de modo en el panel. Se piden
 
 ## Cómo se pide
 
-1. Abrí el asistente. Si estás en **Reportes**, el botón **Armar con el asistente** (al lado de **Nueva
+1. Abrí amaIA. Si estás en **Reportes**, el botón **Armar con amaIA** (al lado de **Nueva
    plantilla**) lo abre ya en el modo correcto. En otra pantalla, arriba del panel elegí **Armar un reporte**.
 2. Escribí qué necesitás. Si tenés un ejemplo, adjuntalo y escribí aunque sea una línea (*"armalo igual a este"*): no se puede mandar solo el archivo. El modo se acuerda de cómo lo dejaste la
    última vez; si cambiás de modo, empieza una conversación nueva.
@@ -68,7 +68,7 @@ Cuando el archivo se sube, queda una etiqueta como **XLSX · ejemplo.xlsx · 9 c
 encabezados que se tomaron. Si el archivo tiene más de 60 columnas, más de 200 filas o más de 5 hojas, aparece un aviso
 debajo. Si no tiene encabezados, lo dice el paso *"Leí el ejemplo…, sin encabezado"*. Con el menú **⋮** de la etiqueta podés:
 
-- decir **"La primera fila no es el encabezado"**, para que el asistente tome esa fila como datos y no como títulos. Deshacerlo no se puede desde el menú: **Quitá** el archivo y volvelo a subir (el resumen no guarda la primera fila, justamente para no guardar datos);
+- decir **"La primera fila no es el encabezado"**, para que amaIA tome esa fila como datos y no como títulos. Deshacerlo no se puede desde el menú: **Quitá** el archivo y volvelo a subir (el resumen no guarda la primera fila, justamente para no guardar datos);
 - **Quitar** el archivo.
 
 **No se aceptan** los `.xlsm` y `.xlsb` (guardalos como `.xlsx`), los archivos con contraseña ni los que se
@@ -76,7 +76,7 @@ llaman de una manera y son de otra (un `.xlsx` renombrado a `.csv`). Los **PDF y
 
 #### Qué lee del archivo, y qué no
 
-El asistente **no recibe los valores** del archivo. Recibe:
+amaIA **no recibe los valores** del archivo. Recibe:
 
 - el nombre, el tipo y las hojas;
 - los **encabezados** y el orden de las columnas;
@@ -90,7 +90,7 @@ La excepción son los valores que coinciden **exactamente con una lista del prop
 de una empresa o un código de situación.
 
 **Ojo con un archivo de una sola fila.** Si esa fila tiene solo textos (por ejemplo, un nombre, una dirección y una
-localidad), se puede tomar como la fila de encabezados, y esos textos llegan tal cual al asistente. Los documentos,
+localidad), se puede tomar como la fila de encabezados, y esos textos llegan tal cual a amaIA. Los documentos,
 teléfonos, mails e importes nunca llegan: siempre se reemplazan por su forma. Antes de mandar, mirá en la etiqueta del
 archivo los encabezados que se tomaron. Si son datos, usá **⋮ → La primera fila no es el encabezado**. Lo más simple
 es mandar un ejemplo con la fila de títulos arriba.
@@ -107,7 +107,7 @@ llevan datos. Por ejemplo:
 - *Busqué los valores de Empresa*
 - *Probé la plantilla: 8.412 casos, sin errores*
 
-Un ⚠ es un aviso (por ejemplo, *"1 columna vacía en la muestra"*) y un ícono rojo con una exclamación es un problema: a veces el asistente lo corrige solo
+Un ⚠ es un aviso (por ejemplo, *"1 columna vacía en la muestra"*) y un ícono rojo con una exclamación es un problema: a veces amaIA lo corrige solo
 (*"La prueba encontró 2 problemas: los corrijo"*) y a veces te lo cuenta (*"la base está ocupada"*). Mientras trabaja, la última línea tiene un
 círculo girando.
 
@@ -118,7 +118,7 @@ reglas reales del constructor antes de mostrártela.
 
 De arriba abajo:
 
-1. **El mensaje** del asistente: qué no encontró, qué aproximó, qué supuso. Leelo siempre.
+1. **El mensaje** de amaIA: qué no encontró, qué aproximó, qué supuso. Leelo siempre.
 2. **Tu columna → Sale de.** Una fila por columna. El ícono dice cómo quedó:
 
    | Ícono | Significa |
@@ -162,7 +162,7 @@ De arriba abajo:
 ## Abrir en el editor y guardar
 
 1. Tocá **Abrir en el editor**. Te lleva a **Nueva plantilla** con todo cargado: nombre, columnas, filtros y
-   formato. Arriba hay un aviso: *"Esta plantilla la armó el asistente y **todavía no existe**. Revisala y tocá
+   formato. Arriba hay un aviso: *"Esta plantilla la armó amaIA y **todavía no existe**. Revisala y tocá
    **Guardar**."*
 2. Si ya tenías algo armado y sin guardar en esa pantalla, antes te pregunta si querés **reemplazar lo que tenés
    armado**. Con **Seguir con lo mío** no se toca nada: si estabas editando una plantilla que ya existe, volvés a ella con tus cambios, y **Guardar** la actualiza (no crea una copia).
@@ -176,10 +176,10 @@ guardar, la propuesta sigue en la conversación: dice *"La abriste en el editor"
 cargás otra vez.
 
 > **En pantallas que no son muy grandes (menos de 1536 px) el panel tapa lo que hay detrás.** Por eso, al abrir
-> el editor se cierra solo. Lo volvés a abrir con el botón **Asistente** y la conversación sigue ahí.
+> el editor se cierra solo. Lo volvés a abrir con el botón **amaIA** y la conversación sigue ahí.
 
 En [Auditoría](/ayuda/administracion/auditoria) el alta se ve como la de cualquier plantilla, con el dato de que
-salió de una propuesta del asistente.
+salió de una propuesta de amaIA.
 
 ## Ajustar lo que armó
 
@@ -199,13 +199,13 @@ editor.
 
 ## Lo que el motor de reportes no hace
 
-Si el ejemplo pide alguna de estas cosas, la columna sale **aproximada** o **sin campo**, y el asistente te lo
+Si el ejemplo pide alguna de estas cosas, la columna sale **aproximada** o **sin campo**, y amaIA te lo
 dice:
 
 - **Unir dos campos en una columna** (nombre y apellido juntos).
 - **Cuentas entre campos** (saldo menos pagos). Las cuentas van en Totales o en filtros.
 - **Un "o" entre campos distintos.** Solo existe "en lista" dentro de un campo.
-- **Elegir el teléfono principal.** Los contactos salen en el orden en que se cargaron: el asistente puede
+- **Elegir el teléfono principal.** Los contactos salen en el orden en que se cargaron: amaIA puede
   armar "el primer teléfono" o "el segundo", pero no el prioritario.
 - Signos de moneda, varias hojas en el Excel, fórmulas, colores, logos y anchos de columna en Excel.
 - El PDF sale en A4 vertical: con muchas columnas no entra.
@@ -229,14 +229,14 @@ mano (ver [Armar un reporte](/ayuda/reportes/armar-un-reporte) y [Filtros](/ayud
   ayuda para ese día. Si lo que se agotó es el límite general, el cartel dice *"Llegaste al límite de … preguntas
   de hoy…"*, también en este modo.
 - Si la función llega a su **tope de gasto mensual**, el panel avisa que está pausada, igual que en la ayuda (ver
-  [El asistente](/ayuda/primeros-pasos/el-asistente)). El **tope por pedido** es otra cosa: corta esa respuesta con
+  [amaIA](/ayuda/primeros-pasos/el-asistente)). El **tope por pedido** es otra cosa: corta esa respuesta con
   *"Me quedé sin margen de gasto para esta respuesta"*; probá pedir algo más concreto o en dos partes.
 - Armar una plantilla suele costar entre **US$ 0,07 y 0,20**, ajustes incluidos.
 
 ## Qué puede salir mal
 
-**Elegí "Armar un reporte" y dice que el asistente está pausado por un administrador.** La función está apagada (nace
-apagada) y la ayuda sigue andando. Avisale a quien administra el asistente.
+**Elegí "Armar un reporte" y dice que amaIA está pausada por un administrador.** La función está apagada (nace
+apagada) y la ayuda sigue andando. Avisale a quien administra amaIA.
 
 **No veo el selector "Armar un reporte".** Te falta alguno de los cuatro permisos (ver *Antes de empezar*).
 Si te los dieron hace un rato, cerrá sesión y volvé a entrar. Si lo veías y desapareció con un cartel que explica que
@@ -248,15 +248,15 @@ TOYOTA, por ejemplo: contestale con el nombre exacto. Ojo: la **empresa de la pl
 sea de una empresa, tiene que haber un **filtro** de empresa, y la tarjeta tiene que mostrarlo.
 
 **No entendió mi archivo de ancho fijo.** Un archivo de ancho fijo (sin separadores, columnas por posición) no
-dice dónde corta cada campo. Si no tiene encabezados, el asistente te va a preguntar cómo se parte; contestale con
+dice dónde corta cada campo. Si no tiene encabezados, amaIA te va a preguntar cómo se parte; contestale con
 los anchos, en orden. Si el archivo trae títulos y la etiqueta no los muestra (no aparece *"Columnas: …"*),
-escribíselos al asistente en el mensaje.
+escribíselos a amaIA en el mensaje.
 
 **La primera fila no es el encabezado.** Pasa con los archivos que arrancan directo con datos. En la etiqueta del
-archivo, **⋮ → La primera fila no es el encabezado**. El asistente pasa a tomar esa fila como datos y a identificar
+archivo, **⋮ → La primera fila no es el encabezado**. amaIA pasa a tomar esa fila como datos y a identificar
 las columnas por posición. Para deshacerlo, **Quitá** el archivo y volvelo a subir.
 
-**Una columna salió "Sin campo".** Ese dato no existe en el sistema (o el asistente no lo encontró). Sale como
+**Una columna salió "Sin campo".** Ese dato no existe en el sistema (o amaIA no lo encontró). Sale como
 columna vacía, para que el archivo conserve la cantidad de columnas que espera quien lo recibe. Si creés que
 sí existe, decile cuál es ("esa columna es el modelo del auto: está en los datos adicionales de Toyota") y
 la corrige.
@@ -268,7 +268,7 @@ prioritario. La tarjeta lo marca como **aproximada**. No hay forma de pedir el p
 la primera búsqueda. Sirve para saber si son decenas o miles de casos, no para contarlos: el real puede ser bastante menor. Si dice *"No se pudo
 contar los casos a tiempo"*, la base tardó demasiado; el reporte igual se puede abrir y ejecutar.
 
-**Dice que el ejemplo es demasiado grande.** El pedido se corta antes de llegar al asistente. Quitá un archivo o usá
+**Dice que el ejemplo es demasiado grande.** El pedido se corta antes de llegar a amaIA. Quitá un archivo o usá
 uno más chico: el texto que escribiste y los archivos vuelven al cuadro, así que sacás el que sobra y mandás de nuevo.
 
 **Al subir un archivo dice que hay muchos archivos leyéndose.** El servidor está ocupado; en la etiqueta aparece
@@ -294,7 +294,7 @@ No. La guardás vos desde el editor, con el botón de siempre.
 
 **¿Ve los datos de la cartera?**
 No. Del ejemplo ve la forma, y de la prueba solo recibe cantidades. Las filas de la vista previa van del servidor a tu
-pantalla, enmascaradas, sin pasar por el asistente.
+pantalla, enmascaradas, sin pasar por amaIA.
 
 **¿Cuánto tarda?**
 Una propuesta suele llevar entre 15 segundos y un minuto, porque prueba la plantilla contra la base antes de

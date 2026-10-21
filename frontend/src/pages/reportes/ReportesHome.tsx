@@ -202,7 +202,7 @@ const ReportesHome = () => {
           // Abre el panel del asistente en el modo «Armar un reporte» (docs/asistente-reportes-spec.md §16.1).
           ...(asistente.puedeArmarReportes
             ? [{
-                label: 'Armar con el asistente',
+                label: 'Armar con amaIA',
                 onClick: () => { asistente.cambiarModo('reportes'); asistente.abrir() },
                 startIcon: <AutoAwesomeIcon />,
                 variant: 'outlined' as const,

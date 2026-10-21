@@ -235,7 +235,7 @@ export class AsistenteConfigService {
             tipo: AuditTipo.UPDATE,
             estado: AuditEstado.OK,
             usuarioId,
-            resumen: `Configuración del asistente: ${Object.keys(cambios).join(', ') || 'sin cambios'}`,
+            resumen: `Configuración de amaIA: ${Object.keys(cambios).join(', ') || 'sin cambios'}`,
             data: { params: cambios as any },
         });
         return this.configPublica();
@@ -246,7 +246,7 @@ export class AsistenteConfigService {
         const existente = await this.prisma.asistente_funcion.findUnique({ where: { clave } });
         if (!existente) {
             this.logger.warn(`Función del asistente inexistente: ${clave}`);
-            throw new NotFoundException('No existe esa función del asistente.');
+            throw new NotFoundException('No existe esa función de amaIA.');
         }
         const data: Prisma.asistente_funcionUpdateInput = {};
         if (dto.habilitada !== undefined) data.habilitada = dto.habilitada;
@@ -265,7 +265,7 @@ export class AsistenteConfigService {
             tipo: AuditTipo.UPDATE,
             estado: AuditEstado.OK,
             usuarioId,
-            resumen: `Función del asistente ${clave}`,
+            resumen: `Función de amaIA ${clave}`,
             data: {
                 params: {
                     habilitada: { antes: existente.habilitada, despues: fila.habilitada },

@@ -317,7 +317,7 @@ const ReportesBuilder = () => {
         if (hasChangesRef.current) {
           const ok = await confirm({
             title: 'Reemplazar lo que tenés armado',
-            description: 'Ya tenés una plantilla sin guardar en el editor. Si abrís la propuesta del asistente, se reemplaza.',
+            description: 'Ya tenés una plantilla sin guardar en el editor. Si abrís la propuesta de amaIA, se reemplaza.',
             confirmLabel: 'Reemplazar lo que tenés armado',
             cancelLabel: 'Seguir con lo mío',
             confirmColor: 'warning',
@@ -514,7 +514,7 @@ const ReportesBuilder = () => {
 
       {!id && state.plantilla.asistentePropuestaId && (
         <Alert severity="info" sx={{ mb: 2 }} data-testid="aviso-asistente">
-          Esta plantilla la armó el asistente y <strong>todavía no existe</strong>. Revisala y tocá <strong>Guardar</strong>.
+          Esta plantilla la armó amaIA y <strong>todavía no existe</strong>. Revisala y tocá <strong>Guardar</strong>.
         </Alert>
       )}
 

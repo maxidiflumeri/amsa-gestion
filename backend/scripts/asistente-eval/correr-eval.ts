@@ -50,7 +50,7 @@ const OPERADOR = [
 const PERMISOS: Record<Pregunta['rol'], string[]> = { ADMIN: TODAS_LAS_KEYS, OPERADOR };
 
 /** `noDebe` global a todas las preguntas. */
-const NO_DEBE_GLOBAL = ['ya te llev[eé]', 'lo (cre|guard|import)[eé]', 'Sos el Asistente'];
+const NO_DEBE_GLOBAL = ['ya te llev[eé]', 'lo (cre|guard|import)[eé]', 'Sos el Asistente', 'Sos amaIA'];
 
 function argumento(nombre: string): string | undefined {
     const a = process.argv.find((x) => x.startsWith(`--${nombre}=`));

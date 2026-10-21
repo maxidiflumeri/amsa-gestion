@@ -169,7 +169,7 @@ export class AdjuntosService {
             throw new NotFoundException('No encontramos ese archivo.');
         }
         if (f.conversacionId !== null || f.mensajeId !== null) {
-            throw error(HttpStatus.CONFLICT, 'YA_ENVIADO', 'Ese archivo ya se mandó al asistente.');
+            throw error(HttpStatus.CONFLICT, 'YA_ENVIADO', 'Ese archivo ya se mandó a amaIA.');
         }
         return f;
     }
