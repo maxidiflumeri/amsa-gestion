@@ -6,6 +6,21 @@
 
 ---
 
+## [2026-10-22] — Tableros: los botones de los filtros ya no se montan sobre "Motivo no pago"
+
+Lo vio el usuario probando el marco nuevo. Ya pasaba antes: no lo trajo el panel nuevo.
+
+### Frontend
+- **`DashboardFiltros.tsx`:** **Limpiar** y **Refrescar** iban en un casillero de la grilla de 1/12 del ancho
+  (`md={1}`, entre 70 y 100 px para unos 210 de botones): se salían y pisaban el Select de Motivo no pago, y
+  "Refrescar" quedaba cortado. Ahora la segunda fila es:
+  - desde `lg`, Estado situación y Estado gestión a 3/12, Motivo no pago con el resto (`lg`) y los botones con su ancho
+    (`lg="auto"`);
+  - entre `sm` y `lg`, de a dos por fila;
+  - en el celular, uno por fila, con los botones a la derecha.
+
+---
+
 ## [2026-10-22] — El marco de la app: barra y menú unidos, panel redondeado, íconos Lucide, logo nuevo y buscador global
 
 Primer paso de la mejora visual del frontend, a pedido del usuario, con la referencia del layout de Google Cloud.

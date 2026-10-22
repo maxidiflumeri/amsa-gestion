@@ -221,7 +221,12 @@ const DashboardFiltros: React.FC<Props> = ({ value, onChange, onRefresh, loading
                     </FormControl>
                 </Grid>
 
-                <Grid item xs={12} sm={6} md={4}>
+                {/*
+                  Segunda fila: los botones van con el ancho que necesitan (`lg="auto"`) y Motivo no pago toma lo que
+                  queda. Antes iban en un casillero de 1/12 del ancho y se montaban encima del Select. Entre `sm` y `lg`
+                  van de a dos por fila.
+                */}
+                <Grid item xs={12} sm={6} lg={3}>
                     <FormControl fullWidth size="small">
                         <InputLabel>Estado situación</InputLabel>
                         <Select
@@ -243,7 +248,7 @@ const DashboardFiltros: React.FC<Props> = ({ value, onChange, onRefresh, loading
                     </FormControl>
                 </Grid>
 
-                <Grid item xs={12} sm={6} md={4}>
+                <Grid item xs={12} sm={6} lg={3}>
                     <FormControl fullWidth size="small">
                         <InputLabel>Estado gestión</InputLabel>
                         <Select
@@ -265,7 +270,7 @@ const DashboardFiltros: React.FC<Props> = ({ value, onChange, onRefresh, loading
                     </FormControl>
                 </Grid>
 
-                <Grid item xs={12} sm={6} md={3}>
+                <Grid item xs={12} sm={6} lg>
                     <FormControl fullWidth size="small">
                         <InputLabel>Motivo no pago</InputLabel>
                         <Select
@@ -287,8 +292,8 @@ const DashboardFiltros: React.FC<Props> = ({ value, onChange, onRefresh, loading
                     </FormControl>
                 </Grid>
 
-                <Grid item xs={12} sm={6} md={1}>
-                    <Stack direction="row" spacing={1} justifyContent="flex-end">
+                <Grid item xs={12} sm={6} lg="auto">
+                    <Stack direction="row" spacing={1} justifyContent="flex-end" useFlexGap flexWrap="wrap">
                         <Button
                             size="small"
                             variant="outlined"
