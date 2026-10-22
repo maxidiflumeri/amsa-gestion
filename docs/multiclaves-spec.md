@@ -784,6 +784,9 @@ antepone "Son Pesos: " en el PDF.
 
 - `backend/src/modules/multiclaves/assets/logo-personal.png`. Hasta que Ana Maya mande el definitivo,
   un placeholder en gris con la palabra "Personal".
+  **Actualizado 22/10/2026:** ya es el logo oficial de Personal (el de 2021, cian `#00AFE4`), del kit de prensa de
+  Telecom (`File:Personal_logo_2021.svg` en Wikimedia Commons), pasado a PNG de 1240 × 287 con fondo transparente.
+  Se dibuja con `fit: [96, 22]` (antes `width: 90, height: 22`, que deformaba cualquier logo con otra proporción).
 - `nest-cli.json` hoy copia solo `common/data/*.json` a `dist`. Agregar
   `"modules/multiclaves/assets/**/*"` a `compilerOptions.assets`. Sin eso, el logo **no llega a la
   imagen** y el cupón sale sin logo en prod aunque ande en dev.

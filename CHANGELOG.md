@@ -6,6 +6,23 @@
 
 ---
 
+## [2026-10-22] — Cupón de pago: el logo oficial de Personal
+
+El usuario vio el cupón generado y el logo estaba mal: era el placeholder gris del spec (D11, "el usuario lo
+reemplaza cuando lo consiga").
+
+### Backend
+- **`multiclaves/assets/logo-personal.png`:** el logo oficial de Personal (2021, cian `#00AFE4`), del kit de prensa de
+  Telecom vía Wikimedia Commons (`File:Personal_logo_2021.svg`, marcado como logo de solo texto), pasado a PNG de
+  1240 × 287 con fondo transparente. Lo copia `nest-cli.json` a `dist` como siempre.
+- **`cupon-pdf.service.ts`:** el logo se dibuja con `fit: [96, 22]` en lugar de `width: 90, height: 22`, que lo
+  estiraba (el oficial es 4,3 a 1). También protege un logo cargado con `MULTICLAVES_LOGO_PATH`.
+- Verificado generando un cupón de muestra con el servicio real y pasándolo a imagen: los tres talones con el logo,
+  sin deformar. Tests de multiclaves 224/224.
+- **Ojo en prod:** si `MULTICLAVES_LOGO_PATH` está definida, manda ese archivo y no este.
+
+---
+
 ## [2026-10-22] — La cuenta: menú nuevo, tema "Sistema" y la página Mi perfil
 
 Segundo paso de la mejora visual, a pedido del usuario: "Mi perfil" no llevaba a ningún lado y el menú de la cuenta
