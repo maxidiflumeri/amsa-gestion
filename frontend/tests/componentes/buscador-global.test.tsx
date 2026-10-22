@@ -181,6 +181,19 @@ describe('Pantallas', () => {
         await esperar(() => opcion(/^Mis plantillas/) && opcion(/^Mis ejecuciones/), { que: 'por el nombre del grupo' });
     });
 
+    it('Mi perfil, que no está en el menú, se encuentra por su nombre y por lo que tiene adentro', async () => {
+        b = await armarIA({ permisos: ['reportes.ver'], ruta: '/reportes', antes: conCasos });
+        await abrir();
+        await escribir(entrada(), 'perfil');
+        await esperar(() => textos()[0] === 'Mi perfilTus datos, el tema y los atajos', { que: 'Mi perfil' });
+        for (const palabra of ['tema', 'legajo', 'atajos', 'oscuro']) {
+            await escribir(entrada(), palabra);
+            await esperar(() => opcion(/^Mi perfil/), { que: `Mi perfil con «${palabra}»` });
+        }
+        await tecla('Enter');
+        await esperar(() => rutaActual() === '/perfil', { que: 'la ruta' });
+    });
+
     it('solo las que la persona puede ver', async () => {
         b = await armarIA({ permisos: ['deudores.ver', 'reportes.ver'], ruta: '/gestion', antes: conCasos });
         await abrir();

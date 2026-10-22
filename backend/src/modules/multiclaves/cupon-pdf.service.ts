@@ -223,7 +223,9 @@ export class CuponPdfService implements OnModuleInit {
         const stack: Content[] = [];
 
         if (this.logoDataUrl) {
-            stack.push({ image: this.logoDataUrl, height: 22, width: 90, margin: [0, 0, 0, 4] });
+            // `fit` y no ancho y alto fijos: el logo entra en 96 × 22 pt sin deformarse (el oficial de Personal es 4,3 a 1;
+            // el de `MULTICLAVES_LOGO_PATH` puede tener otra proporción).
+            stack.push({ image: this.logoDataUrl, fit: [96, 22], margin: [0, 0, 0, 4] });
         } else {
             stack.push({ text: 'Personal', italics: true, bold: true, fontSize: 18, color: '#9e9e9e', margin: [0, 0, 0, 4] });
         }

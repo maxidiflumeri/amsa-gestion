@@ -8,6 +8,7 @@ import {
     ShieldCheck,
     SlidersHorizontal,
     Upload,
+    UserRound,
     type LucideIcon,
 } from 'lucide-react';
 
@@ -21,6 +22,7 @@ const iconosNav: Record<string, LucideIcon> = {
     SlidersHorizontal,
     ShieldCheck,
     BookOpen,
+    UserRound,
 };
 
 const IconoNav: React.FC<{ nombre?: string; size?: number }> = ({ nombre, size = 20 }) => {

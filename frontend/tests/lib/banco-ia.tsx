@@ -4,6 +4,7 @@ import React, { act, useEffect } from 'react';
 import { Route, Routes, useLocation, useNavigate, type NavigateFunction } from 'react-router-dom';
 import { transferableAbortController } from 'node:util';
 import AppShell from '@fe/components/layout/AppShell/AppShell';
+import MiPerfil from '@fe/pages/perfil/MiPerfil';
 import AsistenteConsumo from '@fe/pages/asistente/AsistenteConsumo';
 import ReportesHome from '@fe/pages/reportes/ReportesHome';
 import { usePageMeta } from '@fe/context/PageMetaContext';
@@ -364,6 +365,7 @@ export async function armarIA(o: Opciones = {}): Promise<BancoIA> {
                 <Route element={<AppShell />}>
                     <Route path="asistente/consumo" element={<AsistenteConsumo />} />
                     <Route path="reportes-real" element={<ReportesHome />} />
+                    <Route path="perfil" element={<MiPerfil />} />
                     <Route path="*" element={<PantallaFalsa />} />
                 </Route>
             </Routes>

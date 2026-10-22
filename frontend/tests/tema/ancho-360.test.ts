@@ -29,6 +29,11 @@ const ARCHIVOS = [
     'components/layout/AppShell/SideNav.tsx',
     'components/layout/AppShell/BuscadorGlobal.tsx',
     'components/ui/MigasDePan.tsx',
+    // El menú de la cuenta y «Mi perfil» (CHANGELOG 2026-10-22)
+    'components/layout/AppShell/UserMenu.tsx',
+    'components/ui/SelectorTema.tsx',
+    'components/ui/AvatarUsuario.tsx',
+    'pages/perfil/MiPerfil.tsx',
     'context/AsistenteContext.tsx',
     'pages/ayuda/Markdown.tsx',
     // Asistente de IA, Fase B: el editor de reportes con lo que sumó

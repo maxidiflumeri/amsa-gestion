@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { Box, Toolbar, useMediaQuery, useTheme } from '@mui/material';
 import { Outlet, useLocation } from 'react-router-dom';
 import AppBarComponent from './AppBar';
@@ -6,6 +6,7 @@ import SideNav from './SideNav';
 import { vuelveArriba } from './navConfig';
 import { useAuth } from '../../../context/AuthContext';
 import { AsistenteProvider } from '../../../context/AsistenteContext';
+import { MenuLateralContext } from '../../../context/MenuLateralContext';
 import AsistentePanel from '../../asistente/AsistentePanel';
 
 const SIDEBAR_COLLAPSED_KEY = 'app_sidebar_collapsed';
@@ -67,6 +68,8 @@ const AppShell: React.FC = () => {
         if (desdeElMarco && panelRef.current) panelRef.current.focus({ preventScroll: true });
     }, [pathname]);
 
+    const menuLateral = useMemo(() => ({ colapsado: collapsed, setColapsado: setCollapsed }), [collapsed]);
+
     const handleMenuClick = () => {
         if (isDesktop) {
             setCollapsed((prev) => !prev);
@@ -81,65 +84,67 @@ const AppShell: React.FC = () => {
 
     return (
         <AsistenteProvider>
-            <Box
-                sx={{
-                    display: 'flex',
-                    // Solo debajo de `md`: arriba manda el alto. Con los dos, en un celular horizontal de 900 px o más
-                    // 100vh (barra del navegador escondida) le gana a 100dvh y el final de la pantalla queda afuera.
-                    minHeight: { xs: '100vh', md: 0 },
-                    height: { md: '100vh' },
-                    '@supports (height: 100dvh)': { height: { md: '100dvh' } },
-                    overflow: { md: 'hidden' },
-                    bgcolor: 'background.marco',
-                }}
-            >
-                {/* AppBar */}
-                <AppBarComponent
-                    onMenuClick={handleMenuClick}
-                    isDesktop={isDesktop}
-                    collapsed={collapsed}
-                    user={user}
-                />
+            <MenuLateralContext.Provider value={menuLateral}>
+                <Box
+                    sx={{
+                        display: 'flex',
+                        // Solo debajo de `md`: arriba manda el alto. Con los dos, en un celular horizontal de 900 px o más
+                        // 100vh (barra del navegador escondida) le gana a 100dvh y el final de la pantalla queda afuera.
+                        minHeight: { xs: '100vh', md: 0 },
+                        height: { md: '100vh' },
+                        '@supports (height: 100dvh)': { height: { md: '100dvh' } },
+                        overflow: { md: 'hidden' },
+                        bgcolor: 'background.marco',
+                    }}
+                >
+                    {/* AppBar */}
+                    <AppBarComponent
+                        onMenuClick={handleMenuClick}
+                        isDesktop={isDesktop}
+                        collapsed={collapsed}
+                        user={user}
+                    />
 
-                {/* Side navigation */}
-                <SideNav
-                    open={isDesktop ? true : mobileOpen}
-                    onClose={handleDrawerClose}
-                    variant={isDesktop ? 'permanent' : 'temporary'}
-                    collapsed={collapsed}
-                />
+                    {/* Side navigation */}
+                    <SideNav
+                        open={isDesktop ? true : mobileOpen}
+                        onClose={handleDrawerClose}
+                        variant={isDesktop ? 'permanent' : 'temporary'}
+                        collapsed={collapsed}
+                    />
 
-                {/* Main content */}
-                <Box sx={{ flexGrow: 1, minWidth: 0, display: 'flex', flexDirection: 'column' }}>
-                    <Toolbar />
-                    <Box
-                        component="main"
-                        ref={panelRef}
-                        tabIndex={-1}
-                        sx={{
-                            outline: 'none',
-                            flexGrow: 1,
-                            minHeight: { md: 0 },
-                            overflow: { md: 'auto' },
-                            overscrollBehavior: { md: 'contain' },
-                            bgcolor: 'background.default',
-                            mr: { md: 1.5 },
-                            border: { md: 1 },
-                            borderBottom: { md: 0 },
-                            borderColor: { md: 'divider' },
-                            borderTopLeftRadius: { md: '16px' },
-                            borderTopRightRadius: { md: '16px' },
-                            px: { xs: 2, sm: 3, md: 4 },
-                            py: { xs: 2, sm: 3 },
-                        }}
-                    >
-                        <Outlet />
+                    {/* Main content */}
+                    <Box sx={{ flexGrow: 1, minWidth: 0, display: 'flex', flexDirection: 'column' }}>
+                        <Toolbar />
+                        <Box
+                            component="main"
+                            ref={panelRef}
+                            tabIndex={-1}
+                            sx={{
+                                outline: 'none',
+                                flexGrow: 1,
+                                minHeight: { md: 0 },
+                                overflow: { md: 'auto' },
+                                overscrollBehavior: { md: 'contain' },
+                                bgcolor: 'background.default',
+                                mr: { md: 1.5 },
+                                border: { md: 1 },
+                                borderBottom: { md: 0 },
+                                borderColor: { md: 'divider' },
+                                borderTopLeftRadius: { md: '16px' },
+                                borderTopRightRadius: { md: '16px' },
+                                px: { xs: 2, sm: 3, md: 4 },
+                                py: { xs: 2, sm: 3 },
+                            }}
+                        >
+                            <Outlet />
+                        </Box>
                     </Box>
-                </Box>
 
-                {/* El asistente vive acá y no en la barra: la conversación tiene que sobrevivir a «Sí, llevarme». */}
-                <AsistentePanel />
-            </Box>
+                    {/* El asistente vive acá y no en la barra: la conversación tiene que sobrevivir a «Sí, llevarme». */}
+                    <AsistentePanel />
+                </Box>
+            </MenuLateralContext.Provider>
         </AsistenteProvider>
     );
 };

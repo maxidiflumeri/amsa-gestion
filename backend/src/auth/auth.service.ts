@@ -151,4 +151,50 @@ export class AuthService {
             permisos,
         };
     }
+
+    /**
+     * Los datos propios para «Mi perfil»: lo de `getMe` más legajo, DNI y fecha de alta, que los carga el
+     * administrador y hasta ahora solo se leían desde Usuarios (`admin.gestionar_usuarios`). Sin permiso:
+     * cada uno lee solo los suyos, por el `sub` del token. El DNI no se loguea.
+     */
+    async getPerfil(sub: number) {
+        const t0 = Date.now();
+        const usuario = await this.prisma.usuario.findUnique({
+            where: { id: sub },
+            select: {
+                id: true,
+                nombre: true,
+                email: true,
+                avatarUrl: true,
+                rol: true,
+                activo: true,
+                legajo: true,
+                dni: true,
+                createdAt: true,
+                rolObj: { select: { nombre: true, permisos: true } },
+            },
+        });
+
+        if (!usuario || !usuario.activo) {
+            this.logger.warn(`Perfil: usuario=${sub} no encontrado o inactivo`);
+            throw new UnauthorizedException('Usuario no encontrado o inactivo');
+        }
+
+        const permisos: string[] = Array.isArray(usuario.rolObj?.permisos)
+            ? (usuario.rolObj.permisos as string[])
+            : [];
+
+        this.logger.debug(`Perfil: usuario=${sub} en ${Date.now() - t0}ms`);
+        return {
+            id: usuario.id,
+            nombre: usuario.nombre,
+            email: usuario.email,
+            avatarUrl: usuario.avatarUrl,
+            rol: usuario.rolObj?.nombre ?? usuario.rol,
+            permisos,
+            legajo: usuario.legajo,
+            dni: usuario.dni,
+            fechaAlta: usuario.createdAt,
+        };
+    }
 }

@@ -21,18 +21,33 @@ import api from '../../../api/axios';
 import { useAuth } from '../../../context/AuthContext';
 import { mostrarDocumento } from '../../../utils/documento';
 import { linkCaso } from '../../../utils/linkCaso';
+import { TECLA_MOD } from '../../../utils/teclado';
 import BuscadorAvanzadoModal from '../../deudores/BuscadorAvanzadoModal';
 import IconoNav from './IconoNav';
-import { filtrarItemsPorPermisos, navConfig, pantallasDelMenu } from './navConfig';
+import { filtrarItemsPorPermisos, navConfig, pantallasDelMenu, type PantallaNav } from './navConfig';
+
+/** Una pantalla que se puede buscar. `detalle` reemplaza al grupo; `palabras`, otras formas de pedirla. */
+type PantallaBuscable = PantallaNav & { detalle?: string; palabras?: string[] };
+
+/**
+ * Pantallas que no están en el menú pero se buscan igual. Mi perfil se abre desde la foto; acá también se encuentra
+ * por lo que tiene adentro ("tema", "legajo", "atajos").
+ */
+const PANTALLAS_FUERA_DEL_MENU: PantallaBuscable[] = [
+    {
+        item: { label: 'Mi perfil', path: '/perfil', icon: 'UserRound' },
+        grupo: null,
+        detalle: 'Tus datos, el tema y los atajos',
+        palabras: ['cuenta', 'tema', 'oscuro', 'claro', 'legajo', 'atajos', 'sesion'],
+    },
+];
 
 /** Desde cuántas letras se buscan casos (las pantallas se filtran desde la primera). */
 export const MIN_LETRAS_CASOS = 2;
 export const CASOS_POR_BUSQUEDA = 6;
 const ESPERA_MS = 300;
 
-/** En una Mac el atajo se muestra con ⌘ (funciona con las dos teclas en cualquier sistema). */
-const esMac = typeof navigator !== 'undefined' && /Mac|iPhone|iPad/i.test(navigator.platform || navigator.userAgent || '');
-const ATAJO = esMac ? '⌘ K' : 'Ctrl K';
+const ATAJO = `${TECLA_MOD} K`;
 
 /** Sin tildes ni mayúsculas: "parametros" encuentra "Parámetros". */
 export const normalizar = (s: string) => s.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().trim();
@@ -151,11 +166,15 @@ const DialogoBuscador: React.FC<DialogoProps> = ({ onCerrar, onAvanzada }) => {
         };
     }, [buscaCasos, termino, intento]);
 
-    const pantallas = useMemo(() => pantallasDelMenu(filtrarItemsPorPermisos(navConfig, tienePermiso)), [tienePermiso]);
+    const pantallas = useMemo<PantallaBuscable[]>(
+        () => [...pantallasDelMenu(filtrarItemsPorPermisos(navConfig, tienePermiso)), ...PANTALLAS_FUERA_DEL_MENU],
+        [tienePermiso],
+    );
     const q = normalizar(texto);
     const pantallasQueCoinciden = useMemo(() => {
         if (!q) return pantallas;
-        const coinciden = pantallas.filter(({ item, grupo }) => empiezaPalabra(item.label, q) || (!!grupo && empiezaPalabra(grupo.label, q)));
+        const coinciden = pantallas.filter(({ item, grupo, palabras }) =>
+            empiezaPalabra(item.label, q) || (!!grupo && empiezaPalabra(grupo.label, q)) || (palabras ?? []).some((pal) => empiezaPalabra(pal, q)));
         // Primero las que empiezan con lo escrito.
         return [...coinciden].sort((a, b) => Number(!normalizar(a.item.label).startsWith(q)) - Number(!normalizar(b.item.label).startsWith(q)));
     }, [pantallas, q]);
@@ -163,11 +182,11 @@ const DialogoBuscador: React.FC<DialogoProps> = ({ onCerrar, onAvanzada }) => {
     const deCasos: Opcion[] = casos.estado === 'listo'
         ? casos.items.map((c) => ({ tipo: 'caso', clave: `c:${c.id}`, titulo: nombreDelCaso(c), detalle: detalleDelCaso(c), id: c.id }))
         : [];
-    const dePantallas: Opcion[] = pantallasQueCoinciden.map(({ item, grupo }) => ({
+    const dePantallas: Opcion[] = pantallasQueCoinciden.map(({ item, grupo, detalle }) => ({
         tipo: 'pantalla',
         clave: `p:${item.path}`,
         titulo: item.label,
-        detalle: grupo?.label ?? null,
+        detalle: detalle ?? grupo?.label ?? null,
         icono: (grupo ?? item).icon,
         path: item.path!,
     }));
