@@ -179,58 +179,29 @@ describe('IN-3 — las filas llevan al caso', () => {
     });
 });
 
-describe('IN-4 — Ctrl+K', () => {
-    it('abre el buscador solo en Inicio, con Ctrl+K y con Cmd+K', async () => {
+describe('IN-4 — el buscador de Inicio', () => {
+    // El Ctrl+K era de Inicio y ahora es del buscador de la barra, en todas las pantallas (tests/componentes/buscador-global.test.tsx):
+    // si Inicio siguiera escuchando el atajo, en Inicio se abrirían los dos diálogos a la vez.
+    it('Inicio ya no escucha Ctrl+K: el atajo es el del buscador de la barra', async () => {
         b = await armarInicio({ permisos: PERMISOS_OPERADOR, miDia: miDiaOperador() });
         await dibujado();
-        expect(dialogo(/búsqueda/i)).toBeNull();
-        const ev = await teclear({ key: 'k', ctrlKey: true });
-        expect(ev.defaultPrevented).toBe(true);
-        await esperar(() => dialogo(/búsqueda/i), { que: 'el buscador' });
-    });
-
-    it('con el buscador abierto, Ctrl+K no hace nada más', async () => {
-        b = await armarInicio({ permisos: PERMISOS_OPERADOR, miDia: miDiaOperador() });
-        await dibujado();
-        await teclear({ key: 'k', ctrlKey: true });
-        await esperar(() => dialogo(/búsqueda/i), { que: 'el buscador' });
-        const ev = await teclear({ key: 'K', ctrlKey: true });
-        expect(ev.defaultPrevented).toBe(false);
-        expect(document.querySelectorAll('.MuiDialog-root')).toHaveLength(1);
-    });
-
-    it('Cmd+K (Mac) también', async () => {
-        b = await armarInicio({ permisos: PERMISOS_OPERADOR, miDia: miDiaOperador() });
-        await dibujado();
-        await teclear({ key: 'k', metaKey: true });
-        await esperar(() => dialogo(/búsqueda/i), { que: 'el buscador' });
-    });
-
-    it('el botón del buscador lo abre', async () => {
-        b = await armarInicio({ permisos: PERMISOS_OPERADOR, miDia: miDiaOperador() });
-        await dibujado();
-        await clic(document.querySelector('button[aria-label="Buscar un caso"]'), 'el buscador');
-        await esperar(() => dialogo(/búsqueda/i), { que: 'el buscador' });
-    });
-
-    it('sin deudores.ver no hay buscador y Ctrl+K no hace nada', async () => {
-        b = await armarInicio({ permisos: ['comentarios.ver', 'comentarios.crear', 'reportes.ver'], miDia: miDiaOperador({ retomar: null }) });
-        await dibujado();
-        expect(document.querySelector('button[aria-label="Buscar un caso"]')).toBeNull();
         const ev = await teclear({ key: 'k', ctrlKey: true });
         await pasar(200);
         expect(ev.defaultPrevented).toBe(false);
         expect(dialogo(/búsqueda/i)).toBeNull();
     });
 
-    it('al desmontar Inicio el atajo se va', async () => {
+    it('el botón del buscador abre la búsqueda avanzada', async () => {
         b = await armarInicio({ permisos: PERMISOS_OPERADOR, miDia: miDiaOperador() });
         await dibujado();
-        await b.v.desmontar();
-        const ev = await teclear({ key: 'k', ctrlKey: true });
-        expect(ev.defaultPrevented).toBe(false);
-        await b.srv.bajar();
-        b = null;
+        await clic(document.querySelector('button[aria-label="Buscar un caso"]'), 'el buscador');
+        await esperar(() => dialogo(/búsqueda/i), { que: 'el buscador' });
+    });
+
+    it('sin deudores.ver no hay buscador', async () => {
+        b = await armarInicio({ permisos: ['comentarios.ver', 'comentarios.crear', 'reportes.ver'], miDia: miDiaOperador({ retomar: null }) });
+        await dibujado();
+        expect(document.querySelector('button[aria-label="Buscar un caso"]')).toBeNull();
     });
 });
 

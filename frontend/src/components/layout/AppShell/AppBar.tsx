@@ -2,24 +2,20 @@ import React from 'react';
 import {
     AppBar as MuiAppBar,
     Box,
-    Breadcrumbs,
     IconButton,
-    Link,
     Toolbar,
     Tooltip,
-    Typography,
     useTheme,
 } from '@mui/material';
-import MenuIcon from '@mui/icons-material/Menu';
-import NavigateNextIcon from '@mui/icons-material/NavigateNext';
-import logo from '../../../assets/logo-amsa-gestion.png';
+import { Menu, PanelLeft } from 'lucide-react';
+import { Link as RouterLink } from 'react-router-dom';
 import UserMenu from './UserMenu';
 import NotificacionesBell from './NotificacionesBell';
 import ConexionIndicador from './ConexionIndicador';
+import BuscadorGlobal from './BuscadorGlobal';
+import LogoAmsa from './LogoAmsa';
 import AyudaContextual from '../../../pages/ayuda/AyudaContextual';
 import AsistenteBoton from '../../asistente/AsistenteBoton';
-import { usePageMeta } from '../../../context/PageMetaContext';
-import { Link as RouterLink } from 'react-router-dom';
 
 interface AppBarProps {
     onMenuClick: () => void;
@@ -28,6 +24,10 @@ interface AppBarProps {
     user: { nombre: string; rol: string };
 }
 
+/**
+ * La barra de arriba. Comparte el fondo con el menú lateral (`background.marco`): las dos forman el marco y la
+ * pantalla va en el panel redondeado de `AppShell`. Las migas de pan ya no van acá: van arriba del contenido.
+ */
 const AppBarComponent: React.FC<AppBarProps> = ({
     onMenuClick,
     isDesktop,
@@ -35,7 +35,6 @@ const AppBarComponent: React.FC<AppBarProps> = ({
     user,
 }) => {
     const theme = useTheme();
-    const { title, breadcrumbs } = usePageMeta();
 
     const tooltipTitle = isDesktop
         ? collapsed
@@ -51,87 +50,49 @@ const AppBarComponent: React.FC<AppBarProps> = ({
             sx={{
                 zIndex: theme.zIndex.drawer + 2,
                 width: '100%',
-                borderBottom: `1px solid ${theme.palette.divider}`,
-                bgcolor: theme.palette.background.paper,
+                bgcolor: 'background.marco',
             }}
         >
-            <Toolbar sx={{ gap: 1 }}>
-                {/* Hamburguesa toggle (siempre visible) */}
+            <Toolbar sx={{ gap: { xs: 0.5, sm: 1 }, pl: { xs: 1, sm: 1.5 }, pr: { xs: 1, sm: 2 } }}>
+                {/* Colapsar / expandir el menú en la computadora; abrirlo en el celular */}
                 <Tooltip title={tooltipTitle}>
                     <IconButton
-                        edge="start"
-                        color="inherit"
                         aria-label={tooltipTitle}
                         onClick={onMenuClick}
-                        sx={{ mr: 0.5 }}
+                        sx={{ color: 'text.secondary', flex: 'none', width: 40, height: 40 }}
                     >
-                        <MenuIcon />
+                        {isDesktop ? <PanelLeft size={20} strokeWidth={1.75} aria-hidden /> : <Menu size={20} strokeWidth={1.75} aria-hidden />}
                     </IconButton>
                 </Tooltip>
 
-                {/* Logo + brand siempre visible */}
                 <Box
                     component={RouterLink}
                     to="/"
+                    aria-label="AMSA Gestión, ir a Inicio"
                     sx={{
                         display: 'flex',
                         alignItems: 'center',
-                        gap: 1,
+                        gap: 1.25,
+                        flex: 'none',
                         textDecoration: 'none',
                         color: 'inherit',
-                        mr: { xs: 1, md: 3 },
+                        mr: { xs: 0.5, md: 2 },
+                        borderRadius: '8px',
+                        '&:focus-visible': { outline: `2px solid ${theme.palette.primary.main}`, outlineOffset: 2 },
                     }}
                 >
-                    <img src={logo} alt="AMSA Gestión" style={{ height: 36 }} />
-                    <Typography
-                        variant="subtitle1"
-                        fontWeight={700}
-                        noWrap
-                        sx={{ display: { xs: 'none', sm: 'block' } }}
+                    <LogoAmsa size={32} />
+                    <Box
+                        component="span"
+                        sx={{ display: { xs: 'none', sm: 'flex' }, alignItems: 'baseline', gap: 0.75, fontSize: '1rem', letterSpacing: '-0.015em', whiteSpace: 'nowrap' }}
                     >
-                        AMSA Gestión
-                    </Typography>
+                        <Box component="span" sx={{ fontWeight: 700 }}>AMSA</Box>
+                        <Box component="span" sx={{ fontWeight: 500, color: 'text.secondary' }}>Gestión</Box>
+                    </Box>
                 </Box>
 
-                {/* Breadcrumb / título de página */}
-                <Box sx={{ flexGrow: 1, overflow: 'hidden' }}>
-                    {breadcrumbs.length > 0 ? (
-                        <Breadcrumbs
-                            separator={<NavigateNextIcon fontSize="small" />}
-                            aria-label="breadcrumb"
-                            sx={{ '& .MuiBreadcrumbs-ol': { flexWrap: 'nowrap' } }}
-                        >
-                            {breadcrumbs.map((crumb, index) =>
-                                crumb.href && index < breadcrumbs.length - 1 ? (
-                                    <Link
-                                        key={crumb.href}
-                                        component={RouterLink}
-                                        to={crumb.href}
-                                        color="inherit"
-                                        variant="body2"
-                                        underline="hover"
-                                        noWrap
-                                    >
-                                        {crumb.label}
-                                    </Link>
-                                ) : (
-                                    <Typography
-                                        key={index}
-                                        variant="body2"
-                                        color={index === breadcrumbs.length - 1 ? 'text.primary' : 'text.secondary'}
-                                        fontWeight={index === breadcrumbs.length - 1 ? 600 : 400}
-                                        noWrap
-                                    >
-                                        {crumb.label}
-                                    </Typography>
-                                ),
-                            )}
-                        </Breadcrumbs>
-                    ) : (
-                        <Typography variant="subtitle1" fontWeight={500} color="text.secondary" noWrap>
-                            {title}
-                        </Typography>
-                    )}
+                <Box sx={{ flexGrow: 1, minWidth: 0, display: 'flex', justifyContent: { xs: 'flex-end', md: 'center' }, px: { md: 2 } }}>
+                    <BuscadorGlobal />
                 </Box>
 
                 <AsistenteBoton />

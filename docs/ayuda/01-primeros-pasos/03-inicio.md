@@ -1,7 +1,7 @@
 <!--
 seccion: Primeros pasos
 resumen: Qué muestra Inicio, quién ve cada bloque y de dónde sale cada número.
-revisado: 2026-10-16
+revisado: 2026-10-22
 rutas: /
 rutaPrincipal: /
 -->
@@ -23,7 +23,7 @@ resto del equipo (con una excepción: la actividad reciente, ver más abajo).
   "N promesas tuyas vencen hoy".
 - **Los accesos rápidos**, hasta cuatro botones según tus permisos: Gestión, Nueva importación (o
   Historial de importaciones, si no podés importar), Reportes y Tableros.
-- **El buscador de casos**, a todo el ancho. Se abre con un clic o con **Ctrl+K** (ver "Buscar con Ctrl+K",
+- **El buscador de casos**, a todo el ancho. Un clic abre la búsqueda avanzada (ver "Buscar desde Inicio",
   más abajo).
 
 ## Los bloques, y quién los ve
@@ -106,12 +106,16 @@ importe: un pago de $1 cierra una promesa de $50.000. Inicio muestra el estado t
 sistema (ver [Pagos y promesas](/ayuda/gestion/pagos-y-promesas)); si necesitás saber cuánto entró, mirá
 la solapa de pagos del caso.
 
-## Buscar con Ctrl+K
+## Buscar desde Inicio
 
-En Inicio, **Ctrl+K** (o **Cmd+K** en Mac) abre el buscador de casos sin tocar el mouse. Es la misma
-búsqueda avanzada de Gestión (ver [Buscar un caso](/ayuda/gestion/buscar-un-caso)): al elegir un
-resultado se abre el caso. El atajo funciona **solo en Inicio**, y solo si tenés el permiso Ver
-deudores.
+El buscador grande de Inicio abre la **búsqueda avanzada** de Gestión (ver
+[Buscar un caso](/ayuda/gestion/buscar-un-caso)): documento, nombre, número de cliente, teléfono. Al elegir
+un resultado se abre el caso. Aparece solo si tenés el permiso Ver deudores.
+
+**Ctrl+K** (o **Cmd+K** en Mac) no abre este buscador: abre **el de la barra de arriba**, que funciona igual
+en cualquier pantalla (no en la Toolbar de Neotel). Busca casos por nombre, apellido, DNI completo o ID, y
+también pantallas del menú; para número de cliente o teléfono, tiene la opción **Búsqueda avanzada**, que
+lleva al mismo formulario.
 
 ## Cada cuánto se actualiza
 

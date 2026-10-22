@@ -22,7 +22,7 @@ Le enseña al sistema **a leer** el archivo de un cedente: qué columna es qué,
 qué limpiar de cada valor. Se arma **una vez** por cedente y por tipo de archivo, y después se
 reutiliza en todas las cargas.
 
-Vive en Importación de Datos → Plantillas. Ver [Crear una plantilla](/ayuda/importacion/crear-plantilla).
+Vive en Importación → Plantillas. Ver [Crear una plantilla](/ayuda/importacion/crear-plantilla).
 
 ### La remesa
 

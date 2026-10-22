@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { Box, Tooltip } from '@mui/material';
-import CloudOffIcon from '@mui/icons-material/CloudOff';
+import { CloudOff } from 'lucide-react';
 import { useSocket } from '../../../context/SocketContext';
 import { GRACIA_INDICADOR_MS } from '../../../utils/estadoCarga';
 
@@ -34,7 +34,7 @@ const ConexionIndicador: React.FC = () => {
                 aria-label="Sin conexión en tiempo real"
                 sx={{ display: 'flex', alignItems: 'center', color: 'warning.main', px: 0.5 }}
             >
-                <CloudOffIcon fontSize="small" />
+                <CloudOff size={20} strokeWidth={1.75} aria-hidden />
             </Box>
         </Tooltip>
     );

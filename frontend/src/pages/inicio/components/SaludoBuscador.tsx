@@ -1,6 +1,5 @@
-import React, { useEffect } from 'react';
+import React from 'react';
 import { Box, Button, ButtonBase, Stack, Typography } from '@mui/material';
-import { alpha } from '@mui/material/styles';
 import SearchIcon from '@mui/icons-material/Search';
 import { Link as RouterLink, useNavigate } from 'react-router-dom';
 import type { MiDiaDto } from '../../../api/inicio';
@@ -32,28 +31,16 @@ function lineaDeEstado(datos: MiDiaDto | null): string {
     return partes.join(' · ');
 }
 
-/** En una Mac el atajo se muestra con ⌘ (funciona con las dos teclas en cualquier sistema). */
-const esMac = typeof navigator !== 'undefined' && /Mac|iPhone|iPad/i.test(navigator.platform || navigator.userAgent || '');
-
-/** B1 + B2 + B3: el saludo, los accesos rápidos y el buscador (con Ctrl+K mientras Inicio está montado). */
+/**
+ * B1 + B2 + B3: el saludo, los accesos rápidos y el buscador, que abre la búsqueda avanzada.
+ * El Ctrl+K ya no es de Inicio: es el buscador de la barra superior, en todas las pantallas (antes eran dos diálogos).
+ */
 const SaludoBuscador: React.FC<Props> = ({ datos, abierto, onAbrir, onCerrar }) => {
     const { usuario, tienePermiso } = useAuth();
     const navigate = useNavigate();
     const buscar = puedeBuscar(tienePermiso);
     const accesos = accesosRapidos(tienePermiso);
     const nombre = (usuario?.nombre ?? '').trim().split(/\s+/)[0];
-
-    useEffect(() => {
-        if (!buscar || abierto) return;
-        const alTeclear = (e: KeyboardEvent) => {
-            if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') {
-                e.preventDefault();
-                onAbrir();
-            }
-        };
-        window.addEventListener('keydown', alTeclear);
-        return () => window.removeEventListener('keydown', alTeclear);
-    }, [buscar, abierto, onAbrir]);
 
     return (
         <Box component="section" aria-label="Saludo">
@@ -90,7 +77,6 @@ const SaludoBuscador: React.FC<Props> = ({ datos, abierto, onAbrir, onCerrar }) 
                     <ButtonBase
                         onClick={onAbrir}
                         aria-label="Buscar un caso"
-                        aria-keyshortcuts="Control+K Meta+K"
                         sx={(theme) => ({
                             mt: 2,
                             width: '100%',
@@ -112,23 +98,6 @@ const SaludoBuscador: React.FC<Props> = ({ datos, abierto, onAbrir, onCerrar }) 
                         <Typography variant="body2" color="inherit" noWrap sx={{ flex: 1, minWidth: 0 }}>
                             Buscar un caso por DNI, nombre, número de cliente o teléfono
                         </Typography>
-                        <Box
-                            component="kbd"
-                            sx={(theme) => ({
-                                display: { xs: 'none', sm: 'inline-block' },
-                                flex: 'none',
-                                fontFamily: 'monospace',
-                                fontSize: 11,
-                                px: 0.75,
-                                py: 0.25,
-                                borderRadius: 0.75,
-                                border: 1,
-                                borderColor: alpha(theme.palette.text.primary, 0.25),
-                                color: 'text.secondary',
-                            })}
-                        >
-                            {esMac ? '⌘ K' : 'Ctrl K'}
-                        </Box>
                     </ButtonBase>
                     <BuscadorAvanzadoModal
                         open={abierto}

@@ -1,7 +1,7 @@
 <!--
 seccion: Primeros pasos
 resumen: Qué es AMSA Gestión, cómo entrar y por dónde empezar el primer día.
-revisado: 2026-10-16
+revisado: 2026-10-22
 rutas: /
 -->
 # El primer día
@@ -37,13 +37,14 @@ Lo más importante de esa página, adelantado acá:
 ## El recorrido básico
 
 Al entrar caés en **Inicio**: tu día, tus últimos casos y, si cargás promesas, tu agenda (ver
-[Inicio](/ayuda/primeros-pasos/inicio)). Desde ahí se llega a un caso con un clic, o con **Ctrl+K**.
+[Inicio](/ayuda/primeros-pasos/inicio)). Desde ahí se llega a un caso con un clic. Y desde cualquier pantalla,
+**Ctrl+K** abre el buscador de la barra de arriba (ver "Cómo está armada la pantalla", más abajo).
 
 ```
 Gestión  →  buscás el caso  →  la ficha  →  comentás, cargás pago o promesa
 ```
 
-**Gestión** es la pantalla donde están todos los casos. El buscador de arriba busca por **documento,
+**Gestión** es la pantalla donde están todos los casos. Su buscador busca por **documento,
 nombre, apellido o ID interno**. Para buscar por número de cliente, teléfono o mail hay que abrir
 **Búsqueda avanzada**.
 
@@ -52,18 +53,42 @@ facturas, pagos y convenios.
 
 Está desarrollado en [La ficha del caso](/ayuda/gestion/la-ficha).
 
+## Cómo está armada la pantalla
+
+**La barra de arriba** es la misma en todas las pantallas. De izquierda a derecha:
+
+- el botón que **achica o agranda el menú** (en el celular, lo abre);
+- el logo, que lleva a Inicio;
+- **el buscador**: encuentra un caso por nombre, apellido, DNI completo o ID, y también cualquier pantalla del
+  menú. Se abre con un clic o con **Ctrl+K** (**Cmd+K** en Mac) desde cualquier pantalla (no en la Toolbar
+  de Neotel, que no tiene barra). Ver
+  [Buscar un caso](/ayuda/gestion/buscar-un-caso);
+- **amaIA**, la ayuda de la pantalla (**?**), la campanita y tu cuenta, donde está el modo oscuro.
+
+**El menú de la izquierda** va en tres bloques: **Operación**, **Datos** y **Configuración**, con
+**Documentación** abajo de todo. Un grupo se abre solo cuando estás en una de sus pantallas, y la pantalla
+abierta queda marcada. Achicado, el menú muestra solo los íconos: tocar un grupo despliega sus pantallas al
+costado. El sistema recuerda si lo dejaste achicado.
+
+**La pantalla**, en la computadora, va en el panel de la derecha, con las esquinas de arriba redondeadas.
+Lo que se desplaza es ese panel: la barra y el menú quedan siempre a la vista.
+
+**En el celular y en la tablet** (pantallas de menos de 900 px de ancho) la pantalla ocupa todo el ancho y se
+desplaza como cualquier página. El menú queda escondido: se abre con el botón de la izquierda de la barra y
+se cierra solo al elegir una pantalla. El buscador es la lupa de la barra.
+
 ## El resto del menú, en una línea cada uno
 
-| | |
-|---|---|
-| **Inicio** | Tu día: tus gestiones, tus últimos casos y tu agenda |
-| **Gestión** | Los casos. Donde trabajás |
-| **Tableros** | Métricas de la cartera |
-| **Importación de Datos** | Cargar los archivos del cedente |
-| **Reportes** | Armar y ejecutar listados a medida |
-| **Ajustes** | Empresas, parámetros, políticas, recargo por mora |
-| **Documentación** | Esto que estás leyendo |
-| **Administración** | Roles, usuarios, auditoría, Neotel |
+| Bloque | | |
+|---|---|---|
+| Operación | **Inicio** | Tu día: tus gestiones, tus últimos casos y tu agenda |
+| Operación | **Gestión** | Los casos. Donde trabajás |
+| Operación | **Tableros** | Métricas de la cartera |
+| Datos | **Importación** | Cargar los archivos del cedente |
+| Datos | **Reportes** | Armar y ejecutar listados a medida |
+| Configuración | **Ajustes** | Empresas, parámetros, políticas, recargo por mora |
+| Configuración | **Administración** | Roles, usuarios, auditoría, consumo de amaIA, Neotel |
+| (abajo de todo) | **Documentación** | Esto que estás leyendo |
 
 ## Las tres cosas que más confunden al principio
 

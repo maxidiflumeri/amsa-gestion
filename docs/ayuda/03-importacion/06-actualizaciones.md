@@ -30,7 +30,7 @@ Es lo que la diferencia del resto: las otras categorías cargan lo que el archiv
 
 ## Dónde se configura
 
-**Las cuatro opciones viven en la plantilla, no en la carga.** Se editan en Importación de Datos →
+**Las cuatro opciones viven en la plantilla, no en la carga.** Se editan en Importación →
 Plantillas → editar. En el asistente de importación no se pueden cambiar: lo único que elegís ahí es
 contra qué remesa correr (la pantalla la llama **"Vincular a remesa de deudores"**).
 

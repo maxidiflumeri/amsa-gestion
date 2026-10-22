@@ -13,7 +13,7 @@ import { GoogleLogin, CredentialResponse } from '@react-oauth/google';
 import { SectionCard } from '../components/ui';
 import { useNotify } from '../hooks/useNotify';
 import { useAuth } from '../context/AuthContext';
-import logoAmsa from '../assets/logo-amsa-gestion.png';
+import LogoAmsa from '../components/layout/AppShell/LogoAmsa';
 
 const Login: React.FC = () => {
     const theme = useTheme();
@@ -68,16 +68,9 @@ const Login: React.FC = () => {
             <Container maxWidth="xs" disableGutters>
                 <SectionCard>
                     <Stack spacing={3} alignItems="center" sx={{ p: 1 }}>
-                        <Box
-                            component="img"
-                            src={logoAmsa}
-                            alt="AMSA Gestión"
-                            sx={{
-                                height: 56,
-                                objectFit: 'contain',
-                                mt: 1,
-                            }}
-                        />
+                        <Box sx={{ mt: 1 }}>
+                            <LogoAmsa size={56} titulo="AMSA Gestión" />
+                        </Box>
 
                         <Box sx={{ width: '100%', textAlign: 'center' }}>
                             <Typography variant="h5" fontWeight={700} gutterBottom>

@@ -69,7 +69,7 @@ const Inicio: React.FC = () => {
                 return <RetomarCard datos={datos} cargando={cargando} onReintentar={reintentar} onBuscar={abrirBuscador} puedeBuscar={puedeBuscar(tienePermiso)} />;
             case 'B7':
                 return (
-                    <Box ref={agendaRef} sx={{ scrollMarginTop: 80 }}>
+                    <Box ref={agendaRef} sx={{ scrollMarginTop: { xs: 80, md: 16 } }}>
                         <AgendaCard datos={datos} cargando={cargando} onReintentar={reintentar} pestana={pestana} onPestana={setPestana} />
                     </Box>
                 );

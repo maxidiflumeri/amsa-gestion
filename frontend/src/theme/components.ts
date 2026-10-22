@@ -75,11 +75,11 @@ export function buildComponents(mode: PaletteMode): Theme['components'] {
 
         MuiAppBar: {
             styleOverrides: {
-                root: {
+                root: ({ theme }) => ({
                     backgroundImage: 'none',
                     color: mode === 'light' ? 'inherit' : undefined,
-                    backgroundColor: mode === 'light' ? '#FFFFFF' : '#111827',
-                },
+                    backgroundColor: theme.palette.background.marco,
+                }),
             },
         },
 

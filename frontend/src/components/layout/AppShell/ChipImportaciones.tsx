@@ -1,6 +1,6 @@
 import React from 'react';
 import { Chip, IconButton, Tooltip, useMediaQuery, useTheme } from '@mui/material';
-import CloudUploadIcon from '@mui/icons-material/CloudUpload';
+import { CloudUpload } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../../../context/AuthContext';
 import { useNotificaciones } from '../../../context/NotificacionesContext';
@@ -31,7 +31,7 @@ const ChipImportaciones: React.FC = () => {
         return (
             <Tooltip title="Ver la importación en curso">
                 <IconButton size="small" color="info" aria-label={texto} onClick={irAlDetalle}>
-                    <CloudUploadIcon />
+                    <CloudUpload size={20} strokeWidth={1.75} aria-hidden />
                 </IconButton>
             </Tooltip>
         );
@@ -39,7 +39,7 @@ const ChipImportaciones: React.FC = () => {
     return (
         <Tooltip title="Ver la importación en curso">
             <Chip
-                icon={<CloudUploadIcon />}
+                icon={<CloudUpload size={16} strokeWidth={1.75} aria-hidden />}
                 label={texto}
                 size="small"
                 color="info"
