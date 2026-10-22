@@ -50,6 +50,14 @@ const ARCHIVOS = [
     'pages/reportes/components/FilterBuilder/FilterValueInput.tsx',
     'pages/reportes/components/FilterBuilder/FilterChip.tsx',
     'pages/reportes/components/ExecutionForm/VariableInput.tsx',
+    // El marco nuevo (CHANGELOG 2026-10-22). LogoAmsa no: sus colores son los de la marca, iguales en claro y en oscuro.
+    'components/layout/AppShell/AppBar.tsx',
+    'components/layout/AppShell/AppShell.tsx',
+    'components/layout/AppShell/SideNav.tsx',
+    'components/layout/AppShell/BuscadorGlobal.tsx',
+    'components/ui/MigasDePan.tsx',
+    'components/layout/AppShell/IconoNav.tsx',
+    'components/layout/AppShell/navConfig.ts',
 ];
 const COLOR_A_MANO = /#[0-9a-fA-F]{3,8}\b|\brgba?\(|\bhsla?\(/;
 

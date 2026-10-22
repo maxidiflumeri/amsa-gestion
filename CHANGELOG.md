@@ -6,6 +6,147 @@
 
 ---
 
+## [2026-10-22] — Tableros: los botones de los filtros ya no se montan sobre "Motivo no pago"
+
+Lo vio el usuario probando el marco nuevo. Ya pasaba antes: no lo trajo el panel nuevo.
+
+### Frontend
+- **`DashboardFiltros.tsx`:** **Limpiar** y **Refrescar** iban en un casillero de la grilla de 1/12 del ancho
+  (`md={1}`, entre 70 y 100 px para unos 210 de botones): se salían y pisaban el Select de Motivo no pago, y
+  "Refrescar" quedaba cortado. Ahora la segunda fila es:
+  - desde `lg`, Estado situación y Estado gestión a 3/12, Motivo no pago con el resto (`lg`) y los botones con su ancho
+    (`lg="auto"`);
+  - entre `sm` y `lg`, de a dos por fila;
+  - en el celular, uno por fila, con los botones a la derecha.
+
+---
+
+## [2026-10-22] — El marco de la app: barra y menú unidos, panel redondeado, íconos Lucide, logo nuevo y buscador global
+
+Primer paso de la mejora visual del frontend, a pedido del usuario, con la referencia del layout de Google Cloud.
+Propuesta y maqueta en un lienzo (hoy, claro, oscuro, colapsado, logo). El usuario eligió: panel redondeado sí, íconos
+Lucide, acento azul (el de siempre), logo A ("Evolución") y buscador con Ctrl+K ahora. **Solo frontend: el backend no
+cambia**; el buscador usa `GET /deudores?search=`, la misma búsqueda que ya tenía Gestión.
+
+### Backend
+- Sin cambios.
+
+### Frontend
+- **Layout "inset"** (`AppShell.tsx`): la barra superior y el menú lateral comparten el fondo nuevo
+  `palette.background.marco` (`#EDF1F5` claro, `#070B14` oscuro; declarado con module augmentation en `theme/tokens.ts`),
+  sin bordes, y la pantalla va en un panel `background.default` con las esquinas de arriba redondeadas (16 px, desde
+  `md`). Como el panel es el `#F8FAFC` de siempre, **ninguna pantalla cambia**: siguen siendo tarjetas blancas sobre
+  ese gris.
+  - **Desde `md`, se desplaza el panel, no la ventana** (`height: 100dvh`, `overflow: auto` en `<main>`). Barra y menú
+    quedan quietos. Revisado: nada usa `window.scroll*`; los `scrollIntoView` y los `position: sticky; top: 0` (filtros
+    de Tableros, barra del armador de reportes) ahora se pegan al borde del panel en vez de quedar debajo de la barra fija.
+  - **Debajo de `md` (celular y tablet) se desplaza la página, como antes**, y el panel va a todo el ancho, sin esquinas
+    ni margen. Con un scroll interno, Chrome y Safari dejan de esconder la barra de direcciones al bajar y Android pierde
+    el tirar-para-recargar; sin esquinas, el panel no aportaba nada ahí. (En el celular, un `sticky; top: 0` sigue
+    quedando debajo de la barra fija, como antes.)
+  - Al cambiar de pantalla (pathname) se vuelve arriba: el panel en la computadora, la página en el celular.
+  - El panel de amaIA no cambia: su reserva de ancho desde `xl` sigue en la misma fila.
+- **Menú lateral** (`SideNav.tsx`, reescrito):
+  - **Tres bloques con título**: Operación (Inicio, Gestión, Tableros), Datos (Importación, Reportes) y Configuración
+    (Ajustes, Administración); **Documentación** abajo de todo. Va como campo `seccion` de cada ítem en `navConfig.ts`,
+    así `navConfig[0]` sigue siendo Inicio.
+  - **Íconos de trazo fino** de [Lucide](https://lucide.dev) (`lucide-react@1.52.0`, elegida con dos semanas de
+    publicada); el mapa vive en `IconoNav.tsx`. Las subpantallas van sin ícono, con una línea guía.
+  - **Pantalla abierta**: píldora con el acento. Se reconoce por el prefijo más largo (`rutaActiva` en `navConfig.ts`):
+    `/historial-importaciones/12` marca Historial, `/reportes/7/editar` marca Mis plantillas; Inicio solo en `/`.
+  - Renombres: "Importación de Datos" → **Importación**, "Nueva Importación" → **Nueva importación** (wiki y el aviso de
+    `PoliticaTab` actualizados).
+  - Un **punto** en Importación mientras hay cargas en curso (el mismo dato que el chip de la barra). Es un componente
+    aparte que consume `useNotificaciones`, para que solo él se redibuje con cada evento de progreso.
+  - Ancho expandido 240 → 256 px. En el cajón del celular los ítems miden **44 px** de alto (en la computadora, 40 y 34).
+- **Defectos del menú anterior, corregidos**:
+  1. Un grupo con la pantalla abierta adentro arrancaba **cerrado**: entrar a `/reportes/ejecuciones` no mostraba dónde
+     estabas. Ahora arranca abierto, y se abre solo al llegar por otro camino (enlace, buscador, amaIA).
+  2. **Colapsado**, un grupo llevaba siempre a su primera pantalla: Mis ejecuciones, Historial o Usuarios no se
+     alcanzaban. Ahora despliega todas sus pantallas en un menú al costado.
+  3. "Neotel (test)" mostraba el ícono de Gestión (`Phone` no estaba en el mapa). Las subpantallas ya no llevan ícono.
+  4. En el celular el menú **quedaba abierto** después de elegir una pantalla. Ahora se cierra.
+  5. Con solo `telefonia.admin`, Administración no aparecía y Neotel (test) quedaba inalcanzable. Se sumó el permiso al
+     grupo (mismo arreglo que tuvo `asistente.administrar`).
+- **Barra superior** (`AppBar.tsx`): fondo del marco y sin borde; botón para colapsar con `PanelLeft` (en el celular,
+  `Menu`); logo nuevo + "**AMSA** Gestión"; el buscador al centro. Las **migas de pan** ya no van en la barra: las
+  dibuja `PageHeader` arriba del título (ver "Después de la auditoría"); el título de la pantalla ya no se repite en la
+  barra (lo dibuja `PageHeader`). Íconos de
+  la barra y del menú de la cuenta pasados a Lucide (`AsistenteBoton`, `AyudaContextual`, `NotificacionesBell`,
+  `ChipImportaciones`, `ConexionIndicador`, `UserMenu`). El botón de amaIA sigue dentro de `.MuiAppBar-root`.
+- **Logo A** (`LogoAmsa.tsx`): el círculo, en un teal más profundo (`#0F8296`: el blanco encima da 4,5:1; el anterior,
+  2,5:1), con "AMSA" en Inter Bold **convertido a trazos** (opentype.js, fuera del repo), así se ve igual sin la fuente.
+  Lo usan la barra y el Login. `public/favicon.svg` es el mismo dibujo; `index.html` lo declara (antes declaraba el
+  `.ico` como `image/svg+xml`) y deja el `.ico` como alternativa. A 16 px "AMSA" no se lee: es el límite conocido de la
+  opción A.
+- **Buscador global** (`BuscadorGlobal.tsx`): **Ctrl+K / Cmd+K desde cualquier pantalla** o un clic en la barra.
+  Desde `md` es un campo con la tecla dibujada; debajo, solo el ícono (en una tablet, el campo y el chip de
+  importaciones no entraban juntos). El campo del diálogo tiene letra de 16 px, así iOS no hace zoom al enfocarlo.
+  - **Pantallas** del menú filtradas por permisos, sin tildes ni mayúsculas, primero las que empiezan con lo escrito.
+  - **Casos** desde 2 letras, con 300 ms de espera y cancelando el pedido anterior: `GET /deudores?page=1&limit=6&search=`
+    (nombre/apellido parcial, documento entero, ID). Muestra DNI ("Sin DNI" para el relleno `SIN-DNI-`), empresa, remesa e ID;
+    Enter abre `linkCaso(id)`. Avisa si hay más de seis.
+  - **Búsqueda avanzada** como última opción: abre `BuscadorAvanzadoModal` (número de cliente, teléfono, mail).
+  - Patrón combobox + listbox (`aria-activedescendant`), flechas con vuelta, Esc cierra. Las pantallas van primero
+    porque salen al instante: si los casos llegaran arriba, lo marcado se correría. Un Enter apurado mientras se buscan
+    casos no abre la búsqueda avanzada.
+  - Los pedidos van con `silencioso: true`: uno cancelado no tiene respuesta y el interceptor lo mostraba como
+    "Sin conexión". El error se muestra adentro, con Reintentar.
+  - Sin `deudores.ver`: solo pantallas, sin pedidos de casos ni búsqueda avanzada. Con otro diálogo abierto, el atajo
+    no abre el buscador encima.
+  - **Inicio ya no escucha Ctrl+K** (antes se hubieran abierto los dos diálogos): su buscador grande sigue abriendo la
+    búsqueda avanzada con un clic, sin la tecla dibujada. `docs/inicio-spec.md` (D5 y §6.6) anotado.
+
+### Docs
+- Wiki: «El primer día» suma "Cómo está armada la pantalla" y la tabla del menú por bloques; «Inicio» pasa a "Buscar
+  desde Inicio"; «Buscar un caso» pasa a cuatro formas, con el buscador de la barra primero. Renombre de Importación en
+  ocho páginas. `verificar-ayuda.mjs` OK.
+
+**Tests (vitest):** `shell-menu.test.tsx` (bloques, pantalla abierta, rutas hijas, colapsado con el menú al costado,
+celular con ítems de 44 px, alturas en la computadora, punto de importaciones) y `buscador-global.test.tsx` (atajo,
+botón, ícono a 360 y 768 px y campo a 1280, otro diálogo, pantallas por permisos,
+flechas, casos con sus parámetros, una sola búsqueda al escribir rápido, sin resultados, error sin aviso de conexión y
+Reintentar, búsqueda avanzada, sin `deudores.ver`). IN-4 de `inicio.test.tsx` reescrito para el atajo global.
+`ancho-360` y `colores` suman los archivos nuevos (no `LogoAmsa`: sus colores son los de la marca).
+
+### Después de la auditoría (agente auditor: pasa con reservas, nada bloqueante)
+- **Celular horizontal de 900 px o más:** el `min-height: 100vh` valía en todos los anchos y le ganaba al `100dvh`;
+  el final de cada pantalla quedaba debajo de la barra del navegador. Ahora el `min-height` es solo debajo de `md`.
+- **Buscador:** las pantallas coinciden **por el comienzo de una palabra** (`empiezaPalabra`): "Ríos" encontraba
+  Usuarios, quedaba primero y Enter llevaba ahí en vez del caso. "Sin DNI" en lugar de "DNI Sin DNI". El atajo no
+  abre el buscador encima de **nada modal** (la ayuda "?", amaIA en pantallas chicas, un menú o un Select), no solo de
+  los diálogos; los cajones montados y cerrados (`MuiModal-hidden`) no cuentan. Con el buscador abierto, Ctrl+K vuelve
+  al campo (antes el navegador mandaba el foco a su barra de direcciones).
+- **Foco del buscador:** con algo enfocado al abrir (el botón de la barra, el contenido), en modo estricto el
+  FocusTrap de MUI devolvía el foco y enfocaba el contenedor del diálogo, no el campo. Pasaba en `npm run dev`
+  (`main.tsx` usa StrictMode). El campo se enfoca después de montarse.
+- **Teclado:** elegida una pantalla desde el marco (menú, buscador, logo, campanita), el foco pasa al `<main>`
+  (`tabIndex=-1`); si no, quedaba en el menú y AvPág o las flechas no desplazaban nada. Un campo con `autoFocus` de la
+  pantalla nueva, o la conversación de amaIA, conservan el foco.
+- **Volver arriba** solo al cambiar de pantalla, o de la lista a un detalle (`vuelveArriba` en `navConfig.ts`): el
+  armador de reportes pasa de `/reportes/7/editar` a `/reportes/nuevo` y vuelve sin desmontarse, y perdía dónde estaba.
+- **Migas de pan:** las dibuja `PageHeader` arriba del título (`components/ui/MigasDePan.tsx`). En el panel quedaban
+  corridas respecto del título en las 6 pantallas que las usan, porque cada una suma su propio padding.
+- **Menú colapsado:** los grupos también muestran su nombre al pasar el mouse (antes solo los ítems sueltos; lo vio el
+  usuario probando). El nombre queda oculto pero en el botón, así el lector oye "hay importaciones en curso". El título
+  del menú al costado es solo visual (`aria-hidden`).
+- **Accesibilidad:** sin `aria-pressed` en el botón de colapsar (la etiqueta ya cambia: se leía "Expandir menú,
+  pulsado"). Los botones de ícono de la barra vuelven a 40 px (con Lucide de 20 quedaban en 36), también el "?" de la
+  Toolbar de Neotel.
+- **Inicio:** el `scrollMarginTop` de la agenda es 80 px en el celular (barra fija sobre la página) y 16 desde `md`.
+- **Wiki:** tablet igual que celular (menos de 900 px); el buscador no está en la Toolbar de Neotel; "Enter abre lo
+  que está marcado" y las pantallas van primero; "Actualizar" es del encabezado del Historial, no de la barra.
+
+**Se dejó como estaba (ya existía):** en el celular un `sticky; top: 0` queda debajo de la barra fija (filtros de
+Tableros, solapas del armador); el buscador del backend no combina nombre y apellido ("juan perez" no encuentra si
+están en campos separados: es del backend, que no se tocó); el asistente de importación se titula "Importación de
+datos". Tampoco se tocó que la rueda sobre la barra o el menú no desplace el panel: es lo normal de este layout.
+
+**Pendiente:** Inter variable con tamaño óptico y números tabulares en tablas (propuesto, no pedido todavía); el
+`favicon.ico` sigue siendo el viejo (sin herramienta para rasterizar el SVG en este entorno).
+
+---
+
 ## [2026-10-21] — El asistente de IA pasa a llamarse amaIA
 
 Cambio de nombre visible, sin tocar los nombres internos (módulo `asistente`, rutas, claves de permiso, tablas, `localStorage`, eventos).

@@ -61,7 +61,7 @@ Ver [Políticas](/ayuda/ajustes/politicas).
 
 ## Paso 4 — Armar la plantilla de importación
 
-**Importación de Datos → Plantillas.** Es el paso largo: hay que decidir la categoría, mapear cada
+**Importación → Plantillas.** Es el paso largo: hay que decidir la categoría, mapear cada
 columna del archivo del cedente contra los campos del sistema y elegir los estados iniciales.
 
 Si ya existe una plantilla para un archivo con el mismo formato, **no la rehagas a mano**: usá

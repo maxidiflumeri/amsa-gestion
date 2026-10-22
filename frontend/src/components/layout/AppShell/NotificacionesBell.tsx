@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Badge, IconButton, Tooltip } from '@mui/material';
-import NotificationsIcon from '@mui/icons-material/Notifications';
+import { Bell } from 'lucide-react';
 import { useLocation } from 'react-router-dom';
 import { useNotificaciones } from '../../../context/NotificacionesContext';
 import ChipImportaciones from './ChipImportaciones';
@@ -29,7 +29,7 @@ const NotificacionesBell: React.FC = () => {
                     onClick={abrir}
                     size="small"
                     aria-label="Notificaciones"
-                    color="inherit"
+                    sx={{ color: 'text.secondary' }}
                 >
                     <Badge
                         badgeContent={noLeidas}
@@ -37,7 +37,7 @@ const NotificacionesBell: React.FC = () => {
                         max={99}
                         sx={{ '& .MuiBadge-badge': { fontSize: '0.65rem', minWidth: 18, height: 18 } }}
                     >
-                        <NotificationsIcon />
+                        <Bell size={20} strokeWidth={1.75} aria-hidden />
                     </Badge>
                 </IconButton>
             </Tooltip>

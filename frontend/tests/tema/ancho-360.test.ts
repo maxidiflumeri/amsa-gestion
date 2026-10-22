@@ -24,6 +24,11 @@ const ARCHIVOS = [
     'components/layout/AppShell/ChipImportaciones.tsx',
     // Asistente de IA, Fase A (el botón, el panel y la pantalla de consumo; el panel se mide aparte en asistente-tema.test.tsx)
     'components/layout/AppShell/AppShell.tsx',
+    // El marco nuevo (CHANGELOG 2026-10-22): la barra, el menú lateral, el buscador y las migas
+    'components/layout/AppShell/AppBar.tsx',
+    'components/layout/AppShell/SideNav.tsx',
+    'components/layout/AppShell/BuscadorGlobal.tsx',
+    'components/ui/MigasDePan.tsx',
     'context/AsistenteContext.tsx',
     'pages/ayuda/Markdown.tsx',
     // Asistente de IA, Fase B: el editor de reportes con lo que sumó

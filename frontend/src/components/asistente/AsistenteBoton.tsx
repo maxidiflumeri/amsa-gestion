@@ -1,6 +1,6 @@
 import React from 'react';
 import { Button, IconButton, Tooltip, useMediaQuery, useTheme } from '@mui/material';
-import AutoAwesomeIcon from '@mui/icons-material/AutoAwesome';
+import { Sparkles } from 'lucide-react';
 import { useAsistente } from '../../context/AsistenteContext';
 
 /** El botón «Asistente» de la barra superior. Sin el permiso `asistente.usar` no se dibuja nada. */
@@ -14,8 +14,8 @@ const AsistenteBoton: React.FC = () => {
     if (!conTexto) {
         return (
             <Tooltip title="amaIA">
-                <IconButton color="secondary" onClick={alternar} aria-label="amaIA" aria-pressed={abierto}>
-                    <AutoAwesomeIcon />
+                <IconButton color="secondary" onClick={alternar} aria-label="amaIA" aria-pressed={abierto} sx={{ width: 40, height: 40 }}>
+                    <Sparkles size={20} strokeWidth={1.75} aria-hidden />
                 </IconButton>
             </Tooltip>
         );
@@ -25,7 +25,7 @@ const AsistenteBoton: React.FC = () => {
             variant={abierto ? 'contained' : 'outlined'}
             color="secondary"
             size="small"
-            startIcon={<AutoAwesomeIcon />}
+            startIcon={<Sparkles size={16} strokeWidth={1.75} aria-hidden />}
             onClick={alternar}
             aria-pressed={abierto}
             sx={{ borderRadius: 999, flex: 'none' }}

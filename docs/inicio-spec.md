@@ -23,7 +23,7 @@ Si el usuario no responde, se sigue con la recomendada. Todas están incluidas e
 | **D2** (descartada: en prod no hay convenios sin autor) | **`convenio.usuarioId` de los convenios ya cargados está en NULL** (el alta no lo completa). Se puede recuperar de la auditoría (`transaccion` CREATE de `Convenio`) | **Script de backfill con `--dry-run`**, que corre el usuario después del deploy |
 | **D3** | **En la agenda, una promesa cerrada por un pago dice "Cumplida", no "Pagó"**. El sistema la cierra con **cualquier** pago, de cualquier origen y monto (§2.2) | **"Cumplida"**, con la fecha del cierre. Sin monto pagado |
 | **D4** | **"Gestiones hoy" se compara con tu promedio a la misma hora**, no con el promedio de días completos. A las 10 de la mañana, el promedio de días completos daría siempre ▼ | **A la misma hora**, sobre los últimos 7 días con al menos una gestión |
-| **D5** | **Ctrl+K abre el buscador solo en Inicio**, no en toda la app | **Solo en Inicio**. Global es la Fase 2 o después |
+| **D5** | **Ctrl+K abre el buscador solo en Inicio**, no en toda la app | **Solo en Inicio**. Global es la Fase 2 o después. **Actualizado 22/10/2026:** pasó a ser global (el buscador de la barra superior, `BuscadorGlobal`) e Inicio ya no escucha el atajo; ver CHANGELOG 2026-10-22 |
 | **D6** | **"Gestión" = comentario con `origen = 'manual'`** del usuario. No cuentan los de acción masiva (`ACCION_MASIVA`) ni los del cupón (`CUPON_CLAVE`), aunque lleven su `usuarioId` | **Solo `manual`** |
 
 ---
@@ -640,6 +640,10 @@ comportamiento de siempre.
 `TabsPanel` con un id inexistente, y si queda en blanco lo informa como hallazgo (no lo arregla en esta fase).
 
 ### 6.6 Buscador y Ctrl+K
+
+> **Actualizado 22/10/2026:** el botón sigue abriendo `BuscadorAvanzadoModal`, pero ya no muestra la tecla ni escucha
+> Ctrl+K: el atajo es del buscador de la barra superior, en todas las pantallas (CHANGELOG 2026-10-22). Lo que sigue
+> describe la Fase 1.
 
 - `SaludoBuscador` dibuja un `ButtonBase` a todo el ancho con aspecto de campo: icono de lupa, "Buscar un caso por DNI,
   nombre, número de cliente o teléfono" y la tecla "Ctrl K" (con `kbd` estilizado).

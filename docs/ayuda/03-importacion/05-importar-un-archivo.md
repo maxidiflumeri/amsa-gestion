@@ -16,7 +16,7 @@ plantilla ya está armada; acá solo se ejecuta.
 
 - Tres permisos, no uno: **Ejecutar importaciones**, **Ver historial de importaciones** y **Ver
   plantillas de importación**. El menú aparece con cualquiera de ellos, así que con solo el primero vas
-  a ver "Nueva Importación" y chocarte con un error en el paso 2. Para acciones masivas, además el
+  a ver "Nueva importación" y chocarte con un error en el paso 2. Para acciones masivas, además el
   permiso de acciones masivas.
 - La **plantilla** de esa categoría, ya guardada para esa empresa.
 - El archivo.
@@ -26,7 +26,7 @@ plantilla ya está armada; acá solo se ejecuta.
 
 ## Paso 1 — Categoría
 
-**Importación de Datos → Nueva Importación.**
+**Importación → Nueva importación.**
 
 Elegís qué trae el archivo. La categoría filtra las plantillas que vas a ver en el paso siguiente: si
 no aparece la que buscás, casi siempre es porque está guardada con otra categoría.
@@ -658,7 +658,7 @@ Si la remesa tenía varios archivos, la cuenta es contra **el total** de todos.
 ### No aparece ninguna plantilla en el paso 2
 
 La plantilla está guardada con **otra categoría**, o pertenece a **otra empresa**. Se ve en
-Importación de Datos → Plantillas.
+Importación → Plantillas.
 
 ### La carga terminó con 0 filas importadas
 
@@ -894,5 +894,5 @@ Muestra las primeras 50 filas. El **Total** sí es del archivo completo; los con
 son de esa muestra.
 
 **¿Dónde veo los errores después?**
-En Importación de Datos → **Historial**, entrando a la remesa. El botón **Ver detalle** del paso 5 te
+En Importación → **Historial**, entrando a la remesa. El botón **Ver detalle** del paso 5 te
 lleva directo a esa pantalla.

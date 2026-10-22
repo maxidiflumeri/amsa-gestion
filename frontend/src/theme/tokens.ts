@@ -1,5 +1,12 @@
 import { PaletteMode } from '@mui/material';
 
+declare module '@mui/material/styles' {
+    interface TypeBackground {
+        /** El marco de la app: la barra superior y el menú lateral comparten este fondo; el contenido va en un panel encima. */
+        marco: string;
+    }
+}
+
 export const lightPalette = {
     primary: {
         main: '#2563EB',
@@ -17,6 +24,7 @@ export const lightPalette = {
     background: {
         default: '#F8FAFC',
         paper: '#FFFFFF',
+        marco: '#EDF1F5',
     },
     text: {
         primary: '#0F172A',
@@ -47,6 +55,7 @@ export const darkPalette = {
     background: {
         default: '#0B1020',
         paper: '#111827',
+        marco: '#070B14',
     },
     text: {
         primary: '#F1F5F9',

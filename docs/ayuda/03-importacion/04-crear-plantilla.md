@@ -46,7 +46,7 @@ que dos filas son el mismo caso**. Va más abajo, porque es la que más consecue
 
 ## Paso 1 — Elegir la categoría
 
-Ir a **Importación de Datos → Plantillas → Nueva plantilla**.
+Ir a **Importación → Plantillas → Nueva plantilla**.
 
 La categoría condiciona todo el resto: qué campos podés mapear, qué opciones aparecen y qué hace el
 sistema con cada fila.

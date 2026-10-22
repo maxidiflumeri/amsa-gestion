@@ -1,7 +1,7 @@
 <!--
 seccion: Importación de datos
 resumen: Ver qué pasó con una carga, revisar los errores fila por fila, y qué se puede deshacer y qué no.
-revisado: 2026-10-16
+revisado: 2026-10-22
 rutas: /historial-importaciones
 rutaPrincipal: /historial-importaciones
 -->
@@ -9,7 +9,7 @@ rutaPrincipal: /historial-importaciones
 
 ## Para qué sirve
 
-**Importación de Datos → Historial** lista todas las cargas de una empresa: cuándo se hicieron, con
+**Importación → Historial** lista todas las cargas de una empresa: cuándo se hicieron, con
 qué plantilla, cuántas filas entraron y cuántas fallaron. Es donde se va a ver qué pasó y, cuando se
 puede, a deshacerlo.
 
@@ -153,8 +153,8 @@ carga sigue en el Historial, con sus errores y su detalle.
   ninguna (solo en la primera página y sin búsqueda: en las demás páginas, o con una búsqueda puesta, no se
   actualiza sola si no hay ninguna carga en curso a la vista). Si la conexión en tiempo real está caída y hay una
   carga en curso a la vista, consulta cada 15 segundos.
-  Una carga que otra persona crea o elimina puede tardar eso en aparecer o desaparecer. El botón **Actualizar** de la
-  barra superior fuerza la lectura.
+  Una carga que otra persona crea o elimina puede tardar eso en aparecer o desaparecer. El botón **Actualizar** del
+  encabezado del Historial fuerza la lectura.
 - **Si no carga.** Si el servidor no responde, la pantalla dice *"No se pudo cargar el historial"* con el botón
   **Reintentar**; no te muestra una lista vacía.
 
@@ -497,7 +497,7 @@ pasa a decir *"El servidor no da señales de esta carga hace N min y todavía no
 soporte."*: el cierre automático no está ocurriendo, y hay que avisar a soporte.
 
 El Historial se actualiza solo: en cuanto la carga figure como fallida, el estado cambia y se habilita el tacho para
-eliminarla (puede tardar hasta 30 segundos; el botón **Actualizar** de la barra superior fuerza la lectura).
+eliminarla (puede tardar hasta 30 segundos; el botón **Actualizar** del encabezado del Historial fuerza la lectura).
 
 **El servidor trabaja pero la carga no avanza.** Es la excepción: **esta carga no se cierra sola**. Si la
 pantalla lleva 10 minutos sin ver cambiar la fase, el paso ni los contadores, avisa *"El servidor sigue

@@ -10,10 +10,7 @@ import {
     Tooltip,
     Typography,
 } from '@mui/material';
-import DarkModeIcon from '@mui/icons-material/DarkMode';
-import LightModeIcon from '@mui/icons-material/LightMode';
-import LogoutIcon from '@mui/icons-material/Logout';
-import PersonIcon from '@mui/icons-material/Person';
+import { LogOut, Moon, Sun, User } from 'lucide-react';
 import { useColorMode } from '../../../context/ColorModeContext';
 import { useAuth } from '../../../context/AuthContext';
 import { useNavigate } from 'react-router-dom';
@@ -101,7 +98,7 @@ const UserMenu: React.FC<UserMenuProps> = ({ user }) => {
 
                 <MenuItem onClick={handleClose}>
                     <ListItemIcon>
-                        <PersonIcon fontSize="small" />
+                        <User size={18} strokeWidth={1.75} aria-hidden />
                     </ListItemIcon>
                     Mi perfil
                 </MenuItem>
@@ -114,9 +111,9 @@ const UserMenu: React.FC<UserMenuProps> = ({ user }) => {
                 >
                     <ListItemIcon>
                         {mode === 'dark' ? (
-                            <LightModeIcon fontSize="small" />
+                            <Sun size={18} strokeWidth={1.75} aria-hidden />
                         ) : (
-                            <DarkModeIcon fontSize="small" />
+                            <Moon size={18} strokeWidth={1.75} aria-hidden />
                         )}
                     </ListItemIcon>
                     {mode === 'dark' ? 'Modo claro' : 'Modo oscuro'}
@@ -125,8 +122,8 @@ const UserMenu: React.FC<UserMenuProps> = ({ user }) => {
                 <Divider />
 
                 <MenuItem onClick={handleLogout} sx={{ color: 'error.main' }}>
-                    <ListItemIcon>
-                        <LogoutIcon fontSize="small" sx={{ color: 'error.main' }} />
+                    <ListItemIcon sx={{ color: 'error.main' }}>
+                        <LogOut size={18} strokeWidth={1.75} aria-hidden />
                     </ListItemIcon>
                     Cerrar sesión
                 </MenuItem>

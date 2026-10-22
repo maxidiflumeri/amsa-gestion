@@ -151,7 +151,7 @@ para un administrador. Se cambia en Ajustes → Empresas, no en la remesa ni en 
 Está en la solapa **Política**, arriba de la ficha, dentro de la misma pantalla de la llamada.
 
 Si la solapa aparece vacía, no es un error de la pantalla: **la remesa del caso no tiene una política
-asignada**. Se asigna desde Importación de Datos → Historial, en la columna Política. Ver
+asignada**. Se asigna desde Importación → Historial, en la columna Política. Ver
 [Políticas](/ayuda/ajustes/politicas).
 
 ---

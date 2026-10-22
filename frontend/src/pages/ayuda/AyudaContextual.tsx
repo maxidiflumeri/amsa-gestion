@@ -13,7 +13,7 @@ import {
     useMediaQuery,
     useTheme,
 } from '@mui/material'
-import HelpOutlineIcon from '@mui/icons-material/HelpOutline'
+import { CircleHelp } from 'lucide-react'
 import CloseIcon from '@mui/icons-material/Close'
 import MenuBookIcon from '@mui/icons-material/MenuBook'
 import { buscarPagina, paginasParaRuta } from './contenido'
@@ -77,8 +77,8 @@ const AyudaContextual: React.FC<Props> = ({ enPestanaNueva = false }) => {
     return (
         <>
             <Tooltip title={principal ? 'Ayuda de esta pantalla' : 'Documentación'}>
-                <IconButton color="inherit" onClick={() => setAbierto(true)} aria-label="Ayuda de esta pantalla">
-                    <HelpOutlineIcon />
+                <IconButton onClick={() => setAbierto(true)} aria-label="Ayuda de esta pantalla" sx={{ color: 'text.secondary', width: 40, height: 40 }}>
+                    <CircleHelp size={20} strokeWidth={1.75} aria-hidden />
                 </IconButton>
             </Tooltip>
 

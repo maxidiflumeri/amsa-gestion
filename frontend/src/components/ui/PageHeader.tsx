@@ -1,6 +1,7 @@
 import React, { useEffect } from 'react';
 import { Box, Typography, Button, Divider } from '@mui/material';
 import { usePageMeta, BreadcrumbItem, PageAction } from '../../context/PageMetaContext';
+import MigasDePan from './MigasDePan';
 
 interface PageHeaderProps {
     title: string;
@@ -34,6 +35,7 @@ const PageHeader: React.FC<PageHeaderProps> = ({
 
     return (
         <Box sx={{ mb: 3 }}>
+            <MigasDePan items={breadcrumbs ?? []} />
             <Box
                 sx={{
                     display: 'flex',

@@ -1,7 +1,7 @@
 <!--
 seccion: Gestión de casos
 resumen: Encontrar el caso que buscás, y qué hacer cuando aparecen varios de la misma persona.
-revisado: 2026-08-20
+revisado: 2026-10-22
 rutas: /gestion
 rutaPrincipal: /gestion
 -->
@@ -12,16 +12,29 @@ rutaPrincipal: /gestion
 Es el punto de entrada al trabajo diario: llamó alguien, o te pasaron un listado, y hay que encontrar
 el caso.
 
-## Tres formas de buscar
+## Cuatro formas de buscar
 
-**El buscador de arriba**, en la pantalla de Gestión, busca por **documento, nombre, apellido o ID
-interno**. Es el rápido.
+**El buscador de la barra de arriba, con Ctrl+K.** Funciona desde cualquier pantalla (no dentro de la
+Toolbar de Neotel, que no tiene barra): con un clic o con **Ctrl+K** (**Cmd+K** en Mac). En el celular y en
+la tablet es la lupa de la barra. Busca por **nombre o apellido** (alcanza con una parte), **DNI completo**
+o **ID interno**, igual que el buscador de Gestión, desde la segunda letra. Muestra hasta seis casos con su
+DNI (o *Sin DNI*), empresa y remesa. Si hay más de seis, lo dice: seguí escribiendo para afinar.
 
-**Búsqueda avanzada**, con el botón del encabezado, abre el formulario completo.
+También encuentra **pantallas del menú** por el comienzo de una palabra ("usu" encuentra Usuarios;
+"historial" o "parametros", sin tilde), así que sirve para moverse sin el mouse. Muestra solo las pantallas
+que tus permisos te dejan ver; sin el permiso Ver deudores, busca solo pantallas. Para número de cliente,
+teléfono o mail, la última opción de la lista es **Búsqueda avanzada**, que abre el formulario completo.
 
-**Desde Inicio, con Ctrl+K.** La pantalla de Inicio tiene un buscador a todo el ancho que abre esa misma
-búsqueda avanzada. Se abre con un clic o con **Ctrl+K** (**Cmd+K** en Mac), y al elegir un resultado te
-lleva directo al caso. El atajo funciona solo en Inicio (ver [Inicio](/ayuda/primeros-pasos/inicio)).
+**Enter abre lo que está marcado**, y de entrada está marcada la primera opción. Las pantallas van antes que
+los casos: si lo que escribiste también empieza el nombre de una pantalla (por ejemplo "mora", por Recargo
+por mora), la pantalla queda primera. Para ir al caso, bajá con las flechas o hacé clic en él.
+
+**El buscador de la pantalla Gestión** busca lo mismo: **documento, nombre, apellido o ID interno**.
+
+**Búsqueda avanzada**, con el botón del encabezado de Gestión, abre el formulario completo.
+
+**Desde Inicio.** El buscador a todo el ancho de Inicio abre esa misma búsqueda avanzada, y al elegir un
+resultado te lleva directo al caso (ver [Inicio](/ayuda/primeros-pasos/inicio)).
 
 > Gestión **no abre vacía**: te muestra el último caso que trabajaste, o el primero de la base si es tu
 > primera vez. No es que el sistema eligió ese caso.
