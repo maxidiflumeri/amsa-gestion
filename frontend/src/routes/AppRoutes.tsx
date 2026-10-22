@@ -24,6 +24,7 @@ import NeotelTestPage from '../pages/admin/NeotelTestPage';
 import AuditoriaPage from '../pages/auditoria/AuditoriaPage';
 import DashboardsPage from '../pages/dashboards/DashboardsPage';
 import AsistenteConsumo from '../pages/asistente/AsistenteConsumo';
+import MiPerfil from '../pages/perfil/MiPerfil';
 import EmbeddedShell from '../components/layout/EmbeddedShell';
 import TelefoniaCaso from '../pages/telefonia/TelefoniaCaso';
 import TelefoniaHome from '../pages/telefonia/TelefoniaHome';
@@ -69,6 +70,8 @@ const AppRoutes = () => {
                 <Route path="auditoria" element={<AuditoriaPage />} />
                 <Route path="dashboards" element={<DashboardsPage />} />
                 <Route path="asistente/consumo" element={<AsistenteConsumo />} />
+                {/* Sin permiso: cada uno ve sus propios datos (GET /auth/perfil). */}
+                <Route path="perfil" element={<MiPerfil />} />
             </Route>
         </Routes>
     );

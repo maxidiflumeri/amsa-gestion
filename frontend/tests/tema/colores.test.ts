@@ -56,6 +56,13 @@ const ARCHIVOS = [
     'components/layout/AppShell/SideNav.tsx',
     'components/layout/AppShell/BuscadorGlobal.tsx',
     'components/ui/MigasDePan.tsx',
+    // El menú de la cuenta y «Mi perfil» (CHANGELOG 2026-10-22)
+    'components/layout/AppShell/UserMenu.tsx',
+    'components/ui/SelectorTema.tsx',
+    'components/ui/AvatarUsuario.tsx',
+    'pages/perfil/MiPerfil.tsx',
+    'context/ColorModeContext.tsx',
+    'utils/sesion.ts',
     'components/layout/AppShell/IconoNav.tsx',
     'components/layout/AppShell/navConfig.ts',
 ];

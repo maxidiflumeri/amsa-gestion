@@ -32,6 +32,13 @@ export class AuthController {
         return this.authService.getMe(usuario.sub);
     }
 
+    /** «Mi perfil»: los datos propios, con legajo, DNI y fecha de alta. Sin permiso: cada uno, los suyos. */
+    @Get('perfil')
+    async getPerfil(@Req() req: Request) {
+        const usuario = req['usuario'] as { sub: number };
+        return this.authService.getPerfil(usuario.sub);
+    }
+
     @Post('logout')
     async logout(@Req() req: Request) {
         const usuario = req['usuario'] as { sub?: number };

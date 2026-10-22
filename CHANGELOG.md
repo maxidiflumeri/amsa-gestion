@@ -6,6 +6,76 @@
 
 ---
 
+## [2026-10-22] — La cuenta: menú nuevo, tema "Sistema" y la página Mi perfil
+
+Segundo paso de la mejora visual, a pedido del usuario: "Mi perfil" no llevaba a ningún lado y el menú de la cuenta
+no seguía la estética nueva. Maqueta en el lienzo del rediseño (fila "La cuenta"). El usuario pidió sumar legajo, DNI
+y fecha de alta (un cambio chico de backend), no el agente de telefonía, y que en permisos se vea **solo lo que puede
+hacer**.
+
+### Backend
+- **`GET /auth/perfil`** (`auth.controller.ts` + `AuthService.getPerfil`): los datos propios, por el `sub` del token y
+  sin permiso. Devuelve lo de `/auth/me` (nombre, email, foto, rol, permisos del rol) más **legajo, DNI y fecha de
+  alta** (`createdAt`), que hasta ahora solo se leían desde Usuarios con `admin.gestionar_usuarios`. `select` cerrado
+  a esos campos (nada de `googleId` ni del agente de telefonía). Usuario inactivo o borrado → 401. El DNI no se loguea.
+  Sin cambios de schema.
+- Tests: `auth.service.spec.ts` (5 casos: los datos, el `select`, nulls, sin rol, inactivo o borrado).
+
+### Frontend
+- **Menú de la cuenta** (`UserMenu.tsx`, reescrito): la foto de Google en el botón de la barra (`AvatarUsuario.tsx`,
+  con las iniciales si no hay o no carga, y `referrerPolicy: no-referrer`), con un anillo azul mientras está abierto.
+  El panel lleva foto, nombre, email y rol, **Mi perfil**, **Apariencia** y **Cerrar sesión**. Es un `Popover` con
+  `role="dialog"` y no un `Menu`: adentro de un `role="menu"` el selector de tema no se alcanzaba con el teclado.
+  Mide `min(304px, 100vw - 24px)`.
+- **Tema "Sistema"** (`ColorModeContext.tsx`): la preferencia puede ser `light`, `dark` o `system` (misma clave
+  `app_theme_mode`). Con `system` sigue a `prefers-color-scheme` y escucha sus cambios. `localStorage` protegido.
+  `toggleColorMode` sigue existiendo. El selector es `SelectorTema.tsx` (control segmentado), compartido por el menú y
+  el perfil.
+- **Mi perfil** (`pages/perfil/MiPerfil.tsx`, ruta `/perfil` sin permiso):
+  - **Tu cuenta:** foto, nombre, email, rol, "N de 66" permisos, legajo, DNI o CUIL y fecha de alta. Mientras
+    llegan, esqueleto; sin cargar, "Sin cargar"; si falla el pedido, aviso con Reintentar y lo de la sesión a la vista.
+  - **Lo que podés hacer:** solo los permisos que tiene, agrupados con las secciones y los nombres de
+    `permisosCatalogo.ts` (una clave desconocida va en "Otros").
+  - **Preferencias (en este navegador):** el tema y "Menú lateral achicado", que maneja el mismo estado que el botón
+    de la barra vía `MenuLateralContext` (nuevo, provisto por `AppShell`). Debajo de `md` queda deshabilitado.
+  - **Sesión:** cuándo entraste y cuándo vence, leído de `iat`/`exp` del token (`utils/sesion.ts`, sin verificarlo:
+    es solo para mostrar); con un token ilegible no inventa horarios. Botón Cerrar sesión.
+  - **Atajos de teclado** (`utils/teclado.ts`, también lo usa el buscador).
+  - El perfil se pide una sola vez al abrir (en modo estricto se pedía dos).
+
+### Docs
+- Wiki: página nueva **Mi perfil** (`01-primeros-pasos/05-mi-perfil.md`, la abre el "?" de `/perfil`); «El primer día»
+  y «Usuarios» la enlazan (en Usuarios: cada persona ve su legajo, DNI y fecha de alta, sin poder cambiarlos).
+
+**Tests (vitest):** `cuenta-perfil.test.tsx` (16: el panel y Mi perfil, el tema con Sistema siguiendo al equipo,
+cerrar sesión, los datos del servidor, el aviso de rol cambiado, Sin cargar, error y Reintentar, la sesión del token,
+el menú achicado y la tablet, los atajos, sin permisos, y las piezas). `banco-ia` monta `/perfil`. `ancho-360` y
+`colores` suman los archivos nuevos.
+
+### Después de la auditoría (agente auditor: pasa con reservas; endpoint verificado con Nest + supertest)
+- **Rol y permisos de Mi perfil salen de la sesión**, no de la base: son con los que el sistema decide (se arman al
+  entrar, y el menú usa los mismos). Antes, si el admin cambiaba el rol con la persona conectada, el perfil mostraba
+  permisos que el menú no, y la misma página decía "lo que no ves es porque tu rol no lo tiene". Ahora, si la base
+  difiere, un aviso dice "Tu rol cambió desde que entraste (ahora es X): se sumaron N permisos y se quitó M", con
+  Cerrar sesión. La wiki de Roles lo menciona.
+- **amaIA puede ofrecer llevar a Mi perfil:** `/perfil` en `rutas-catalogo.ts` (sin permiso). Cambia el contexto del
+  turno, la tabla de pantallas y el enum de `ir_a`: snapshot de `params-ayuda.spec.ts` actualizado, solo con `/perfil`
+  agregado (y `rutas-catalogo.spec.ts`). Después del deploy, la caché del prompt de amaIA se vuelve a armar una vez.
+- **El buscador encuentra Mi perfil** ("perfil", y también "tema", "legajo", "atajos", "cuenta", "sesion"):
+  `PANTALLAS_FUERA_DEL_MENU` en `BuscadorGlobal.tsx`.
+- **Fecha de alta:** la pone el sistema (`createdAt`); la wiki decía que la cargaba el administrador.
+- **Celular:** 44 px en los ítems del panel, el selector de tema y los botones de Mi perfil. Los atajos de teclado no se
+  muestran debajo de `md` y dicen "Buscar una pantalla" sin `deudores.ver`.
+- Los títulos de cada grupo de permisos ya no son `h3` debajo de los `h6` de las tarjetas.
+
+**Se dejó como estaba (ya pasaba):** con un modal abierto, Ctrl+K no abre el buscador y deja la tecla al navegador; no
+hay script anti-parpadeo en `index.html` (con oscuro o Sistema en un equipo oscuro se ve blanco hasta que carga el JS);
+el catálogo de permisos del frontend y el del backend tienen las mismas 66 claves con algún nombre de sección distinto.
+
+**Deploy:** lleva backend (el endpoint nuevo y la ruta de amaIA). Sin `db push`.
+
+---
+
 ## [2026-10-22] — Tableros: los botones de los filtros ya no se montan sobre "Motivo no pago"
 
 Lo vio el usuario probando el marco nuevo. Ya pasaba antes: no lo trajo el panel nuevo.

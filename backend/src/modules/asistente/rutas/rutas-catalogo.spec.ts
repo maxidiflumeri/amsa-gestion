@@ -88,7 +88,7 @@ describe('rutas-catalogo', () => {
     it('rutasAbribles y etiquetasDePermisos siguen el orden del catálogo', () => {
         expect(rutasAbribles(OPERADOR)).toEqual([
             '/', '/gestion', '/historial-importaciones', '/plantillas', '/reportes', '/reportes/ejecuciones',
-            '/ajustes/empresas', '/ajustes/parametros', '/ajustes/politicas', '/ayuda',
+            '/ajustes/empresas', '/ajustes/parametros', '/ajustes/politicas', '/ayuda', '/perfil',
         ]);
         expect(etiquetasDePermisos(['reportes.crear', 'deudores.ver', 'no.existe'])).toEqual(
             expect.arrayContaining(['Ver deudores', 'Crear reportes']),

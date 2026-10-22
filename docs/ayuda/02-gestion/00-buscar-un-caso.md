@@ -21,7 +21,8 @@ o **ID interno**, igual que el buscador de Gestión, desde la segunda letra. Mue
 DNI (o *Sin DNI*), empresa y remesa. Si hay más de seis, lo dice: seguí escribiendo para afinar.
 
 También encuentra **pantallas del menú** por el comienzo de una palabra ("usu" encuentra Usuarios;
-"historial" o "parametros", sin tilde), así que sirve para moverse sin el mouse. Muestra solo las pantallas
+"historial" o "parametros", sin tilde), y **Mi perfil** ("perfil", "tema", "legajo"), así que sirve para
+moverse sin el mouse. Muestra solo las pantallas
 que tus permisos te dejan ver; sin el permiso Ver deudores, busca solo pantallas. Para número de cliente,
 teléfono o mail, la última opción de la lista es **Búsqueda avanzada**, que abre el formulario completo.
 

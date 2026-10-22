@@ -25,7 +25,7 @@ exports[`request de la ayuda a Bedrock no cambia: params de cada iteración de u
 - Fecha y hora: viernes 16/10/2026 14:05 (Argentina)
 - Pantalla actual: /gestion — Gestión
 - Permisos de su rol: Ver reportes; Crear reportes
-- Pantallas que puede abrir: /, /reportes, /reportes/nuevo, /reportes/ejecuciones, /ayuda
+- Pantallas que puede abrir: /, /reportes, /reportes/nuevo, /reportes/ejecuciones, /ayuda, /perfil
 
 Página de ayuda principal de esta pantalla: [gestion/buscar-un-caso] Buscar un caso
 <pagina slug="gestion/buscar-un-caso">
@@ -110,6 +110,7 @@ ruta | pantalla | permiso que pide
 /ajustes/politicas | Políticas | Ver políticas
 /ajustes/mora | Recargo por mora | Ver deuda actualizada
 /ayuda | Documentación | ninguno
+/perfil | Mi perfil | ninguno
 /admin/roles | Roles | Gestionar roles
 /admin/usuarios | Usuarios | Gestionar usuarios
 /auditoria | Auditoría | Ver auditoría
@@ -212,6 +213,7 @@ ruta | pantalla | permiso que pide
                   "/ajustes/politicas",
                   "/ajustes/mora",
                   "/ayuda",
+                  "/perfil",
                   "/admin/roles",
                   "/admin/usuarios",
                   "/auditoria",
@@ -252,7 +254,7 @@ ruta | pantalla | permiso que pide
 - Fecha y hora: viernes 16/10/2026 14:05 (Argentina)
 - Pantalla actual: /gestion — Gestión
 - Permisos de su rol: Ver reportes; Crear reportes
-- Pantallas que puede abrir: /, /reportes, /reportes/nuevo, /reportes/ejecuciones, /ayuda
+- Pantallas que puede abrir: /, /reportes, /reportes/nuevo, /reportes/ejecuciones, /ayuda, /perfil
 
 Página de ayuda principal de esta pantalla: [gestion/buscar-un-caso] Buscar un caso
 <pagina slug="gestion/buscar-un-caso">
@@ -371,6 +373,7 @@ ruta | pantalla | permiso que pide
 /ajustes/politicas | Políticas | Ver políticas
 /ajustes/mora | Recargo por mora | Ver deuda actualizada
 /ayuda | Documentación | ninguno
+/perfil | Mi perfil | ninguno
 /admin/roles | Roles | Gestionar roles
 /admin/usuarios | Usuarios | Gestionar usuarios
 /auditoria | Auditoría | Ver auditoría
@@ -473,6 +476,7 @@ ruta | pantalla | permiso que pide
                   "/ajustes/politicas",
                   "/ajustes/mora",
                   "/ayuda",
+                  "/perfil",
                   "/admin/roles",
                   "/admin/usuarios",
                   "/auditoria",
@@ -513,7 +517,7 @@ ruta | pantalla | permiso que pide
 - Fecha y hora: viernes 16/10/2026 14:05 (Argentina)
 - Pantalla actual: /gestion — Gestión
 - Permisos de su rol: Ver reportes; Crear reportes
-- Pantallas que puede abrir: /, /reportes, /reportes/nuevo, /reportes/ejecuciones, /ayuda
+- Pantallas que puede abrir: /, /reportes, /reportes/nuevo, /reportes/ejecuciones, /ayuda, /perfil
 
 Página de ayuda principal de esta pantalla: [gestion/buscar-un-caso] Buscar un caso
 <pagina slug="gestion/buscar-un-caso">
@@ -589,7 +593,7 @@ Fuente: [reportes-como-funciona]",
 - Fecha y hora: viernes 16/10/2026 14:05 (Argentina)
 - Pantalla actual: /gestion — Gestión
 - Permisos de su rol: Ver reportes; Crear reportes
-- Pantallas que puede abrir: /, /reportes, /reportes/nuevo, /reportes/ejecuciones, /ayuda
+- Pantallas que puede abrir: /, /reportes, /reportes/nuevo, /reportes/ejecuciones, /ayuda, /perfil
 
 La página de ayuda de esta pantalla ([gestion/buscar-un-caso]) ya está más arriba en la conversación.",
           "role": "system",
@@ -660,6 +664,7 @@ ruta | pantalla | permiso que pide
 /ajustes/politicas | Políticas | Ver políticas
 /ajustes/mora | Recargo por mora | Ver deuda actualizada
 /ayuda | Documentación | ninguno
+/perfil | Mi perfil | ninguno
 /admin/roles | Roles | Gestionar roles
 /admin/usuarios | Usuarios | Gestionar usuarios
 /auditoria | Auditoría | Ver auditoría
@@ -762,6 +767,7 @@ ruta | pantalla | permiso que pide
                   "/ajustes/politicas",
                   "/ajustes/mora",
                   "/ayuda",
+                  "/perfil",
                   "/admin/roles",
                   "/admin/usuarios",
                   "/auditoria",

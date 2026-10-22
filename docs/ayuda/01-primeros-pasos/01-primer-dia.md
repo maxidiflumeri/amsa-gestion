@@ -63,7 +63,8 @@ Está desarrollado en [La ficha del caso](/ayuda/gestion/la-ficha).
   menú. Se abre con un clic o con **Ctrl+K** (**Cmd+K** en Mac) desde cualquier pantalla (no en la Toolbar
   de Neotel, que no tiene barra). Ver
   [Buscar un caso](/ayuda/gestion/buscar-un-caso);
-- **amaIA**, la ayuda de la pantalla (**?**), la campanita y tu cuenta, donde está el modo oscuro.
+- **amaIA**, la ayuda de la pantalla (**?**), la campanita y tu cuenta: tu foto abre **Mi perfil**, el tema
+  (claro, oscuro o el del sistema) y **Cerrar sesión**. Ver [Mi perfil](/ayuda/primeros-pasos/mi-perfil).
 
 **El menú de la izquierda** va en tres bloques: **Operación**, **Datos** y **Configuración**, con
 **Documentación** abajo de todo. Un grupo se abre solo cuando estás en una de sus pantallas, y la pantalla

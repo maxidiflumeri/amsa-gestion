@@ -29,6 +29,7 @@ export const RUTAS_CATALOGO: RutaCatalogo[] = [
     { ruta: '/ajustes/politicas', nombre: 'Políticas', permisos: ['politicas.ver'] },
     { ruta: '/ajustes/mora', nombre: 'Recargo por mora', permisos: ['mora.ver'] },
     { ruta: '/ayuda', nombre: 'Documentación', permisos: [] },
+    { ruta: '/perfil', nombre: 'Mi perfil', permisos: [] },
     { ruta: '/admin/roles', nombre: 'Roles', permisos: ['admin.gestionar_roles'] },
     { ruta: '/admin/usuarios', nombre: 'Usuarios', permisos: ['admin.gestionar_usuarios'] },
     { ruta: '/auditoria', nombre: 'Auditoría', permisos: ['auditoria.ver'] },

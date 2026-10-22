@@ -1,7 +1,7 @@
 <!--
 seccion: Administración
 resumen: Dar de alta a alguien, asignarle rol y darle de baja sin romper el historial.
-revisado: 2026-08-20
+revisado: 2026-10-22
 rutas: /admin/usuarios
 rutaPrincipal: /admin/usuarios
 -->
@@ -52,6 +52,10 @@ Dos consecuencias:
 > **El nombre y la foto los pisa Google.** En cada login el sistema toma el nombre y el avatar de la
 > cuenta de Google y sobrescribe lo que haya. Cargar acá "Juan Pérez" sirve para identificarlo hasta el
 > primer login: después manda lo que diga Google.
+
+> **Cada persona ve sus propios datos en [Mi perfil](/ayuda/primeros-pasos/mi-perfil)**, sin necesitar ningún
+> permiso: el legajo y el DNI o CUIL que cargues acá, y la fecha de alta, que la pone el sistema al darla de
+> alta. No los puede cambiar: si el legajo o el DNI están mal, lo corregís desde esta pantalla.
 
 ---
 

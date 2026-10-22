@@ -1,7 +1,7 @@
 <!--
 seccion: Administración
 resumen: Qué puede hacer cada persona en el sistema, y por qué un permiso nuevo no se ve hasta volver a entrar.
-revisado: 2026-10-20
+revisado: 2026-10-22
 rutas: /admin/roles
 rutaPrincipal: /admin/roles
 -->
@@ -39,7 +39,8 @@ alguien que ya está trabajando, **su sesión sigue con los permisos viejos** ha
 siquiera recargar la página alcanza.
 
 **Qué hay que hacer:** pedirle que cierre sesión y vuelva a entrar. La sesión dura **un día**, así que
-si no hace nada, al día siguiente lo tiene igual.
+si no hace nada, al día siguiente lo tiene igual. Mientras tanto, su [Mi perfil](/ayuda/primeros-pasos/mi-perfil)
+le avisa "Tu rol cambió desde que entraste".
 
 **Vale en los dos sentidos: sacarle un permiso a alguien tampoco es inmediato.**
 
