@@ -6,6 +6,27 @@
 
 ---
 
+## [2026-10-23] — El ícono nuevo al agregar Gestión a la pantalla del celular
+
+Lo vio el usuario: al agregar Gestión (y Sender) a la pantalla del celular aparecía el logo viejo.
+
+### Frontend
+- Gestión no tenía manifest ni ícono para iOS: el teléfono usaba `favicon.ico`, que seguía siendo el logo anterior
+  (el pendiente del rediseño del marco). Ahora hay íconos con el logo A (`icon-192/512`, enmascarables para Android,
+  `apple-touch-icon` para iOS, `favicon-32`), un `favicon.ico` nuevo (16, 32 y 48 px) y `manifest.webmanifest` con
+  `display: browser`: desde el ícono se sigue abriendo en el navegador, como hasta hoy. Generados con `rsvg-convert`
+  desde `public/favicon.svg`.
+- `theme-color` para claro y oscuro (el color del marco) y `apple-mobile-web-app-title`.
+
+### Deploy
+- `deploy-frontend.yml` subía todo con cache de un año sin revalidar e invalidaba solo `index.html`: un favicon o un
+  ícono nuevo con el mismo nombre no le llegaba a nadie. Ahora `assets/` (con hash) va con cache largo y sin `--delete`
+  (una pestaña con la versión anterior todavía encuentra sus archivos), y lo que no lleva hash va con `no-cache` y se
+  invalida. Mismo arreglo que en Sender.
+- En un celular que ya tenía Gestión agregada, hay que quitar el ícono y volver a agregarlo.
+
+---
+
 ## [2026-10-22] — Cupón de pago: el logo oficial de Personal
 
 El usuario vio el cupón generado y el logo estaba mal: era el placeholder gris del spec (D11, "el usuario lo
