@@ -12,6 +12,7 @@ import ImportacionesCard from './inicio/components/ImportacionesCard';
 import ReportesCard from './inicio/components/ReportesCard';
 import RetomarCard from './inicio/components/RetomarCard';
 import SaludoBuscador from './inicio/components/SaludoBuscador';
+import AvisoInstalar from '../pwa/AvisoInstalar';
 import TuDiaKpis from './inicio/components/TuDiaKpis';
 import { bloquesVisibles, distribuir, puedeBuscar, type BloqueId } from './inicio/reglasBloques';
 import { useMiDia } from './inicio/useMiDia';
@@ -97,6 +98,9 @@ const Inicio: React.FC = () => {
         <PageContainer>
             <Stack spacing={3}>
                 <SaludoBuscador datos={datos} abierto={buscadorAbierto} onAbrir={abrirBuscador} onCerrar={cerrarBuscador} />
+
+                {/* Solo en el celular: "Instalá Gestión" (src/pwa/AvisoInstalar.tsx). */}
+                <AvisoInstalar />
 
                 {fallo && datos && (
                     <Alert

@@ -59,6 +59,7 @@
     "socket.io": "^4.8.4",
     "typescript": "^5.2.2",
     "vite": "^5.2.6",
+    "vite-plugin-pwa": "1.2.0",
     "vitest": "^3.2.7"
   }
 }

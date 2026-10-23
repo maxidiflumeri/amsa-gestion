@@ -8,11 +8,14 @@ import React from 'react';
 import ReactDOM from 'react-dom/client';
 import App from './App';
 import { AppProviders } from './context/AppProviders';
+import { PwaProvider } from './pwa/PwaContext';
 
 ReactDOM.createRoot(document.getElementById('root')!).render(
     <React.StrictMode>
         <AppProviders>
-            <App />
+            <PwaProvider>
+                <App />
+            </PwaProvider>
         </AppProviders>
     </React.StrictMode>,
 );

@@ -6,6 +6,37 @@
 
 ---
 
+## [2026-10-23] — Gestión se puede instalar como app en el celular
+
+Pedido del usuario: "agregá la opción de instalar la app como en Sender cuando se abre en mobile".
+
+### Frontend
+- **PWA** (`vite-plugin-pwa` 1.2.0, la misma versión que Sender): el manifest lo genera el plugin con
+  `display: standalone` (reemplaza al `public/manifest.webmanifest` estático de la entrada de abajo, que abría en el
+  navegador). El service worker precarga solo `index.html` y los íconos (18 archivos, ~60 KB): precargar todas las
+  pantallas sería bajar la app entera en el celular la primera vez. Lo de `assets/` (con hash) se guarda a medida que se
+  usa (CacheFirst, 30 días). No toma `/api`, `/socket.io` ni `/uploads`.
+- **`registerType: 'prompt'`**: "Hay una versión nueva de Gestión" con Actualizar y Más tarde
+  (`src/pwa/AvisoVersionNueva.tsx`, en el AppShell); no se recarga sola en medio de una gestión. Busca versión nueva
+  cada hora y al volver a la pestaña.
+- **"Instalá Gestión en este celular"** en el Inicio, solo debajo de `md` (`src/pwa/AvisoInstalar.tsx`): en Android abre
+  la instalación de Chrome (se intercepta `beforeinstallprompt` para que Chrome no muestre su barra); en el iPhone, que
+  no tiene ese evento, explica "Compartir › Agregar a inicio". No aparece si ya está instalada ni por 14 días después
+  de "Ahora no" (`pwaInstalarDescartadoHasta` en localStorage).
+- `src/pwa/PwaContext.tsx`: fuera del provider devuelve un estado inerte, así los tests de pantallas sueltas no cambian.
+  En vitest, `virtual:pwa-register` va a `tests/lib/pwa-register.ts`.
+- Meta de app instalada en iOS (`apple-mobile-web-app-capable`, barra de estado).
+- **Tests**: `pwa-instalar.test.tsx` (5: celular con Instalar, "Ahora no" por 14 días, computadora sin aviso, iPhone
+  con instrucciones y abierta como app sin aviso, versión nueva con Actualizar). `ancho-360` y `colores` pasan. **La
+  suite completa no se corrió** (la cortó el usuario).
+
+### Deploy
+- El workflow suma `/sw.js` y `/workbox-*` a la invalidación (los dos van sin cache por el sync de la raíz).
+- **Riesgo a probar**: el login con Google abre un popup; con Gestión instalada en el iPhone puede no volver a la app
+  (pasa lo mismo en Sender). La salida sería `ux_mode: redirect`, con cambio de backend.
+
+---
+
 ## [2026-10-23] — El ícono nuevo al agregar Gestión a la pantalla del celular
 
 Lo vio el usuario: al agregar Gestión (y Sender) a la pantalla del celular aparecía el logo viejo.

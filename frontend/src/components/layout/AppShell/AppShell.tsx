@@ -8,6 +8,7 @@ import { useAuth } from '../../../context/AuthContext';
 import { AsistenteProvider } from '../../../context/AsistenteContext';
 import { MenuLateralContext } from '../../../context/MenuLateralContext';
 import AsistentePanel from '../../asistente/AsistentePanel';
+import AvisoVersionNueva from '../../../pwa/AvisoVersionNueva';
 
 const SIDEBAR_COLLAPSED_KEY = 'app_sidebar_collapsed';
 
@@ -143,6 +144,7 @@ const AppShell: React.FC = () => {
 
                     {/* El asistente vive acá y no en la barra: la conversación tiene que sobrevivir a «Sí, llevarme». */}
                     <AsistentePanel />
+                    <AvisoVersionNueva />
                 </Box>
             </MenuLateralContext.Provider>
         </AsistenteProvider>

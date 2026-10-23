@@ -8,7 +8,13 @@ const AQUI = path.dirname(fileURLToPath(import.meta.url));
 export const PUERTO = Number(process.env.FE_TEST_PUERTO || 47831);
 
 export default defineConfig({
-    resolve: { alias: [{ find: /^@fe\//, replacement: `${AQUI}/src/` }] },
+    resolve: {
+        alias: [
+            { find: /^@fe\//, replacement: `${AQUI}/src/` },
+            // Lo genera vite-plugin-pwa al compilar; en los tests va un reemplazo que se puede manejar.
+            { find: /^virtual:pwa-register$/, replacement: `${AQUI}/tests/lib/pwa-register.ts` },
+        ],
+    },
     esbuild: { jsx: 'automatic' },
     test: {
         environment: 'jsdom',
