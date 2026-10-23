@@ -55,13 +55,22 @@ jobs:
           role-to-assume: ${{ secrets.AWS_ROLE_ARN_FRONTEND }}
           aws-region: us-east-1
 
-      # 1) Assets hasheados con cache largo (excluye index.html)
+      # 1) Assets con hash en el nombre (assets/): cache largo. Sin --delete: una pestaña que quedó con la versión
+      #    anterior todavía puede pedir sus archivos.
       - name: Sync assets (long cache)
+        run: |
+          aws s3 sync dist/assets "s3://${{ vars.S3_BUCKET }}/assets/" \
+            --cache-control "public,max-age=31536000,immutable"
+
+      # 1b) Lo que no lleva hash (favicon, íconos, manifest): sin cache. Con cache de un año, un favicon o un ícono
+      #     nuevo con el mismo nombre no le llegaba a nadie (así quedó el favicon.ico viejo).
+      - name: Sync root files (no-cache)
         run: |
           aws s3 sync dist "s3://${{ vars.S3_BUCKET }}/" \
             --delete \
+            --exclude "assets/*" \
             --exclude "index.html" \
-            --cache-control "public,max-age=31536000,immutable"
+            --cache-control "no-cache"
 
       # 2) index.html sin cache
       - name: Upload index.html (no-cache)
@@ -76,4 +85,4 @@ jobs:
         run: |
           aws cloudfront create-invalidation \
             --distribution-id "${{ vars.CF_DISTRIBUTION_ID }}" \
-            --paths "/index.html" "/"
+            --paths "/index.html" "/" "/favicon.ico" "/favicon.svg" "/favicon-32.png" "/apple-touch-icon.png" "/manifest.webmanifest" "/icon-*"
